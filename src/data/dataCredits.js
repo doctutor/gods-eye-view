@@ -212,6 +212,11 @@ export const DATA_CREDITS = [
     html: 'CCTV live video (Maryland): <a href="https://chart.maryland.gov/" target="_blank" rel="noopener">MDOT SHA CHART — State of Maryland</a>',
   },
   {
+    // Personal fork: server/providers/cctv/featured.js.
+    key: 'featured-live-cams',
+    html: 'Featured live cams: each operator’s own stream in the embedded YouTube player — <a href="https://explore.org/livecams" target="_blank" rel="noopener">explore.org</a> and its partners, <a href="https://www.chesapeakeconservancy.org/webcams" target="_blank" rel="noopener">Chesapeake Conservancy</a>, <a href="https://www.montereybayaquarium.org/animals/live-cams" target="_blank" rel="noopener">Monterey Bay Aquarium</a>',
+  },
+  {
     key: 'caltrans-cctv',
     html:
       'CCTV cameras &amp; frames (California): Caltrans — ' +

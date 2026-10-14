@@ -1,3 +1,5 @@
+import { embedBadgeText } from './cctvEmbed.js';
+
 export function _clearCctvFrame() {
   this._cctvFrameRequestToken += 1;
   if (this._cctvFramePreloader) {
@@ -88,6 +90,12 @@ export function _syncCctvSourceBadge(activeCamera, enabled) {
   if (!enabled || !activeCamera) {
     this._cctvSourceBadge.textContent = 'SOURCE · UNKNOWN';
     this._cctvSourceBadge.dataset.frameState = 'idle';
+    return;
+  }
+  if (activeCamera.embed) {
+    // Personal fork: the panel shows the operator's own YouTube player.
+    this._cctvSourceBadge.textContent = embedBadgeText(activeCamera);
+    this._cctvSourceBadge.dataset.frameState = 'ready';
     return;
   }
   const hasDisplayedFrame =

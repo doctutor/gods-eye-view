@@ -562,5 +562,40 @@ export function normalizeSourceItem(item) {
     // badge can distinguish them from raw automated priors (e.g. Austin Open
     // Data, which never sets this field). Passed through as-is to the client.
     poseSource: item.poseSource === 'curated' ? 'curated' : undefined,
+    ...embedFields(item),
+  };
+}
+
+/**
+ * Personal fork: playback and provenance for a stream that only its own
+ * player may show (featured.js). Absent on every other source, so their
+ * normalized shape is unchanged.
+ */
+function embedFields(item) {
+  const videoId = String(item.embed?.videoId || '');
+  if (
+    item.embed?.provider !== 'youtube' ||
+    !/^[A-Za-z0-9_-]{11}$/.test(videoId)
+  )
+    return {};
+  const word = (value) =>
+    String(value || '')
+      .replace(/[^a-z-]/gi, '')
+      .slice(0, 24);
+  let operatorUrl = '';
+  try {
+    const url = new URL(String(item.operatorUrl || ''));
+    if (url.protocol === 'https:') operatorUrl = url.href;
+  } catch {
+    /* no operator page */
+  }
+  return {
+    embed: { provider: 'youtube', videoId },
+    liveStatus: word(item.liveStatus) || 'unknown',
+    category: word(item.category),
+    coordinatesQuality: word(item.coordinatesQuality),
+    operatorUrl,
+    publishSignal: word(item.publishSignal),
+    licenseClass: word(item.licenseClass),
   };
 }

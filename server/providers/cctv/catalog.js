@@ -21,6 +21,7 @@ import {
   loadVegvesenSourcesFromOpenData,
   loadMdotSourcesFromOpenData,
 } from './sources.js';
+import { createFeaturedLoader } from './featured.js';
 
 /** Env kill switch: unset or anything but "0" means enabled. */
 const envEnabled = (name) => String(process.env[name] || '1').trim() !== '0';
@@ -103,6 +104,12 @@ const LIVE_PACKS = [
     name: 'mdot',
     enabled: () => envEnabled('CCTV_MDOT_ENABLED'),
     load: loadMdotSourcesFromOpenData,
+  },
+  // Personal fork: hand-checked public-interest streams on YouTube.
+  {
+    name: 'featured',
+    enabled: () => envEnabled('CCTV_FEATURED_ENABLED'),
+    load: createFeaturedLoader(),
   },
 ];
 /**

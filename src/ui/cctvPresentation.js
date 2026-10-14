@@ -1,4 +1,5 @@
 import { createCctvVideoSurface } from './cctvVideo.js';
+import { embedMetaText, syncCctvEmbed } from './cctvEmbed.js';
 export function _calBadgeLabel(badge) {
   switch (badge) {
     case 'calibrated':
@@ -141,7 +142,9 @@ export function _renderCctvState(state) {
   this._syncCctvCalReadout(enabled, activeCamera);
 
   if (this._cctvMeta) {
-    if (activeCamera) {
+    if (activeCamera?.embed) {
+      this._cctvMeta.textContent = embedMetaText(activeCamera);
+    } else if (activeCamera) {
       const provider =
         activeCamera.sourceLabel ||
         activeCamera.provider ||
@@ -185,7 +188,11 @@ export function _renderCctvState(state) {
     }
   }
 
-  if (this._cctvFrame && !liveIntent) {
+  // Personal fork: an operator's YouTube stream plays in its own player.
+  const embedActive = syncCctvEmbed(this, { enabled, activeCamera });
+  if (this._cctvFrame && embedActive) this._cctvFrame.hidden = true;
+
+  if (this._cctvFrame && !liveIntent && !embedActive) {
     const nextSrc = enabled ? activeCamera?.frameUrl : null;
     const nextCameraId = enabled ? activeCamera?.id || '' : '';
     const cameraChanged = this._cctvFrame.dataset.cameraId !== nextCameraId;
@@ -204,7 +211,7 @@ export function _renderCctvState(state) {
     if (!nextSrc) {
       this._clearCctvFrame();
     }
-  } else if (liveIntent) {
+  } else if (liveIntent || embedActive) {
     this._clearCctvFrame();
   }
 

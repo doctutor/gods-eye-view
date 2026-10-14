@@ -168,6 +168,16 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
               credit: source.credit || '',
               code: source.code || '',
               groundHeights: source.groundHeights || null,
+              // Personal fork: embed-only streams (cctv/featured.js).
+              ...(source.embed
+                ? {
+                    embed: source.embed,
+                    liveStatus: source.liveStatus,
+                    category: source.category,
+                    coordinatesQuality: source.coordinatesQuality,
+                    operatorUrl: source.operatorUrl,
+                  }
+                : {}),
             })),
           };
           res.writeHead(200, {

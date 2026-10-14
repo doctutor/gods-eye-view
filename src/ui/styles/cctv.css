@@ -365,3 +365,16 @@
   color: #a8f7ff;
   text-shadow: 0 0 10px rgba(0, 212, 255, 0.18);
 }
+
+/* Personal fork: an operator's YouTube stream in its own player (cctvEmbed.js). */
+.cctv-embed {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+}
+
+.cctv-frame-wrap.has-embed::before,
+.cctv-frame-wrap.has-embed::after {
+  content: none;
+}

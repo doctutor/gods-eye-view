@@ -131,6 +131,16 @@ export function createPresentation({
       basePose: camera.basePose ? { ...camera.basePose } : null,
       frameUrl: parts.frames.frameUrlFor(camera, refreshMs),
       mediaUrl: parts.frames.mediaUrlFor(camera),
+      // Personal fork: embed-only stream (catalog.js).
+      ...(camera.embed
+        ? {
+            embed: { ...camera.embed },
+            liveStatus: camera.liveStatus,
+            category: camera.category,
+            coordinatesQuality: camera.coordinatesQuality,
+            operatorUrl: camera.operatorUrl,
+          }
+        : {}),
     };
   }
 

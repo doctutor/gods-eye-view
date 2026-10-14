@@ -1,0 +1,763 @@
+{
+  "version": 1,
+  "about": "Featured live cams for the Cameras layer (personal fork). Hand-checked public-interest streams that their operators publish on YouTube. Place each cam at the precision its operator publishes and never finer: coordinatesQuality is site (the operator names the spot), area (a town, park or island), region, or operator-geotag. titleMatch tokens find a restarted stream again on the same channel. Checked 2026-10-14.",
+  "cams": [
+    {
+      "id": "baltimore-peregrine-falcons",
+      "name": "Peregrine falcon nest (Boh & Barb)",
+      "place": "100 Light Street, Baltimore, Maryland",
+      "category": "birds",
+      "lat": 39.28736,
+      "lon": -76.61446,
+      "coordinatesQuality": "site",
+      "operator": "Chesapeake Conservancy · explore.org",
+      "operatorUrl": "https://www.chesapeakeconservancy.org/webcams/peregrine-falcon",
+      "mountHeightM": 120,
+      "youtube": {
+        "videoId": "1_BdSTneH3s",
+        "channelId": "UCv0In2Sw_YabIhMHHOoTSkA",
+        "titleMatch": [
+          "peregrine",
+          "chesapeake"
+        ]
+      }
+    },
+    {
+      "id": "chesapeake-osprey",
+      "name": "Osprey nest (Chesapeake Conservancy)",
+      "place": "Chesapeake Bay, Maryland",
+      "category": "birds",
+      "lat": 38.99,
+      "lon": -76.39,
+      "coordinatesQuality": "region",
+      "operator": "Chesapeake Conservancy · explore.org",
+      "operatorUrl": "https://www.chesapeakeconservancy.org/webcams",
+      "youtube": {
+        "videoId": "M9pA4F7J1Go",
+        "channelId": "UCv0In2Sw_YabIhMHHOoTSkA",
+        "titleMatch": [
+          "osprey nest - chesapeake"
+        ]
+      }
+    },
+    {
+      "id": "hog-island-osprey",
+      "name": "Osprey nest, Hog Island",
+      "place": "Hog Island, Bremen, Maine",
+      "category": "birds",
+      "lat": 43.98418,
+      "lon": -69.41954,
+      "coordinatesQuality": "area",
+      "operator": "National Audubon Society · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "O6Ir_sMsTtc",
+        "channelId": "UC8NnosPOvXnm0O1u5YnLQiw",
+        "titleMatch": [
+          "audubon osprey nest"
+        ]
+      }
+    },
+    {
+      "id": "hog-island-boathouse-osprey",
+      "name": "Boat house osprey nest",
+      "place": "Hog Island, Bremen, Maine",
+      "category": "birds",
+      "lat": 43.98418,
+      "lon": -69.41954,
+      "coordinatesQuality": "area",
+      "operator": "National Audubon Society · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "z-eGhnlggLI",
+        "channelId": "UCv0In2Sw_YabIhMHHOoTSkA",
+        "titleMatch": [
+          "boat house",
+          "osprey"
+        ]
+      }
+    },
+    {
+      "id": "castle-rock-falcons",
+      "name": "Peregrine falcon nest, Castle Rock",
+      "place": "Castle Rock, Winona, Minnesota",
+      "category": "birds",
+      "lat": 44.05539,
+      "lon": -91.66635,
+      "coordinatesQuality": "area",
+      "operator": "Raptor Resource Project · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "Pr9acykT_yY",
+        "channelId": "UCv0In2Sw_YabIhMHHOoTSkA",
+        "titleMatch": [
+          "castle rock",
+          "nest"
+        ]
+      }
+    },
+    {
+      "id": "castle-rock-lookout",
+      "name": "Peregrine falcon lookout, Castle Rock",
+      "place": "Castle Rock, Winona, Minnesota",
+      "category": "birds",
+      "lat": 44.05539,
+      "lon": -91.66635,
+      "coordinatesQuality": "area",
+      "operator": "Raptor Resource Project · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "fRZfmrpAAM0",
+        "channelId": "UCv0In2Sw_YabIhMHHOoTSkA",
+        "titleMatch": [
+          "castle rock",
+          "lookout"
+        ]
+      }
+    },
+    {
+      "id": "great-spirit-bluff-falcons",
+      "name": "Peregrine falcon nest, Great Spirit Bluff",
+      "place": "Great Spirit Bluff, La Crescent, Minnesota",
+      "category": "birds",
+      "lat": 43.82647,
+      "lon": -91.30355,
+      "coordinatesQuality": "area",
+      "operator": "Raptor Resource Project · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "w-Vjv7Cr9Ss",
+        "channelId": "UCv0In2Sw_YabIhMHHOoTSkA",
+        "titleMatch": [
+          "great spirit bluff",
+          "nest"
+        ]
+      }
+    },
+    {
+      "id": "great-spirit-bluff-cliff",
+      "name": "Great Spirit Bluff cliff view",
+      "place": "Great Spirit Bluff, La Crescent, Minnesota",
+      "category": "birds",
+      "lat": 43.82647,
+      "lon": -91.30355,
+      "coordinatesQuality": "area",
+      "operator": "Raptor Resource Project · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "Vyh0NdAygyY",
+        "channelId": "UCv0In2Sw_YabIhMHHOoTSkA",
+        "titleMatch": [
+          "great spirit bluff",
+          "cliff"
+        ]
+      }
+    },
+    {
+      "id": "charlo-rogers-place-osprey",
+      "name": "Osprey & Canada goose nest, Rogers Place",
+      "place": "Ninepipes, Charlo, Montana",
+      "category": "birds",
+      "lat": 47.43854,
+      "lon": -114.17234,
+      "coordinatesQuality": "area",
+      "operator": "explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "nFgzhiA3WPg",
+        "channelId": "UCv0In2Sw_YabIhMHHOoTSkA",
+        "titleMatch": [
+          "rogers place"
+        ]
+      }
+    },
+    {
+      "id": "charlo-osprey",
+      "name": "Osprey nest, Charlo",
+      "place": "Ninepipes, Charlo, Montana",
+      "category": "birds",
+      "lat": 47.43854,
+      "lon": -114.17234,
+      "coordinatesQuality": "area",
+      "operator": "explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "3VVoYO-ZFPE",
+        "channelId": "UCv0In2Sw_YabIhMHHOoTSkA",
+        "titleMatch": [
+          "osprey nest - charlo"
+        ]
+      }
+    },
+    {
+      "id": "catalina-west-end-eagles",
+      "name": "Bald eagle nest, West End",
+      "place": "West End, Catalina Island, California",
+      "category": "birds",
+      "lat": 33.478,
+      "lon": -118.605,
+      "coordinatesQuality": "area",
+      "operator": "Institute for Wildlife Studies · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "aT1adgYSfbc",
+        "channelId": "UC8NnosPOvXnm0O1u5YnLQiw",
+        "titleMatch": [
+          "west end bald eagle nest cam"
+        ]
+      }
+    },
+    {
+      "id": "catalina-west-end-eagles-low",
+      "name": "Bald eagle nest, West End (low cam)",
+      "place": "West End, Catalina Island, California",
+      "category": "birds",
+      "lat": 33.478,
+      "lon": -118.605,
+      "coordinatesQuality": "area",
+      "operator": "Institute for Wildlife Studies · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "wfuqjSNXZ14",
+        "channelId": "UC8NnosPOvXnm0O1u5YnLQiw",
+        "titleMatch": [
+          "west end",
+          "low cam"
+        ]
+      }
+    },
+    {
+      "id": "catalina-two-harbors-eagles",
+      "name": "Bald eagle nest, Two Harbors",
+      "place": "Two Harbors, Catalina Island, California",
+      "category": "birds",
+      "lat": 33.44,
+      "lon": -118.49833,
+      "coordinatesQuality": "area",
+      "operator": "Institute for Wildlife Studies · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "E5T2eHM8tcI",
+        "channelId": "UC8NnosPOvXnm0O1u5YnLQiw",
+        "titleMatch": [
+          "two harbors bald eagle"
+        ]
+      }
+    },
+    {
+      "id": "catalina-two-harbors-overlook",
+      "name": "Two Harbors overlook",
+      "place": "Two Harbors, Catalina Island, California",
+      "category": "nature",
+      "lat": 33.44,
+      "lon": -118.49833,
+      "coordinatesQuality": "area",
+      "operator": "Institute for Wildlife Studies · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "2yx7RKxpyzQ",
+        "channelId": "UC8NnosPOvXnm0O1u5YnLQiw",
+        "titleMatch": [
+          "two harbors overlook"
+        ]
+      }
+    },
+    {
+      "id": "santa-cruz-fraser-point-eagles",
+      "name": "Bald eagle nest, Fraser Point",
+      "place": "Fraser Point, Santa Cruz Island, California",
+      "category": "birds",
+      "lat": 34.059,
+      "lon": -119.919,
+      "coordinatesQuality": "area",
+      "operator": "Institute for Wildlife Studies · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "OY4V_AppZ6s",
+        "channelId": "UC8NnosPOvXnm0O1u5YnLQiw",
+        "titleMatch": [
+          "fraser point"
+        ]
+      }
+    },
+    {
+      "id": "santa-cruz-sauces-eagles",
+      "name": "Bald eagle nest, Sauces",
+      "place": "Santa Cruz Island, Channel Islands National Park",
+      "category": "birds",
+      "lat": 34.02321,
+      "lon": -119.76577,
+      "coordinatesQuality": "area",
+      "operator": "Channel Islands National Park · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "rnTsOesC6hE",
+        "channelId": "UC8NnosPOvXnm0O1u5YnLQiw",
+        "titleMatch": [
+          "sauces"
+        ]
+      }
+    },
+    {
+      "id": "decorah-eagles",
+      "name": "Bald eagle nest, Decorah",
+      "place": "Decorah, Iowa",
+      "category": "birds",
+      "lat": 43.27248,
+      "lon": -91.78089,
+      "coordinatesQuality": "area",
+      "operator": "Raptor Resource Project · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "IVmL3diwJuw",
+        "channelId": "UC8NnosPOvXnm0O1u5YnLQiw",
+        "titleMatch": [
+          "decorah eagles"
+        ]
+      }
+    },
+    {
+      "id": "philippine-eagles",
+      "name": "Philippine eagle",
+      "place": "Mount Apo, Mindanao, Philippines",
+      "category": "birds",
+      "lat": 6.98746,
+      "lon": 125.271,
+      "coordinatesQuality": "region",
+      "operator": "Philippine Eagle Foundation · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "QoKy-rn66og",
+        "channelId": "UC8NnosPOvXnm0O1u5YnLQiw",
+        "titleMatch": [
+          "philippine eagle"
+        ]
+      }
+    },
+    {
+      "id": "africam-black-eagles",
+      "name": "Black eagle nest",
+      "place": "Limpopo, South Africa",
+      "category": "birds",
+      "lat": -24.0082318,
+      "lon": 30.6838208,
+      "coordinatesQuality": "operator-geotag",
+      "operator": "Africam · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "_xhLV-TJpd8",
+        "channelId": "UC8NnosPOvXnm0O1u5YnLQiw",
+        "titleMatch": [
+          "black eagle"
+        ]
+      }
+    },
+    {
+      "id": "brooks-falls-bears",
+      "name": "Brooks Falls brown bears",
+      "place": "Brooks Falls, Katmai National Park, Alaska",
+      "category": "bears",
+      "lat": 58.55498,
+      "lon": -155.79155,
+      "coordinatesQuality": "site",
+      "operator": "Katmai National Park · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "J7ZrIDvqlic",
+        "channelId": "UC-2KSeUU5SMCX6XLRD-AEvw",
+        "titleMatch": [
+          "brooks falls"
+        ]
+      }
+    },
+    {
+      "id": "brooks-falls-bears-low",
+      "name": "Brooks Falls brown bears (low)",
+      "place": "Brooks Falls, Katmai National Park, Alaska",
+      "category": "bears",
+      "lat": 58.55498,
+      "lon": -155.79155,
+      "coordinatesQuality": "site",
+      "operator": "Katmai National Park · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "EwTH5yY7Mks",
+        "channelId": "UC2Sk0aXLq3ADkH_USGPKT_Q",
+        "titleMatch": [
+          "brooks falls",
+          "low"
+        ]
+      }
+    },
+    {
+      "id": "katmai-riffles",
+      "name": "Riffles, Brooks River",
+      "place": "Brooks River, Katmai National Park, Alaska",
+      "category": "bears",
+      "lat": 58.556,
+      "lon": -155.778,
+      "coordinatesQuality": "area",
+      "operator": "Katmai National Park · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "z7_GhJeFxQI",
+        "channelId": "UC2Sk0aXLq3ADkH_USGPKT_Q",
+        "titleMatch": [
+          "riffles"
+        ]
+      }
+    },
+    {
+      "id": "katmai-river-watch",
+      "name": "River Watch, Brooks River",
+      "place": "Brooks River, Katmai National Park, Alaska",
+      "category": "bears",
+      "lat": 58.556,
+      "lon": -155.778,
+      "coordinatesQuality": "area",
+      "operator": "Katmai National Park · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "wkVLYfU-Kew",
+        "channelId": "UC2Sk0aXLq3ADkH_USGPKT_Q",
+        "titleMatch": [
+          "river watch"
+        ]
+      }
+    },
+    {
+      "id": "katmai-river-view",
+      "name": "Kat’s River View, Brooks River",
+      "place": "Brooks River, Katmai National Park, Alaska",
+      "category": "bears",
+      "lat": 58.556,
+      "lon": -155.778,
+      "coordinatesQuality": "area",
+      "operator": "Katmai National Park · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "cTsjMtjRLCo",
+        "channelId": "UC2Sk0aXLq3ADkH_USGPKT_Q",
+        "titleMatch": [
+          "river view"
+        ]
+      }
+    },
+    {
+      "id": "katmai-underwater-salmon",
+      "name": "Underwater salmon cam, Brooks River",
+      "place": "Brooks River, Katmai National Park, Alaska",
+      "category": "marine",
+      "lat": 58.556,
+      "lon": -155.778,
+      "coordinatesQuality": "area",
+      "operator": "Katmai National Park · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "vu7I315gQpU",
+        "channelId": "UC2Sk0aXLq3ADkH_USGPKT_Q",
+        "titleMatch": [
+          "underwater salmon"
+        ]
+      }
+    },
+    {
+      "id": "anan-lower-falls",
+      "name": "Anan bears: lower falls & caves",
+      "place": "Anan Creek, Tongass National Forest, Alaska",
+      "category": "bears",
+      "lat": 56.1790457,
+      "lon": -131.8836312,
+      "coordinatesQuality": "operator-geotag",
+      "operator": "Tongass National Forest · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "RhP-_jX8-Zs",
+        "channelId": "UC-2KSeUU5SMCX6XLRD-AEvw",
+        "titleMatch": [
+          "anan",
+          "lower falls"
+        ]
+      }
+    },
+    {
+      "id": "anan-fishing-hole-3",
+      "name": "Anan bears: fishing hole 3",
+      "place": "Anan Creek, Tongass National Forest, Alaska",
+      "category": "bears",
+      "lat": 56.1790457,
+      "lon": -131.8836312,
+      "coordinatesQuality": "operator-geotag",
+      "operator": "Tongass National Forest · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "G839-Yj4Cvo",
+        "channelId": "UC2Sk0aXLq3ADkH_USGPKT_Q",
+        "titleMatch": [
+          "anan",
+          "fishing hole 3"
+        ]
+      }
+    },
+    {
+      "id": "anan-fishing-hole-4",
+      "name": "Anan bears: fishing hole 4",
+      "place": "Anan Creek, Tongass National Forest, Alaska",
+      "category": "bears",
+      "lat": 56.1790457,
+      "lon": -131.8836312,
+      "coordinatesQuality": "operator-geotag",
+      "operator": "Tongass National Forest · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "ypMu3yA7h3s",
+        "channelId": "UC2Sk0aXLq3ADkH_USGPKT_Q",
+        "titleMatch": [
+          "anan",
+          "fishing hole 4"
+        ]
+      }
+    },
+    {
+      "id": "anan-forest-view",
+      "name": "Anan bears: forest view",
+      "place": "Anan Creek, Tongass National Forest, Alaska",
+      "category": "bears",
+      "lat": 56.1790457,
+      "lon": -131.8836312,
+      "coordinatesQuality": "operator-geotag",
+      "operator": "Tongass National Forest · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "RjrRz3t5kO4",
+        "channelId": "UC2Sk0aXLq3ADkH_USGPKT_Q",
+        "titleMatch": [
+          "anan",
+          "forest view"
+        ]
+      }
+    },
+    {
+      "id": "tembe-elephants",
+      "name": "Tembe elephants",
+      "place": "Tembe Elephant Park, South Africa",
+      "category": "wildlife",
+      "lat": -26.9401401,
+      "lon": 32.4755266,
+      "coordinatesQuality": "operator-geotag",
+      "operator": "Africam · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "0P_LBKqVbfs",
+        "channelId": "UC-2KSeUU5SMCX6XLRD-AEvw",
+        "titleMatch": [
+          "tembe"
+        ]
+      }
+    },
+    {
+      "id": "homosassa-manatees",
+      "name": "Underwater manatee cam, Homosassa Springs",
+      "place": "Homosassa Springs Wildlife State Park, Florida",
+      "category": "marine",
+      "lat": 28.80072,
+      "lon": -82.58416,
+      "coordinatesQuality": "site",
+      "operator": "explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "Fz6sl9YJZE0",
+        "channelId": "UC-2KSeUU5SMCX6XLRD-AEvw",
+        "titleMatch": [
+          "homosassa"
+        ]
+      }
+    },
+    {
+      "id": "silver-springs-manatees-underwater",
+      "name": "Silver Springs manatees (underwater 180°)",
+      "place": "Silver Springs State Park, Florida",
+      "category": "marine",
+      "lat": 29.21765,
+      "lon": -82.05536,
+      "coordinatesQuality": "site",
+      "operator": "explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "uWiJ9qCYxoo",
+        "channelId": "UCSyg9cb3Iq-NtlbxqNB9wGw",
+        "titleMatch": [
+          "silver springs 180"
+        ]
+      }
+    },
+    {
+      "id": "silver-springs-manatees-above",
+      "name": "Silver Springs manatees (above water)",
+      "place": "Silver Springs State Park, Florida",
+      "category": "marine",
+      "lat": 29.21765,
+      "lon": -82.05536,
+      "coordinatesQuality": "site",
+      "operator": "explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "jxnehowX-9Y",
+        "channelId": "UCSyg9cb3Iq-NtlbxqNB9wGw",
+        "titleMatch": [
+          "silver springs above water"
+        ]
+      }
+    },
+    {
+      "id": "utila-reef-back-channel",
+      "name": "Utila reef: back channel",
+      "place": "Utopia Village, Utila, Honduras",
+      "category": "marine",
+      "lat": 16.07252,
+      "lon": -86.95117,
+      "coordinatesQuality": "site",
+      "operator": "Utopia Village · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "nmjlQlYygB4",
+        "channelId": "UCSyg9cb3Iq-NtlbxqNB9wGw",
+        "titleMatch": [
+          "utopia village",
+          "back channel"
+        ]
+      }
+    },
+    {
+      "id": "utila-reef-sandy-channel",
+      "name": "Utila reef: sandy channel",
+      "place": "Utopia Village, Utila, Honduras",
+      "category": "marine",
+      "lat": 16.07252,
+      "lon": -86.95117,
+      "coordinatesQuality": "site",
+      "operator": "Utopia Village · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "jzx_n25g3kA",
+        "channelId": "UCSyg9cb3Iq-NtlbxqNB9wGw",
+        "titleMatch": [
+          "utopia village",
+          "sandy channel"
+        ]
+      }
+    },
+    {
+      "id": "utila-reef-front-of-dock",
+      "name": "Utila reef: front of dock",
+      "place": "Utopia Village, Utila, Honduras",
+      "category": "marine",
+      "lat": 16.07252,
+      "lon": -86.95117,
+      "coordinatesQuality": "site",
+      "operator": "Utopia Village · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "Kf-x20Yq0_A",
+        "channelId": "UCSyg9cb3Iq-NtlbxqNB9wGw",
+        "titleMatch": [
+          "utopia village",
+          "front-of-dock"
+        ]
+      }
+    },
+    {
+      "id": "utila-reef-edge-of-wall",
+      "name": "Utila reef: edge of wall",
+      "place": "Utopia Village, Utila, Honduras",
+      "category": "marine",
+      "lat": 16.07252,
+      "lon": -86.95117,
+      "coordinatesQuality": "site",
+      "operator": "Utopia Village · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "Sq-X4Ga1oyc",
+        "channelId": "UCSyg9cb3Iq-NtlbxqNB9wGw",
+        "titleMatch": [
+          "utopia village",
+          "edge-of-wall"
+        ]
+      }
+    },
+    {
+      "id": "utila-reef-top-of-wall",
+      "name": "Utila reef: top of wall",
+      "place": "Utopia Village, Utila, Honduras",
+      "category": "marine",
+      "lat": 16.07252,
+      "lon": -86.95117,
+      "coordinatesQuality": "site",
+      "operator": "Utopia Village · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "1zcIUk66HX4",
+        "channelId": "UCSyg9cb3Iq-NtlbxqNB9wGw",
+        "titleMatch": [
+          "utopia village",
+          "top-of-wall"
+        ]
+      }
+    },
+    {
+      "id": "utila-reef-back-of-dock",
+      "name": "Utila reef: back of dock",
+      "place": "Utopia Village, Utila, Honduras",
+      "category": "marine",
+      "lat": 16.07252,
+      "lon": -86.95117,
+      "coordinatesQuality": "site",
+      "operator": "Utopia Village · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "Lv9t0hZTvz4",
+        "channelId": "UCSyg9cb3Iq-NtlbxqNB9wGw",
+        "titleMatch": [
+          "utopia village",
+          "back-of-dock"
+        ]
+      }
+    },
+    {
+      "id": "catalina-wrigley-reserve",
+      "name": "Blue Cavern marine reserve",
+      "place": "Wrigley Marine Science Center, Catalina Island",
+      "category": "marine",
+      "lat": 33.44484,
+      "lon": -118.48039,
+      "coordinatesQuality": "site",
+      "operator": "USC Wrigley Institute · explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "youtube": {
+        "videoId": "JH_NzhSsqis",
+        "channelId": "UCSyg9cb3Iq-NtlbxqNB9wGw",
+        "titleMatch": [
+          "wrigley"
+        ]
+      }
+    },
+    {
+      "id": "monterey-bay",
+      "name": "Monterey Bay",
+      "place": "Monterey Bay Aquarium, Monterey, California",
+      "category": "marine",
+      "lat": 36.61826,
+      "lon": -121.90195,
+      "coordinatesQuality": "site",
+      "operator": "Monterey Bay Aquarium",
+      "operatorUrl": "https://www.montereybayaquarium.org/animals/live-cams",
+      "youtube": {
+        "videoId": "fVa6-zCBR7A",
+        "channelId": "UCnM5iMGiKsZg-iOlIO2ZkdQ",
+        "titleMatch": [
+          "monterey bay cam"
+        ]
+      }
+    }
+  ]
+}

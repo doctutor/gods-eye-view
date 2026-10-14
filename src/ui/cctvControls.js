@@ -17,6 +17,7 @@ import {
   _updateCctvSyncChip,
 } from './cctvPresentation.js';
 import { _initCctvPanel } from './cctvBindings.js';
+import { syncCctvEmbed } from './cctvEmbed.js';
 
 /** Own camera-panel interaction and presentation; receive the camera port and application actions. */
 export class CctvControls {
@@ -119,6 +120,7 @@ export class CctvControls {
     this._cctvUnsubscribe?.();
     this._cctvUnsubscribe = null;
     this._calibrationEdit?.(false);
+    syncCctvEmbed(this);
     this._clearCctvFrame();
     clearInterval(this._cctvSummaryTypingTimer);
     clearTimeout(this._cctvChipHideTimer);
