@@ -38,6 +38,8 @@ const PANEL_GROUPS = [
     label: 'Infrastructure',
     ids: [
       'alpr-cameras',
+      'baltimore-enforcement-cameras',
+      'baltimore-citiwatch-cameras',
       'military-installations',
       'local-datacenters',
       'telegeography-submarine-cables',

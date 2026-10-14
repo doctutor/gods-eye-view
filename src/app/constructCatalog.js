@@ -28,6 +28,8 @@ import { createApplicationFirePerimeters } from './layers/perimeters.js';
 import { createApplicationCables } from './layers/submarineCables.js';
 import { createApplicationStreetLevel } from './layers/streetLevel.js';
 import { createInfrastructureLayers } from '../data/infrastructure.js';
+// Personal fork: Baltimore City camera locations (local-only, not upstream).
+import { createApplicationBaltimoreCameras } from './layers/baltimoreCameras.js';
 import { localGeoJsonServices } from './localGeojsonServices.js';
 import { createBhoteKoshiEventLayer } from '../data/bhoteKoshiEvent.js';
 import { createBhoteKoshiLocatorLayer } from '../data/bhoteKoshiLocator.js';
@@ -38,6 +40,15 @@ import { createBhoteKoshiLocatorLayer } from '../data/bhoteKoshiLocator.js';
  */
 export const LOCAL_ONLY_LAYER_METADATA = Object.freeze([
   Object.freeze({ id: 'local-adsb', disposition: 'local-only' }),
+  // Personal fork: kept out of share links so upstream token changes never collide.
+  Object.freeze({
+    id: 'baltimore-enforcement-cameras',
+    disposition: 'local-only',
+  }),
+  Object.freeze({
+    id: 'baltimore-citiwatch-cameras',
+    disposition: 'local-only',
+  }),
 ]);
 
 /** Serialization metadata for every layer the application catalog constructs. */
@@ -161,6 +172,7 @@ export function createApplicationCatalog({
         }),
         createCyclonesLayer({ feed: sources.cyclones }),
         ...createInfrastructureLayers(localGeoJsonServices),
+        ...createApplicationBaltimoreCameras(),
         createApplicationCables({ source: sources.cables }),
         createApplicationFirms({
           surface,
