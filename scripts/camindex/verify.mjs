@@ -18,6 +18,22 @@ export const VERIFY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * ("camera offline"), not a view.
  */
 export const PLACEHOLDER_SHARED_BY = 3;
+/**
+ * Gap between uncached still requests, by host. opencctv.org answered 503
+ * (Retry-After 600 s) after ~50 uncached stills in ~3 minutes on 2026-10-16;
+ * 16 s keeps a run under 40 stills per 10 minutes. --gap-ms can only slow
+ * these down.
+ */
+export const STILL_MIN_INTERVAL_MS = Object.freeze({ 'opencctv.org': 16_000 });
+
+/** Per-host pacing for a verify run whose general gap is `gapMs`. */
+export function stillPacing(gapMs) {
+  const pacing = { '*': gapMs };
+  for (const [host, ms] of Object.entries(STILL_MIN_INTERVAL_MS))
+    pacing[host] = Math.max(ms, gapMs);
+  return pacing;
+}
+
 /** SHA-1s of placeholder images seen in the wild, by source. */
 export const KNOWN_PLACEHOLDERS = Object.freeze({ opencctv: [] });
 

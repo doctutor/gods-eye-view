@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_MIN_INTERVAL_MS, createFetcher } from './fetch.mjs';
 import * as opencctv from './adapters/opencctv.mjs';
-import { inBox, verifyCandidates } from './verify.mjs';
+import { inBox, stillPacing, verifyCandidates } from './verify.mjs';
 import {
   CATALOG_FILE,
   buildCatalog,
@@ -169,7 +169,7 @@ async function verifyCommand(dir, flags) {
   const started = Date.now();
   const fetcher = createFetcher({
     cacheDir: path.join(dir, 'http'),
-    minIntervalMs: gapOf(flags['gap-ms']),
+    minIntervalMs: stillPacing(gapOf(flags['gap-ms'])),
     log,
   });
   let unsaved = 0;

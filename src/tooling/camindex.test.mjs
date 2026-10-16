@@ -26,6 +26,7 @@ import {
 import {
   judgeStill,
   markSharedPlaceholders,
+  stillPacing,
   verifyCandidates,
 } from '../../scripts/camindex/verify.mjs';
 import {
@@ -599,4 +600,39 @@ test('the CLI parses commands and flags', () => {
     },
   );
   assert.throws(() => parseArgs(['discover', 'opencctv']), /unexpected/);
+});
+
+test('stills from opencctv.org stay under 40 uncached requests per 10 minutes', async (t) => {
+  assert.deepEqual(stillPacing(1500), { '*': 1500, 'opencctv.org': 16_000 });
+  assert.equal(stillPacing(20_000)['opencctv.org'], 20_000, 'only ever slower');
+  const dir = await tempDir(t);
+  const web = fakeWeb({
+    'https://opencctv.org/robots.txt': new Response(ROBOTS),
+    '*': () =>
+      new Response(Buffer.alloc(3000, 1), {
+        headers: { 'content-type': 'image/jpeg' },
+      }),
+  });
+  const fetcher = createFetcher({
+    cacheDir: dir,
+    transport: web.transport,
+    now: web.now,
+    sleep: web.sleep,
+    minIntervalMs: stillPacing(1500),
+  });
+  const candidates = Array.from({ length: 60 }, (_, i) => ({
+    id: String(i),
+    lat: 10,
+    lon: 10,
+    categories: ['nature'],
+    stillUrl: `https://opencctv.org/still/${i}.jpg`,
+  }));
+  await verifyCandidates(fetcher, candidates, {}, { now: web.now });
+  const stills = web.calls.filter((call) => call.url.includes('/still/'));
+  assert.equal(stills.length, 60);
+  for (let i = 40; i < stills.length; i++)
+    assert.ok(
+      stills[i].at - stills[i - 40].at >= 10 * 60 * 1000,
+      `40 stills span at least 10 minutes (${i})`,
+    );
 });

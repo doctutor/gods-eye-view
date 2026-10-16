@@ -84,6 +84,27 @@ for byte is a placeholder card, not a view. Dead cameras and placeholders are
 left out of the catalog. Unchecked cameras go in with `liveStatus: 'unknown'`.
 Maryland is verified first, then scenic cameras, then the rest.
 
+Uncached stills come from the site's origin, and the origin rate-limits them.
+On 2026-10-16 it answered 503 (Retry-After 600 s) after about 50 stills in
+3 minutes, twice. So `verify` paces stills on opencctv.org at one per 16 s,
+which keeps a run under 40 per 10 minutes. `--gap-ms` can only slow that
+down. A 429 or 503 marks the camera `error`, not dead, and the next run
+retries it. Bulk verification is not the plan for this source; the first run
+stopped after 53 stills. The intended way is lazy: a still the app fetches
+because someone opened that camera counts as its check (see the follow-up
+below).
+
+**Follow-up (not built): lazy verification.** The frame route already
+fetches a camera's still when someone views it and records the result in
+its health map. A small store, for example
+`.gev-cache/camindex/observed.json` (`{id: {status, at}}`, written by the
+CCTV provider with a debounce), would keep those results: live on an image
+of at least 1 KB, dead on a 404 or non-image answer, placeholder by hash. The
+camindex pack would apply them when it loads (dead ones dropped, live marked
+`live`), and `build` would fold them into `verify.json`. The index would then
+correct itself from real use without extra requests. A nightly re-verify, if
+one is added, uses the pacing above.
+
 **In the app:**
 
 - `sourceKind` is `opencctv` and `publishSignal` is `directory-embed`.

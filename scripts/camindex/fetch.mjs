@@ -182,10 +182,11 @@ export function createFetcher({
   const robots = new Map();
   const stats = { network: 0, cached: 0, bytes: 0, errors: 0, refused: 0 };
 
+  // A number for every host, or {host: ms, '*': ms} per host.
   const intervalFor = (host) =>
     typeof minIntervalMs === 'number'
       ? minIntervalMs
-      : (minIntervalMs[host] ?? DEFAULT_MIN_INTERVAL_MS);
+      : (minIntervalMs[host] ?? minIntervalMs['*'] ?? DEFAULT_MIN_INTERVAL_MS);
 
   function hostState(host) {
     if (!hosts.has(host))
