@@ -224,6 +224,15 @@ export const DATA_CREDITS = [
     html: 'Webcam links: <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a> (CC0)',
   },
   {
+    // Personal fork: server/providers/cctv/nps.js and usgs.js.
+    key: 'nps-webcams',
+    html: 'Webcams: <a href="https://www.nps.gov/subjects/developer/" target="_blank" rel="noopener">National Park Service</a> (public domain)',
+  },
+  {
+    key: 'usgs-volcano-cams',
+    html: 'Volcano webcams: <a href="https://www.usgs.gov/programs/VHP" target="_blank" rel="noopener">USGS Volcano Hazards Program</a> observatories (public domain)',
+  },
+  {
     key: 'featured-live-cams',
     html: 'Featured live cams: each operator’s own stream in the embedded YouTube player — <a href="https://explore.org/livecams" target="_blank" rel="noopener">explore.org</a> and its partners, <a href="https://www.chesapeakeconservancy.org/webcams" target="_blank" rel="noopener">Chesapeake Conservancy</a>, <a href="https://www.montereybayaquarium.org/animals/live-cams" target="_blank" rel="noopener">Monterey Bay Aquarium</a>',
   },
