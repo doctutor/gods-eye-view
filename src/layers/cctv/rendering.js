@@ -1,6 +1,7 @@
 import * as Cesium from 'cesium';
 import { horizonOccluder } from '../../data/iconOrientation.js';
 import { isHeadingEstimated } from './headingConfidence.js';
+import { cameraKind, isPoselessKind } from './cameraKind.js';
 import {
   ACTIVE_CAMERA_COLOR,
   IDLE_CAMERA_COLOR,
@@ -227,13 +228,17 @@ export function createRendering({
       // One live plane in the world at a time (§2c): only the active camera's
       // far cap carries the monitor plane; idle neighbors get the faint
       // wireframe only.
+      // Personal fork: an embed, still or link camera has no pose, so it
+      // draws no cone, viewshed volume or monitor plane (cameraKind.js).
+      const poseless = isPoselessKind(cameraKind(record.camera));
       const planeShowing = !!(
         layerState._enabled &&
         layerState._showProjection &&
-        isActive
+        isActive &&
+        !poseless
       );
 
-      const inVisibleSet = coverageVisible.has(record.camera.id);
+      const inVisibleSet = coverageVisible.has(record.camera.id) && !poseless;
       // A synthetic bearing (headingConfidence 'low', no human calibration)
       // draws its wireframe dashed so a guessed facing is visibly provisional
       // rather than rendering identically to a surveyed one (#639). Colors,

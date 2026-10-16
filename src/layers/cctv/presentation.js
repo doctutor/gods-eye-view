@@ -1,6 +1,7 @@
 import { CCTV_AMBIENT_CARD_MAX } from '../../data/cctvLod.js';
 import { ACTIVE_FRAME_REFRESH_MS, IDLE_FRAME_REFRESH_MS } from './policy.js';
 import { headingHudToken, isHeadingEstimated } from './headingConfidence.js';
+import { cameraKind } from './cameraKind.js';
 
 export function createPresentation({
   state: layerState,
@@ -131,7 +132,8 @@ export function createPresentation({
       basePose: camera.basePose ? { ...camera.basePose } : null,
       frameUrl: parts.frames.frameUrlFor(camera, refreshMs),
       mediaUrl: parts.frames.mediaUrlFor(camera),
-      // Personal fork: provenance (catalog.js).
+      // Personal fork: provenance (catalog.js) and the panel kind it implies.
+      panelKind: cameraKind(camera),
       ...(camera.embed ? { embed: { ...camera.embed } } : {}),
       ...(camera.embed || camera.licenseClass
         ? {

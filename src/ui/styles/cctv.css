@@ -325,6 +325,19 @@
   color: var(--text-secondary);
 }
 
+/* Personal fork: a camera without a pose (embed, still, link: see
+   ui/cctvPanelKind.js) shows its local time on a second meta line and hides
+   the calibration block, the pose readouts, SAVE/RESET CAL, the CAL badge and
+   PROJECTION. */
+#cctv-panel[data-camera-kind] #cctv-meta {
+  white-space: pre-line;
+}
+
+#cctv-panel[data-camera-kind] .cctv-calibration-block,
+#cctv-panel[data-camera-kind] .cctv-controls:has(#cctv-projection-btn) {
+  display: none;
+}
+
 #cctv-source-badge {
   align-self: flex-start;
   border: 1px solid rgba(0, 212, 255, 0.32);

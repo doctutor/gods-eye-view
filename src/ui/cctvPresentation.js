@@ -1,6 +1,8 @@
 import { createCctvVideoSurface } from './cctvVideo.js';
 import { embedMetaText, operatorLinkFor, syncCctvEmbed } from './cctvEmbed.js';
 import { rankCameras, renderCameraList } from './cctvCameraList.js';
+// Personal fork: panel parts and wording by camera kind.
+import { syncCctvPanelKind } from './cctvPanelKind.js';
 
 /**
  * Personal fork: rebuild the camera list from the current state, the
@@ -263,9 +265,14 @@ export function _renderCctvState(state) {
     this._clearCctvFrame();
   }
 
+  // Personal fork: embed, still and link cameras have no pose: hide the
+  // pose-only controls (CSS on data-camera-kind) and use plain wording.
+  const kindSummary = syncCctvPanelKind(this, { enabled, activeCamera });
+
   this._syncCctvSourceBadge(activeCamera, enabled);
   this._typeCctvSummary(
-    state?.summary ||
+    kindSummary ||
+      state?.summary ||
       'Enable CCTV to start camera-linked intelligence summaries.',
   );
 }
