@@ -82,8 +82,9 @@ export function catalogCameraToSource(camera) {
     category: word(camera.category, 'webcam'),
     coordinatesQuality: word(camera.coordinatesQuality, 'site'),
     operatorUrl: httpsUrl(camera.operatorUrl),
-    publishSignal: word(camera.publishSignal, 'directory-embed'),
-    licenseClass: word(camera.licenseClass, 'embed-only'),
+    // The directory's still is shown; its page is never framed.
+    publishSignal: 'directory-still',
+    licenseClass: 'display-only',
     liveStatus: camera.liveStatus === 'live' ? 'live' : 'unknown',
     feedType: 'image',
     url: snapshotUrl,

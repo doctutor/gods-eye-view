@@ -29,6 +29,7 @@ import { createFeaturedLoader } from './featured.js';
 import { haversineKm } from '../common/geo.js';
 import { createWindySource } from './windy.js';
 import { createLinkedLoader } from './linked.js';
+import { dedupeSources } from './dedupe.js';
 import { createCamindexLoader } from './camindex.js';
 import { createNpsLoader } from './nps.js';
 import { createUsgsVolcanoLoader } from './usgs.js';
@@ -207,6 +208,7 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
   // Personal fork: sources too large to index, asked per proximity query.
   const dynamicSources = [
     {
+      name: 'windy',
       source: createWindySource(),
       enabled: () => envEnabled('CCTV_WINDY_ENABLED'),
     },
@@ -309,13 +311,30 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
     // scripts/precompute-cctv-heights.mjs) ride along on the served source so
     // the client can place a camera and its monitor plane with zero sampling.
     const groundHeights = loadGroundHeights(sourceRoot);
-    const capped = joinGroundHeights(allocation.sources, groundHeights);
     // Personal fork: the uncapped index behind proximity queries. Later packs
     // win duplicate ids, as in the capped catalog.
     const indexById = new Map();
     for (const pack of packs)
       for (const source of pack.everything) indexById.set(source.id, source);
-    const index = joinGroundHeights([...indexById.values()], groundHeights);
+    // Personal fork: one pin per camera across packs (dedupe.js), decided
+    // once per refresh on the whole index and applied to the capped catalog.
+    const dedupeStarted = performance.now();
+    const deduped = envEnabled('CCTV_DEDUPE_ENABLED')
+      ? dedupeSources([...indexById.values()])
+      : { sources: [...indexById.values()], removed: 0, winnerOf: new Map() };
+    const index = joinGroundHeights(deduped.sources, groundHeights);
+    const capped = joinGroundHeights(
+      applyDedupe(allocation.sources, deduped),
+      groundHeights,
+    );
+    if (deduped.removed)
+      console.log(
+        `[CCTV] ${deduped.removed} duplicate cameras folded into their best source (${Object.entries(
+          deduped.byRule,
+        )
+          .map(([rule, count]) => `${rule} ${count}`)
+          .join(', ')}) in ${Math.round(performance.now() - dedupeStarted)} ms`,
+      );
     const trimmed = allocation.packs.filter((pack) => pack.kept < pack.offered);
     // Each pack's own nearest-first cap and the shared catalog cap both trim.
     const trimmedPacks = packs
@@ -399,17 +418,80 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
       Math.max(0.1, Number(options.radiusKm) || 25),
     );
     const extra = await Promise.all(
-      dynamicSources.map((entry) =>
-        entry.enabled() ? entry.source.near(lat, lon, radiusKm) : [],
+      dynamicSources.map(async (entry) =>
+        entry.enabled()
+          ? // Personal fork: tagged with their pack, like indexed cameras.
+            (await entry.source.near(lat, lon, radiusKm)).map((source) => ({
+              ...source,
+              pack: entry.name,
+            }))
+          : [],
       ),
     );
-    const byId = new Map(_cctvIndex.map((source) => [source.id, source]));
-    for (const list of extra)
-      for (const source of list)
-        if (!byId.has(source.id)) byId.set(source.id, source);
-    return nearSources([...byId.values()], lat, lon, options);
+    const dynamic = extra.flat();
+    if (!dynamic.length) return nearSources(_cctvIndex, lat, lon, options);
+    if (!envEnabled('CCTV_DEDUPE_ENABLED')) {
+      const byId = new Map(_cctvIndex.map((source) => [source.id, source]));
+      for (const source of dynamic)
+        if (source?.id && !byId.has(source.id)) byId.set(source.id, source);
+      return nearSources([...byId.values()], lat, lon, options);
+    }
+    // Personal fork: the index is already one pin per camera; the dynamic
+    // results are folded in against the indexed cameras near the point.
+    const indexed = nearSources(_cctvIndex, lat, lon, {
+      radiusKm,
+      limit: NEAR_MAX_LIMIT,
+    });
+    const ids = new Set(indexed.map((source) => source.id));
+    const pool = [
+      ...indexed,
+      ...dynamic.filter((source) => source?.id && !ids.has(source.id)),
+    ];
+    return nearSources(dedupeSources(pool).sources, lat, lon, options);
   };
   return getCctvSources;
+}
+
+/**
+ * Personal fork: the capped catalog after the index's de-duplication. A
+ * duplicate gives way to the camera it duplicates: dropped when that camera
+ * is served here too, replaced by it otherwise (so a later proximity query
+ * never adds the same camera again under another id). Kept cameras carry
+ * the winner's provenance (alsoListedIn, a filled operator page).
+ * @param {Array<object>} capped - Allocated sources.
+ * @param {ReturnType<typeof dedupeSources>} deduped - Of the whole index.
+ */
+export function applyDedupe(capped, deduped) {
+  const winners = new Map(deduped.sources.map((source) => [source.id, source]));
+  const out = [];
+  const placed = new Set();
+  for (const source of capped) {
+    const winnerId = deduped.winnerOf.get(source.id);
+    if (winnerId) {
+      const winner = winners.get(winnerId);
+      if (winner && !placed.has(winnerId)) {
+        placed.add(winnerId);
+        out.push(winner);
+      }
+      continue;
+    }
+    if (placed.has(source.id)) continue;
+    placed.add(source.id);
+    const winner = winners.get(source.id);
+    out.push(
+      winner &&
+        (winner.alsoListedIn || winner.operatorUrl !== source.operatorUrl)
+        ? {
+            ...source,
+            ...(winner.alsoListedIn
+              ? { alsoListedIn: winner.alsoListedIn }
+              : {}),
+            operatorUrl: winner.operatorUrl,
+          }
+        : source,
+    );
+  }
+  return out;
 }
 
 /** Proximity query bounds. */
