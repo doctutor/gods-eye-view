@@ -1,4 +1,5 @@
 import {
+  discardResponseBody,
   readResponseJsonCapped,
   readResponseTextCapped,
 } from '../common/http.js';
@@ -38,7 +39,10 @@ async function fetchRegional(url, read, options = {}) {
       headers,
       redirect,
     });
-    if (!response.ok) throw new Error(`Upstream returned ${response.status}`);
+    if (!response.ok) {
+      await discardResponseBody(response);
+      throw new Error(`Upstream returned ${response.status}`);
+    }
     return await read(response, maxBytes, controller.signal);
   } finally {
     clearTimeout(timeout);

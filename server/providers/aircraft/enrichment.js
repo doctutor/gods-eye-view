@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { promises as fsp } from 'node:fs';
+import { discardResponseBody } from '../common/http.js';
 /**
  * adsbdb.com enrichment proxy: callsign → route (airline + origin/destination
  * airports) and hex → aircraft type/registration. Free community API — cached
@@ -90,6 +91,7 @@ export function adsbdbProxy() {
               dirty = true;
               return data;
             }
+            await discardResponseBody(res);
             if (res.status === 404) {
               store[key] = { at: Date.now(), data: null }; // known-missing — cache the miss
               dirty = true;

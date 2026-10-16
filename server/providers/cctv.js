@@ -18,6 +18,7 @@ import {
 } from './cctv/constants.js';
 import { sanitizeCctvRangeHeader } from './cctv/range.js';
 import { createHlsPuller } from './cctv/stream.js';
+import { discardResponseBody } from './common/http.js';
 import { googleServerApiKey } from './places/google-key.js';
 export { CCTV_FRAME_FETCH_TIMEOUT_MS, fetchCctvImageFromUpstream };
 /**
@@ -117,7 +118,10 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
         signal: AbortSignal.timeout(CCTV_FRAME_FETCH_TIMEOUT_MS),
       });
       const svType = svResp.headers.get('content-type') || '';
-      if (!svResp.ok || !svType.startsWith('image/')) return null;
+      if (!svResp.ok || !svType.startsWith('image/')) {
+        await discardResponseBody(svResp);
+        return null;
+      }
 
       return {
         ok: true,

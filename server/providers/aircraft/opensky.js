@@ -1,6 +1,7 @@
 import { normalizeAdsbLolPointResponse } from '../../../src/data/adsbLolFallback.js';
 import {
   coalesceProxyRequest,
+  discardResponseBody,
   readResponseJsonCapped,
 } from '../common/http.js';
 import { requiredFiniteQueryNumber } from '../common/query.js';
@@ -296,7 +297,10 @@ async function fetchAdsbLolPointFallback(req) {
             signal: controller.signal,
           },
         );
-        if (!upstream.ok) throw new Error(`upstream HTTP ${upstream.status}`);
+        if (!upstream.ok) {
+          await discardResponseBody(upstream);
+          throw new Error(`upstream HTTP ${upstream.status}`);
+        }
         const payload = await readResponseJsonCapped(
           upstream,
           ADSBLOL_POINT_MAX_RESPONSE_BYTES,

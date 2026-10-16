@@ -7,6 +7,7 @@ import {
   normalizeBudget as normalizeTomTomBudget,
   isOverBudget as isTomTomOverBudget,
 } from '../../src/data/tomtomTiles.js';
+import { discardResponseBody } from './common/http.js';
 
 /**
  * TomTom traffic-flow vector-tile proxy with a daily budget governor.
@@ -146,7 +147,10 @@ export function tomtomProxy() {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      await discardResponseBody(res);
+      throw new Error(`HTTP ${res.status}`);
+    }
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length === 0) throw new Error('empty tile body');
     return buf;

@@ -138,6 +138,12 @@ export async function fetchTerrainChunkWithRetry(
       const signal = makeSignal(timeoutMs);
       const res = await fetchImpl(url, signal ? { signal } : {});
       if (!res.ok) {
+        // Release the unread body so the connection is not left paused.
+        try {
+          await res.body?.cancel?.();
+        } catch {
+          /* no-op */
+        }
         const error = new Error(`HTTP ${res.status}`);
         error.retryable = res.status === 429 || res.status >= 500;
         error.retryAfter = res.headers?.get?.('retry-after') ?? null;

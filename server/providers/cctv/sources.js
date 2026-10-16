@@ -97,7 +97,7 @@ import {
   prioritizeSources,
 } from './normalize.js';
 import { directionToHeading } from '../../../src/data/directionText.js';
-import { readResponseJsonCapped } from '../common/http.js';
+import { discardResponseBody, readResponseJsonCapped } from '../common/http.js';
 /**
  * Fetch and parse Austin traffic camera records from the city Open Data portal.
  *
@@ -117,6 +117,7 @@ export async function loadAustinSourcesFromOpenData() {
     });
     if (!resp.ok) {
       console.warn('[CCTV] Austin source download failed:', resp.status);
+      await discardResponseBody(resp);
       return [];
     }
     const payload = await resp.json();
@@ -227,7 +228,10 @@ export async function loadCaltransSourcesFromOpenData() {
         headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(CCTV_SOURCE_FETCH_TIMEOUT_MS),
       });
-      if (!resp.ok) throw new Error(`D${district} HTTP ${resp.status}`);
+      if (!resp.ok) {
+        await discardResponseBody(resp);
+        throw new Error(`D${district} HTTP ${resp.status}`);
+      }
       const payload = await resp.json();
       const rows = Array.isArray(payload?.data) ? payload.data : [];
       return { district, rows };
@@ -344,6 +348,7 @@ export async function loadTflSourcesFromOpenData() {
     });
     if (!resp.ok) {
       console.warn('[CCTV] TfL JamCam download failed:', resp.status);
+      await discardResponseBody(resp);
       return [];
     }
     const places = await resp.json();
@@ -488,6 +493,7 @@ export async function loadOntarioSourcesFromOpenData() {
     });
     if (!resp.ok) {
       console.warn('[CCTV] Ontario 511 camera download failed:', resp.status);
+      await discardResponseBody(resp);
       return [];
     }
     const rows = await resp.json();
@@ -611,10 +617,12 @@ export async function loadFintrafficSourcesFromOpenData() {
       console.warn(
         '[CCTV] Fintraffic station list redirected; redirects are not followed',
       );
+      await discardResponseBody(resp);
       return [];
     }
     if (!resp.ok) {
       console.warn('[CCTV] Fintraffic station download failed:', resp.status);
+      await discardResponseBody(resp);
       return [];
     }
     const payload = await resp.json();
@@ -756,6 +764,7 @@ export async function loadDriveBcSourcesFromOpenData() {
     });
     if (!resp.ok) {
       console.warn('[CCTV] DriveBC camera download failed:', resp.status);
+      await discardResponseBody(resp);
       return [];
     }
     const rows = await resp.json();
@@ -953,7 +962,10 @@ export async function loadTxdotSourcesFromOpenData() {
         },
         signal: AbortSignal.timeout(CCTV_SOURCE_FETCH_TIMEOUT_MS),
       });
-      if (!resp.ok) throw new Error(`${district} HTTP ${resp.status}`);
+      if (!resp.ok) {
+        await discardResponseBody(resp);
+        throw new Error(`${district} HTTP ${resp.status}`);
+      }
       return { district, payload: await resp.json() };
     }),
   );
@@ -1161,7 +1173,9 @@ export function parseTarkteeDatexImages(xml) {
  */
 export async function loadTarkteeSourcesFromDatex() {
   try {
-    const [locResp, imgResp] = await Promise.all([
+    // Settled, not Promise.all: if one request rejects, the other's Response
+    // must still be released rather than stranded with an unread body.
+    const settled = await Promise.allSettled([
       fetch(TARKTEE_LOCATIONS_URL, {
         headers: { Accept: 'application/xml,text/xml,*/*' },
         signal: AbortSignal.timeout(CCTV_SOURCE_FETCH_TIMEOUT_MS),
@@ -1171,12 +1185,28 @@ export async function loadTarkteeSourcesFromDatex() {
         signal: AbortSignal.timeout(CCTV_SOURCE_FETCH_TIMEOUT_MS),
       }),
     ]);
-    if (!locResp.ok) {
-      console.warn('[CCTV] Tarktee locations download failed:', locResp.status);
-      return [];
-    }
-    if (!imgResp.ok) {
-      console.warn('[CCTV] Tarktee images download failed:', imgResp.status);
+    const [locResp, imgResp] = settled.map((result) =>
+      result.status === 'fulfilled' ? result.value : null,
+    );
+    const failed = settled.find((result) => result.status === 'rejected');
+    if (failed || !locResp.ok || !imgResp.ok) {
+      if (failed) {
+        console.warn(
+          '[CCTV] Tarktee DATEX download error:',
+          failed.reason?.message || failed.reason,
+        );
+      } else if (!locResp.ok) {
+        console.warn(
+          '[CCTV] Tarktee locations download failed:',
+          locResp.status,
+        );
+      } else {
+        console.warn('[CCTV] Tarktee images download failed:', imgResp.status);
+      }
+      await Promise.all([
+        discardResponseBody(locResp),
+        discardResponseBody(imgResp),
+      ]);
       return [];
     }
     const [locXml, imgXml] = await Promise.all([
@@ -1394,6 +1424,7 @@ export async function loadNswSourcesFromOpenData() {
     });
     if (!resp.ok) {
       console.warn('[CCTV] NSW camera download failed:', resp.status);
+      await discardResponseBody(resp);
       return [];
     }
     const body = await resp.json();
@@ -1562,25 +1593,17 @@ export async function loadCalgarySourcesFromOpenData() {
       redirect: 'manual',
       signal: AbortSignal.timeout(CCTV_SOURCE_FETCH_TIMEOUT_MS),
     });
-    // A response this loader will not read still owns its transport until the
-    // body is released, so every rejection path cancels before returning.
-    const discard = async () => {
-      try {
-        await resp.body?.cancel();
-      } catch {
-        /* no-op */
-      }
-      return [];
-    };
     if (resp.status >= 300 && resp.status < 400) {
       console.warn(
         '[CCTV] Calgary catalog redirected; redirects are not followed',
       );
-      return discard();
+      await discardResponseBody(resp);
+      return [];
     }
     if (!resp.ok) {
       console.warn('[CCTV] Calgary camera download failed:', resp.status);
-      return discard();
+      await discardResponseBody(resp);
+      return [];
     }
     const rows = await readResponseJsonCapped(resp, CALGARY_MAX_CATALOG_BYTES);
     if (!Array.isArray(rows)) return [];
@@ -1623,6 +1646,7 @@ export async function loadDelDOTSourcesFromOpenData() {
     });
     if (!resp.ok) {
       console.warn('[CCTV] DelDOT source download failed:', resp.status);
+      await discardResponseBody(resp);
       return [];
     }
     const payload = await readResponseJsonCapped(resp, 2 * 1024 * 1024);
@@ -1822,23 +1846,17 @@ export async function loadVegvesenSourcesFromOpenData() {
       redirect: 'manual',
       signal: AbortSignal.timeout(CCTV_SOURCE_FETCH_TIMEOUT_MS),
     });
-    const discard = async () => {
-      try {
-        await resp.body?.cancel();
-      } catch {
-        /* no-op */
-      }
-      return [];
-    };
     if (resp.status >= 300 && resp.status < 400) {
       console.warn(
         '[CCTV] Vegvesen catalog redirected; redirects are not followed',
       );
-      return discard();
+      await discardResponseBody(resp);
+      return [];
     }
     if (!resp.ok) {
       console.warn('[CCTV] Vegvesen camera download failed:', resp.status);
-      return discard();
+      await discardResponseBody(resp);
+      return [];
     }
     const payload = await readResponseJsonCapped(
       resp,
@@ -1973,23 +1991,17 @@ export async function loadMdotSourcesFromOpenData() {
       redirect: 'manual',
       signal: AbortSignal.timeout(CCTV_SOURCE_FETCH_TIMEOUT_MS),
     });
-    const discard = async () => {
-      try {
-        await resp.body?.cancel();
-      } catch {
-        /* no-op */
-      }
-      return [];
-    };
     if (resp.status >= 300 && resp.status < 400) {
       console.warn(
         '[CCTV] MDOT catalog redirected; redirects are not followed',
       );
-      return discard();
+      await discardResponseBody(resp);
+      return [];
     }
     if (!resp.ok) {
       console.warn('[CCTV] MDOT camera download failed:', resp.status);
-      return discard();
+      await discardResponseBody(resp);
+      return [];
     }
     const payload = await readResponseJsonCapped(resp, MDOT_MAX_CATALOG_BYTES);
     const rows = Array.isArray(payload) ? payload : [];
