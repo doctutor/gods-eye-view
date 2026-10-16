@@ -29,9 +29,8 @@ export const BROWSER_CSP = [
   "connect-src 'self' blob: data: https: wss: ws:",
   "worker-src 'self' blob:",
   "child-src 'self' blob:",
-  // The same media's players and posts, which load in frames; and (personal
-  // fork) OpenCCTV camera pages, src/ui/cctvEmbed.js.
-  "frame-src 'self' blob: https://www.youtube-nocookie.com https://www.youtube.com https://www.facebook.com https://platform.twitter.com https://opencctv.org",
+  // The same media's players and posts, which load in frames.
+  "frame-src 'self' blob: https://www.youtube-nocookie.com https://www.youtube.com https://www.facebook.com https://platform.twitter.com",
   "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",

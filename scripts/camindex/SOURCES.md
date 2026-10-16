@@ -50,8 +50,7 @@ again. It never calls the site's API and never relays the site's video.
   coordinates and place, so one request covers 16 cameras.
 - Camera pages, only when a listing card has no coordinates, or with
   `--page-details`. Each page's ImageObject gives name, caption (which states
-  the category), coordinates, address and the still URL. Its Embed button
-  snippet gives the iframe URL.
+  the category), coordinates, address and the still URL.
 - Sitemaps (`--via sitemap`): `/sitemap.xml` and
   `/sitemap-cameras-{1,2,3}.xml`, then each camera page.
 - Stills, during `verify`: `/still/<id>.jpg`, which is each page's og:image.
@@ -90,16 +89,19 @@ Maryland is verified first, then scenic cameras, then the rest.
 - `sourceKind` is `opencctv` and `publishSignal` is `directory-embed`.
 - `licenseClass` is `embed-only`.
 - `coordinatesQuality` is `site`.
-- `category` is the directory's own category: nature, beach, ski, airport,
-  satellite, weather or traffic. A camera in several categories takes the
-  first one in that order.
+- `category` is the directory's category in the app's words: nature, beach,
+  ski, airport, satellite, meteo (the directory's "weather") or traffic. A
+  camera in several categories takes the first one in that order.
 - The camera shows the directory's published still: `feedType` is `image` and
   `snapshotUrl` is `/still/<id>.jpg`. The still goes through the app's frame
   route like any image camera.
-- The camera page is the operator link.
-- The Embed snippet's iframe is the camera page itself. The catalog records
-  it as `embed: {provider: 'opencctv', url}`. On 2026-10-16 every opencctv.org
-  page, `/embed/<id>` included, was served with `X-Frame-Options: SAMEORIGIN`,
-  so a browser refuses to show it inside the app. For that reason the pack
-  drops the embed unless `CCTV_CAMINDEX_EMBED=1`. The panel frames only
-  `https://opencctv.org/cameras/…` pages, sandboxed.
+- The frame route keeps each upstream frame for its Cache-Control lifetime,
+  s-maxage before max-age (`server/providers/cctv/frameCache.js`). An open
+  panel therefore asks opencctv.org for a still at most once every 600 s, not
+  every 10 s.
+- The camera page is the operator link ("OPEN ON OPENCCTV.ORG").
+
+**What is not used:** the Embed button's iframe, which is the camera page
+itself. On 2026-10-16 every opencctv.org page, `/embed/<id>` included, was
+served with `X-Frame-Options: SAMEORIGIN`, so a browser refuses to show it
+inside another site. camindex neither records nor frames it.

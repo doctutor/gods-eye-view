@@ -571,19 +571,6 @@ export function normalizeSourceItem(item) {
   };
 }
 
-/** Personal fork: an https://opencctv.org/ embed, else null. */
-function openCctvEmbed(embed) {
-  if (embed?.provider !== 'opencctv') return null;
-  try {
-    const url = new URL(String(embed.url || ''));
-    if (url.protocol !== 'https:' || url.hostname !== 'opencctv.org')
-      return null;
-    return { provider: 'opencctv', url: url.href };
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Personal fork: playback and provenance for a stream that only its own
  * player may show (featured.js). Absent on every other source, so their
@@ -593,8 +580,6 @@ function provenanceFields(item) {
   const videoId = String(item.embed?.videoId || '');
   const embedded =
     item.embed?.provider === 'youtube' && /^[A-Za-z0-9_-]{11}$/.test(videoId);
-  // Personal fork: a directory's own player page (camindex.js), on its host only.
-  const directoryEmbed = openCctvEmbed(item.embed);
   if (!embedded && !item.licenseClass) return {};
   const word = (value) =>
     String(value || '')
@@ -609,7 +594,6 @@ function provenanceFields(item) {
   }
   return {
     ...(embedded ? { embed: { provider: 'youtube', videoId } } : {}),
-    ...(directoryEmbed ? { embed: directoryEmbed } : {}),
     liveStatus: word(item.liveStatus) || 'unknown',
     category: word(item.category),
     coordinatesQuality: word(item.coordinatesQuality),

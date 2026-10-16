@@ -13,7 +13,7 @@ export const SAME_NAME_SIMILARITY = 0.5;
 
 /** A feed URL reduced to what identifies it (scheme, case and fragment dropped). */
 export function feedKey(source) {
-  const raw = source?.embed?.url || source?.snapshotUrl || source?.url || '';
+  const raw = source?.snapshotUrl || source?.url || '';
   try {
     const url = new URL(raw);
     url.hash = '';

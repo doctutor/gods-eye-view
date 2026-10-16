@@ -74,8 +74,6 @@ test('a saved camera page parses to one candidate from its JSON-LD', async () =>
     caption: candidate.caption,
     categories: ['traffic'],
     stillUrl: 'https://opencctv.org/still/984.jpg',
-    // The Embed button's iframe is the camera page itself.
-    embedUrl: CAMERA_984,
   });
   assert.match(candidate.caption, /^Live traffic camera on Beluga Lake/);
   assert.equal(parseCameraPage('<html></html>', CAMERA_984), null);
@@ -102,7 +100,6 @@ test('a saved listing page yields its cards and page count, never feed URLs', as
   assert.equal(first.place, 'Jaén, ES');
   assert.deepEqual(first.categories, ['nature']);
   assert.equal(first.stillUrl, 'https://opencctv.org/still/399305.jpg');
-  assert.equal(first.embedUrl, first.pageUrl);
   assert.ok(!JSON.stringify(listing).includes('/api/'));
 });
 
@@ -506,7 +503,6 @@ test('the catalog carries provenance and leaves out dead cameras', () => {
     place: 'Baltimore, Maryland, US',
     categories: ['traffic', 'nature'],
     stillUrl: `https://opencctv.org/still/${id}.jpg`,
-    embedUrl: `https://opencctv.org/cameras/us/md/camera-${id}`,
     ...over,
   });
   const catalog = buildCatalog(
@@ -549,10 +545,7 @@ test('the catalog carries provenance and leaves out dead cameras', () => {
   assert.equal(first.licenseClass, 'embed-only');
   assert.equal(first.coordinatesQuality, 'site');
   assert.equal(first.operatorUrl, candidate('1').pageUrl);
-  assert.deepEqual(first.embed, {
-    provider: 'opencctv',
-    url: candidate('1').pageUrl,
-  });
+  assert.equal(first.embed, undefined, 'no directory player is framed');
   assert.equal(first.verifiedAt, '2026-10-16T00:00:00.000Z');
   assert.equal(openCctvToSource(candidate('5'), null).city, 'Baltimore, Maryland, US');
   assert.equal(

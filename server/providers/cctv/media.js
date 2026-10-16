@@ -550,7 +550,9 @@ export async function fetchCctvImageFromUpstream(
     }
     const body = await readCappedResponseBytes(upstream, maxBytes);
     if (!body) return null;
-    return { ok: true, body, contentType };
+    // Personal fork: the upstream's freshness, for frameCache.js.
+    const cacheControl = upstream.headers.get('cache-control') || '';
+    return { ok: true, body, contentType, cacheControl };
   } catch {
     return null;
   } finally {

@@ -10,9 +10,9 @@ import { isPlausibleLatLon } from './normalize.js';
  * capped startup catalog and everything to the proximity index.
  *
  * The file is re-read when its modification time or size changes, and each
- * camera is checked again on the way in (coordinates, https feed URLs, the
- * one embed provider the panel allows), since it was assembled from pages
- * the crawler does not control.
+ * camera is checked again on the way in (coordinates, https URLs, plain
+ * words), since it was assembled from pages the crawler does not control.
+ * Cameras are still images; no directory player is framed.
  *
  * Personal-fork pack; not part of upstream God's Eye View.
  */
@@ -32,11 +32,10 @@ export function camindexCatalogPath(sourceRoot, env = process.env) {
   );
 }
 
-function httpsUrl(value, hostname) {
+function httpsUrl(value) {
   try {
     const url = new URL(String(value || ''));
     if (url.protocol !== 'https:' || url.username || url.password) return '';
-    if (hostname && url.hostname !== hostname) return '';
     return url.href;
   } catch {
     return '';
@@ -54,10 +53,8 @@ const word = (value, fallback = '') =>
 /**
  * One catalog camera → a source, or null when it is unusable.
  * @param {object} camera
- * @param {{embeds?: boolean}} [options] - keep directory embeds (off by
- *   default: opencctv.org pages refuse to be framed by another site today).
  */
-export function catalogCameraToSource(camera, { embeds = false } = {}) {
+export function catalogCameraToSource(camera) {
   if (!camera || typeof camera !== 'object') return null;
   const id = String(camera.id || '');
   const lat = Number(camera.lat);
@@ -67,10 +64,6 @@ export function catalogCameraToSource(camera, { embeds = false } = {}) {
   const snapshotUrl = httpsUrl(camera.snapshotUrl);
   if (camera.feedType !== 'image' || !snapshotUrl) return null;
   const name = text(camera.name, 120) || id;
-  const embedUrl =
-    embeds && camera.embed?.provider === 'opencctv'
-      ? httpsUrl(camera.embed.url, 'opencctv.org')
-      : '';
   return {
     id,
     name,
@@ -95,7 +88,6 @@ export function catalogCameraToSource(camera, { embeds = false } = {}) {
     feedType: 'image',
     url: snapshotUrl,
     snapshotUrl,
-    ...(embedUrl ? { embed: { provider: 'opencctv', url: embedUrl } } : {}),
   };
 }
 
@@ -126,9 +118,8 @@ export function createCamindexLoader({ env = process.env } = {}) {
     }
     try {
       const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-      const embeds = String(env.CCTV_CAMINDEX_EMBED || '').trim() === '1';
       const sources = (Array.isArray(parsed?.cameras) ? parsed.cameras : [])
-        .map((camera) => catalogCameraToSource(camera, { embeds }))
+        .map((camera) => catalogCameraToSource(camera))
         .filter(Boolean);
       held = { file, mtimeMs: stat.mtimeMs, size: stat.size, sources };
       console.log(`[CCTV] Loaded camindex catalog: ${sources.length} cameras`);

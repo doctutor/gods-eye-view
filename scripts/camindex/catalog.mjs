@@ -20,13 +20,27 @@ const clean = (value, max = 120) =>
     .trim()
     .slice(0, max);
 
+/** The directory's categories in the app's category words. */
+export const OPENCCTV_CATEGORY_WORDS = Object.freeze({
+  nature: 'nature',
+  beach: 'beach',
+  ski: 'ski',
+  airport: 'airport',
+  satellite: 'satellite',
+  weather: 'meteo',
+  traffic: 'traffic',
+});
+
 /**
  * One OpenCCTV candidate → a catalog camera. The directory publishes a still
- * per camera (its og:image) and an embed snippet whose iframe is the camera
- * page itself; the app shows the still and links the page.
+ * per camera (its og:image); the app shows it and links the camera page. The
+ * page's own player is not framed: opencctv.org refuses framing
+ * (X-Frame-Options: SAMEORIGIN).
  */
 export function openCctvToSource(candidate, record) {
-  const category = primaryCategory(candidate.categories || []);
+  const category =
+    OPENCCTV_CATEGORY_WORDS[primaryCategory(candidate.categories || [])] ||
+    'webcam';
   const name = clean(candidate.name) || `OpenCCTV camera ${candidate.id}`;
   const status = record?.status;
   return {
@@ -42,7 +56,7 @@ export function openCctvToSource(candidate, record) {
     rangeM: 150,
     sourceKind: 'opencctv',
     license:
-      'Listed by opencctv.org, which publishes this still and embed; the feed belongs to its operator',
+      'Listed by opencctv.org, which publishes this still; the feed belongs to its operator',
     code: name.toUpperCase(),
     category,
     coordinatesQuality: 'site',
@@ -52,10 +66,6 @@ export function openCctvToSource(candidate, record) {
     feedType: 'image',
     url: candidate.stillUrl,
     snapshotUrl: candidate.stillUrl,
-    embed: {
-      provider: 'opencctv',
-      url: candidate.embedUrl || candidate.pageUrl,
-    },
     liveStatus: status === 'live' ? 'live' : 'unknown',
     ...(record?.verifiedAt
       ? { verifiedAt: new Date(record.verifiedAt).toISOString() }

@@ -383,10 +383,7 @@ const SCENIC_DISTANCE_FACTOR = 0.5;
 
 /** How much nearer a camera counts than it is, by what it shows. */
 export function interestFactor(source) {
-  // Personal fork: a directory's embed (camindex.js) ranks as scenic, not
-  // as a featured stream.
-  if (source?.embed && source.publishSignal !== 'directory-embed')
-    return FEATURED_DISTANCE_FACTOR;
+  if (source?.embed) return FEATURED_DISTANCE_FACTOR;
   if (source?.category && source.category !== 'traffic')
     return SCENIC_DISTANCE_FACTOR;
   return 1;

@@ -13,17 +13,16 @@ import {
   createCctvCatalog,
   interestFactor,
 } from '../../server/providers/cctv/catalog.js';
-import { normalizeSourceItem } from '../../server/providers/cctv/normalize.js';
 import {
-  embedBadgeText,
-  embedSrcFor,
-  opencctvEmbedUrl,
-  syncCctvEmbed,
-} from '../ui/cctvEmbed.js';
-import { BROWSER_CSP } from '../../build/vite.js';
+  FRAME_CACHE_MAX_TTL_MS,
+  createFrameCache,
+  freshnessMs,
+} from '../../server/providers/cctv/frameCache.js';
+import { fetchCctvImageFromUpstream } from '../../server/providers/cctv/media.js';
+import { cameraTag } from '../ui/cctvCameraList.js';
 
 // Personal fork: the camindex pack (server/providers/cctv/camindex.js) and
-// the OpenCCTV embed allowlist.
+// the upstream frame cache (frameCache.js).
 
 const PAGE =
   'https://opencctv.org/cameras/united-states/maryland/baltimore/peregrine-falcons-212832';
@@ -48,7 +47,6 @@ const camera = (over = {}) => ({
   feedType: 'image',
   url: 'https://opencctv.org/still/212832.jpg',
   snapshotUrl: 'https://opencctv.org/still/212832.jpg',
-  embed: { provider: 'opencctv', url: PAGE },
   liveStatus: 'live',
   ...over,
 });
@@ -71,18 +69,7 @@ test('catalog cameras are checked again on the way in', () => {
   assert.ok(Number.isNaN(source.headingDeg));
   assert.equal(source.feedType, 'image');
   assert.equal(source.snapshotUrl, 'https://opencctv.org/still/212832.jpg');
-  assert.equal(source.embed, undefined, 'directory embeds are off by default');
-  assert.deepEqual(catalogCameraToSource(camera(), { embeds: true }).embed, {
-    provider: 'opencctv',
-    url: PAGE,
-  });
-  assert.equal(
-    catalogCameraToSource(
-      camera({ embed: { provider: 'opencctv', url: 'https://evil.example/x' } }),
-      { embeds: true },
-    ).embed,
-    undefined,
-  );
+  assert.equal(source.embed, undefined);
   for (const bad of [
     { id: 'Bad Id!' },
     { lat: 0, lon: 0 },
@@ -182,6 +169,8 @@ test('camindex cameras reach proximity queries with their provenance', async (t)
     assert.equal(near.licenseClass, 'embed-only');
     assert.equal(near.coordinatesQuality, 'site');
     assert.equal(near.embed, undefined);
+    assert.equal(interestFactor(near), 0.5, 'scenic, not featured');
+    assert.equal(cameraTag(near), 'OPENCCTV');
 
     process.env.CCTV_CAMINDEX_ENABLED = '0';
     const off = createCctvCatalog({ sourceRoot: dir });
@@ -194,117 +183,93 @@ test('camindex cameras reach proximity queries with their provenance', async (t)
   }
 });
 
-test('a directory embed survives normalizing and ranks as scenic', () => {
-  const normalized = normalizeSourceItem(camera());
-  assert.deepEqual(normalized.embed, { provider: 'opencctv', url: PAGE });
-  assert.equal(
-    normalizeSourceItem(
-      camera({ embed: { provider: 'opencctv', url: 'https://opencctv.org.evil.example/' } }),
-    ).embed,
-    undefined,
-  );
-  assert.equal(
-    normalizeSourceItem(camera({ embed: { provider: 'other', url: PAGE } })).embed,
-    undefined,
-  );
-  assert.equal(interestFactor(normalized), 0.5);
-  assert.equal(
-    interestFactor({ embed: { provider: 'youtube' }, publishSignal: 'operator-page' }),
-    0.25,
-  );
-});
-
-test('the panel frames OpenCCTV camera pages and nothing else', () => {
-  assert.equal(opencctvEmbedUrl(PAGE), PAGE);
-  for (const bad of [
-    'http://opencctv.org/cameras/a-1',
-    'https://opencctv.org/api/feed/1',
-    'https://opencctv.org:8443/cameras/a-1',
-    'https://user@opencctv.org/cameras/a-1',
-    'https://opencctv.org.evil.example/cameras/a-1',
-    'https://www.opencctv.org/cameras/a-1',
-    'javascript:alert(1)',
+test('freshness comes from Cache-Control as a shared cache reads it', () => {
+  assert.equal(freshnessMs('public, max-age=14400, s-maxage=600'), 600_000);
+  assert.equal(freshnessMs('max-age=150'), 150_000);
+  assert.equal(freshnessMs('max-age=86400'), FRAME_CACHE_MAX_TTL_MS);
+  for (const header of [
     '',
+    'no-store',
+    'max-age=60, no-cache',
+    'private, max-age=60',
+    'max-age=0',
+    'max-age=soon',
   ])
-    assert.equal(opencctvEmbedUrl(bad), '', bad);
-  assert.equal(embedSrcFor({ provider: 'opencctv', url: PAGE }), PAGE);
-  assert.equal(
-    embedSrcFor({ provider: 'iframe', url: 'https://evil.example/' }),
-    '',
-  );
-  assert.match(
-    embedSrcFor({ provider: 'youtube', videoId: '1_BdSTneH3s' }),
-    /^https:\/\/www\.youtube-nocookie\.com\/embed\/1_BdSTneH3s\?/,
-  );
-  assert.equal(
-    embedBadgeText({ embed: { provider: 'opencctv' }, liveStatus: 'live' }),
-    'OPENCCTV · LIVE',
-  );
-  assert.equal(
-    embedBadgeText({ embed: { provider: 'youtube' } }),
-    'YOUTUBE · STATUS UNKNOWN',
-  );
-  const frames = BROWSER_CSP.split(';')
-    .map((part) => part.trim())
-    .find((part) => part.startsWith('frame-src '))
-    .split(/\s+/);
-  assert.ok(frames.includes('https://opencctv.org'));
+    assert.equal(freshnessMs(header), 0, header);
 });
 
-test('an OpenCCTV frame is sandboxed and replaced only when its page changes', (t) => {
-  const made = [];
-  const element = () => {
-    const attributes = {};
-    const classes = new Set();
+test('a frame is fetched once per freshness period and shared by concurrent misses', async () => {
+  let clock = 0;
+  const cache = createFrameCache({ now: () => clock });
+  let loads = 0;
+  const frame = (cacheControl, size = 10) => async () => {
+    loads += 1;
     return {
-      dataset: {},
-      attributes,
-      setAttribute: (name, value) => {
-        attributes[name] = value;
-      },
-      remove() {
-        this.removed = true;
-      },
-      appendChild(child) {
-        this.child = child;
-      },
-      classList: {
-        add: (name) => classes.add(name),
-        remove: (name) => classes.delete(name),
-        contains: (name) => classes.has(name),
-      },
+      ok: true,
+      body: Buffer.alloc(size),
+      contentType: 'image/jpeg',
+      cacheControl,
     };
   };
-  const previous = globalThis.document;
-  globalThis.document = {
-    createElement: () => {
-      const node = element();
-      made.push(node);
-      return node;
-    },
-  };
-  t.after(() => {
-    globalThis.document = previous;
+  const url = 'https://opencctv.org/still/1.jpg';
+  const [a, b] = await Promise.all([
+    cache.get(url, frame('max-age=150')),
+    cache.get(url, frame('max-age=150')),
+  ]);
+  assert.equal(a, b);
+  assert.equal(loads, 1);
+  clock += 149_000;
+  await cache.get(url, frame('max-age=150'));
+  assert.equal(loads, 1);
+  clock += 2_000;
+  await cache.get(url, frame('max-age=150'));
+  assert.equal(loads, 2, 'refetched once stale');
+
+  await cache.get('https://x/a.jpg', frame('no-store'));
+  await cache.get('https://x/a.jpg', frame('no-store'));
+  assert.equal(loads, 4, 'no-store is never kept');
+  await cache.get('https://x/miss.jpg', async () => null);
+  assert.equal(cache.stats().entries, 1, 'misses are not kept');
+});
+
+test('the frame cache is bounded by entries and bytes, oldest use first out', async () => {
+  const cache = createFrameCache({ maxEntries: 2, maxBytes: 100 });
+  const load = (size) => async () => ({
+    ok: true,
+    body: Buffer.alloc(size),
+    contentType: 'image/jpeg',
+    cacheControl: 'max-age=600',
   });
-  const controls = { _cctvFrameWrap: element(), _cctvPanel: element() };
-  const activeCamera = {
-    name: 'Peregrine Falcons',
-    embed: { provider: 'opencctv', url: PAGE },
-  };
-  assert.equal(syncCctvEmbed(controls, { enabled: true, activeCamera }), true);
-  const [frame] = made;
-  assert.equal(frame.src, PAGE);
-  assert.equal(frame.attributes.sandbox, 'allow-scripts allow-same-origin');
-  assert.equal(frame.title, 'Peregrine Falcons on OpenCCTV');
-  assert.equal(syncCctvEmbed(controls, { enabled: true, activeCamera }), true);
-  assert.equal(made.length, 1, 'the same page keeps its frame');
-  assert.equal(
-    syncCctvEmbed(controls, {
-      enabled: true,
-      activeCamera: { embed: { provider: 'opencctv', url: 'https://evil.example/' } },
-    }),
-    false,
+  await cache.get('a', load(10));
+  await cache.get('b', load(10));
+  await cache.get('a', load(10));
+  await cache.get('c', load(10));
+  let reloaded = false;
+  await cache.get('a', async () => {
+    reloaded = true;
+    return null;
+  });
+  assert.equal(reloaded, false, 'a was used recently and stayed');
+  assert.deepEqual(cache.stats(), { entries: 2, bytes: 20 });
+  await cache.get('big', load(95));
+  assert.deepEqual(cache.stats(), { entries: 1, bytes: 95 });
+  await cache.get('huge', load(101));
+  assert.deepEqual(cache.stats(), { entries: 1, bytes: 95 });
+});
+
+test('upstream frames carry their Cache-Control to the cache', async () => {
+  const frame = await fetchCctvImageFromUpstream(
+    'https://opencctv.org/still/1.jpg',
+    {
+      fetchImpl: async () =>
+        new Response(Buffer.alloc(2048), {
+          headers: {
+            'content-type': 'image/jpeg',
+            'cache-control': 'public, max-age=14400, s-maxage=600',
+          },
+        }),
+    },
   );
-  assert.equal(frame.removed, true);
-  assert.equal(made.length, 1, 'no frame for a foreign page');
+  assert.equal(frame.cacheControl, 'public, max-age=14400, s-maxage=600');
+  assert.equal(frame.body.length, 2048);
 });

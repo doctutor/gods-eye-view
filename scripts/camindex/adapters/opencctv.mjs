@@ -182,10 +182,9 @@ export function parseListingPage(html, { category = '', region = '' } = {}) {
         place: clean(item.contentLocation?.name, 80),
         region,
         categories: category ? [category] : [],
-        // Every camera page publishes /still/<id>.jpg as its image and its
-        // own URL as the embed iframe; a listing card shows neither.
+        // Every camera page publishes /still/<id>.jpg as its image (its
+        // og:image); a listing card does not show it.
         stillUrl: stillUrl(page.id),
-        embedUrl: page.url,
       });
     }
   }
@@ -193,26 +192,6 @@ export function parseListingPage(html, { category = '', region = '' } = {}) {
     /Page\s+\d+\s+of\s+(\d{1,5})/i.exec(String(html || ''))?.[1],
   );
   return { items, pages: Number.isInteger(pages) && pages > 0 ? pages : 1 };
-}
-
-/** The iframe src in the page's "Embed" snippet, if it is on opencctv.org. */
-export function embedUrlFromPage(html) {
-  const snippet =
-    /<textarea[^>]*data-embed-snippet[^>]*>([\s\S]*?)<\/textarea>/i.exec(
-      String(html || ''),
-    )?.[1];
-  if (!snippet) return '';
-  const src = /<iframe[^>]*\ssrc\s*=\s*"([^"]+)"/i.exec(
-    decodeEntities(snippet),
-  )?.[1];
-  try {
-    const url = new URL(src);
-    return url.protocol === 'https:' && url.hostname === 'opencctv.org'
-      ? url.href
-      : '';
-  } catch {
-    return '';
-  }
 }
 
 /**
@@ -260,7 +239,6 @@ export function parseCameraPage(html, pageUrl) {
     caption,
     categories: category ? [category] : [],
     stillUrl: still,
-    embedUrl: embedUrlFromPage(html),
   };
 }
 
@@ -309,7 +287,7 @@ export function mergeCandidate(known, next) {
   }
   // A camera page is more authoritative than a listing card.
   if (next.caption) {
-    for (const key of ['name', 'lat', 'lon', 'place', 'stillUrl', 'embedUrl'])
+    for (const key of ['name', 'lat', 'lon', 'place', 'stillUrl'])
       if (next[key] !== '' && next[key] != null) merged[key] = next[key];
   }
   merged.categories = [
