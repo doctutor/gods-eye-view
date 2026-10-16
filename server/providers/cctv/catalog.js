@@ -22,6 +22,7 @@ import {
   loadMdotSourcesFromOpenData,
 } from './sources.js';
 import { createFeaturedLoader } from './featured.js';
+import { haversineKm } from '../common/geo.js';
 
 /** Env kill switch: unset or anything but "0" means enabled. */
 const envEnabled = (name) => String(process.env[name] || '1').trim() !== '0';
@@ -165,6 +166,9 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
   /** @type {Array<{pack: string, available: number, served: number}>} Packs
    * that serve fewer cameras than they offer. */
   let _cctvTrimmedPacks = [];
+  /** @type {Array<object>} Personal fork: every camera the packs offered,
+   * uncapped, for proximity queries (`near`). */
+  let _cctvIndex = [];
 
   /**
    * Assemble and cache the merged CCTV source list.
@@ -237,6 +241,11 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
         ? items.available
         : items.length,
       region: items.region ?? null,
+      // Personal fork: the pack's full offer, for the proximity index.
+      everything: (Array.isArray(items.everything) ? items.everything : items)
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => ({ ...normalizeSourceItem(item), pack: name }))
+        .filter((item) => item.id),
     });
     const packs = [
       ...LIVE_PACKS.map((pack, index) =>
@@ -255,10 +264,14 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
     // Shipped ground heights (src/data/local_data/cctv_ground_heights/, produced by
     // scripts/precompute-cctv-heights.mjs) ride along on the served source so
     // the client can place a camera and its monitor plane with zero sampling.
-    const capped = joinGroundHeights(
-      allocation.sources,
-      loadGroundHeights(sourceRoot),
-    );
+    const groundHeights = loadGroundHeights(sourceRoot);
+    const capped = joinGroundHeights(allocation.sources, groundHeights);
+    // Personal fork: the uncapped index behind proximity queries. Later packs
+    // win duplicate ids, as in the capped catalog.
+    const indexById = new Map();
+    for (const pack of packs)
+      for (const source of pack.everything) indexById.set(source.id, source);
+    const index = joinGroundHeights([...indexById.values()], groundHeights);
     const trimmed = allocation.packs.filter((pack) => pack.kept < pack.offered);
     // Each pack's own nearest-first cap and the shared catalog cap both trim.
     const trimmedPacks = packs
@@ -281,6 +294,7 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
     if (capped.length > 0 || _cctvSourceCache.length === 0) {
       _cctvSourceCache = capped;
       _cctvTrimmedPacks = trimmedPacks;
+      _cctvIndex = index;
     } else {
       // Every source came back empty (all live packs timed out / upstream outage)
       // but a good catalog is already cached — serve it stale rather than blanking
@@ -296,5 +310,56 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
 
   /** Packs serving fewer cameras than they offer, as of the last refresh. */
   getCctvSources.trimmedPacks = () => _cctvTrimmedPacks;
+  /** Personal fork: every known camera, including those the cap leaves out. */
+  getCctvSources.index = () => _cctvIndex;
+  /** Personal fork: the cameras nearest a point (see nearSources). */
+  getCctvSources.near = (lat, lon, options) =>
+    nearSources(_cctvIndex, lat, lon, options);
   return getCctvSources;
+}
+
+/** Proximity query bounds. */
+export const NEAR_MAX_RADIUS_KM = 500;
+export const NEAR_MAX_LIMIT = 1000;
+/** Embedded public-interest streams rank as if this much closer. */
+const FEATURED_DISTANCE_FACTOR = 0.25;
+
+/**
+ * Personal fork: the cameras within `radiusKm` of a point, nearest first,
+ * with embedded public-interest streams (featured.js) ranked ahead of traffic
+ * cameras at the same distance, so a tight limit keeps them.
+ *
+ * @param {Array<object>} sources - Normalized catalog sources.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {{radiusKm?: number, limit?: number}} [options]
+ * @returns {Array<object>}
+ */
+export function nearSources(sources, lat, lon, options = {}) {
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lon) ||
+    Math.abs(lat) > 90 ||
+    Math.abs(lon) > 180
+  )
+    return [];
+  const radiusKm = Math.min(
+    NEAR_MAX_RADIUS_KM,
+    Math.max(0.1, Number(options.radiusKm) || 25),
+  );
+  const limit = Math.min(
+    NEAR_MAX_LIMIT,
+    Math.max(1, Math.floor(Number(options.limit) || 300)),
+  );
+  const scored = [];
+  for (const source of sources || []) {
+    const distanceKm = haversineKm(lat, lon, source.lat, source.lon);
+    if (!(distanceKm <= radiusKm)) continue;
+    const rank = source.embed
+      ? distanceKm * FEATURED_DISTANCE_FACTOR
+      : distanceKm;
+    scored.push({ source, rank });
+  }
+  scored.sort((a, b) => a.rank - b.rank);
+  return scored.slice(0, limit).map((entry) => entry.source);
 }

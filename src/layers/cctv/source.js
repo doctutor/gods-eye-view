@@ -49,6 +49,15 @@ export function createCctvSource({
     getHealth(options) {
       return read('/api/cctv/health', 'cameras', options);
     },
+    /** Personal fork: every indexed camera near a point (proximity.js). */
+    getNearby(lat, lon, { radiusKm, limit, signal } = {}) {
+      const params = new URLSearchParams({
+        near: `${Number(lat).toFixed(5)},${Number(lon).toFixed(5)}`,
+        radiusKm: String(radiusKm),
+        limit: String(limit),
+      });
+      return read(`/api/cctv/sources?${params}`, 'sources', { signal });
+    },
     getFrameUrl: frameUrlFor,
     getMediaUrl: mediaUrlFor,
     /** Read one current frame through the registered frame endpoint. */

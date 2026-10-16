@@ -497,6 +497,11 @@ export function prioritizeSources(cameras, maxCount, anchors) {
   // coverage reports.
   Object.defineProperty(kept, 'available', { value: list.length });
   Object.defineProperty(kept, 'region', { value: cameraRegion(list) });
+  // Personal fork: every camera the pack offered, for the proximity index
+  // (catalog.js `near`), which is not bound by the per-pack cap.
+  Object.defineProperty(kept, 'everything', {
+    value: scored.map((entry) => entry.camera),
+  });
   return kept;
 }
 

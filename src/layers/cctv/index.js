@@ -18,6 +18,7 @@ import { createHealth } from './health.js';
 import { createControls } from './controls.js';
 import { createIngestion } from './ingestion.js';
 import { createState } from './state.js';
+import { createProximity } from './proximity.js';
 
 /** Construct one layer with its own scene state and supplied application services. */
 export function createCctvLayer({ services, source }) {
@@ -49,6 +50,8 @@ export function createCctvLayer({ services, source }) {
   parts.health = createHealth(context);
   parts.controls = createControls(context);
   parts.ingestion = createIngestion(context);
+  // Personal fork: cameras near the view, beyond the capped catalog.
+  parts.proximity = createProximity(context);
   return Object.assign(
     {},
     parts.controls.methods,

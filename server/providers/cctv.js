@@ -129,6 +129,59 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
     }
   };
 
+  /** The fields a camera source exposes to the browser. */
+  const publicSource = (source) => ({
+    id: source.id,
+    pack: source.pack,
+    name: source.name,
+    city: source.city,
+    cityId: source.cityId,
+    provider: source.provider,
+    lat: source.lat,
+    lon: source.lon,
+    headingDeg: source.headingDeg,
+    headingConfidence: source.headingConfidence || '',
+    pitchDeg: source.pitchDeg,
+    fovDeg: source.fovDeg,
+    rangeM: source.rangeM,
+    mountHeightM: source.mountHeightM,
+    groundElevationM: source.groundElevationM,
+    feedType: normalizeFeedType(source.feedType),
+    sourceKind: source.sourceKind || (source.url ? 'configured' : 'fallback'),
+    poseSource: source.poseSource,
+    license: source.license,
+    credit: source.credit || '',
+    code: source.code || '',
+    groundHeights: source.groundHeights || null,
+    // Personal fork: embed-only streams (cctv/featured.js).
+    ...(source.embed
+      ? {
+          embed: source.embed,
+          liveStatus: source.liveStatus,
+          category: source.category,
+          coordinatesQuality: source.coordinatesQuality,
+          operatorUrl: source.operatorUrl,
+        }
+      : {}),
+  });
+
+  /**
+   * Personal fork: id lookup over every indexed camera, so frames and media
+   * resolve a camera loaded by proximity like one in the capped catalog.
+   * Rebuilt only when the catalog refreshes.
+   */
+  let lookupFor = null;
+  let lookup = new Map();
+  const sourceLookup = (sources) => {
+    const index = getCctvSources.index?.() || [];
+    if (lookupFor?.sources === sources && lookupFor?.index === index)
+      return lookup;
+    lookup = new Map(index.map((source) => [source.id, source]));
+    for (const source of sources) lookup.set(source.id, source);
+    lookupFor = { sources, index };
+    return lookup;
+  };
+
   const installMiddleware = (server) => {
     server.httpServer?.on('close', () => {
       puller.shutdown();
@@ -136,49 +189,30 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
     server.middlewares.use('/api/cctv', async (req, res) => {
       try {
         const sources = await getCctvSources();
-        const sourceById = new Map(
-          sources.map((source) => [source.id, source]),
-        );
+        const sourceById = sourceLookup(sources);
         const url = new URL(req.url || '/', 'http://localhost');
+
+        if (url.pathname === '/sources' && url.searchParams.has('near')) {
+          // Personal fork: every indexed camera near a point, uncapped.
+          const [lat, lon] = String(url.searchParams.get('near'))
+            .split(',')
+            .map(Number);
+          const near = getCctvSources.near?.(lat, lon, {
+            radiusKm: Number(url.searchParams.get('radiusKm')),
+            limit: Number(url.searchParams.get('limit')),
+          });
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
+          });
+          res.end(JSON.stringify({ sources: (near || []).map(publicSource) }));
+          return;
+        }
 
         if (url.pathname === '/sources') {
           const body = {
             trimmedPacks: getCctvSources.trimmedPacks?.() ?? [],
-            sources: sources.map((source) => ({
-              id: source.id,
-              pack: source.pack,
-              name: source.name,
-              city: source.city,
-              cityId: source.cityId,
-              provider: source.provider,
-              lat: source.lat,
-              lon: source.lon,
-              headingDeg: source.headingDeg,
-              headingConfidence: source.headingConfidence || '',
-              pitchDeg: source.pitchDeg,
-              fovDeg: source.fovDeg,
-              rangeM: source.rangeM,
-              mountHeightM: source.mountHeightM,
-              groundElevationM: source.groundElevationM,
-              feedType: normalizeFeedType(source.feedType),
-              sourceKind:
-                source.sourceKind || (source.url ? 'configured' : 'fallback'),
-              poseSource: source.poseSource,
-              license: source.license,
-              credit: source.credit || '',
-              code: source.code || '',
-              groundHeights: source.groundHeights || null,
-              // Personal fork: embed-only streams (cctv/featured.js).
-              ...(source.embed
-                ? {
-                    embed: source.embed,
-                    liveStatus: source.liveStatus,
-                    category: source.category,
-                    coordinatesQuality: source.coordinatesQuality,
-                    operatorUrl: source.operatorUrl,
-                  }
-                : {}),
-            })),
+            sources: sources.map(publicSource),
           };
           res.writeHead(200, {
             'Content-Type': 'application/json',
