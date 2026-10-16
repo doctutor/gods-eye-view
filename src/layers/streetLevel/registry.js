@@ -11,6 +11,7 @@ import { encodeIdSwitches } from '../../data/idSwitches.js';
  * @property {string} pickPrefix    Every primitive id the provider creates starts with it.
  * @property {{coverage: string}} colors   The source's one colour, from policy.js PROVIDER_COLORS.
  * @property {{html: string}} credit   On-globe attribution while the provider is active.
+ * @property {boolean} [defaultOn]  False keeps the provider off until switched on (personal fork).
  * @property {(context: ProviderContext) => ProviderInstance} create
  *
  * @typedef {object} ProviderContext   Handed to `create()` once by the core.
