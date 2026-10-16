@@ -370,7 +370,12 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
           (pack, i) =>
             pack.enabled() &&
             (liveResults[i]?.status !== 'fulfilled' ||
-              !liveResults[i].value?.length),
+              // A proximity-only pack keeps its capped list empty by design;
+              // its offer lives in `everything`.
+              !(
+                liveResults[i].value?.length ||
+                liveResults[i].value?.everything?.length
+              )),
         ).map((pack) => pack.name)
       : [];
     _cctvRefreshedAt = Date.now();
