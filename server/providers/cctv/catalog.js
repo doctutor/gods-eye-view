@@ -29,6 +29,8 @@ import { createFeaturedLoader } from './featured.js';
 import { haversineKm } from '../common/geo.js';
 import { createWindySource } from './windy.js';
 import { createLinkedLoader } from './linked.js';
+import { createNpsLoader } from './nps.js';
+import { createUsgsVolcanoLoader } from './usgs.js';
 
 /** Env kill switch: unset or anything but "0" means enabled. */
 const envEnabled = (name) => String(process.env[name] || '1').trim() !== '0';
@@ -117,6 +119,18 @@ const LIVE_PACKS = [
     name: 'featured',
     enabled: () => envEnabled('CCTV_FEATURED_ENABLED'),
     load: createFeaturedLoader(),
+  },
+  // Personal fork: USGS volcano observatory stills (usgs.js) and National
+  // Park Service webcams (nps.js; needs NPS_API_KEY).
+  {
+    name: 'usgs-volcano',
+    enabled: () => envEnabled('CCTV_USGS_ENABLED'),
+    load: createUsgsVolcanoLoader(),
+  },
+  {
+    name: 'nps',
+    enabled: () => envEnabled('CCTV_NPS_ENABLED'),
+    load: createNpsLoader(),
   },
   // Personal fork: webcams linked from OpenStreetMap and Wikidata places;
   // proximity index only (linked.js).
