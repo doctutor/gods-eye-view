@@ -25,6 +25,7 @@ import { createFeaturedLoader } from './featured.js';
 import { haversineKm } from '../common/geo.js';
 import { createWindySource } from './windy.js';
 import { createLinkedLoader } from './linked.js';
+import { createCamindexLoader } from './camindex.js';
 
 /** Env kill switch: unset or anything but "0" means enabled. */
 const envEnabled = (name) => String(process.env[name] || '1').trim() !== '0';
@@ -120,6 +121,13 @@ const LIVE_PACKS = [
     name: 'linked',
     enabled: () => envEnabled('CCTV_LINKED_ENABLED'),
     load: createLinkedLoader(),
+  },
+  // Personal fork: webcams found by scripts/camindex in public directories;
+  // reads its catalog file only, proximity index only (camindex.js).
+  {
+    name: 'camindex',
+    enabled: () => envEnabled('CCTV_CAMINDEX_ENABLED'),
+    load: createCamindexLoader(),
   },
 ];
 /**
@@ -375,7 +383,10 @@ const SCENIC_DISTANCE_FACTOR = 0.5;
 
 /** How much nearer a camera counts than it is, by what it shows. */
 export function interestFactor(source) {
-  if (source?.embed) return FEATURED_DISTANCE_FACTOR;
+  // Personal fork: a directory's embed (camindex.js) ranks as scenic, not
+  // as a featured stream.
+  if (source?.embed && source.publishSignal !== 'directory-embed')
+    return FEATURED_DISTANCE_FACTOR;
   if (source?.category && source.category !== 'traffic')
     return SCENIC_DISTANCE_FACTOR;
   return 1;

@@ -26,6 +26,7 @@ export function cameraTag(camera) {
   if (camera?.embed?.provider === 'youtube') return 'YOUTUBE';
   if (camera?.feedType === 'link') return 'LINK';
   if (camera?.sourceKind === 'windy') return 'WINDY';
+  if (camera?.sourceKind === 'opencctv') return 'OPENCCTV';
   if (camera?.feedType === 'hls' || camera?.isVideo) return 'VIDEO';
   return 'CCTV';
 }
