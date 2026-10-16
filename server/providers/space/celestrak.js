@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { promises as fsp } from 'node:fs';
 import { celestrakTleUrl } from '../../../src/data/spaceProviderRequests.js';
+import { discardResponseBody } from '../common/http.js';
 
 /**
  * Vite plugin: CelesTrak TLE proxy.
@@ -59,7 +60,10 @@ export function celestrakProxy() {
           'gods-eye-view-celestrak-proxy/1.0 (+https://github.com/bilawalsidhu/gods-eye-view)',
       },
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      await discardResponseBody(res);
+      throw new Error(`HTTP ${res.status}`);
+    }
     const body = await res.text();
     // An upstream error page parses to zero TLEs — treat as failure, keep cache.
     if (!/^1 /m.test(body)) throw new Error('no TLE lines in response');

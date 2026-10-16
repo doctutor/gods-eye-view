@@ -1,7 +1,7 @@
 import { lookup as lookupDns } from 'node:dns/promises';
 import { randomUUID } from 'node:crypto';
 
-import { readResponseTextCapped } from '../common/http.js';
+import { discardResponseBody, readResponseTextCapped } from '../common/http.js';
 import {
   normalizeRadioBrowserStation,
   publicRadioStation,
@@ -81,15 +81,13 @@ export function createRadioProxyMiddleware({
         ? await fetchImpl(destination.href, options)
         : await fetchPinnedRadioResponse(destination, options, addresses);
       if (response.status >= 300 && response.status < 400) {
-        try {
-          await response.body?.cancel?.();
-        } catch {
-          /* no-op */
-        }
+        await discardResponseBody(response);
         throw new Error('Radio Browser redirects are refused');
       }
-      if (!response.ok)
+      if (!response.ok) {
+        await discardResponseBody(response);
         throw new Error(`Radio Browser returned ${response.status}`);
+      }
       const text = await readResponseTextCapped(response, maxBytes);
       return JSON.parse(text);
     } finally {

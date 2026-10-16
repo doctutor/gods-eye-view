@@ -6,6 +6,27 @@ export {
 } from '../../../src/sources/httpBody.js';
 
 /**
+ * Release a fetch Response this code has decided not to read.
+ *
+ * Until its body is consumed or cancelled, an undici Response keeps owning its
+ * socket. Dropping one on an early return (a non-OK status, a refused redirect,
+ * a declared size over the cap) leaves the parser paused on a body nobody will
+ * drain, and when the upstream then closes the TLS socket undici can trip
+ * `assert(!this.paused)` in Parser.finish and take the whole process down.
+ * Every path that abandons a Response therefore goes through here. Never
+ * throws: a body that is already locked, consumed or errored is fine to drop.
+ * @param {Response|null|undefined} response - fetch() response, or nothing.
+ * @returns {Promise<void>}
+ */
+export async function discardResponseBody(response) {
+  try {
+    await response?.body?.cancel();
+  } catch {
+    /* no-op */
+  }
+}
+
+/**
  * Read a fetch Response body as text while enforcing a hard byte cap during
  * the read — so a malicious or buggy upstream that streams an unbounded body
  * (no/oversized Content-Length, chunked) can't OOM the proxy. Returns
@@ -17,11 +38,7 @@ export {
 export async function readCappedResponseText(upstream, maxBytes) {
   const declared = Number(upstream.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) {
-    try {
-      await upstream.body?.cancel();
-    } catch {
-      /* no-op */
-    }
+    await discardResponseBody(upstream);
     return { tooLarge: true, text: '' };
   }
   if (
