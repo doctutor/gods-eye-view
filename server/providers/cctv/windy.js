@@ -150,6 +150,8 @@ export function createWindySource({
   let recent = [];
   let inflight = new Map();
   let warned = 0;
+  /** Personal fork: the last failure, for the status readout. */
+  let lastError = null;
 
   function remember(source) {
     known.delete(source.id);
@@ -234,6 +236,7 @@ export function createWindySource({
           return sources;
         })
         .catch((error) => {
+          lastError = { at: now(), message: String(error?.message || error) };
           if (now() - warned > 60_000) {
             warned = now();
             console.warn('[CCTV] Windy webcams unavailable:', error?.message);
@@ -252,6 +255,18 @@ export function createWindySource({
     requestsLastMinute: () => {
       const t = now();
       return recent.filter((at) => t - at < 60_000).length;
+    },
+    /** Personal fork: counters for the status readout (cctv/status.js). */
+    stats() {
+      const t = now();
+      return {
+        configured: Boolean(apiKey()),
+        requestsLastMinute: recent.filter((at) => t - at < 60_000).length,
+        budgetPerMinute: BUDGET_PER_MINUTE,
+        cacheEntries: cache.size,
+        knownCameras: known.size,
+        lastError,
+      };
     },
   };
 }

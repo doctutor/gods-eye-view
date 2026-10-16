@@ -58,7 +58,11 @@ async function catalogDir(t, cameras) {
   const file = path.join(dir, '.gev-cache', 'camindex', 'catalog.json');
   await fs.writeFile(
     file,
-    JSON.stringify({ generatedAt: '2026-10-16T00:00:00Z', sources: {}, cameras }),
+    JSON.stringify({
+      generatedAt: '2026-10-16T00:00:00Z',
+      sources: {},
+      cameras,
+    }),
   );
   return { dir, file };
 }
@@ -116,7 +120,10 @@ test('the pack reads the catalog once per change and serves only proximity', asy
     first.everything.map((s) => s.id),
     ['opencctv-212832'],
   );
-  assert.equal(await load({ sourceRoot: dir }).then((l) => l.everything), first.everything);
+  assert.equal(
+    await load({ sourceRoot: dir }).then((l) => l.everything),
+    first.everything,
+  );
   await fs.writeFile(
     file,
     JSON.stringify({ cameras: [camera(), camera({ id: 'opencctv-3' })] }),
@@ -202,15 +209,17 @@ test('a frame is fetched once per freshness period and shared by concurrent miss
   let clock = 0;
   const cache = createFrameCache({ now: () => clock });
   let loads = 0;
-  const frame = (cacheControl, size = 10) => async () => {
-    loads += 1;
-    return {
-      ok: true,
-      body: Buffer.alloc(size),
-      contentType: 'image/jpeg',
-      cacheControl,
+  const frame =
+    (cacheControl, size = 10) =>
+    async () => {
+      loads += 1;
+      return {
+        ok: true,
+        body: Buffer.alloc(size),
+        contentType: 'image/jpeg',
+        cacheControl,
+      };
     };
-  };
   const url = 'https://opencctv.org/still/1.jpg';
   const [a, b] = await Promise.all([
     cache.get(url, frame('max-age=150')),
@@ -230,6 +239,9 @@ test('a frame is fetched once per freshness period and shared by concurrent miss
   assert.equal(loads, 4, 'no-store is never kept');
   await cache.get('https://x/miss.jpg', async () => null);
   assert.equal(cache.stats().entries, 1, 'misses are not kept');
+  // The shared concurrent load and the fresh reuse are hits.
+  assert.equal(cache.stats().hits, 2);
+  assert.equal(cache.stats().misses, 5);
 });
 
 test('the frame cache is bounded by entries and bytes, oldest use first out', async () => {
@@ -250,11 +262,26 @@ test('the frame cache is bounded by entries and bytes, oldest use first out', as
     return null;
   });
   assert.equal(reloaded, false, 'a was used recently and stayed');
-  assert.deepEqual(cache.stats(), { entries: 2, bytes: 20 });
+  assert.deepEqual(cache.stats(), {
+    entries: 2,
+    bytes: 20,
+    hits: 2,
+    misses: 3,
+  });
   await cache.get('big', load(95));
-  assert.deepEqual(cache.stats(), { entries: 1, bytes: 95 });
+  assert.deepEqual(cache.stats(), {
+    entries: 1,
+    bytes: 95,
+    hits: 2,
+    misses: 4,
+  });
   await cache.get('huge', load(101));
-  assert.deepEqual(cache.stats(), { entries: 1, bytes: 95 });
+  assert.deepEqual(cache.stats(), {
+    entries: 1,
+    bytes: 95,
+    hits: 2,
+    misses: 5,
+  });
 });
 
 test('upstream frames carry their Cache-Control to the cache', async () => {

@@ -1,5 +1,6 @@
 import { stepHighlight } from './cctvCameraList.js';
 import { initPendingCams } from './cctvPending.js';
+import { initSourcesBlock } from './cctvSources.js';
 
 export function _initCctvPanel() {
   if (!this._cctvPanel) return;
@@ -10,6 +11,12 @@ export function _initCctvPanel() {
     this._pendingCams = initPendingCams(pendingCams, {
       signal: this.listeners.signal,
       showToast: (message) => this.actions.showToast?.(message),
+    });
+  // Personal fork: the SOURCES readout (cctvSources.js).
+  const sourcesBlock = this._cctvPanel.querySelector?.('[data-cctv-sources]');
+  if (sourcesBlock && typeof fetch === 'function')
+    this._sourcesBlock = initSourcesBlock(sourcesBlock, {
+      signal: this.listeners.signal,
     });
 
   this.listen(this._cctvEnableBtn, 'click', async () => {
