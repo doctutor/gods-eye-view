@@ -2,6 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mergeCameras } from './merge.mjs';
 import { decodeEntities, primaryCategory } from './adapters/opencctv.mjs';
+import * as openeagleeye from './adapters/openeagleeye.mjs';
+import * as pocketworld from './adapters/pocketworld.mjs';
+
+/** Sources whose adapter turns its own candidates into catalog cameras. */
+const ADAPTER_SOURCES = { openeagleeye, pocketworld };
 
 /**
  * The catalog the server's camindex pack reads
@@ -78,7 +83,8 @@ const unusable = (record) =>
   record?.status === 'dead' || record?.status === 'placeholder';
 
 /**
- * @param {{opencctv?: {candidates: Array<object>, records: Record<string, object>}}} inputs
+ * @param {Record<string, {candidates: Array<object>, records: Record<string, object>}>} inputs
+ *   opencctv, openeagleeye and pocketworld.
  * @param {{now?: () => number, onlyVerified?: boolean}} [options]
  */
 export function buildCatalog(
@@ -109,6 +115,26 @@ export function buildCatalog(
     };
     for (const candidate of usable)
       cameras.push(openCctvToSource(candidate, open.records[candidate.id]));
+  }
+  for (const [name, adapter] of Object.entries(ADAPTER_SOURCES)) {
+    const input = inputs[name];
+    if (!input) continue;
+    const records = input.records || {};
+    const usable = input.candidates.filter(
+      (candidate) =>
+        Number.isFinite(candidate.lat) &&
+        Number.isFinite(candidate.lon) &&
+        !unusable(records[candidate.id]) &&
+        (!onlyVerified || records[candidate.id]?.status === 'live'),
+    );
+    sources[name] = {
+      found: input.candidates.length,
+      verified: input.candidates.filter((candidate) => records[candidate.id])
+        .length,
+      served: usable.length,
+    };
+    for (const candidate of usable)
+      cameras.push(adapter.toSource(candidate, records[candidate.id]));
   }
   const merged = mergeCameras(cameras);
   return {

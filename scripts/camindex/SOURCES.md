@@ -71,12 +71,12 @@ Every answer is cached, so the run is resumable. The index answered 502 and
 
 **Scopes:**
 
-| Scope | Listings read |
-| --- | --- |
-| `default` | `non-traffic` plus `maryland` |
-| `non-traffic` | nature, beach, ski, airport, satellite, weather |
-| `maryland` | Maryland's category listings, plus the whole-region listing for uncategorized cameras |
-| `all` | every category, including traffic (about 22,000 cameras) |
+| Scope         | Listings read                                                                         |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `default`     | `non-traffic` plus `maryland`                                                         |
+| `non-traffic` | nature, beach, ski, airport, satellite, weather                                       |
+| `maryland`    | Maryland's category listings, plus the whole-region listing for uncategorized cameras |
+| `all`         | every category, including traffic (about 22,000 cameras)                              |
 
 **Verification:** a camera counts as live when its still answers 200 with
 `image/*` and at least 1 KB. A still that three or more cameras share byte
@@ -126,3 +126,106 @@ one is added, uses the pacing above.
 itself. On 2026-10-16 every opencctv.org page, `/embed/<id>` included, was
 served with `X-Frame-Options: SAMEORIGIN`, so a browser refuses to show it
 inside another site. camindex neither records nor frames it.
+
+## Open-Eagle-Eye (github.com/stuchapin909/Open-Eagle-Eye)
+
+An MIT-licensed registry of about 31,500 public still cameras (mostly road
+agencies' snapshots), kept as one JSON file and checked nightly by the
+project's own GitHub Action.
+
+**Terms.** MIT. camindex reads the published data file only, and never runs
+the project's code.
+
+**robots.txt** (checked 2026-10-16): raw.githubusercontent.com answers 404
+for robots.txt, which counts as no restrictions.
+
+**What is read:** one file,
+`https://raw.githubusercontent.com/stuchapin909/Open-Eagle-Eye/master/cameras.json`
+(about 14 MB; the adapter allows up to 32 MB for this one request). It is read
+at most once a week and replayed from disk in between. The file is on the
+`master` branch; the same path under `main` answers 404.
+
+**What is kept:** rows with coordinates, an https image URL and no
+credentials. A row is dropped when `auth` is `true` or an object naming a
+requirement (`{"required": …}`); `auth: {}` means none. Rows whose exact URL
+was already seen are kept once. Rows are not deduplicated against other
+sources here; `catalog.js` does that across sources.
+
+**In the app:**
+
+- `sourceKind` is `openeagleeye`, `publishSignal` is `operator-page`, and
+  `licenseClass` is `display-only`.
+- `credit` is "via Open-Eagle-Eye (MIT)". `provider` is the operator's
+  hostname (for example `fl511.com`), and `operatorUrl` is the image URL's
+  origin, not the image itself.
+- The camera shows the operator's own still: `feedType` is `image`, and
+  `snapshotUrl` is the registry's URL. Some URLs have no file extension
+  (`511on.ca/map/Cctv/1`); they are image endpoints too.
+- `category` is mapped as highway → traffic, city → city, beach → beach,
+  airport → airport, volcano → volcano and wildlife → nature. Other
+  categories (port, ferry, aurora, dam, stadium, construction) are kept as
+  given.
+- `coordinatesQuality` is `site`. `timeZone` is the row's IANA zone, when Intl
+  knows it, so the panel's local-time line shows civil time.
+
+**Verification:** `verify --source openeagleeye` checks stills like any other
+source, at each host's pace. Their own `verified` flag is kept as
+`upstreamVerified` and does not make a camera `live`.
+
+## PocketWorld (pocketworld.org)
+
+A directory of public webcams, part of a site offering free, keyless JSON
+APIs with open CORS. Its terms require attribution, permit personal and
+development use, and forbid bypassing rate limits or mirroring the service.
+
+**robots.txt** (checked 2026-10-16): `Allow: /` for every agent, with
+`Crawl-delay: 1`. camindex reads it at one request per 2 s, slower than that.
+
+**API first.** Its llms.txt lists a webcams endpoint,
+`/api/webcams/<country>`, which `/api` does not document. Each run asks
+`/api/webcams/US` once. On 2026-10-16 it answered `502` (Cloudflare origin
+error) for US and IS alike, so the run reads the listing pages instead. The
+API's JSON is not parsed until it answers and its shape is known.
+
+**What is read** (server-rendered pages; each card states name, coordinates,
+format and the operator's source link):
+
+- `/webcams/type/<tag>`: 36 cards per page, no pagination. The scope
+  `non-traffic` (the default) reads nature, beach, urban, airport, port,
+  railway, religion and sound. `all` adds sports, business and traffic.
+- `/webcams/video`: 36 cards.
+- City and country pages (`/webcams/city/<cc>/<city>`,
+  `/webcams/country/<cc>`) from `/sitemap-media.xml`, in its order, until the
+  limit. Localized copies (`/<lang>/webcams/…`) are skipped.
+
+The first run stops at 2,000 cameras (`--limit` changes that), so the yield is
+seen before scaling. `--scope maryland` reads only the Maryland city pages
+the sitemap lists (Annapolis, Ocean City and Washington DC on 2026-10-16) and
+keeps every card inside camindex's Maryland box, traffic included. Cards without coordinates are skipped. On city and
+country pages, a card whose operator host looks like a road agency (dot, 511,
+traffic, transport, roads, highway and similar) counts as traffic and is left
+out in the `non-traffic` scope.
+
+**Classification** follows linked.js's operator-link rules, with the card's
+stated format as a tiebreak:
+
+| Card                              | `feedType`                                     | `licenseClass` |
+| --------------------------------- | ---------------------------------------------- | -------------- |
+| YouTube video                     | `youtube` with `embed` (thumbnail as snapshot) | `embed-only`   |
+| HLS video with an https `.m3u8`   | `hls`                                          | `display-only` |
+| Updating image (https)            | `image`, the source as `snapshotUrl`           | `display-only` |
+| Motion JPEG (https)               | `mjpeg`                                        | `display-only` |
+| Operator player, or anything else | `link` with `operatorUrl`                      | `display-only` |
+
+**In the app:** `sourceKind` is `pocketworld`, `publishSignal` is
+`directory-link`, `credit` is "via PocketWorld (pocketworld.org)", `provider`
+is the source's hostname, and `coordinatesQuality` is `site`, or `area` when
+three or more cards sit on the same exact point (a town's pin: on 2026-10-16
+several Ocean City cameras shared 38.330, -75.090). `category` comes
+from the type page a card was seen on (port is shown as harbor, urban as
+city, religion as religious), and is otherwise `webcam`.
+
+**Not served yet:** the app's camindex pack
+(`server/providers/cctv/camindex.js`) serves only `image` cameras and does not
+pass `timeZone` through. The `youtube`, `hls`, `mjpeg` and `link` cameras and
+the time zones are in catalog.json for the pack to take up.
