@@ -85,10 +85,11 @@ left out of the catalog. Unchecked cameras go in with `liveStatus: 'unknown'`.
 Maryland is verified first, then scenic cameras, then the rest.
 
 Uncached stills come from the site's origin, and the origin rate-limits them.
-On 2026-10-16 it answered 503 (Retry-After 600 s) after about 50 stills in
-3 minutes, twice. So `verify` paces stills on opencctv.org at one per 16 s,
-which keeps a run under 40 per 10 minutes. `--gap-ms` can only slow that
-down. A 429 or 503 marks the camera `error`, not dead, and the next run
+On 2026-10-16 it answered 503 (Retry-After 600 s) twice after about 50 stills
+in 3 minutes. It answered 503 again after 159 stills at one per 17 s (45
+minutes). That fits a bucket of about 50 requests that refills at about one
+per 25 s. So `verify` paces stills on opencctv.org at one per 30 s (20 per
+10 minutes), below the refill rate. `--gap-ms` can only slow that down. A 429 or 503 marks the camera `error`, not dead, and the next run
 retries it. Bulk verification is not the plan for this source; the first run
 stopped after 53 stills. The intended way is lazy: a still the app fetches
 because someone opened that camera counts as its check (see the follow-up
@@ -127,7 +128,7 @@ body of 24 bytes, not a placeholder image, so its list is empty. Separately,
 `verify` flags any image that three or more cameras share byte for byte.
 
 **Rolling verify** (`verify --rolling`): at most 200 stills per run, at the
-16 s floor above, so a full run takes about 53 minutes. The queue is:
+30 s floor above, so a full run takes about 100 minutes. The queue is:
 
 1. Cameras whose last observation is over a week old.
 2. Never-checked cameras within 50 km of the 200 most recent distinct view

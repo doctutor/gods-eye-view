@@ -630,9 +630,10 @@ test('the CLI parses commands and flags', () => {
   assert.throws(() => parseArgs(['discover', 'opencctv']), /unexpected/);
 });
 
-test('stills from opencctv.org stay under 40 uncached requests per 10 minutes', async (t) => {
-  assert.deepEqual(stillPacing(1500), { '*': 1500, 'opencctv.org': 16_000 });
-  assert.equal(stillPacing(20_000)['opencctv.org'], 20_000, 'only ever slower');
+test('stills from opencctv.org stay under 20 uncached requests per 10 minutes', async (t) => {
+  assert.deepEqual(stillPacing(1500), { '*': 1500, 'opencctv.org': 30_000 });
+  assert.equal(stillPacing(40_000)['opencctv.org'], 40_000);
+  assert.equal(stillPacing(20_000)['opencctv.org'], 30_000, 'never faster');
   const dir = await tempDir(t);
   const web = fakeWeb({
     'https://opencctv.org/robots.txt': new Response(ROBOTS),
@@ -658,10 +659,10 @@ test('stills from opencctv.org stay under 40 uncached requests per 10 minutes', 
   await verifyCandidates(fetcher, candidates, {}, { now: web.now });
   const stills = web.calls.filter((call) => call.url.includes('/still/'));
   assert.equal(stills.length, 60);
-  for (let i = 40; i < stills.length; i++)
+  for (let i = 20; i < stills.length; i++)
     assert.ok(
-      stills[i].at - stills[i - 40].at >= 10 * 60 * 1000,
-      `40 stills span at least 10 minutes (${i})`,
+      stills[i].at - stills[i - 20].at >= 10 * 60 * 1000,
+      `20 stills span at least 10 minutes (${i})`,
     );
 });
 
@@ -762,8 +763,8 @@ test('a rolling run keeps to the host floor and stops at its limit', async (t) =
   assert.equal(run.stoppedBy, 'limit');
   const stills = web.calls.filter((call) => call.url.includes('/still/'));
   assert.equal(stills.length, 200);
-  for (let i = 40; i < stills.length; i++)
-    assert.ok(stills[i].at - stills[i - 40].at >= 10 * 60 * 1000);
+  for (let i = 20; i < stills.length; i++)
+    assert.ok(stills[i].at - stills[i - 20].at >= 10 * 60 * 1000);
 });
 
 test('observations fold into verify records, newer wins, errors skipped', () => {

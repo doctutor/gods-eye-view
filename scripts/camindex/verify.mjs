@@ -22,11 +22,13 @@ export const VERIFY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const PLACEHOLDER_SHARED_BY = 3;
 /**
  * Gap between uncached still requests, by host. opencctv.org answered 503
- * (Retry-After 600 s) after ~50 uncached stills in ~3 minutes on 2026-10-16;
- * 16 s keeps a run under 40 stills per 10 minutes. --gap-ms can only slow
+ * (Retry-After 600 s) after ~50 uncached stills in ~3 minutes, and again
+ * after 159 stills at one per 17 s (45 minutes), on 2026-10-16: a bucket of
+ * about 50 that refills about one per 25 s. One per 30 s (20 per 10 minutes)
+ * stays under the refill, so a run never drains it. --gap-ms can only slow
  * these down.
  */
-export const STILL_MIN_INTERVAL_MS = Object.freeze({ 'opencctv.org': 16_000 });
+export const STILL_MIN_INTERVAL_MS = Object.freeze({ 'opencctv.org': 30_000 });
 
 /** Per-host pacing for a verify run whose general gap is `gapMs`. */
 export function stillPacing(gapMs) {
