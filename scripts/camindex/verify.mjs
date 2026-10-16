@@ -47,6 +47,9 @@ export function judgeStill(answer, { placeholders = [] } = {}) {
     bytes: answer.bytes,
     sha1: answer.sha1,
   };
+  // Rate limits and server errors say nothing about the camera.
+  if (answer.status === 429 || answer.status >= 500)
+    return { ...base, status: 'error', reason: `HTTP ${answer.status}` };
   if (!answer.ok)
     return { ...base, status: 'dead', reason: `HTTP ${answer.status}` };
   if (!/^image\//i.test(answer.contentType))
@@ -130,10 +133,14 @@ export async function verifyCandidates(
     candidates.filter(
       (candidate) =>
         candidate.stillUrl &&
-        !(
-          now() - (records[candidate.id]?.verifiedAt ?? -Infinity) <
-          VERIFY_MAX_AGE_MS
-        ),
+        // A camera with no place is never served, so never checked.
+        Number.isFinite(candidate.lat) &&
+        Number.isFinite(candidate.lon) &&
+        (records[candidate.id]?.status === 'error' ||
+          !(
+            now() - (records[candidate.id]?.verifiedAt ?? -Infinity) <
+            VERIFY_MAX_AGE_MS
+          )),
     ),
     records,
   );

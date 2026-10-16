@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createFetcher } from './fetch.mjs';
+import { DEFAULT_MIN_INTERVAL_MS, createFetcher } from './fetch.mjs';
 import * as opencctv from './adapters/opencctv.mjs';
 import { inBox, verifyCandidates } from './verify.mjs';
 import {
@@ -19,8 +19,8 @@ import {
  *   node scripts/camindex/index.mjs discover --source opencctv
  *        [--scope default|maryland|non-traffic|all] [--limit N]
  *        [--via listings|sitemap|commoncrawl] [--cc-index CC-MAIN-…]
- *        [--page-details]
- *   node scripts/camindex/index.mjs verify [--limit N]
+ *        [--page-details] [--gap-ms MS]
+ *   node scripts/camindex/index.mjs verify [--limit N] [--gap-ms MS]
  *   node scripts/camindex/index.mjs build [--only-verified]
  *   node scripts/camindex/index.mjs status
  *
@@ -61,6 +61,15 @@ export function camindexDir(env = process.env, flags = {}) {
     ? path.resolve(ROOT, configured)
     : path.join(ROOT, '.gev-cache', 'camindex');
 }
+
+/** --gap-ms: a slower pace than the 1.5 s floor, never a faster one. */
+const gapOf = (value) => {
+  if (value === undefined) return DEFAULT_MIN_INTERVAL_MS;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < DEFAULT_MIN_INTERVAL_MS)
+    throw new Error(`--gap-ms must be at least ${DEFAULT_MIN_INTERVAL_MS}`);
+  return number;
+};
 
 const limitOf = (value, fallback = Infinity) => {
   if (value === undefined || value === true) return fallback;
@@ -109,7 +118,11 @@ async function discoverCommand(dir, flags) {
   if (!adapter) throw new Error(`unknown --source ${source}`);
   const files = sourceFiles(dir, source);
   const started = Date.now();
-  const fetcher = createFetcher({ cacheDir: path.join(dir, 'http'), log });
+  const fetcher = createFetcher({
+    cacheDir: path.join(dir, 'http'),
+    minIntervalMs: gapOf(flags['gap-ms']),
+    log,
+  });
   const scope = String(flags.scope || 'default');
   const result = await adapter.discover(fetcher, {
     scope,
@@ -154,7 +167,11 @@ async function verifyCommand(dir, flags) {
   const candidates = [...loadCandidates(files.candidates).values()];
   const records = readJson(files.verify, {}) || {};
   const started = Date.now();
-  const fetcher = createFetcher({ cacheDir: path.join(dir, 'http'), log });
+  const fetcher = createFetcher({
+    cacheDir: path.join(dir, 'http'),
+    minIntervalMs: gapOf(flags['gap-ms']),
+    log,
+  });
   let unsaved = 0;
   const result = await verifyCandidates(fetcher, candidates, records, {
     limit: limitOf(flags.limit),

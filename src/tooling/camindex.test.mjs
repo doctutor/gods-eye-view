@@ -130,7 +130,10 @@ test('malformed JSON-LD and foreign links are skipped, not trusted', () => {
 
 test('categories come from the caption, scenic ahead of traffic', () => {
   assert.equal(categoryFromText('Live traffic camera on I-95'), 'traffic');
-  assert.equal(categoryFromText('Live view of the beach at Ocean City'), 'beach');
+  assert.equal(
+    categoryFromText('Live view of the beach at Ocean City'),
+    'beach',
+  );
   assert.equal(categoryFromText('Bald eagle nest'), 'nature');
   assert.equal(categoryFromText('Something else'), '');
   assert.equal(primaryCategory(['traffic', 'weather']), 'weather');
@@ -143,7 +146,9 @@ test('scopes start small: scenic categories plus Maryland', () => {
   assert.ok(!paths('default').includes('/cameras/category/traffic'));
   assert.ok(paths('default').includes('/cameras/category/nature'));
   assert.ok(
-    paths('default').includes('/cameras/united-states/maryland/category/traffic'),
+    paths('default').includes(
+      '/cameras/united-states/maryland/category/traffic',
+    ),
   );
   assert.ok(paths('all').includes('/cameras/category/traffic'));
   assert.ok(!paths('non-traffic').some((p) => p.includes('maryland')));
@@ -240,7 +245,7 @@ test('the fetcher checks robots, paces per host and caches on disk', async (t) =
   const stale = await again.get('https://opencctv.org/cameras/a-1');
   assert.equal(stale.fromCache, false);
   assert.equal(
-    (await again.get('https://opencctv.org/cameras/zz-9', { offline: true })),
+    await again.get('https://opencctv.org/cameras/zz-9', { offline: true }),
     null,
     'offline never touches the network',
   );
@@ -339,7 +344,12 @@ test('discovery walks listing pages to the limit, resumable from the cache', asy
   assert.equal(result.stoppedBy, 'limit');
   assert.equal(result.pagesRead, 3);
   const ids = [...result.candidates.keys()];
-  assert.deepEqual(ids.slice(0, 4), ['3993051', '3993061', '3993081', '3993052']);
+  assert.deepEqual(ids.slice(0, 4), [
+    '3993051',
+    '3993061',
+    '3993081',
+    '3993052',
+  ]);
   const network = web.calls.length;
   const resumed = await discover(
     createFetcher({
@@ -364,10 +374,7 @@ test('sitemaps and Common Crawl WARC records parse', () => {
   const record =
     'WARC/1.0\r\nWARC-Type: response\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html>ok</html>';
   assert.equal(warcHtmlBody(record), '<html>ok</html>');
-  assert.equal(
-    warcHtmlBody(record.replace('200 OK', '404 Not Found')),
-    null,
-  );
+  assert.equal(warcHtmlBody(record.replace('200 OK', '404 Not Found')), null);
 });
 
 test('verification wants a real image and spots shared placeholders', async (t) => {
@@ -382,6 +389,8 @@ test('verification wants a real image and spots shared placeholders', async (t) 
   });
   assert.equal(judgeStill(answer()).status, 'live');
   assert.equal(judgeStill(answer({ ok: false, status: 404 })).status, 'dead');
+  assert.equal(judgeStill(answer({ ok: false, status: 503 })).status, 'error');
+  assert.equal(judgeStill(answer({ ok: false, status: 429 })).status, 'error');
   assert.equal(judgeStill(answer({ contentType: 'text/html' })).status, 'dead');
   assert.equal(judgeStill(answer({ bytes: 900 })).status, 'dead');
   assert.equal(
@@ -484,7 +493,10 @@ test('merging keeps the operator feed and folds directory copies into it', () =>
     merged.map((camera) => camera.id),
     ['harbor-op', 'opencctv-2', 'opencctv-3'],
   );
-  assert.deepEqual(merged[0].alsoListedBy.sort(), ['opencctv-1', 'opencctv-1b']);
+  assert.deepEqual(merged[0].alsoListedBy.sort(), [
+    'opencctv-1',
+    'opencctv-1b',
+  ]);
   assert.equal(
     feedKey({ snapshotUrl: 'HTTPS://Cam.Example.org/a.jpg#x' }),
     'cam.example.org/a.jpg',
@@ -547,10 +559,18 @@ test('the catalog carries provenance and leaves out dead cameras', () => {
   assert.equal(first.operatorUrl, candidate('1').pageUrl);
   assert.equal(first.embed, undefined, 'no directory player is framed');
   assert.equal(first.verifiedAt, '2026-10-16T00:00:00.000Z');
-  assert.equal(openCctvToSource(candidate('5'), null).city, 'Baltimore, Maryland, US');
+  assert.equal(
+    openCctvToSource(candidate('5'), null).city,
+    'Baltimore, Maryland, US',
+  );
   assert.equal(
     buildCatalog(
-      { opencctv: { candidates: [candidate('1'), candidate('3')], records: { 1: { status: 'live' } } } },
+      {
+        opencctv: {
+          candidates: [candidate('1'), candidate('3')],
+          records: { 1: { status: 'live' } },
+        },
+      },
       { onlyVerified: true },
     ).cameras.length,
     1,
@@ -559,7 +579,15 @@ test('the catalog carries provenance and leaves out dead cameras', () => {
 
 test('the CLI parses commands and flags', () => {
   assert.deepEqual(
-    parseArgs(['discover', '--source', 'opencctv', '--scope=maryland', '--limit', '5', '--page-details']),
+    parseArgs([
+      'discover',
+      '--source',
+      'opencctv',
+      '--scope=maryland',
+      '--limit',
+      '5',
+      '--page-details',
+    ]),
     {
       command: 'discover',
       flags: {
