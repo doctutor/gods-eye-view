@@ -36,6 +36,10 @@ export const DEFAULT_OVERPASS_MIRRORS = Object.freeze([
   'https://overpass-api.de/api/interpreter',
   'https://lz4.overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
+  // Worldwide community mirror; answered when the main servers were at
+  // capacity for two days (2026-10-16). overpass.osm.ch is not listed: it
+  // covers Switzerland only.
+  'https://overpass.private.coffee/api/interpreter',
 ]);
 export const OVERPASS_WEBCAM_QUERY =
   '[out:json][timeout:240];nwr["contact:webcam"];out tags center;';
