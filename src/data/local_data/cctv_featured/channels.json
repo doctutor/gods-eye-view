@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "about": "Operator channels the featured-cam watcher scans for live streams (personal fork; server/providers/cctv/featuredChannels.js). A stream found here is queued for review, never shown on the map until a person accepts its position. defaultPlace is offered only when every stream on the channel is at that place, at that precision. Channel ids resolved with channels.list forHandle on 2026-10-16 and checked against the operator's own site where it links one. Not added: Africam (its site links no channel; @africam does not exist), Smithsonian's National Zoo (its webcams stream on nationalzoo.si.edu, not YouTube), Virtual Telescope Project (@virtualtelescope last uploaded in 2013 and its site links no channel).",
+  "channels": [
+    {
+      "channelId": "UC-2KSeUU5SMCX6XLRD-AEvw",
+      "handle": "@explorelivenaturecams",
+      "operator": "explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "defaultCategory": "nature"
+    },
+    {
+      "channelId": "UC8NnosPOvXnm0O1u5YnLQiw",
+      "handle": "@explorebirds",
+      "operator": "explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "defaultCategory": "birds"
+    },
+    {
+      "channelId": "UCv0In2Sw_YabIhMHHOoTSkA",
+      "handle": "@exploreospreyandfalcons",
+      "operator": "explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "defaultCategory": "birds"
+    },
+    {
+      "channelId": "UC2Sk0aXLq3ADkH_USGPKT_Q",
+      "handle": "@explorebears",
+      "operator": "explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "defaultCategory": "bears"
+    },
+    {
+      "channelId": "UCSyg9cb3Iq-NtlbxqNB9wGw",
+      "handle": "@exploreoceans",
+      "operator": "explore.org",
+      "operatorUrl": "https://explore.org/livecams",
+      "defaultCategory": "marine"
+    },
+    {
+      "channelId": "UCnM5iMGiKsZg-iOlIO2ZkdQ",
+      "handle": "@montereybayaquarium",
+      "operator": "Monterey Bay Aquarium",
+      "operatorUrl": "https://www.montereybayaquarium.org/animals/live-cams",
+      "defaultCategory": "marine",
+      "defaultPlace": {
+        "lat": 36.61826,
+        "lon": -121.90195,
+        "coordinatesQuality": "site",
+        "label": "Monterey Bay Aquarium, Monterey, California"
+      }
+    },
+    {
+      "channelId": "UCZXZQxS3d6NpR-eH_gdDwYA",
+      "handle": "@cornellbirdcams",
+      "operator": "Cornell Lab Bird Cams",
+      "operatorUrl": "https://www.allaboutbirds.org/cams/",
+      "defaultCategory": "birds"
+    },
+    {
+      "channelId": "UCV6HJBZD_hZcIX9JVJ3dCXQ",
+      "handle": "@wildearth",
+      "operator": "WildEarth",
+      "operatorUrl": "https://wildearth.tv/",
+      "defaultCategory": "wildlife"
+    },
+    {
+      "channelId": "UCC5NfQ6Mf0dq_eEwv4P_hWA",
+      "handle": "@sandiegozoo",
+      "operator": "San Diego Zoo Wildlife Alliance",
+      "operatorUrl": "https://zoo.sandiegozoo.org/live-cams",
+      "defaultCategory": "wildlife",
+      "defaultPlace": {
+        "lat": 32.73604,
+        "lon": -117.15098,
+        "coordinatesQuality": "area",
+        "label": "San Diego Zoo, Balboa Park, San Diego, California"
+      }
+    },
+    {
+      "channelId": "UCe_3CoEeinvPMze2u_aENBg",
+      "handle": "@oceanexplorergov",
+      "operator": "NOAA Ocean Exploration",
+      "operatorUrl": "https://oceanexplorer.noaa.gov/",
+      "defaultCategory": "marine"
+    },
+    {
+      "channelId": "UCLA_DiR1FfKNvjuUpBHmylQ",
+      "handle": "@nasa",
+      "operator": "NASA",
+      "operatorUrl": "https://www.nasa.gov/",
+      "defaultCategory": "space"
+    }
+  ]
+}

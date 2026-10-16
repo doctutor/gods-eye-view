@@ -68,6 +68,11 @@
           <button id="cctv-calib-reset-btn" class="scene-btn">RESET CAL</button>
         </div>
       </div>
+      <!-- Personal fork: streams the featured-cam watcher found, waiting for a confirmed position (cctvPending.js). -->
+      <details id="cctv-pending" class="cctv-pending" data-cctv-pending hidden>
+        <summary class="cctv-summary-label">PENDING CAMS (<span data-cctv-pending-count>0</span>)</summary>
+        <div class="cctv-pending-list" data-cctv-pending-list></div>
+      </details>
       <div class="cctv-summary-label">SCENE SUMMARY</div>
       <div id="cctv-summary">Enable CCTV to start camera-linked intelligence summaries.</div>
       </div>

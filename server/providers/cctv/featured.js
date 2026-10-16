@@ -1,7 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { readResponseJsonCapped } from '../common/http.js';
-import { CCTV_SOURCE_FETCH_TIMEOUT_MS } from './constants.js';
+import {
+  createChannelWatcher,
+  createGoogleGeocoder,
+  createYoutubeClient,
+  createYoutubeQuota,
+  readChannels,
+} from './featuredChannels.js';
+import {
+  DEFAULT_FEATURED_FILE,
+  FEATURED_CACHE_DIR,
+  featuredCatalogPath,
+  persistRestartedStream,
+} from './featuredStore.js';
 import { isPlausibleLatLon } from './normalize.js';
 
 /**
@@ -18,8 +29,13 @@ import { isPlausibleLatLon } from './normalize.js';
  * videos). Operators restart long streams under new video ids, so an entry
  * whose stream has ended is looked for again among its channel's most recent
  * uploads (`playlistItems.list` on the uploads playlist, also 1 unit), matched
- * by title. `search.list` is never used: it costs 100 units and, as measured
- * on 2026-10-14, its live filter missed every one of these streams.
+ * by title, and the new id is written back to the list. `search.list` is never
+ * used: it costs 100 units and, as measured on 2026-10-14, its live filter
+ * missed every one of these streams.
+ *
+ * The same channels, and more (channels.json), are watched for streams the
+ * list does not carry yet; those wait in a review queue until a person
+ * places them (featuredChannels.js, featuredQueue.js).
  *
  * Without YOUTUBE_API_KEY the cams are still served on their configured video
  * ids, with liveness unknown.
@@ -28,16 +44,12 @@ import { isPlausibleLatLon } from './normalize.js';
  */
 
 /** The hand-checked list, relative to the application root. */
-export const DEFAULT_FEATURED_FILE =
-  'src/data/local_data/cctv_featured/live-cams.json';
+export { DEFAULT_FEATURED_FILE };
 
-const YOUTUBE_API = 'https://www.googleapis.com/youtube/v3';
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 const CHANNEL_ID = /^UC[A-Za-z0-9_-]{22}$/;
-const ENTRY_ID = /^[a-z0-9][a-z0-9-]{0,59}$/;
-const IDS_PER_CALL = 50;
+export const ENTRY_ID = /^[a-z0-9][a-z0-9-]{0,59}$/;
 const MAX_CATALOG_BYTES = 512 * 1024;
-const MAX_API_BYTES = 2 * 1024 * 1024;
 /** A channel is re-scanned for a restarted stream at most this often. */
 export const CHANNEL_RESCAN_MS = 60 * 60 * 1000;
 
@@ -134,10 +146,7 @@ export function parseFeaturedCatalog(document) {
 
 /** Read the list from disk; a missing or malformed file means no featured cams. */
 export function readFeaturedCatalog(sourceRoot = process.cwd()) {
-  const file = process.env.CCTV_FEATURED_FILE || DEFAULT_FEATURED_FILE;
-  const resolved = path.isAbsolute(file)
-    ? file
-    : path.resolve(sourceRoot, file);
+  const resolved = featuredCatalogPath(sourceRoot);
   try {
     const stat = fs.statSync(resolved);
     if (stat.size > MAX_CATALOG_BYTES) {
@@ -183,79 +192,35 @@ export function titleMatches(title, tokens) {
 
 /**
  * Create a resolver that turns entries into their current stream. It keeps
- * the last id found for each entry and when each channel was last scanned,
- * so a stream that restarted is followed without rescanning every refresh.
+ * the last id found for each entry, and finds an ended stream again among
+ * its channel's live uploads (through the channel watcher, so a channel is
+ * scanned at most once an hour for this). `onFollow` hears of every restart
+ * followed, so it can be written back to the list and survive a restart.
  *
- * @param {{fetchImpl?: typeof fetch, apiKey?: () => string, now?: () => number}} [options]
+ * @param {{fetchImpl?: typeof fetch, apiKey?: () => string, now?: () => number,
+ *   quota?: object, youtube?: object, watcher?: object,
+ *   onFollow?: (entry: object, fromVideoId: string, toVideoId: string) => void}} [options]
  */
 export function createLiveResolver({
   fetchImpl = (...args) => fetch(...args),
   apiKey = () => String(process.env.YOUTUBE_API_KEY || '').trim(),
   now = () => Date.now(),
+  quota = createYoutubeQuota({ now }),
+  youtube = createYoutubeClient({ fetchImpl, apiKey, quota }),
+  watcher = createChannelWatcher({ youtube, quota, now }),
+  onFollow = () => {},
 } = {}) {
   /** entry id → the video id that last resolved for it. */
   const currentIds = new Map();
-  /** channel id → epoch ms of the last uploads scan. */
-  const scannedAt = new Map();
   let quotaWarned = false;
 
-  async function api(resource, params, key) {
-    const url = new URL(`${YOUTUBE_API}/${resource}`);
-    for (const [name, value] of Object.entries(params))
-      url.searchParams.set(name, value);
-    url.searchParams.set('key', key);
-    const response = await fetchImpl(url.toString(), {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(CCTV_SOURCE_FETCH_TIMEOUT_MS),
-      redirect: 'error',
-    });
-    const body = await readResponseJsonCapped(response, MAX_API_BYTES);
-    if (!response.ok || body?.error) {
-      const reason = body?.error?.errors?.[0]?.reason || response.status;
-      throw new Error(`YouTube ${resource} failed: ${reason}`);
-    }
-    return Array.isArray(body?.items) ? body.items : [];
-  }
-
-  async function lookup(videoIds, key) {
+  async function lookup(videoIds) {
     const statuses = new Map();
-    const unique = [...new Set(videoIds)];
-    for (let i = 0; i < unique.length; i += IDS_PER_CALL) {
-      const items = await api(
-        'videos',
-        {
-          part: 'snippet,status',
-          id: unique.slice(i, i + IDS_PER_CALL).join(','),
-          maxResults: String(IDS_PER_CALL),
-        },
-        key,
-      );
-      for (const item of items) {
-        const status = videoStatus(item);
-        if (status?.videoId) statuses.set(status.videoId, status);
-      }
+    for (const item of await youtube.videos(videoIds)) {
+      const status = videoStatus(item);
+      if (status?.videoId) statuses.set(status.videoId, status);
     }
     return statuses;
-  }
-
-  /** The live (else upcoming) uploads of one channel, newest first. */
-  async function channelStreams(channelId, key) {
-    const uploads = await api(
-      'playlistItems',
-      {
-        part: 'contentDetails',
-        playlistId: `UU${channelId.slice(2)}`,
-        maxResults: String(IDS_PER_CALL),
-      },
-      key,
-    );
-    const ids = uploads
-      .map((item) => String(item?.contentDetails?.videoId || ''))
-      .filter((id) => VIDEO_ID.test(id));
-    const statuses = await lookup(ids, key);
-    return ids
-      .map((id) => statuses.get(id))
-      .filter((status) => status && status.status !== 'offline');
   }
 
   /**
@@ -264,13 +229,12 @@ export function createLiveResolver({
    */
   async function resolve(entries) {
     const results = new Map();
-    const key = apiKey();
     const fallback = (entry) => ({
       videoId: currentIds.get(entry.id) || entry.youtube.videoId,
       status: 'unknown',
       title: '',
     });
-    if (!key) {
+    if (!youtube.hasKey()) {
       for (const entry of entries) results.set(entry.id, fallback(entry));
       return results;
     }
@@ -279,7 +243,6 @@ export function createLiveResolver({
         entries.map(
           (entry) => currentIds.get(entry.id) || entry.youtube.videoId,
         ),
-        key,
       );
       const needRescue = new Map();
       for (const entry of entries) {
@@ -289,20 +252,20 @@ export function createLiveResolver({
         if (status?.status === 'live') continue;
         const { channelId } = entry.youtube;
         if (!channelId || !entry.youtube.titleMatch.length) continue;
-        if (now() - (scannedAt.get(channelId) ?? -Infinity) < CHANNEL_RESCAN_MS)
-          continue;
         if (!needRescue.has(channelId)) needRescue.set(channelId, []);
         needRescue.get(channelId).push(entry);
       }
       for (const [channelId, waiting] of needRescue) {
-        scannedAt.set(channelId, now());
-        let streams = [];
-        try {
-          streams = await channelStreams(channelId, key);
-        } catch (error) {
-          console.warn('[CCTV] featured channel scan failed:', error.message);
-          continue;
-        }
+        const streams = (
+          await watcher.streamsFor(channelId, {
+            maxAgeMs: CHANNEL_RESCAN_MS,
+            // Only a stream that could replace a waiting entry is re-asked.
+            recheck: (stream) =>
+              waiting.some((entry) =>
+                titleMatches(stream.title, entry.youtube.titleMatch),
+              ),
+          })
+        ).filter((stream) => stream.usable);
         for (const entry of waiting) {
           const found =
             streams.find(
@@ -314,8 +277,16 @@ export function createLiveResolver({
               titleMatches(stream.title, entry.youtube.titleMatch),
             );
           if (!found) continue;
+          const resolved = {
+            videoId: found.videoId,
+            title: found.title,
+            status: found.status,
+          };
+          const previous = currentIds.get(entry.id) || entry.youtube.videoId;
           currentIds.set(entry.id, found.videoId);
-          results.set(entry.id, found);
+          results.set(entry.id, resolved);
+          if (found.videoId !== previous)
+            onFollow(entry, entry.youtube.videoId, found.videoId);
         }
       }
       quotaWarned = false;
@@ -377,16 +348,81 @@ export function featuredToSource(entry, resolved) {
 }
 
 /**
- * Build the featured-cam loader for the catalog. One resolver lives as long
- * as the catalog, so a restarted stream's new id is remembered.
- * @param {{fetchImpl?: typeof fetch, apiKey?: () => string, now?: () => number}} [options]
+ * Build the featured-cam loader for the catalog. One resolver and one
+ * channel watcher live as long as the catalog, so a restarted stream's new
+ * id is remembered (and written back to the list) and channels are scanned
+ * on their own schedule. The watcher runs in the background after each
+ * load; it never delays the catalog. CCTV_FEATURED_WATCH=0 turns it off.
+ * @param {{fetchImpl?: typeof fetch, apiKey?: () => string, now?: () => number,
+ *   geocode?: (address: string) => Promise<object|null>}} [options]
  */
 export function createFeaturedLoader(options = {}) {
-  const resolver = createLiveResolver(options);
-  return async function loadFeaturedLiveCams({ sourceRoot } = {}) {
+  const now = options.now || (() => Date.now());
+  let parts = null;
+
+  /** Built on first use: the quota file lives under the app root. */
+  function partsFor(sourceRoot) {
+    if (parts) return parts;
+    const quota = createYoutubeQuota({
+      now,
+      file: path.join(sourceRoot, FEATURED_CACHE_DIR, 'quota.json'),
+    });
+    const youtube = createYoutubeClient({
+      fetchImpl: options.fetchImpl || ((...args) => fetch(...args)),
+      apiKey:
+        options.apiKey ||
+        (() => String(process.env.YOUTUBE_API_KEY || '').trim()),
+      quota,
+    });
+    const watcher = createChannelWatcher({
+      youtube,
+      quota,
+      now,
+      geocode: options.geocode || createGoogleGeocoder({ quota }),
+    });
+    const resolver = createLiveResolver({
+      youtube,
+      watcher,
+      quota,
+      now,
+      onFollow: (entry, fromVideoId, toVideoId) =>
+        persistRestartedStream(sourceRoot, {
+          entryId: entry.id,
+          fromVideoId,
+          toVideoId,
+        })
+          .then((changed) => {
+            if (changed)
+              console.log(
+                `[CCTV] featured cam ${entry.id} follows its restarted stream ${toVideoId}`,
+              );
+          })
+          .catch((error) =>
+            console.warn(
+              '[CCTV] featured cam restart not saved:',
+              error?.message,
+            ),
+          ),
+    });
+    parts = { watcher, resolver };
+    return parts;
+  }
+
+  return async function loadFeaturedLiveCams({
+    sourceRoot = process.cwd(),
+  } = {}) {
     const entries = readFeaturedCatalog(sourceRoot);
+    const { watcher, resolver } = partsFor(sourceRoot);
+    const resolved = entries.length
+      ? await resolver.resolve(entries)
+      : new Map();
+    if (String(process.env.CCTV_FEATURED_WATCH || '1').trim() !== '0')
+      void watcher.scanAll({
+        sourceRoot,
+        entries,
+        channels: readChannels(sourceRoot),
+      });
     if (!entries.length) return [];
-    const resolved = await resolver.resolve(entries);
     const sources = entries
       .map((entry) => featuredToSource(entry, resolved.get(entry.id)))
       .filter(Boolean);
