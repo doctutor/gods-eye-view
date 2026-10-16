@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_MIN_INTERVAL_MS, createFetcher } from './fetch.mjs';
 import * as opencctv from './adapters/opencctv.mjs';
+import * as openeagleeye from './adapters/openeagleeye.mjs';
+import * as pocketworld from './adapters/pocketworld.mjs';
 import {
   ROLLING_LIMIT,
   inBox,
@@ -54,7 +56,12 @@ const ROOT = path.resolve(
   '..',
   '..',
 );
-const SOURCES = { opencctv };
+const SOURCES = { opencctv, openeagleeye, pocketworld };
+/** A candidate's category in run summaries, by its source's own rule. */
+const categoryOf = (source, item) =>
+  SOURCES[source]?.categoryOf
+    ? SOURCES[source].categoryOf(item)
+    : opencctv.primaryCategory(item.categories || []);
 
 export function parseArgs(argv) {
   const [command = 'status', ...rest] = argv;
@@ -137,13 +144,17 @@ async function discoverCommand(dir, flags) {
   const started = Date.now();
   const fetcher = createFetcher({
     cacheDir: path.join(dir, 'http'),
-    minIntervalMs: gapOf(flags['gap-ms']),
+    // A source may ask for a slower pace than the floor (pocketworld: 2 s).
+    minIntervalMs: Math.max(
+      gapOf(flags['gap-ms']),
+      adapter.MIN_INTERVAL_MS || 0,
+    ),
     log,
   });
-  const scope = String(flags.scope || 'default');
+  const scope = String(flags.scope || adapter.DEFAULT_SCOPE || 'default');
   const result = await adapter.discover(fetcher, {
     scope,
-    limit: limitOf(flags.limit),
+    limit: limitOf(flags.limit, adapter.DEFAULT_LIMIT),
     via: String(flags.via || 'listings'),
     known: loadCandidates(files.candidates),
     pageDetails: flags['page-details'] === true,
@@ -169,10 +180,10 @@ async function discoverCommand(dir, flags) {
     skipped: result.skipped?.length ?? 0,
     found: thisRun.length,
     known: candidates.length,
-    byCategory: countBy(thisRun, (item) =>
-      opencctv.primaryCategory(item.categories || []),
-    ),
+    byCategory: countBy(thisRun, (item) => categoryOf(source, item)),
     stoppedBy: result.stoppedBy,
+    ...(result.api ? { api: result.api } : {}),
+    ...(result.dropped ? { dropped: result.dropped } : {}),
   };
   appendRun(dir, summary);
   console.log(JSON.stringify(summary, null, 2));
@@ -198,6 +209,7 @@ async function verifyCommand(dir, flags) {
         observed: readObserved(observedFile),
         views: readViews(path.join(dir, VIEWS_FILE)),
         now: started,
+        observedId: (candidate) => `${source}-${candidate.id}`,
       })
     : undefined;
   let checked = [];
@@ -205,7 +217,10 @@ async function verifyCommand(dir, flags) {
   // observed.json; both are saved every 25 checks, so a stopped run resumes.
   const save = () => {
     writeJsonAtomic(files.verify, records);
-    mergeObserved(observedFile, recordsToObserved(records, checked));
+    mergeObserved(
+      observedFile,
+      recordsToObserved(records, checked, `${source}-`),
+    );
     checked = [];
   };
   const result = await verifyCandidates(fetcher, candidates, records, {
@@ -243,23 +258,26 @@ async function verifyCommand(dir, flags) {
 }
 
 function buildCommand(dir, flags) {
-  const files = sourceFiles(dir, 'opencctv');
-  const records = readJson(files.verify, {}) || {};
-  // What viewers' frame fetches saw since the last build.
-  const folded = foldObserved(
-    records,
-    readObserved(path.join(dir, OBSERVED_FILE)),
-  );
-  if (folded) writeJsonAtomic(files.verify, records);
-  const catalog = buildCatalog(
-    {
-      opencctv: {
-        candidates: [...loadCandidates(files.candidates).values()],
-        records,
-      },
-    },
-    { onlyVerified: flags['only-verified'] === true },
-  );
+  // What viewers' frame fetches saw since the last build, per source (catalog
+  // ids are "<source>-<candidate id>").
+  const observed = readObserved(path.join(dir, OBSERVED_FILE));
+  const inputs = {};
+  let folded = 0;
+  for (const source of Object.keys(SOURCES)) {
+    const files = sourceFiles(dir, source);
+    if (!fs.existsSync(files.candidates)) continue;
+    const records = readJson(files.verify, {}) || {};
+    const changed = foldObserved(records, observed, `${source}-`);
+    if (changed) writeJsonAtomic(files.verify, records);
+    folded += changed;
+    inputs[source] = {
+      candidates: [...loadCandidates(files.candidates).values()],
+      records,
+    };
+  }
+  const catalog = buildCatalog(inputs, {
+    onlyVerified: flags['only-verified'] === true,
+  });
   const file = path.join(dir, CATALOG_FILE);
   writeJsonAtomic(file, catalog);
   const summary = {
@@ -283,9 +301,7 @@ function statusCommand(dir) {
     const records = readJson(files.verify, {}) || {};
     report.sources[source] = {
       candidates: candidates.length,
-      byCategory: countBy(candidates, (item) =>
-        opencctv.primaryCategory(item.categories || []),
-      ),
+      byCategory: countBy(candidates, (item) => categoryOf(source, item)),
       inMaryland: candidates.filter((item) => inBox(item)).length,
       verification: countBy(Object.values(records), (record) => record.status),
     };
@@ -360,7 +376,11 @@ async function scheduleCommand(dir, flags) {
     try {
       if (due.discover)
         await discoverCommand(dir, { source: 'opencctv', scope: 'default' });
-      if (due.verify) await verifyCommand(dir, { rolling: true });
+      // Every source with candidates; those without stills check nothing.
+      if (due.verify)
+        for (const source of Object.keys(SOURCES))
+          if (fs.existsSync(sourceFiles(dir, source).candidates))
+            await verifyCommand(dir, { rolling: true, source });
       if (due.discover || due.verify) buildCommand(dir, {});
     } catch (error) {
       log(`schedule: ${error?.message || error}`);

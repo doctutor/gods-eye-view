@@ -1,4 +1,5 @@
 import { HEALTH_SYNC_INTERVAL_MS, HEALTH_ENDPOINT } from './policy.js';
+import { AUDIO_STATES } from './audio.js';
 
 export function createHealth({ state: layerState, services, parts, source }) {
   /**
@@ -30,6 +31,8 @@ export function createHealth({ state: layerState, services, parts, source }) {
           label: String(row.label || row.provider || ''),
           message: String(row.message || ''),
           updatedAt: parts.model.safeNumber(row.updatedAt, now),
+          // Personal fork: probed sound (server cctv/audioProbe.js).
+          ...(AUDIO_STATES.includes(row.audio) ? { audio: row.audio } : {}),
         });
       }
       layerState._healthById = next;

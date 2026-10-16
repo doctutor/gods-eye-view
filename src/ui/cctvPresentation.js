@@ -3,6 +3,7 @@ import { embedMetaText, operatorLinkFor, syncCctvEmbed } from './cctvEmbed.js';
 import { rankCameras, renderCameraList } from './cctvCameraList.js';
 // Personal fork: panel parts and wording by camera kind.
 import { syncCctvPanelKind } from './cctvPanelKind.js';
+import { audioMetaLabel } from '../layers/cctv/audio.js';
 
 /**
  * Personal fork: rebuild the camera list from the current state, the
@@ -194,7 +195,9 @@ export function _renderCctvState(state) {
         ? this._calBadgeLabel(activeCamera.calBadge)
         : '';
       const projLabel = state?.showProjection !== false ? 'MONITOR' : 'OFF';
-      this._cctvMeta.textContent = `${activeCamera.city} · HDG ${Math.round(activeCamera.headingDeg)}° · FOV ${Math.round(activeCamera.fovDeg)}° · RANGE ${Math.round(activeCamera.rangeM)}m · ${projLabel}${calBadge ? ` · ${calBadge}` : ''} · ${provider}${credit}${statusMsg}`;
+      // Personal fork: " · sound" / " · silent" once the stream was probed.
+      const sound = audioMetaLabel(activeCamera);
+      this._cctvMeta.textContent = `${activeCamera.city} · HDG ${Math.round(activeCamera.headingDeg)}° · FOV ${Math.round(activeCamera.fovDeg)}° · RANGE ${Math.round(activeCamera.rangeM)}m · ${projLabel}${calBadge ? ` · ${calBadge}` : ''} · ${provider}${credit}${sound ? ` · ${sound}` : ''}${statusMsg}`;
     } else if (cameras.length > 0) {
       this._cctvMeta.textContent = enabled
         ? `${cameras.length} cameras loaded · click a camera to activate`

@@ -2,6 +2,7 @@ import { CCTV_AMBIENT_CARD_MAX } from '../../data/cctvLod.js';
 import { ACTIVE_FRAME_REFRESH_MS, IDLE_FRAME_REFRESH_MS } from './policy.js';
 import { headingHudToken, isHeadingEstimated } from './headingConfidence.js';
 import { cameraKind } from './cameraKind.js';
+import { resolveAudio } from './audio.js';
 
 export function createPresentation({
   state: layerState,
@@ -134,6 +135,7 @@ export function createPresentation({
       mediaUrl: parts.frames.mediaUrlFor(camera),
       // Personal fork: provenance (catalog.js) and the panel kind it implies.
       panelKind: cameraKind(camera),
+      audio: resolveAudio(health, camera),
       ...(camera.embed ? { embed: { ...camera.embed } } : {}),
       ...(camera.embed || camera.licenseClass
         ? {

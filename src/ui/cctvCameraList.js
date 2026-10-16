@@ -4,6 +4,8 @@
  * marked and a tag saying what kind of feed each one is. The hidden native
  * select stays the compatibility seam (QA scripts, the change handler).
  */
+// Personal fork: a SOUND tag for streams that carry (or likely carry) audio.
+import { hasSound } from '../layers/cctv/audio.js';
 
 /** Cameras listed when nothing is typed, nearest first. */
 export const CAMERA_LIST_DEFAULT_LIMIT = 150;
@@ -39,9 +41,20 @@ export function formatDistance(km) {
   return `${Math.round(km)} km`;
 }
 
-/** The text a camera is searched by: place, name, tag and category. */
+/** 'SOUND' for a camera with sound to hear, else ''. */
+export function audioTag(camera) {
+  return hasSound(camera) ? 'SOUND' : '';
+}
+
+/** The text a camera is searched by: place, name, tags and category. */
 export function cameraSearchText(camera) {
-  return [camera?.city, camera?.name, cameraTag(camera), camera?.category]
+  return [
+    camera?.city,
+    camera?.name,
+    cameraTag(camera),
+    audioTag(camera),
+    camera?.category,
+  ]
     .filter(Boolean)
     .join(' · ');
 }

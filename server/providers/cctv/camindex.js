@@ -63,11 +63,58 @@ export function applyObserved(sources, observed) {
   return out;
 }
 
+const YOUTUBE_HOSTS = new Set([
+  'youtube.com',
+  'www.youtube.com',
+  'm.youtube.com',
+  'youtu.be',
+  'youtube-nocookie.com',
+  'www.youtube-nocookie.com',
+]);
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
+/** Hosts the server must never be pointed at: local names and private IPs. */
+export function isPublicHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  if (!host || host === 'localhost' || host.endsWith('.localhost'))
+    return false;
+  if (/\.(?:local|internal|lan|home|corp|intranet)$/.test(host)) return false;
+  if (host.startsWith('[')) return false; // IPv6 literals: none needed.
+  const ip = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!ip) return host.includes('.');
+  const [a, b] = [Number(ip[1]), Number(ip[2])];
+  if (ip.slice(1).some((part) => Number(part) > 255)) return false;
+  return !(
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a >= 224
+  );
+}
+
+/** An https URL on a public host, without credentials; else ''. */
 function httpsUrl(value) {
   try {
     const url = new URL(String(value || ''));
     if (url.protocol !== 'https:' || url.username || url.password) return '';
+    if (!isPublicHost(url.hostname)) return '';
     return url.href;
+  } catch {
+    return '';
+  }
+}
+
+/** An IANA zone the runtime knows ("Europe/Oslo"), else ''. */
+export function validTimeZone(value) {
+  const zone = String(value || '');
+  if (!/^[A-Za-z]+(?:\/[A-Za-z0-9_+-]+){0,2}$/.test(zone)) return '';
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: zone });
+    return zone;
   } catch {
     return '';
   }
@@ -82,6 +129,62 @@ const word = (value, fallback = '') =>
   WORD.test(String(value || '')) ? String(value) : fallback;
 
 /**
+ * Playback fields for one camera, in the shapes linked.js's feedFields()
+ * produces, or null when its feed is not usable:
+ * - image   url and snapshotUrl, the still (https);
+ * - mjpeg   url (https), snapshotUrl only if one is given;
+ * - hls     url, an https .m3u8; no snapshot;
+ * - youtube embed {provider: 'youtube', videoId}, the watch URL and its
+ *           thumbnail, rebuilt from the id; liveStatus 'unknown';
+ * - link    no picture (url and snapshotUrl ''); needs an https operatorUrl.
+ */
+export function feedFieldsFor(camera, operatorUrl) {
+  switch (String(camera.feedType || '')) {
+    case 'image': {
+      const snapshotUrl = httpsUrl(camera.snapshotUrl || camera.url);
+      return snapshotUrl
+        ? { feedType: 'image', url: snapshotUrl, snapshotUrl }
+        : null;
+    }
+    case 'mjpeg': {
+      const url = httpsUrl(camera.url);
+      return url
+        ? { feedType: 'mjpeg', url, snapshotUrl: httpsUrl(camera.snapshotUrl) }
+        : null;
+    }
+    case 'hls': {
+      const url = httpsUrl(camera.url);
+      return url && /\.m3u8$/i.test(new URL(url).pathname)
+        ? { feedType: 'hls', url, snapshotUrl: '' }
+        : null;
+    }
+    case 'youtube': {
+      const videoId = String(camera.embed?.videoId || '');
+      if (camera.embed?.provider !== 'youtube' || !VIDEO_ID.test(videoId))
+        return null;
+      const given = httpsUrl(camera.url);
+      const url =
+        given && YOUTUBE_HOSTS.has(new URL(given).hostname)
+          ? given
+          : `https://www.youtube.com/watch?v=${videoId}`;
+      return {
+        feedType: 'youtube',
+        url,
+        snapshotUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        embed: { provider: 'youtube', videoId },
+        liveStatus: 'unknown',
+      };
+    }
+    case 'link':
+      return operatorUrl
+        ? { feedType: 'link', url: '', snapshotUrl: '' }
+        : null;
+    default:
+      return null;
+  }
+}
+
+/**
  * One catalog camera → a source, or null when it is unusable.
  * @param {object} camera
  */
@@ -92,9 +195,11 @@ export function catalogCameraToSource(camera) {
   const lon = Number(camera.lon);
   if (!ID.test(id) || !isPlausibleLatLon(lat, lon)) return null;
   if (camera.liveStatus === 'offline') return null;
-  const snapshotUrl = httpsUrl(camera.snapshotUrl);
-  if (camera.feedType !== 'image' || !snapshotUrl) return null;
+  const operatorUrl = httpsUrl(camera.operatorUrl);
+  const feed = feedFieldsFor(camera, operatorUrl);
+  if (!feed) return null;
   const name = text(camera.name, 120) || id;
+  const timeZone = validTimeZone(camera.timeZone);
   return {
     id,
     name,
@@ -112,13 +217,16 @@ export function catalogCameraToSource(camera) {
     code: name.toUpperCase(),
     category: word(camera.category, 'webcam'),
     coordinatesQuality: word(camera.coordinatesQuality, 'site'),
-    operatorUrl: httpsUrl(camera.operatorUrl),
-    publishSignal: word(camera.publishSignal, 'directory-embed'),
-    licenseClass: word(camera.licenseClass, 'embed-only'),
+    operatorUrl,
+    // As the catalog says; a directory still is the default.
+    publishSignal: word(camera.publishSignal, 'directory-still'),
+    licenseClass: word(
+      camera.licenseClass,
+      feed.feedType === 'youtube' ? 'embed-only' : 'display-only',
+    ),
     liveStatus: camera.liveStatus === 'live' ? 'live' : 'unknown',
-    feedType: 'image',
-    url: snapshotUrl,
-    snapshotUrl,
+    ...(timeZone ? { timeZone } : {}),
+    ...feed,
   };
 }
 

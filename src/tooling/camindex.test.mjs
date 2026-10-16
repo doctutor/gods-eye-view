@@ -582,8 +582,8 @@ test('the catalog carries provenance and leaves out dead cameras', () => {
   assert.equal(first.category, 'nature');
   assert.equal(first.feedType, 'image');
   assert.equal(first.snapshotUrl, 'https://opencctv.org/still/1.jpg');
-  assert.equal(first.publishSignal, 'directory-embed');
-  assert.equal(first.licenseClass, 'embed-only');
+  assert.equal(first.publishSignal, 'directory-still');
+  assert.equal(first.licenseClass, 'display-only');
   assert.equal(first.coordinatesQuality, 'site');
   assert.equal(first.operatorUrl, candidate('1').pageUrl);
   assert.equal(first.embed, undefined, 'no directory player is framed');
