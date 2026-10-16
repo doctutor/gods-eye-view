@@ -3,6 +3,7 @@ import { ACTIVE_FRAME_REFRESH_MS, IDLE_FRAME_REFRESH_MS } from './policy.js';
 import { headingHudToken, isHeadingEstimated } from './headingConfidence.js';
 import { cameraKind } from './cameraKind.js';
 import { resolveAudio } from './audio.js';
+import { hiddenForScreenshots } from './screenshotSafe.js';
 
 export function createPresentation({
   state: layerState,
@@ -136,6 +137,8 @@ export function createPresentation({
       // Personal fork: provenance (catalog.js) and the panel kind it implies.
       panelKind: cameraKind(camera),
       audio: resolveAudio(health, camera),
+      // Personal fork: hidden by screenshot-safe mode (screenshotSafe.js).
+      screenshotHidden: hiddenForScreenshots(camera, layerState._hideWindy),
       ...(camera.embed ? { embed: { ...camera.embed } } : {}),
       ...(camera.embed || camera.licenseClass
         ? {
@@ -168,6 +171,7 @@ export function createPresentation({
       autoHop: layerState._autoHop,
       autoHopSuspended: layerState._autoHopSuspended,
       autoHopSec: layerState._autoHopSec,
+      hideWindy: layerState._hideWindy === true,
       count: layerState._count,
       lastUpdate: layerState._lastUpdate,
       error: layerState._lastError,

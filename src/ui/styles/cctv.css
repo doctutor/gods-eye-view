@@ -70,6 +70,18 @@
   margin-bottom: 0;
 }
 
+/* Personal fork: screenshot-safe mode (ui/cctvScreenshotSafe.js). */
+.cctv-screenshot-safe {
+  align-items: center;
+}
+
+.cctv-windy-note {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+}
+
 .cctv-calibration-block {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 9px;

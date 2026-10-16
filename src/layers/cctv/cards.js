@@ -18,6 +18,7 @@ import {
   CARD_GAP_PX,
   CARD_FETCH_TICK_MS,
 } from './policy.js';
+import { hiddenForScreenshots } from './screenshotSafe.js';
 
 export function createCards({ state: layerState, services, parts, source }) {
   /**
@@ -102,6 +103,8 @@ export function createCards({ state: layerState, services, parts, source }) {
     for (const record of layerState._records) {
       const id = record.camera.id;
       if (id === activeId || !record.position) continue;
+      // Personal fork: screenshot-safe mode shows no Windy card.
+      if (hiddenForScreenshots(record.camera, layerState._hideWindy)) continue;
       let inView = false;
       let sx = NaN;
       let sy = NaN;
@@ -224,6 +227,7 @@ export function createCards({ state: layerState, services, parts, source }) {
     const push = (id, { pinned = false, active = false } = {}) => {
       const record = layerState._recordById.get(id);
       if (!record?.position) return;
+      if (hiddenForScreenshots(record.camera, layerState._hideWindy)) return;
       entries.push(
         createCctvThumbnailOverlayEntry({
           id,

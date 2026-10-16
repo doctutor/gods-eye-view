@@ -19,6 +19,7 @@ import { createControls } from './controls.js';
 import { createIngestion } from './ingestion.js';
 import { createState } from './state.js';
 import { createProximity } from './proximity.js';
+import { createScreenshotSafe } from './screenshotSafe.js';
 
 /** Construct one layer with its own scene state and supplied application services. */
 export function createCctvLayer({ services, source }) {
@@ -52,6 +53,8 @@ export function createCctvLayer({ services, source }) {
   parts.ingestion = createIngestion(context);
   // Personal fork: cameras near the view, beyond the capped catalog.
   parts.proximity = createProximity(context);
+  // Personal fork: screenshot-safe mode (hide Windy webcams).
+  parts.screenshotSafe = createScreenshotSafe(context);
   return Object.assign(
     {},
     parts.controls.methods,
@@ -67,6 +70,7 @@ export function createCctvLayer({ services, source }) {
       createCctvProjectionOverlayEntry:
         parts.projection.createCctvProjectionOverlayEntry,
       getActiveVideoElement: parts.projection.getActiveVideoElement,
+      setHideWindy: parts.screenshotSafe.setHideWindy,
       setCctvCardPresentationOptions:
         parts.cards.setCctvCardPresentationOptions,
       surfaceRegimeKey: parts.ground.surfaceRegimeKey,

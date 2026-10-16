@@ -2,6 +2,7 @@ import * as Cesium from 'cesium';
 import { horizonOccluder } from '../../data/iconOrientation.js';
 import { isHeadingEstimated } from './headingConfidence.js';
 import { cameraKind, isPoselessKind } from './cameraKind.js';
+import { hiddenForScreenshots } from './screenshotSafe.js';
 import {
   ACTIVE_CAMERA_COLOR,
   IDLE_CAMERA_COLOR,
@@ -147,7 +148,10 @@ export function createRendering({
     for (const record of layerState._records) {
       const bb = record.billboard;
       if (!bb) continue;
-      const visible = occluder.isPointVisible(bb.position);
+      // Personal fork: screenshot-safe mode hides Windy pins too.
+      const visible =
+        !hiddenForScreenshots(record.camera, layerState._hideWindy) &&
+        occluder.isPointVisible(bb.position);
       if (bb.show !== visible) bb.show = visible;
     }
   }
