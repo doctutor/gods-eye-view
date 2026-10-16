@@ -234,6 +234,10 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
           licenseClass: source.licenseClass,
         }
       : {}),
+    // Personal fork: the other packs that list this camera (cctv/dedupe.js).
+    ...(source.alsoListedIn?.length
+      ? { alsoListedIn: source.alsoListedIn }
+      : {}),
   });
 
   /**

@@ -179,6 +179,7 @@
       "server/providers/cctv/camindex.js",
       "server/providers/cctv/frameCache.js",
       "server/providers/cctv/catalog.js",
+      "server/providers/cctv/dedupe.js",
       "server/providers/cctv/constants.js",
       "server/providers/cctv/featured.js",
       "server/providers/cctv/featuredChannels.js",

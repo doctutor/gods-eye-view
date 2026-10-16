@@ -165,8 +165,8 @@ test('camindex cameras reach proximity queries with their provenance', async (t)
     assert.equal(near.feedType, 'image');
     assert.equal(near.category, 'nature');
     assert.equal(near.operatorUrl, PAGE);
-    assert.equal(near.publishSignal, 'directory-embed');
-    assert.equal(near.licenseClass, 'embed-only');
+    assert.equal(near.publishSignal, 'directory-still');
+    assert.equal(near.licenseClass, 'display-only');
     assert.equal(near.coordinatesQuality, 'site');
     assert.equal(near.embed, undefined);
     assert.equal(interestFactor(near), 0.5, 'scenic, not featured');
