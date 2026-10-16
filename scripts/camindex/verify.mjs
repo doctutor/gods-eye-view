@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { HostBlockedError, RobotsDisallowedError } from './fetch.mjs';
 
 /**
@@ -92,10 +93,15 @@ export function verifyOrder(candidates, records) {
     ((candidate.categories || []).some((category) => category !== 'traffic')
       ? 0
       : 1);
+  // Past the oldest check, a stable shuffle, so a limited run samples every
+  // category instead of the first listing read.
+  const shuffle = (candidate) =>
+    createHash('sha1').update(String(candidate.id)).digest().readUInt32BE(0);
   return [...candidates].sort(
     (a, b) =>
       score(a) - score(b) ||
-      (records[a.id]?.verifiedAt ?? 0) - (records[b.id]?.verifiedAt ?? 0),
+      (records[a.id]?.verifiedAt ?? 0) - (records[b.id]?.verifiedAt ?? 0) ||
+      shuffle(a) - shuffle(b),
   );
 }
 
