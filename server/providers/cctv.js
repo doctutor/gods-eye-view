@@ -529,6 +529,32 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
         const fov = Number(url.searchParams.get('fov') || source?.fovDeg);
         const pitch = Number(url.searchParams.get('pitch') || source?.pitchDeg);
 
+        // Personal fork: a linked webcam that only has an operator page
+        // (cctv/linked.js) has no frame to fetch, and must not spend a Street
+        // View call on every refresh.
+        if (normalizeFeedType(source?.feedType) === 'link') {
+          setHealth(cameraId, {
+            status: 'ok',
+            sourceKind: 'link',
+            label: source?.provider || 'Linked webcam',
+            message: 'Opens on the operator’s site',
+          });
+          res.writeHead(200, {
+            'Content-Type': 'image/svg+xml',
+            'Cache-Control': 'no-store',
+            'X-CCTV-Source': 'synthetic',
+          });
+          res.end(
+            buildSyntheticCctvSvg({
+              cameraId,
+              label,
+              city,
+              status: 'OPENS ON OPERATOR SITE',
+            }),
+          );
+          return;
+        }
+
         // Only use server-registered upstream URLs — never accept client-supplied URLs
         // (prevents SSRF via ?upstream= query parameter)
         const upstreamCandidate =

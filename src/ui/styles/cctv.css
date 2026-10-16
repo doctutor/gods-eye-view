@@ -378,3 +378,22 @@
 .cctv-frame-wrap.has-embed::after {
   content: none;
 }
+
+/* Personal fork: the operator's page for a linked or display-only webcam. */
+.cctv-operator-link {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--accent, #00d4ff);
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+
+.cctv-operator-link:hover {
+  color: #ffffff;
+}
+
+.cctv-operator-link[hidden] {
+  display: none;
+}

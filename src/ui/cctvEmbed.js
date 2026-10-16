@@ -67,6 +67,25 @@ export function syncCctvEmbed(
   return true;
 }
 
+/**
+ * The operator-page link for the active camera, or null. Only https links
+ * from the server-side provenance are offered.
+ * @param {object|null} activeCamera
+ * @returns {{href: string, text: string}|null}
+ */
+export function operatorLinkFor(activeCamera) {
+  let url;
+  try {
+    url = new URL(String(activeCamera?.operatorUrl || ''));
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:') return null;
+  const host = url.hostname.replace(/^www\./, '');
+  const verb = activeCamera?.feedType === 'link' ? 'WATCH ON' : 'OPEN ON';
+  return { href: url.href, text: `${verb} ${host.toUpperCase()} ↗` };
+}
+
 /** Badge text for an embedded stream, e.g. "YOUTUBE · LIVE". */
 export function embedBadgeText(activeCamera) {
   const status = String(activeCamera?.liveStatus || 'unknown').toUpperCase();

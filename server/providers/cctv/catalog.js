@@ -24,6 +24,7 @@ import {
 import { createFeaturedLoader } from './featured.js';
 import { haversineKm } from '../common/geo.js';
 import { createWindySource } from './windy.js';
+import { createLinkedLoader } from './linked.js';
 
 /** Env kill switch: unset or anything but "0" means enabled. */
 const envEnabled = (name) => String(process.env[name] || '1').trim() !== '0';
@@ -112,6 +113,13 @@ const LIVE_PACKS = [
     name: 'featured',
     enabled: () => envEnabled('CCTV_FEATURED_ENABLED'),
     load: createFeaturedLoader(),
+  },
+  // Personal fork: webcams linked from OpenStreetMap and Wikidata places;
+  // proximity index only (linked.js).
+  {
+    name: 'linked',
+    enabled: () => envEnabled('CCTV_LINKED_ENABLED'),
+    load: createLinkedLoader(),
   },
 ];
 /**
@@ -249,6 +257,8 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
         ? items.available
         : items.length,
       region: items.region ?? null,
+      // Personal fork: a pack that serves only through proximity queries.
+      proximityOnly: items.proximityOnly === true,
       // Personal fork: the pack's full offer, for the proximity index.
       everything: (Array.isArray(items.everything) ? items.everything : items)
         .filter((item) => item && typeof item === 'object')
@@ -290,7 +300,10 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
         // Where the pack's cameras are, including those not served.
         region: pack.region ?? cameraRegion(pack.sources),
       }))
-      .filter((pack) => pack.served < pack.available);
+      .filter(
+        (pack, index) =>
+          !packs[index].proximityOnly && pack.served < pack.available,
+      );
     if (trimmed.length) {
       const detail = trimmed
         .map((pack) => `${pack.name} ${pack.kept}/${pack.offered}`)

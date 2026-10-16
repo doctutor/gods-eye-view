@@ -158,6 +158,15 @@ export function createLifecycle({
     return record;
   }
 
+  /** Cameras whose data carries the OpenStreetMap credit. */
+  function needsOsmCredit(record) {
+    return (
+      record.camera.cityId === 'warendorf' ||
+      // Personal fork: webcam links from OpenStreetMap (server cctv/linked.js).
+      record.camera.sourceKind === 'osm-webcam'
+    );
+  }
+
   /** Personal fork: a stable viewshed hue for a camera added after init. */
   function hueIndexFor(id) {
     let h = 2166136261;
@@ -193,6 +202,8 @@ export function createLifecycle({
       })
       .catch(() => {});
     if (layerState._enabled) {
+      if (records.some(needsOsmCredit))
+        services.credits?.showOsmCredit?.(layerState._viewer, 'cctv');
       parts.geometryQueue.enqueueGeometryRefresh(records);
       parts.rendering.refreshHorizonCulling();
       parts.rendering.refreshCoverageStyles();
@@ -457,11 +468,7 @@ export function createLifecycle({
      */
     enable() {
       layerState._enabled = true;
-      if (
-        layerState._records.some(
-          (record) => record.camera.cityId === 'warendorf',
-        )
-      )
+      if (layerState._records.some(needsOsmCredit))
         services.credits?.showOsmCredit?.(layerState._viewer, 'cctv');
       layerState._lastUpdate = Date.now();
       // Pick-ownership (H2): camera billboards use the camera id directly;

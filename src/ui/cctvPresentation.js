@@ -1,5 +1,5 @@
 import { createCctvVideoSurface } from './cctvVideo.js';
-import { embedMetaText, syncCctvEmbed } from './cctvEmbed.js';
+import { embedMetaText, operatorLinkFor, syncCctvEmbed } from './cctvEmbed.js';
 export function _calBadgeLabel(badge) {
   switch (badge) {
     case 'calibrated':
@@ -165,6 +165,20 @@ export function _renderCctvState(state) {
         : `${cameras.length} cameras loaded · enable CCTV to activate`;
     } else {
       this._cctvMeta.textContent = 'Enable CCTV to load camera intersections';
+    }
+  }
+
+  // Personal fork: the operator's own page for a linked or display-only
+  // webcam (Windy requires every image to link to its page).
+  if (this._cctvOperatorLink) {
+    const link = enabled ? operatorLinkFor(activeCamera) : null;
+    this._cctvOperatorLink.hidden = !link;
+    if (link) {
+      this._cctvOperatorLink.href = link.href;
+      this._cctvOperatorLink.textContent = link.text;
+    } else {
+      this._cctvOperatorLink.removeAttribute('href');
+      this._cctvOperatorLink.textContent = '';
     }
   }
 

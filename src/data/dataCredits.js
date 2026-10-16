@@ -218,6 +218,12 @@ export const DATA_CREDITS = [
     html: 'Webcams provided by <a href="https://windy.com/webcams" target="_blank" rel="noopener">windy.com</a> — <a href="https://webcams-admin.windy.com/" target="_blank" rel="noopener">add new webcam</a>',
   },
   {
+    // Personal fork: server/providers/cctv/linked.js (OSM is credited by
+    // the shared OpenStreetMap credit).
+    key: 'wikidata-webcams',
+    html: 'Webcam links: <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a> (CC0)',
+  },
+  {
     key: 'featured-live-cams',
     html: 'Featured live cams: each operator’s own stream in the embedded YouTube player — <a href="https://explore.org/livecams" target="_blank" rel="noopener">explore.org</a> and its partners, <a href="https://www.chesapeakeconservancy.org/webcams" target="_blank" rel="noopener">Chesapeake Conservancy</a>, <a href="https://www.montereybayaquarium.org/animals/live-cams" target="_blank" rel="noopener">Monterey Bay Aquarium</a>',
   },
