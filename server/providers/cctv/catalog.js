@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_CCTV_SOURCE_FILE, CCTV_SOURCE_CACHE_MS } from './constants.js';
+import {
+  DEFAULT_CCTV_SOURCE_FILE,
+  CCTV_SOURCE_CACHE_MS,
+  CCTV_SOURCE_RETRY_MS,
+} from './constants.js';
 import { allocateSourceCap, resolveCatalogCap } from './cap.js';
 import { loadGroundHeights, joinGroundHeights } from './groundHeights.js';
 import { cameraRegion, normalizeSourceItem } from './normalize.js';
@@ -312,6 +316,17 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
         `[CCTV] source catalog exceeds cap ${maxCount}; shared round-robin across packs (${detail}). Raise CCTV_MAX_SOURCES or lower a per-pack cap to change the mix.`,
       );
     }
+    // Personal fork: an enabled live pack that came back empty almost always
+    // timed out (startup contention, a slow upstream); retry it well before
+    // the normal TTL instead of serving a thin catalog for 15 minutes.
+    const failedPacks = needsLiveSources
+      ? LIVE_PACKS.filter(
+          (pack, i) =>
+            pack.enabled() &&
+            (liveResults[i]?.status !== 'fulfilled' ||
+              !liveResults[i].value?.length),
+        ).map((pack) => pack.name)
+      : [];
     if (capped.length > 0 || _cctvSourceCache.length === 0) {
       _cctvSourceCache = capped;
       _cctvTrimmedPacks = trimmedPacks;
@@ -326,6 +341,12 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
       );
     }
     _cctvSourceCacheAt = Date.now();
+    if (failedPacks.length && capped.length > 0) {
+      console.warn(
+        `[CCTV] ${failedPacks.length} pack(s) empty this refresh (${failedPacks.join(', ')}); retrying in ${Math.round(CCTV_SOURCE_RETRY_MS / 1000)} s`,
+      );
+      _cctvSourceCacheAt -= CCTV_SOURCE_CACHE_MS - CCTV_SOURCE_RETRY_MS;
+    }
     return _cctvSourceCache;
   }
 

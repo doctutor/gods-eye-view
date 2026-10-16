@@ -319,6 +319,8 @@ export const DELDOT_ANCHORS = [
 ];
 /** Camera CATALOGS change rarely; 15 min keeps multi-megabyte upstream list refetches (Austin rows.json + 4 Caltrans districts + TfL + Ontario 511) infrequent. Frames are fetched per-request and are unaffected. */
 export const CCTV_SOURCE_CACHE_MS = 15 * 60 * 1000;
+/** Personal fork: when an enabled pack came back empty, refresh again this soon. */
+export const CCTV_SOURCE_RETRY_MS = 2 * 60 * 1000;
 /** Per-provider catalog-fetch timeout. Bounds the worst-case refresh so one
  * stalled upstream can't leave getCctvSources (and thus every CCTV route)
  * pending forever — a hung fetch aborts, the loader returns [], and
