@@ -366,6 +366,10 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
 
   /** Packs serving fewer cameras than they offer, as of the last refresh. */
   getCctvSources.trimmedPacks = () => _cctvTrimmedPacks;
+  // Personal fork: the next request refreshes (a featured cam was accepted).
+  getCctvSources.invalidate = () => {
+    _cctvSourceCacheAt = 0;
+  };
   /** Personal fork: every known camera, including those the cap leaves out. */
   getCctvSources.index = () => _cctvIndex;
   /** Personal fork: a camera a dynamic source has returned before. */

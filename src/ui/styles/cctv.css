@@ -486,3 +486,118 @@
   flex-shrink: 0;
   opacity: 0.75;
 }
+
+/* Personal fork: the featured-cam review queue (cctvPending.js). */
+.cctv-pending[hidden] {
+  display: none;
+}
+
+.cctv-pending > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.cctv-pending > summary::-webkit-details-marker {
+  display: none;
+}
+
+.cctv-pending > summary::before {
+  content: '▸ ';
+}
+
+.cctv-pending[open] > summary::before {
+  content: '▾ ';
+}
+
+.cctv-pending-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.cctv-pending-card {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.cctv-pending-thumb {
+  width: 72px;
+  height: 40px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.cctv-pending-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  color: var(--text-secondary);
+}
+
+.cctv-pending-title {
+  color: var(--text-primary);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cctv-pending-title:hover {
+  color: var(--accent, #00d4ff);
+}
+
+.cctv-pending-place {
+  color: var(--accent, #00d4ff);
+  overflow-wrap: anywhere;
+}
+
+.cctv-pending-actions .scene-btn,
+.cctv-pending-editor .scene-btn {
+  padding: 3px 8px;
+  font-size: 9px;
+}
+
+.cctv-pending-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cctv-pending-editor[hidden] {
+  display: none;
+}
+
+.cctv-pending-input,
+.cctv-pending-precision {
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  color: var(--text-primary);
+  padding: 3px 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.cctv-pending-input {
+  flex: 1 1 100%;
+}
+
+.cctv-pending-precision {
+  flex: 1 1 auto;
+}
