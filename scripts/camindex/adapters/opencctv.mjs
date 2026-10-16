@@ -57,13 +57,63 @@ const ENTITIES = {
   gt: '>',
   quot: '"',
   apos: "'",
-  '#39': "'",
-  '#x27': "'",
+  nbsp: ' ',
+  ndash: '–',
+  mdash: '—',
+  hellip: '…',
+  laquo: '«',
+  raquo: '»',
+  lsquo: '‘',
+  rsquo: '’',
+  ldquo: '“',
+  rdquo: '”',
 };
-function decodeEntities(text) {
+const MARKS = {
+  acute: '́',
+  grave: '̀',
+  circ: '̂',
+  uml: '̈',
+  tilde: '̃',
+  ring: '̊',
+  cedil: '̧',
+  caron: '̌',
+};
+const LETTERS = {
+  oslash: 'ø',
+  Oslash: 'Ø',
+  aelig: 'æ',
+  AElig: 'Æ',
+  szlig: 'ß',
+  eth: 'ð',
+  ETH: 'Ð',
+  thorn: 'þ',
+  THORN: 'Þ',
+};
+/** "eacute" → "é", "Ouml" → "Ö", "oslash" → "ø"; else undefined. */
+function latinLetter(name) {
+  if (LETTERS[name]) return LETTERS[name];
+  const match =
+    /^([a-zA-Z])(acute|grave|circ|uml|tilde|ring|cedil|caron)$/.exec(name);
+  return match ? `${match[1]}${MARKS[match[2]]}`.normalize('NFC') : undefined;
+}
+
+/**
+ * HTML character references as text (the directory's JSON-LD carries some,
+ * e.g. "&raquo;"). Unknown names are left as they are.
+ */
+export function decodeEntities(text) {
   return String(text).replace(
-    /&(amp|lt|gt|quot|apos|#39|#x27);/g,
-    (_, name) => ENTITIES[name],
+    /&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]{2,8});/gi,
+    (whole, name) => {
+      if (name[0] !== '#') return ENTITIES[name] ?? latinLetter(name) ?? whole;
+      const code =
+        name[1] === 'x' || name[1] === 'X'
+          ? parseInt(name.slice(2), 16)
+          : Number(name.slice(1));
+      return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff)
+        ? String.fromCodePoint(code)
+        : whole;
+    },
   );
 }
 

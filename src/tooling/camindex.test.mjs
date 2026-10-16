@@ -15,6 +15,7 @@ import {
 import {
   cameraPageId,
   categoryFromText,
+  decodeEntities,
   discover,
   listingRoots,
   parseCameraPage,
@@ -127,6 +128,22 @@ test('malformed JSON-LD and foreign links are skipped, not trusted', () => {
     id: '12',
     url: 'https://opencctv.org/cameras/us/md/a-12',
   });
+});
+
+test('character references in names become text', () => {
+  assert.equal(
+    decodeEntities(
+      'Airport.net &raquo; Blog &amp; Cam &#8211; &#x2014; &bogus;',
+    ),
+    'Airport.net » Blog & Cam – — &bogus;',
+  );
+  assert.equal(decodeEntities('&#0; &#xD800;'), '&#0; &#xD800;');
+  assert.equal(
+    decodeEntities(
+      'L&oslash;ten &Ouml;sterreich S&atilde;o Ni&ccedil;a &AElig;',
+    ),
+    'Løten Österreich São Niça Æ',
+  );
 });
 
 test('categories come from the caption, scenic ahead of traffic', () => {

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { mergeCameras } from './merge.mjs';
-import { primaryCategory } from './adapters/opencctv.mjs';
+import { decodeEntities, primaryCategory } from './adapters/opencctv.mjs';
 
 /**
  * The catalog the server's camindex pack reads
@@ -15,7 +15,7 @@ export const CATALOG_FILE = 'catalog.json';
 export const CATALOG_VERSION = 1;
 
 const clean = (value, max = 120) =>
-  String(value ?? '')
+  decodeEntities(String(value ?? ''))
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, max);
