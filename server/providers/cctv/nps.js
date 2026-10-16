@@ -198,7 +198,8 @@ export function createNpsLoader({
         warnedKeyless = true;
         console.log('[CCTV] NPS webcams skipped: NPS_API_KEY is not set');
       }
-      return [];
+      // Personal fork: why it is empty, for the status readout.
+      return Object.assign([], { skipped: 'NPS_API_KEY is not set' });
     }
     currentKey = apiKey;
     return list(sourceRoot);

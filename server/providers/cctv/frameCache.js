@@ -77,15 +77,24 @@ export function createFrameCache({
    * @param {() => Promise<{ok: boolean, body: Buffer, contentType: string,
    *   cacheControl?: string}|null>} load
    */
+  // Personal fork: for the status readout (cctv/status.js).
+  let hits = 0;
+  let misses = 0;
+
   async function get(url, load) {
     const held = entries.get(url);
     if (held && held.expiresAt > now()) {
+      hits++;
       entries.delete(url);
       entries.set(url, held);
       return held.frame;
     }
     if (held) drop(url);
-    if (inflight.has(url)) return inflight.get(url);
+    if (inflight.has(url)) {
+      hits++;
+      return inflight.get(url);
+    }
+    misses++;
     const pending = Promise.resolve()
       .then(load)
       .then((frame) => {
@@ -99,6 +108,6 @@ export function createFrameCache({
 
   return {
     get,
-    stats: () => ({ entries: entries.size, bytes }),
+    stats: () => ({ entries: entries.size, bytes, hits, misses }),
   };
 }

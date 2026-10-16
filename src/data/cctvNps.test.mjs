@@ -128,8 +128,14 @@ test('without NPS_API_KEY the pack is skipped and says so once', async (t) => {
   t.mock.method(console, 'log', (...args) => logs.push(args.join(' ')));
   const api = npsApi([webcam('a')]);
   const load = createNpsLoader({ fetchImpl: api.fetchImpl, env: {} });
-  assert.deepEqual(await load(), []);
-  assert.deepEqual(await load(), []);
+  const skipped = await load();
+  assert.equal(skipped.length, 0);
+  assert.equal(
+    skipped.skipped,
+    'NPS_API_KEY is not set',
+    'says why, for the status readout',
+  );
+  assert.equal((await load()).length, 0);
   assert.equal(api.calls.length, 0);
   assert.deepEqual(
     logs.filter((l) => /NPS/.test(l)),
