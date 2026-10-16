@@ -1,4 +1,5 @@
 import * as Cesium from 'cesium';
+import { readHideWindy } from './screenshotSafe.js';
 
 export function createState({ services }) {
   const {
@@ -35,6 +36,9 @@ export function createState({ services }) {
   layerState._showProjection = true;
 
   layerState._autoHop = false;
+
+  // Personal fork: screenshot-safe mode, saved per browser (screenshotSafe.js).
+  layerState._hideWindy = readHideWindy();
 
   // An explicit empty-space deselect keeps AUTO HOP configured but prevents its
   // timer from silently choosing a replacement. A later explicit activation or

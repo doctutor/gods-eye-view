@@ -1,6 +1,7 @@
 import { stepHighlight } from './cctvCameraList.js';
 import { initPendingCams } from './cctvPending.js';
 import { initSourcesBlock } from './cctvSources.js';
+import { bindHideWindy } from './cctvScreenshotSafe.js';
 
 export function _initCctvPanel() {
   if (!this._cctvPanel) return;
@@ -18,6 +19,9 @@ export function _initCctvPanel() {
     this._sourcesBlock = initSourcesBlock(sourcesBlock, {
       signal: this.listeners.signal,
     });
+
+  // Personal fork: the HIDE WINDY toggle (cctvScreenshotSafe.js).
+  bindHideWindy(this);
 
   this.listen(this._cctvEnableBtn, 'click', async () => {
     this._actionGeneration++;
