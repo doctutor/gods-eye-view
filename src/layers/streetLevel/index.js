@@ -119,7 +119,8 @@ export function createStreetLevelLayer({
     const entry = {
       def,
       instance: null,
-      on: true,
+      // Personal fork: a provider may start switched off (`defaultOn: false`).
+      on: def.defaultOn !== false,
       status: null,
       /** The error this provider last reported, until it withdraws it. */
       reportedError: null,

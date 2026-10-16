@@ -1,7 +1,16 @@
 import { stepHighlight } from './cctvCameraList.js';
+import { initPendingCams } from './cctvPending.js';
 
 export function _initCctvPanel() {
   if (!this._cctvPanel) return;
+
+  // Personal fork: the featured-cam review queue (cctvPending.js).
+  const pendingCams = this._cctvPanel.querySelector?.('[data-cctv-pending]');
+  if (pendingCams && typeof fetch === 'function')
+    this._pendingCams = initPendingCams(pendingCams, {
+      signal: this.listeners.signal,
+      showToast: (message) => this.actions.showToast?.(message),
+    });
 
   this.listen(this._cctvEnableBtn, 'click', async () => {
     this._actionGeneration++;

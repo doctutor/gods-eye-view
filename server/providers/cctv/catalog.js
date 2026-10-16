@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_CCTV_SOURCE_FILE, CCTV_SOURCE_CACHE_MS } from './constants.js';
+import {
+  DEFAULT_CCTV_SOURCE_FILE,
+  CCTV_SOURCE_CACHE_MS,
+  CCTV_SOURCE_RETRY_MS,
+} from './constants.js';
 import { allocateSourceCap, resolveCatalogCap } from './cap.js';
 import { loadGroundHeights, joinGroundHeights } from './groundHeights.js';
 import { cameraRegion, normalizeSourceItem } from './normalize.js';
@@ -26,6 +30,8 @@ import { haversineKm } from '../common/geo.js';
 import { createWindySource } from './windy.js';
 import { createLinkedLoader } from './linked.js';
 import { createCamindexLoader } from './camindex.js';
+import { createNpsLoader } from './nps.js';
+import { createUsgsVolcanoLoader } from './usgs.js';
 
 /** Env kill switch: unset or anything but "0" means enabled. */
 const envEnabled = (name) => String(process.env[name] || '1').trim() !== '0';
@@ -114,6 +120,18 @@ const LIVE_PACKS = [
     name: 'featured',
     enabled: () => envEnabled('CCTV_FEATURED_ENABLED'),
     load: createFeaturedLoader(),
+  },
+  // Personal fork: USGS volcano observatory stills (usgs.js) and National
+  // Park Service webcams (nps.js; needs NPS_API_KEY).
+  {
+    name: 'usgs-volcano',
+    enabled: () => envEnabled('CCTV_USGS_ENABLED'),
+    load: createUsgsVolcanoLoader(),
+  },
+  {
+    name: 'nps',
+    enabled: () => envEnabled('CCTV_NPS_ENABLED'),
+    load: createNpsLoader(),
   },
   // Personal fork: webcams linked from OpenStreetMap and Wikidata places;
   // proximity index only (linked.js).
@@ -320,6 +338,17 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
         `[CCTV] source catalog exceeds cap ${maxCount}; shared round-robin across packs (${detail}). Raise CCTV_MAX_SOURCES or lower a per-pack cap to change the mix.`,
       );
     }
+    // Personal fork: an enabled live pack that came back empty almost always
+    // timed out (startup contention, a slow upstream); retry it well before
+    // the normal TTL instead of serving a thin catalog for 15 minutes.
+    const failedPacks = needsLiveSources
+      ? LIVE_PACKS.filter(
+          (pack, i) =>
+            pack.enabled() &&
+            (liveResults[i]?.status !== 'fulfilled' ||
+              !liveResults[i].value?.length),
+        ).map((pack) => pack.name)
+      : [];
     if (capped.length > 0 || _cctvSourceCache.length === 0) {
       _cctvSourceCache = capped;
       _cctvTrimmedPacks = trimmedPacks;
@@ -334,11 +363,21 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
       );
     }
     _cctvSourceCacheAt = Date.now();
+    if (failedPacks.length && capped.length > 0) {
+      console.warn(
+        `[CCTV] ${failedPacks.length} pack(s) empty this refresh (${failedPacks.join(', ')}); retrying in ${Math.round(CCTV_SOURCE_RETRY_MS / 1000)} s`,
+      );
+      _cctvSourceCacheAt -= CCTV_SOURCE_CACHE_MS - CCTV_SOURCE_RETRY_MS;
+    }
     return _cctvSourceCache;
   }
 
   /** Packs serving fewer cameras than they offer, as of the last refresh. */
   getCctvSources.trimmedPacks = () => _cctvTrimmedPacks;
+  // Personal fork: the next request refreshes (a featured cam was accepted).
+  getCctvSources.invalidate = () => {
+    _cctvSourceCacheAt = 0;
+  };
   /** Personal fork: every known camera, including those the cap leaves out. */
   getCctvSources.index = () => _cctvIndex;
   /** Personal fork: a camera a dynamic source has returned before. */

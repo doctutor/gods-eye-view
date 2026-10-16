@@ -316,6 +316,8 @@ const withEnv = async (patch, fn) => {
       'YOUTUBE_API_KEY',
     ])
       delete process.env[key];
+    // The linked-webcam pack would reach QLever (node:https, not fetch).
+    process.env.CCTV_LINKED_ENABLED = '0';
     Object.assign(process.env, patch);
     await fn();
   } finally {

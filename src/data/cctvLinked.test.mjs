@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
+import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -8,11 +10,16 @@ import {
   DEFAULT_OVERPASS_MIRRORS,
   LINKED_RETRY_MS,
   LINKED_TTL_MS,
+  QLEVER_OSM_ENDPOINT,
+  QLEVER_TAG_KEYS,
+  QLEVER_WEBCAM_QUERY,
   classifyWebcamUrl,
   createLinkedLoader,
   osmCategory,
   osmToSources,
   overpassEndpoints,
+  postForm,
+  qleverToElements,
   wikidataToSources,
 } from '../../server/providers/cctv/linked.js';
 import {
@@ -237,6 +244,73 @@ function fakeFetch({ osmStatus = 200, wikidataStatus = 200 } = {}) {
   return { fetchImpl, calls };
 }
 
+/** A QLever transport that answers every request with one fixed reply. */
+function fakeQlever(reply) {
+  const calls = [];
+  const request = async (url, body, options) => {
+    calls.push({ url, body, options });
+    if (reply instanceof Error) throw reply;
+    return reply;
+  };
+  return { request, calls };
+}
+
+/** QLever rows for one object: one per tag, each with the centroid. */
+function qleverRows(iri, centroid, tags) {
+  return Object.entries(tags).map(([key, value]) => {
+    const row = {
+      osm: { type: 'uri', value: iri },
+      key: {
+        type: 'uri',
+        value: `https://www.openstreetmap.org/wiki/Key:${key}`,
+      },
+      value: { type: 'literal', value },
+    };
+    if (centroid)
+      row.centroid = {
+        type: 'literal',
+        datatype: 'http://www.opengis.net/ont/geosparql#wktLiteral',
+        value: centroid,
+      };
+    return row;
+  });
+}
+const qleverBody = {
+  head: { vars: ['osm', 'centroid', 'key', 'value'] },
+  results: {
+    bindings: [
+      ...qleverRows(
+        'https://www.openstreetmap.org/node/1',
+        'POINT(-76.6085 39.2855)',
+        { 'contact:webcam': 'https://example.org/h.jpg', name: 'Harbor' },
+      ),
+      ...qleverRows(
+        'https://www.openstreetmap.org/way/1012900648',
+        'POINT(9.183784 48.784407)',
+        {
+          'contact:webcam': 'https://ski.example.org/cams',
+          aerialway: 'gondola',
+          'addr:city': 'Stuttgart',
+        },
+      ),
+      // The same object again, and a key the query did not ask for: the
+      // first value and the first centroid win; the stray key is ignored.
+      ...qleverRows('https://www.openstreetmap.org/node/1', 'POINT(0 0)', {
+        'contact:webcam': 'https://other.example.org/',
+        'surveillance:type': 'camera',
+      }),
+      // No centroid: dropped by osmToSources.
+      ...qleverRows('https://www.openstreetmap.org/relation/7', null, {
+        'contact:webcam': 'https://r.example.org/',
+      }),
+      // Not an OSM object IRI.
+      ...qleverRows('https://example.org/node/9', 'POINT(1 1)', {
+        'contact:webcam': 'https://n.example.org/',
+      }),
+    ],
+  },
+};
+
 test('the loader fetches once a week, keeps copies on disk, and serves stale on failure', async (t) => {
   t.mock.method(console, 'log', () => {});
   t.mock.method(console, 'warn', () => {});
@@ -244,8 +318,10 @@ test('the loader fetches once a week, keeps copies on disk, and serves stale on 
   let clock = 1_000_000;
   try {
     const good = fakeFetch();
+    const qlever = fakeQlever({ status: 503, text: 'down' });
     const load = createLinkedLoader({
       fetchImpl: good.fetchImpl,
+      qleverRequest: qlever.request,
       now: () => clock,
       cacheDir: dir,
       env: {},
@@ -265,6 +341,7 @@ test('the loader fetches once a week, keeps copies on disk, and serves stale on 
     const bad = fakeFetch({ osmStatus: 502, wikidataStatus: 502 });
     const second = createLinkedLoader({
       fetchImpl: bad.fetchImpl,
+      qleverRequest: qlever.request,
       now: () => clock,
       cacheDir: dir,
       env: {},
@@ -282,12 +359,319 @@ test('the loader fetches once a week, keeps copies on disk, and serves stale on 
     clock += LINKED_RETRY_MS;
     await second();
     assert.equal(bad.calls.length, 2 * (DEFAULT_OVERPASS_MIRRORS.length + 1));
+    assert.equal(qlever.calls.length, 2, 'QLever once per failed refresh');
 
     const files = (await fs.readdir(dir)).sort();
     assert.deepEqual(files, ['osm.json', 'wikidata.json']);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test('the QLever query names every tag the normalizer reads', () => {
+  assert.match(
+    QLEVER_WEBCAM_QUERY,
+    /\?osm <https:\/\/www\.openstreetmap\.org\/wiki\/Key:contact:webcam> \?webcam \./,
+  );
+  const values = /VALUES \?key \{([^}]*)\}/.exec(QLEVER_WEBCAM_QUERY)[1];
+  const named = [
+    ...values.matchAll(
+      /<https:\/\/www\.openstreetmap\.org\/wiki\/Key:([^>]+)>/g,
+    ),
+  ].map((m) => m[1]);
+  assert.deepEqual(named, [...QLEVER_TAG_KEYS]);
+  for (const key of [
+    'contact:webcam',
+    'name',
+    'addr:city',
+    'amenity',
+    'tourism',
+    'man_made',
+    'natural',
+    'leisure',
+    'highway',
+    'place',
+    'building',
+    'shop',
+    'harbour',
+    'aeroway',
+    'aerialway',
+    'historic',
+    'sport',
+    'landuse',
+  ])
+    assert.ok(QLEVER_TAG_KEYS.includes(key), key);
+  assert.match(QLEVER_WEBCAM_QUERY, /geof:centroid\(\?wkt\) AS \?centroid/);
+});
+
+test('QLever rows become the same elements Overpass returns', () => {
+  const elements = qleverToElements(qleverBody.results.bindings);
+  assert.deepEqual(elements, [
+    {
+      type: 'node',
+      id: 1,
+      lat: 39.2855,
+      lon: -76.6085,
+      tags: { 'contact:webcam': 'https://example.org/h.jpg', name: 'Harbor' },
+    },
+    {
+      type: 'way',
+      id: 1012900648,
+      lat: 48.784407,
+      lon: 9.183784,
+      tags: {
+        'contact:webcam': 'https://ski.example.org/cams',
+        aerialway: 'gondola',
+        'addr:city': 'Stuttgart',
+      },
+    },
+    {
+      type: 'relation',
+      id: 7,
+      tags: { 'contact:webcam': 'https://r.example.org/' },
+    },
+  ]);
+  assert.deepEqual(
+    osmToSources(elements).map((s) => [s.id, s.category, s.city]),
+    [
+      ['osm-webcam-n1', 'webcam', 'Linked webcam'],
+      ['osm-webcam-w1012900648', 'ski', 'Stuttgart'],
+    ],
+  );
+  assert.deepEqual(qleverToElements(null), []);
+  assert.deepEqual(qleverToElements([{ osm: { value: 42 } }, null]), []);
+});
+
+test('QLever is asked only after every Overpass mirror fails', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-linked-ql-'));
+  try {
+    // Overpass answers: QLever is never asked.
+    const good = fakeFetch();
+    const unused = fakeQlever({
+      status: 200,
+      text: JSON.stringify(qleverBody),
+    });
+    const first = createLinkedLoader({
+      fetchImpl: good.fetchImpl,
+      qleverRequest: unused.request,
+      cacheDir: path.join(dir, 'a'),
+      env: {},
+    });
+    assert.equal((await first()).everything.length, 2);
+    assert.equal(unused.calls.length, 0);
+
+    // Every mirror fails: each is tried in order, then QLever once.
+    const order = [];
+    const bad = fakeFetch({ osmStatus: 502 });
+    const qlever = fakeQlever({
+      status: 200,
+      text: JSON.stringify(qleverBody),
+    });
+    const second = createLinkedLoader({
+      fetchImpl: async (href, init) => {
+        order.push(href);
+        return bad.fetchImpl(href, init);
+      },
+      qleverRequest: async (...args) => {
+        order.push('qlever');
+        return qlever.request(...args);
+      },
+      cacheDir: path.join(dir, 'b'),
+      env: {},
+    });
+    const result = await second();
+    assert.deepEqual(
+      order.filter((href) => !href.includes('wikidata')),
+      [...DEFAULT_OVERPASS_MIRRORS, 'qlever'],
+    );
+    assert.deepEqual(
+      result.everything.map((s) => s.id).sort(),
+      ['osm-webcam-n1', 'osm-webcam-w1012900648', 'wd-webcam-Q9-0'].sort(),
+    );
+    const [call] = qlever.calls;
+    assert.equal(call.url, QLEVER_OSM_ENDPOINT);
+    assert.equal(
+      new URLSearchParams(call.body).get('query'),
+      QLEVER_WEBCAM_QUERY,
+    );
+    assert.equal(
+      call.options.headers.Accept,
+      'application/sparql-results+json',
+    );
+    assert.ok(call.options.timeoutMs >= 60_000, 'slow connects are allowed');
+    assert.equal(call.options.maxBytes, 32 * 1024 * 1024);
+    const cached = JSON.parse(
+      await fs.readFile(path.join(dir, 'b', 'osm.json'), 'utf8'),
+    );
+    assert.equal(cached.sources.length, 2);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a bad QLever answer leaves the OSM list empty and is reported', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args.join(' ')));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-linked-qlbad-'));
+  try {
+    const replies = [
+      [{ status: 500, text: '{"exception":"boom"}' }, /QLever 500/],
+      [{ status: 308, text: '' }, /QLever 308/],
+      [{ status: 200, text: '<html>' }, /QLever returned malformed JSON/],
+      [{ status: 200, text: '{"results":{}}' }, /QLever returned no rows/],
+      [
+        { status: 200, text: '{"results":{"bindings":[]}}' },
+        /QLever returned no rows/,
+      ],
+      [
+        { status: 200, text: 'x'.repeat(32 * 1024 * 1024 + 1) },
+        /QLever: response too large/,
+      ],
+      [new Error('connect ETIMEDOUT'), /QLever: connect ETIMEDOUT/],
+    ];
+    for (const [i, [reply, expected]] of replies.entries()) {
+      warnings.length = 0;
+      const load = createLinkedLoader({
+        fetchImpl: fakeFetch({ osmStatus: 502 }).fetchImpl,
+        qleverRequest: fakeQlever(reply).request,
+        cacheDir: path.join(dir, String(i)),
+        env: {},
+      });
+      const result = await load();
+      assert.deepEqual(
+        result.everything.map((s) => s.id),
+        ['wd-webcam-Q9-0'],
+        String(expected),
+      );
+      const osmWarning = warnings.find((w) => w.includes('osm webcam links'));
+      assert.match(osmWarning, /Overpass 502; QLever/);
+      assert.match(osmWarning, expected);
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('QLever connection failures get a few fresh attempts', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args.join(' ')));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-linked-qlretry-'));
+  const timedOut = () =>
+    Object.assign(new Error('connect ETIMEDOUT 1.2.3.4:443'), {
+      code: 'ETIMEDOUT',
+    });
+  try {
+    // Two timeouts, then an answer.
+    let calls = 0;
+    const flaky = createLinkedLoader({
+      fetchImpl: fakeFetch({ osmStatus: 502 }).fetchImpl,
+      qleverRequest: async () => {
+        calls++;
+        if (calls <= 2) throw timedOut();
+        return { status: 200, text: JSON.stringify(qleverBody) };
+      },
+      cacheDir: path.join(dir, 'a'),
+      env: {},
+    });
+    assert.equal((await flaky()).everything.length, 3);
+    assert.equal(calls, 3);
+
+    // Always timing out: a bounded number of attempts.
+    const down = fakeQlever(timedOut());
+    const never = createLinkedLoader({
+      fetchImpl: fakeFetch({ osmStatus: 502 }).fetchImpl,
+      qleverRequest: down.request,
+      cacheDir: path.join(dir, 'b'),
+      env: {},
+    });
+    assert.equal((await never()).everything.length, 1);
+    assert.equal(down.calls.length, 4);
+    assert.ok(warnings.some((w) => /QLever: connect ETIMEDOUT/.test(w)));
+
+    // An answer that was read is never retried.
+    const refused = fakeQlever({ status: 400, text: '{}' });
+    await createLinkedLoader({
+      fetchImpl: fakeFetch({ osmStatus: 502 }).fetchImpl,
+      qleverRequest: refused.request,
+      cacheDir: path.join(dir, 'c'),
+      env: {},
+    })();
+    assert.equal(refused.calls.length, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+/** A stand-in for https.request: replies with the given status and chunks. */
+function fakeHttps(t, { status = 200, headers = {}, chunks = [] }) {
+  const sent = [];
+  t.mock.method(https, 'request', (url, options, onResponse) => {
+    const request = new EventEmitter();
+    let destroyed = false;
+    request.destroy = (error) => {
+      destroyed = true;
+      queueMicrotask(() => request.emit('error', error));
+    };
+    request.end = (body) => {
+      sent.push({ url, options, body });
+      const response = new EventEmitter();
+      response.statusCode = status;
+      response.headers = headers;
+      queueMicrotask(() => {
+        onResponse(response);
+        for (const chunk of chunks) {
+          if (destroyed) return;
+          response.emit('data', Buffer.from(chunk));
+        }
+        if (!destroyed) response.emit('end');
+      });
+    };
+    return request;
+  });
+  return sent;
+}
+
+test('the QLever transport posts a form and caps what it reads', async (t) => {
+  const sent = fakeHttps(t, { status: 200, chunks: ['{"a":', '1}'] });
+  assert.deepEqual(
+    await postForm('https://q.example/api', 'query=x', {
+      headers: { Accept: 'application/sparql-results+json' },
+      timeoutMs: 1000,
+      maxBytes: 100,
+    }),
+    { status: 200, text: '{"a":1}' },
+  );
+  assert.equal(sent[0].options.method, 'POST');
+  assert.equal(
+    sent[0].options.headers['Content-Type'],
+    'application/x-www-form-urlencoded',
+  );
+  assert.equal(sent[0].options.headers['Content-Length'], 7);
+  assert.equal(sent[0].body, 'query=x');
+  t.mock.restoreAll();
+
+  fakeHttps(t, { chunks: ['x'.repeat(60), 'x'.repeat(60)] });
+  await assert.rejects(
+    postForm('https://q.example/api', 'query=x', {
+      timeoutMs: 1000,
+      maxBytes: 100,
+    }),
+    /response too large/,
+  );
+  t.mock.restoreAll();
+
+  fakeHttps(t, { headers: { 'content-length': '101' }, chunks: ['{}'] });
+  await assert.rejects(
+    postForm('https://q.example/api', 'query=x', {
+      timeoutMs: 1000,
+      maxBytes: 100,
+    }),
+    /response too large/,
+  );
 });
 
 test('linked webcams reach proximity queries but not the capped catalog', async (t) => {

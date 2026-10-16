@@ -134,7 +134,11 @@ export function createApplicationCatalog({
         createApplicationAlpr({ surface, source: sources.alpr }),
         createApplicationStreetLevel({
           surface,
-          sources: { mapillary: sources.mapillary },
+          sources: {
+            mapillary: sources.mapillary,
+            // Personal fork: Google Street View indoor views.
+            'gsv-indoor': sources['gsv-indoor'],
+          },
           providers: streetLevelProviders,
         }),
         satellites,

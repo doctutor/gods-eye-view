@@ -19,6 +19,7 @@ import {
 import { sanitizeCctvRangeHeader } from './cctv/range.js';
 import { createHlsPuller } from './cctv/stream.js';
 import { createFrameCache } from './cctv/frameCache.js';
+import { createFeaturedQueueRoutes } from './cctv/featuredQueue.js';
 import { discardResponseBody } from './common/http.js';
 import { googleServerApiKey } from './places/google-key.js';
 export { CCTV_FRAME_FETCH_TIMEOUT_MS, fetchCctvImageFromUpstream };
@@ -199,6 +200,15 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
     server.httpServer?.on('close', () => {
       puller.shutdown();
     });
+    // Personal fork: the featured-cam review queue (cctv/featuredQueue.js);
+    // an accepted cam is in the next catalog refresh.
+    server.middlewares.use(
+      '/api/cctv/featured',
+      createFeaturedQueueRoutes({
+        sourceRoot,
+        onAccepted: () => getCctvSources.invalidate?.(),
+      }),
+    );
     server.middlewares.use('/api/cctv', async (req, res) => {
       try {
         const sources = await getCctvSources();

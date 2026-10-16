@@ -29,8 +29,9 @@ export const BROWSER_CSP = [
   "connect-src 'self' blob: data: https: wss: ws:",
   "worker-src 'self' blob:",
   "child-src 'self' blob:",
-  // The same media's players and posts, which load in frames.
-  "frame-src 'self' blob: https://www.youtube-nocookie.com https://www.youtube.com https://www.facebook.com https://platform.twitter.com",
+  // The same media's players and posts, which load in frames. Personal fork:
+  // www.google.com frames the Maps Embed Street View viewer (indoor views).
+  "frame-src 'self' blob: https://www.youtube-nocookie.com https://www.youtube.com https://www.facebook.com https://platform.twitter.com https://www.google.com",
   "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",

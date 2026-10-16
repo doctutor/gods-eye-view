@@ -193,6 +193,9 @@ test('CCTV catalog merges DriveBC cameras and CCTV_DRIVEBC_ENABLED=0 skips the r
     CCTV_TFL_ENABLED: undefined,
     CCTV_DRIVEBC_ENABLED: undefined,
     CCTV_DRIVEBC_MAX_SOURCES: undefined,
+    // Personal fork: the linked-webcam pack would reach QLever (node:https,
+    // not fetch).
+    CCTV_LINKED_ENABLED: '0',
   });
   const requested = [];
   t.mock.method(globalThis, 'fetch', async (url) => {
