@@ -1,0 +1,6 @@
+{
+  "note": "SHA-1s of images a source serves in place of a view (\"camera unavailable\" cards), by source. Read by server/providers/cctv/observed.js and scripts/camindex/verify.mjs. OpenCCTV, checked 2026-10-16: a dead camera's /still/<id>.jpg answers 404 text/plain (24 bytes), not a placeholder image, so none is listed yet; add a hash when one is seen (verify also flags any image three or more cameras share).",
+  "hashes": {
+    "opencctv": []
+  }
+}

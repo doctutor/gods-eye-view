@@ -119,6 +119,51 @@ export function buildCatalog(
   };
 }
 
+/**
+ * Fold what viewers' frame fetches saw (observed.json, keyed by catalog id)
+ * into verify records (keyed by source id), newer wins; errors say nothing
+ * about a camera and are not folded.
+ * @returns {number} records changed
+ */
+export function foldObserved(records, observed, prefix = 'opencctv-') {
+  let changed = 0;
+  for (const [id, seen] of Object.entries(observed || {})) {
+    if (!id.startsWith(prefix)) continue;
+    if (!['live', 'dead', 'placeholder'].includes(seen?.status)) continue;
+    const key = id.slice(prefix.length);
+    if ((records[key]?.verifiedAt ?? -Infinity) >= seen.at) continue;
+    records[key] = {
+      status: seen.status,
+      verifiedAt: seen.at,
+      ...(Number.isFinite(seen.bytes) ? { bytes: seen.bytes } : {}),
+      ...(Number.isFinite(seen.httpStatus)
+        ? { httpStatus: seen.httpStatus }
+        : {}),
+      by: 'observed',
+    };
+    changed += 1;
+  }
+  return changed;
+}
+
+/** Verify records -> observations, for the ids given (newer wins on merge). */
+export function recordsToObserved(records, ids, prefix = 'opencctv-') {
+  const out = {};
+  for (const id of ids) {
+    const record = records[id];
+    if (!record || !Number.isFinite(record.verifiedAt)) continue;
+    out[`${prefix}${id}`] = {
+      status: record.status,
+      at: record.verifiedAt,
+      ...(Number.isFinite(record.bytes) ? { bytes: record.bytes } : {}),
+      ...(Number.isFinite(record.httpStatus)
+        ? { httpStatus: record.httpStatus }
+        : {}),
+    };
+  }
+  return out;
+}
+
 /** Write a JSON file whole or not at all. */
 export function writeJsonAtomic(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });

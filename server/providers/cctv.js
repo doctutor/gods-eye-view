@@ -19,6 +19,7 @@ import {
 import { sanitizeCctvRangeHeader } from './cctv/range.js';
 import { createHlsPuller } from './cctv/stream.js';
 import { createFrameCache } from './cctv/frameCache.js';
+import { createFrameObserver } from './cctv/observed.js';
 import { createFeaturedQueueRoutes } from './cctv/featuredQueue.js';
 import { discardResponseBody } from './common/http.js';
 import { googleServerApiKey } from './places/google-key.js';
@@ -48,6 +49,8 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
   const puller = createHlsPuller();
   // Personal fork: upstream frames kept for their Cache-Control lifetime.
   const frameCache = createFrameCache();
+  // Personal fork: what viewers' frame fetches see (observed.js).
+  const frameObserver = createFrameObserver({ sourceRoot });
 
   /** Update the health entry for a camera, evicting the oldest entry if at capacity. */
   const setHealth = (cameraId, patch) => {
@@ -171,6 +174,7 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
           coordinatesQuality: source.coordinatesQuality,
           operatorUrl: source.operatorUrl,
           licenseClass: source.licenseClass,
+          ...(source.observedAt ? { observedAt: source.observedAt } : {}),
         }
       : {}),
   });
@@ -584,7 +588,7 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
           source?.sourceKind === 'txdot-its'
             ? await fetchTxdotSnapshot(upstreamCandidate)
             : await frameCache.get(upstreamCandidate, () =>
-                fetchCctvImageFromUpstream(upstreamCandidate),
+                frameObserver.fetch(source, upstreamCandidate),
               );
         if (upstreamImage?.ok) {
           setHealth(cameraId, {

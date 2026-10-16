@@ -30,6 +30,7 @@ import { haversineKm } from '../common/geo.js';
 import { createWindySource } from './windy.js';
 import { createLinkedLoader } from './linked.js';
 import { createCamindexLoader } from './camindex.js';
+import { createViewLog } from './observed.js';
 import { createNpsLoader } from './nps.js';
 import { createUsgsVolcanoLoader } from './usgs.js';
 
@@ -204,6 +205,8 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
   /** @type {Array<object>} Personal fork: every camera the packs offered,
    * uncapped, for proximity queries (`near`). */
   let _cctvIndex = [];
+  // Personal fork: centres of proximity queries (observed.js).
+  const viewLog = createViewLog({ sourceRoot });
   // Personal fork: sources too large to index, asked per proximity query.
   const dynamicSources = [
     {
@@ -398,6 +401,8 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
       NEAR_MAX_RADIUS_KM,
       Math.max(0.1, Number(options.radiusKm) || 25),
     );
+    // Personal fork: where viewers look, for camindex verify --rolling.
+    viewLog.record(lat, lon, radiusKm);
     const extra = await Promise.all(
       dynamicSources.map((entry) =>
         entry.enabled() ? entry.source.near(lat, lon, radiusKm) : [],

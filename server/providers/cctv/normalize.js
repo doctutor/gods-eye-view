@@ -600,5 +600,9 @@ function provenanceFields(item) {
     operatorUrl,
     publishSignal: word(item.publishSignal),
     licenseClass: word(item.licenseClass),
+    // Personal fork: when a viewer's frame fetch last saw it live (observed.js).
+    ...(Number.isFinite(Date.parse(item.observedAt))
+      ? { observedAt: new Date(Date.parse(item.observedAt)).toISOString() }
+      : {}),
   };
 }

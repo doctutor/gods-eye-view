@@ -1,6 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isPlausibleLatLon } from './normalize.js';
+import {
+  CAMINDEX_DIR,
+  OBSERVED_FILE,
+  camindexDir,
+  readObserved,
+} from './observed.js';
 
 /**
  * Webcams found by camindex (scripts/camindex/), the crawler that reads
@@ -14,10 +20,15 @@ import { isPlausibleLatLon } from './normalize.js';
  * words), since it was assembled from pages the crawler does not control.
  * Cameras are still images; no directory player is framed.
  *
+ * What viewers' frame fetches observed (observed.json, observed.js) applies
+ * on top: a camera seen dead or showing a placeholder leaves the index (the
+ * observation stays on file, so `camindex verify --rolling` re-checks it),
+ * and one seen live is marked live with the time it was seen.
+ *
  * Personal-fork pack; not part of upstream God's Eye View.
  */
 
-export const CAMINDEX_DIR = path.join('.gev-cache', 'camindex');
+export { CAMINDEX_DIR };
 export const CAMINDEX_CATALOG = 'catalog.json';
 const MAX_CATALOG_BYTES = 128 * 1024 * 1024;
 const ID = /^[a-z][a-z0-9-]{1,80}$/;
@@ -25,11 +36,31 @@ const WORD = /^[a-z][a-z-]{0,23}$/i;
 
 /** The catalog file: CAMINDEX_DIR (relative to the source root) or the default. */
 export function camindexCatalogPath(sourceRoot, env = process.env) {
-  const dir = String(env.CAMINDEX_DIR || '').trim();
-  return path.join(
-    dir ? path.resolve(sourceRoot, dir) : path.join(sourceRoot, CAMINDEX_DIR),
-    CAMINDEX_CATALOG,
-  );
+  return path.join(camindexDir(sourceRoot, env), CAMINDEX_CATALOG);
+}
+
+/**
+ * The catalog's sources with observations applied: dead and placeholder
+ * cameras out, live ones marked live with `observedAt`.
+ * @param {Array<object>} sources
+ * @param {Record<string, {status: string, at: number}>} observed
+ */
+export function applyObserved(sources, observed) {
+  const out = [];
+  for (const source of sources) {
+    const seen = observed[source.id];
+    if (seen?.status === 'dead' || seen?.status === 'placeholder') continue;
+    out.push(
+      seen?.status === 'live'
+        ? {
+            ...source,
+            liveStatus: 'live',
+            observedAt: new Date(seen.at).toISOString(),
+          }
+        : source,
+    );
+  }
+  return out;
 }
 
 function httpsUrl(value) {
@@ -98,6 +129,24 @@ export function catalogCameraToSource(camera) {
 export function createCamindexLoader({ env = process.env } = {}) {
   /** The last file read: {file, mtimeMs, size, sources}. */
   let held = null;
+  /** The last observations applied: {key, sources}. */
+  let applied = null;
+
+  /** The catalog with observed.json on top, recomputed when either changes. */
+  function withObservations(sources, file) {
+    let key = '';
+    try {
+      const stat = fs.statSync(file);
+      key = `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      return sources;
+    }
+    if (applied?.sources === sources && applied.key === key)
+      return applied.result;
+    const result = applyObserved(sources, readObserved(file));
+    applied = { sources, key, result };
+    return result;
+  }
 
   function read(file) {
     let stat;
@@ -133,7 +182,10 @@ export function createCamindexLoader({ env = process.env } = {}) {
   return async function loadCamindexWebcams({
     sourceRoot = process.cwd(),
   } = {}) {
-    const everything = read(camindexCatalogPath(sourceRoot, env));
+    const everything = withObservations(
+      read(camindexCatalogPath(sourceRoot, env)),
+      path.join(camindexDir(sourceRoot, env), OBSERVED_FILE),
+    );
     const kept = [];
     Object.defineProperty(kept, 'everything', { value: everything });
     Object.defineProperty(kept, 'available', { value: everything.length });

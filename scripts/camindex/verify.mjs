@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { HostBlockedError, RobotsDisallowedError } from './fetch.mjs';
 
 /**
@@ -34,8 +36,120 @@ export function stillPacing(gapMs) {
   return pacing;
 }
 
-/** SHA-1s of placeholder images seen in the wild, by source. */
-export const KNOWN_PLACEHOLDERS = Object.freeze({ opencctv: [] });
+/** SHA-1s of placeholder images seen in the wild, by source (shared with the server). */
+export const PLACEHOLDERS_FILE = fileURLToPath(
+  new URL('./placeholders.json', import.meta.url),
+);
+
+/** The known placeholder SHA-1s for one source. */
+export function knownPlaceholders(source, file = PLACEHOLDERS_FILE) {
+  try {
+    const hashes = JSON.parse(fs.readFileSync(file, 'utf8'))?.hashes?.[source];
+    return Array.isArray(hashes)
+      ? hashes.filter((hash) => /^[0-9a-f]{40}$/.test(String(hash)))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Rolling runs check at most this many stills. */
+export const ROLLING_LIMIT = 200;
+/** Never-checked cameras this close to a viewed place come before the rest. */
+export const NEAR_VIEW_KM = 50;
+/** The most recent distinct view centres considered. */
+const RECENT_VIEWS = 200;
+
+const roughKm = (aLat, aLon, bLat, bLon) => {
+  const rad = Math.PI / 180;
+  const x = (bLon - aLon) * rad * Math.cos(((aLat + bLat) / 2) * rad);
+  const y = (bLat - aLat) * rad;
+  return Math.hypot(x, y) * 6371;
+};
+const shuffleKey = (id) =>
+  createHash('sha1').update(String(id)).digest().readUInt32BE(0);
+
+/**
+ * The rolling verification queue, in order:
+ * (a) cameras whose last observation (observed.json) is over a week old;
+ * (b) never-checked cameras within NEAR_VIEW_KM of a place viewed recently
+ *     (views.log), nearest first;
+ * (c) everything else that is due, least recently checked first.
+ * A camera checked (by verify or by a viewer's frame) within the week is not
+ * due; one whose last check was an error always is.
+ * @param {{candidates: Array<object>, records: Record<string, object>,
+ *   observed?: Record<string, {status: string, at: number}>,
+ *   views?: Array<{lat: number, lon: number}>, now?: number,
+ *   observedId?: (candidate: object) => string}} input
+ */
+export function rollingQueue({
+  candidates,
+  records,
+  observed = {},
+  views = [],
+  now = Date.now(),
+  observedId = (candidate) => `opencctv-${candidate.id}`,
+}) {
+  const centres = [];
+  const seenCentres = new Set();
+  for (let i = views.length - 1; i >= 0 && centres.length < RECENT_VIEWS; i--) {
+    const key = `${views[i].lat.toFixed(1)},${views[i].lon.toFixed(1)}`;
+    if (seenCentres.has(key)) continue;
+    seenCentres.add(key);
+    centres.push(views[i]);
+  }
+  const groups = [[], [], []];
+  for (const candidate of candidates) {
+    if (
+      !candidate.stillUrl ||
+      !Number.isFinite(candidate.lat) ||
+      !Number.isFinite(candidate.lon)
+    )
+      continue;
+    const record = records[candidate.id];
+    const seen = observed[observedId(candidate)];
+    // Never checked counts as checked longest ago.
+    const lastAt = Math.max(
+      record?.verifiedAt ?? -Infinity,
+      seen?.at ?? -Infinity,
+    );
+    const lastStatus =
+      (seen?.at ?? -Infinity) >= (record?.verifiedAt ?? -Infinity)
+        ? seen?.status
+        : record?.status;
+    const due = lastStatus === 'error' || !(now - lastAt < VERIFY_MAX_AGE_MS);
+    if (!due) continue;
+    if (seen && now - seen.at >= VERIFY_MAX_AGE_MS) {
+      groups[0].push({ candidate, key: seen.at });
+      continue;
+    }
+    if (!record && !seen && centres.length) {
+      let nearest = Infinity;
+      for (const centre of centres)
+        nearest = Math.min(
+          nearest,
+          roughKm(candidate.lat, candidate.lon, centre.lat, centre.lon),
+        );
+      if (nearest <= NEAR_VIEW_KM) {
+        groups[1].push({ candidate, key: nearest });
+        continue;
+      }
+    }
+    groups[2].push({
+      candidate,
+      key: Number.isFinite(lastAt) ? lastAt : -Number.MAX_VALUE,
+    });
+  }
+  return groups.flatMap((group) =>
+    group
+      .sort(
+        (a, b) =>
+          a.key - b.key ||
+          shuffleKey(a.candidate.id) - shuffleKey(b.candidate.id),
+      )
+      .map((entry) => entry.candidate),
+  );
+}
 
 /** Maryland, for the first verification pass (lat 37.9–39.8, lon −79.5 to −75.0). */
 export const MARYLAND_BOX = Object.freeze({
@@ -130,7 +244,9 @@ export function verifyOrder(candidates, records) {
  * @param {Array<object>} candidates - each with id and stillUrl.
  * @param {Record<string, object>} records - existing id → record (updated in place).
  * @param {{limit?: number, now?: () => number, source?: string,
- *   log?: (line: string) => void, onRecord?: () => void}} [options]
+ *   log?: (line: string) => void, onRecord?: (candidate: object) => void,
+ *   queue?: Array<object>, placeholders?: Array<string>}} [options]
+ *   `queue` replaces the default choice and order (rollingQueue).
  */
 export async function verifyCandidates(
   fetcher,
@@ -145,23 +261,25 @@ export async function verifyCandidates(
     log = () => {},
     onRecord = () => {},
   } = options;
-  const due = verifyOrder(
-    candidates.filter(
-      (candidate) =>
-        candidate.stillUrl &&
-        // A camera with no place is never served, so never checked.
-        Number.isFinite(candidate.lat) &&
-        Number.isFinite(candidate.lon) &&
-        (records[candidate.id]?.status === 'error' ||
-          !(
-            now() - (records[candidate.id]?.verifiedAt ?? -Infinity) <
-            VERIFY_MAX_AGE_MS
-          )),
-    ),
-    records,
-  );
+  const due =
+    options.queue ||
+    verifyOrder(
+      candidates.filter(
+        (candidate) =>
+          candidate.stillUrl &&
+          // A camera with no place is never served, so never checked.
+          Number.isFinite(candidate.lat) &&
+          Number.isFinite(candidate.lon) &&
+          (records[candidate.id]?.status === 'error' ||
+            !(
+              now() - (records[candidate.id]?.verifiedAt ?? -Infinity) <
+              VERIFY_MAX_AGE_MS
+            )),
+      ),
+      records,
+    );
   const run = { checked: 0, fromNetwork: 0, stoppedBy: 'complete' };
-  const placeholders = KNOWN_PLACEHOLDERS[source] || [];
+  const placeholders = options.placeholders || knownPlaceholders(source);
   for (const candidate of due) {
     if (run.checked >= limit) {
       run.stoppedBy = 'limit';
@@ -192,7 +310,7 @@ export async function verifyCandidates(
       };
     }
     run.checked += 1;
-    onRecord();
+    onRecord(candidate);
     if (run.checked % 50 === 0)
       log(`verified ${run.checked}/${Math.min(due.length, limit)}`);
   }
