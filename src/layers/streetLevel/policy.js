@@ -7,6 +7,8 @@ export const POSITION_PICK_ID = 'sl:pos';
 /** One colour per imagery source: chip, coverage lines, points, cones and legend. */
 export const PROVIDER_COLORS = Object.freeze({
   mapillary: '#05cb63',
+  // Personal fork: Google Street View indoor views.
+  'gsv-indoor': '#ea4335',
 });
 
 /** Colours every provider shares: the selection highlight and the marker. */

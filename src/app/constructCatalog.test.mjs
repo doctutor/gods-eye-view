@@ -147,6 +147,8 @@ test('Mapillary can be omitted or replaced without changing catalog membership',
   t.after(() => lifetime.abort());
   const sources = fixtureSources([], []);
   delete sources.mapillary;
+  // Personal fork: the standalone sources also carry Google indoor views.
+  delete sources['gsv-indoor'];
   const options = {
     sources,
     signal: lifetime.signal,

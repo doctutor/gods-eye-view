@@ -26,13 +26,72 @@ let _googleRateLimiter;
 export const GOOGLE_DEFAULT_PER_MIN = 120;
 
 /** Google cost endpoints (nearby-places + text-search). Null only when set to 0. */
-function googleRateLimiter() {
+export function googleRateLimiter() {
   if (_googleRateLimiter === undefined)
     _googleRateLimiter = makeCostRateLimiter(
       process.env.GEV_RATELIMIT_GOOGLE_PER_MIN,
       GOOGLE_DEFAULT_PER_MIN,
     );
   return _googleRateLimiter;
+}
+
+const NEARBY_FIELD_MASK = [
+  'places.id',
+  'places.displayName',
+  'places.formattedAddress',
+  'places.shortFormattedAddress',
+  'places.location',
+  'places.primaryType',
+  'places.primaryTypeDisplayName',
+  'places.types',
+].join(',');
+
+/**
+ * One Places (New) nearby search, projected like the nearby-places route.
+ * Personal fork: shared with the Street View indoor probe
+ * (server/providers/streetview/), which narrows it with `includedTypes`.
+ */
+export async function requestNearbyPlaces({
+  apiKey,
+  latitude,
+  longitude,
+  radiusM,
+  includedTypes = null,
+  rankPreference = 'DISTANCE',
+  fetchImpl = (...args) => fetch(...args),
+  endpoint = 'https://places.googleapis.com/v1/places:searchNearby',
+  signal,
+}) {
+  const response = await fetchImpl(endpoint, {
+    method: 'POST',
+    redirect: 'error',
+    ...(signal ? { signal } : {}),
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': apiKey,
+      'X-Goog-FieldMask': NEARBY_FIELD_MASK,
+    },
+    body: JSON.stringify({
+      maxResultCount: 20,
+      rankPreference,
+      ...(includedTypes?.length ? { includedTypes } : {}),
+      locationRestriction: {
+        circle: {
+          center: { latitude, longitude },
+          radius: radiusM,
+        },
+      },
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  return {
+    ok: response.ok,
+    status: response.status,
+    places: projectNearbyPlaces(data, latitude, longitude),
+    error: response.ok
+      ? null
+      : data.error?.message || 'Google Places request failed',
+  };
 }
 
 /** Validate raw lat/lon presence and WGS84 bounds before consuming request quota. */
@@ -115,52 +174,19 @@ export function googlePlacesContextProxy({
       );
 
       try {
-        const response = await fetchImpl(
-          endpoints.nearby ||
-            'https://places.googleapis.com/v1/places:searchNearby',
-          {
-            method: 'POST',
-            redirect: 'error',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Goog-Api-Key': apiKey,
-              'X-Goog-FieldMask': [
-                'places.id',
-                'places.displayName',
-                'places.formattedAddress',
-                'places.shortFormattedAddress',
-                'places.location',
-                'places.primaryType',
-                'places.primaryTypeDisplayName',
-                'places.types',
-              ].join(','),
-            },
-            body: JSON.stringify({
-              maxResultCount: 20,
-              rankPreference: 'DISTANCE',
-              locationRestriction: {
-                circle: {
-                  center: { latitude, longitude },
-                  radius: radiusM,
-                },
-              },
-            }),
-          },
-        );
-        const data = await response.json().catch(() => ({}));
-        const places = projectNearbyPlaces(data, latitude, longitude);
+        const { ok, status, places, error } = await requestNearbyPlaces({
+          apiKey,
+          latitude,
+          longitude,
+          radiusM,
+          fetchImpl,
+          ...(endpoints.nearby ? { endpoint: endpoints.nearby } : {}),
+        });
 
-        res.statusCode = response.ok ? 200 : response.status;
+        res.statusCode = ok ? 200 : status;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'private, max-age=300');
-        res.end(
-          JSON.stringify({
-            places,
-            error: response.ok
-              ? null
-              : data.error?.message || 'Google Places request failed',
-          }),
-        );
+        res.end(JSON.stringify({ places, error }));
       } catch (error) {
         res.statusCode = 502;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
