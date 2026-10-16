@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import https from 'node:https';
 import path from 'node:path';
 import { isPlausibleLatLon } from './normalize.js';
 
@@ -7,7 +8,8 @@ import { isPlausibleLatLon } from './normalize.js';
  *
  * - OpenStreetMap: every object tagged `contact:webcam` (about ten thousand
  *   worldwide: harbours, ski areas, squares, viewpoints, observatories), via
- *   Overpass. ODbL; the shared OpenStreetMap credit shows while any is loaded.
+ *   Overpass, or QLever's OpenStreetMap index when every Overpass mirror
+ *   fails. ODbL; the shared OpenStreetMap credit shows while any is loaded.
  * - Wikidata: every item with a "webcam URL" (P4238) and coordinates (about
  *   six hundred notable landmarks). CC0.
  *
@@ -28,7 +30,17 @@ export const LINKED_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** After a failed fetch, the next attempt waits this long. */
 export const LINKED_RETRY_MS = 30 * 60 * 1000;
 const MAX_BYTES = 16 * 1024 * 1024;
+const MAX_QLEVER_BYTES = 32 * 1024 * 1024;
 const OVERPASS_TIMEOUT_MS = 180 * 1000;
+const QLEVER_TIMEOUT_MS = 300 * 1000;
+const QLEVER_CONNECT_ATTEMPTS = 4;
+/** Connection failures worth a fresh attempt; HTTP answers never retry. */
+const QLEVER_RETRY_CODES = new Set([
+  'ETIMEDOUT',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'EAI_AGAIN',
+]);
 const WIKIDATA_TIMEOUT_MS = 90 * 1000;
 
 /** Public Overpass mirrors, tried in order when OVERPASS_UPSTREAMS is unset. */
@@ -43,6 +55,58 @@ export const DEFAULT_OVERPASS_MIRRORS = Object.freeze([
 ]);
 export const OVERPASS_WEBCAM_QUERY =
   '[out:json][timeout:240];nwr["contact:webcam"];out tags center;';
+/**
+ * QLever's SPARQL endpoint over the OpenStreetMap planet (osm2rdf): the
+ * fallback when every Overpass mirror fails. Tag keys are predicates named
+ * after their wiki page, colons and all (`Key:contact:webcam`); objects are
+ * https://www.openstreetmap.org/{node,way,relation}/{id}. The index stores
+ * full geometries but no centroid, so the query asks for geof:centroid.
+ */
+export const QLEVER_OSM_ENDPOINT = 'https://qlever.dev/api/osm-planet';
+/** The tags osmToSources() and osmCategory() read; contact:webcam first. */
+export const QLEVER_TAG_KEYS = Object.freeze([
+  'contact:webcam',
+  'name',
+  'name:en',
+  'official_name',
+  'description',
+  'addr:city',
+  'is_in:city',
+  'place',
+  'natural',
+  'leisure',
+  'tourism',
+  'landuse',
+  'sport',
+  'aerialway',
+  'piste',
+  'piste:type',
+  'harbour',
+  'seamark',
+  'aeroway',
+  'man_made',
+  'amenity',
+  'historic',
+  'highway',
+  'building',
+  'shop',
+]);
+const OSM_KEY_IRI = 'https://www.openstreetmap.org/wiki/Key:';
+/**
+ * One row per object and tag. (One OPTIONAL per tag also works but runs
+ * slower: each joins against that key's whole planet-wide index.)
+ */
+export const QLEVER_WEBCAM_QUERY = [
+  'PREFIX geo: <http://www.opengis.net/ont/geosparql#>',
+  'PREFIX geof: <http://www.opengis.net/def/function/geosparql/>',
+  'SELECT ?osm ?centroid ?key ?value WHERE {',
+  `  ?osm <${OSM_KEY_IRI}contact:webcam> ?webcam .`,
+  '  OPTIONAL { ?osm geo:hasGeometry/geo:asWKT ?wkt }',
+  '  BIND(geof:centroid(?wkt) AS ?centroid)',
+  `  VALUES ?key { ${QLEVER_TAG_KEYS.map((key) => `<${OSM_KEY_IRI}${key}>`).join(' ')} }`,
+  '  ?osm ?key ?value .',
+  '}',
+].join('\n');
 export const WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql';
 export const WIKIDATA_WEBCAM_QUERY =
   'SELECT ?item ?itemLabel ?url ?coord WHERE { ?item wdt:P4238 ?url; wdt:P625 ?coord . SERVICE wikibase:label { bd:serviceParam wikibase:language "en". } }';
@@ -264,6 +328,106 @@ export function wikidataToSources(bindings) {
   return sources;
 }
 
+/**
+ * QLever SPARQL rows (see QLEVER_WEBCAM_QUERY; one per object and tag) →
+ * Overpass-shaped elements for osmToSources(): type, id, tags and the
+ * centroid as lat/lon (absent when the object has none, so osmToSources()
+ * drops it).
+ * @param {Array<object>} bindings - `results.bindings`.
+ * @returns {Array<object>}
+ */
+export function qleverToElements(bindings) {
+  const wanted = new Set(QLEVER_TAG_KEYS);
+  const elements = new Map();
+  for (const row of Array.isArray(bindings) ? bindings : []) {
+    const match =
+      /^https:\/\/www\.openstreetmap\.org\/(node|way|relation)\/(\d{1,15})$/.exec(
+        String(row?.osm?.value || ''),
+      );
+    if (!match) continue;
+    const ref = `${match[1]}/${match[2]}`;
+    let element = elements.get(ref);
+    if (!element) {
+      element = { type: match[1], id: Number(match[2]), tags: {} };
+      elements.set(ref, element);
+    }
+    const point = /^POINT\(\s*(-?[\d.]+)\s+(-?[\d.]+)\s*\)$/i.exec(
+      String(row?.centroid?.value || ''),
+    );
+    if (point && !('lat' in element)) {
+      element.lon = Number(point[1]);
+      element.lat = Number(point[2]);
+    }
+    const iri = String(row?.key?.value || '');
+    const key = iri.startsWith(OSM_KEY_IRI)
+      ? iri.slice(OSM_KEY_IRI.length)
+      : '';
+    const value = row?.value?.value;
+    if (wanted.has(key) && typeof value === 'string' && !(key in element.tags))
+      element.tags[key] = value;
+  }
+  return [...elements.values()];
+}
+
+/**
+ * POST a form over node:https and read at most maxBytes of the answer.
+ * QLever can take 20–30 s to accept a connection, past fetch()'s fixed 10 s
+ * connect timeout, so this path does not use fetch(). Redirects are not
+ * followed (a 3xx comes back as its status).
+ * @returns {Promise<{status: number, text: string}>}
+ */
+export function postForm(url, body, { headers = {}, timeoutMs, maxBytes }) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    };
+    const request = https.request(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (response) => {
+        if (Number(response.headers['content-length']) > maxBytes) {
+          request.destroy(new Error('response too large'));
+          return;
+        }
+        const chunks = [];
+        let size = 0;
+        response.on('data', (chunk) => {
+          size += chunk.length;
+          if (size > maxBytes) request.destroy(new Error('response too large'));
+          else chunks.push(chunk);
+        });
+        response.on('error', (error) => finish(reject, error));
+        response.on('aborted', () =>
+          finish(reject, new Error('response aborted')),
+        );
+        response.on('end', () =>
+          finish(resolve, {
+            status: response.statusCode,
+            text: Buffer.concat(chunks).toString('utf8'),
+          }),
+        );
+      },
+    );
+    const timer = setTimeout(
+      () => request.destroy(new Error('timed out')),
+      timeoutMs,
+    );
+    request.on('error', (error) => finish(reject, error));
+    request.end(body);
+  });
+}
+
 /** Overpass endpoints: the configured chain, else public mirrors. */
 export function overpassEndpoints(env = process.env) {
   const configured = String(env.OVERPASS_UPSTREAMS || '')
@@ -277,11 +441,12 @@ export function overpassEndpoints(env = process.env) {
  * The pack loader. Returns an empty capped list whose `everything` holds all
  * linked webcams, so the proximity index gets them and the startup catalog
  * stays as it was.
- * @param {{fetchImpl?: typeof fetch, now?: () => number, cacheDir?: string,
- *   env?: object}} [options]
+ * @param {{fetchImpl?: typeof fetch, qleverRequest?: typeof postForm,
+ *   now?: () => number, cacheDir?: string, env?: object}} [options]
  */
 export function createLinkedLoader({
   fetchImpl = (...args) => fetch(...args),
+  qleverRequest = postForm,
   now = () => Date.now(),
   cacheDir,
   env = process.env,
@@ -342,7 +507,53 @@ export function createLinkedLoader({
         lastError = error;
       }
     }
-    throw lastError || new Error('No Overpass endpoint');
+    // Every mirror failed (they refused this query for days in 2026-10):
+    // the same objects from QLever's planet index.
+    try {
+      return await fetchQlever();
+    } catch (error) {
+      throw new Error(
+        `${lastError?.message || 'No Overpass endpoint'}; QLever: ${error?.message}`,
+      );
+    }
+  }
+
+  async function fetchQlever() {
+    let answer;
+    for (let attempt = 1; !answer; attempt++) {
+      try {
+        answer = await qleverRequest(
+          QLEVER_OSM_ENDPOINT,
+          `query=${encodeURIComponent(QLEVER_WEBCAM_QUERY)}`,
+          {
+            headers: {
+              Accept: 'application/sparql-results+json',
+              'User-Agent': USER_AGENT,
+            },
+            timeoutMs: QLEVER_TIMEOUT_MS,
+            maxBytes: MAX_QLEVER_BYTES,
+          },
+        );
+      } catch (error) {
+        // The handshake can outlast the OS's own connect timeout (about
+        // 21 s on Windows); a fresh connection usually gets through.
+        if (attempt >= QLEVER_CONNECT_ATTEMPTS) throw error;
+        if (!QLEVER_RETRY_CODES.has(error?.code)) throw error;
+      }
+    }
+    const { status, text } = answer;
+    if (!(status >= 200 && status < 300)) throw new Error(`QLever ${status}`);
+    if (typeof text !== 'string' || text.length > MAX_QLEVER_BYTES)
+      throw new Error('response too large');
+    let bindings;
+    try {
+      bindings = JSON.parse(text)?.results?.bindings;
+    } catch {
+      throw new Error('QLever returned malformed JSON');
+    }
+    if (!Array.isArray(bindings) || !bindings.length)
+      throw new Error('QLever returned no rows');
+    return osmToSources(qleverToElements(bindings));
   }
 
   async function fetchWikidata() {

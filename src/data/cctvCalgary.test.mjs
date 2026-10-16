@@ -332,6 +332,9 @@ const runCatalogWithMockedUpstreams = async (t) => {
   });
   // A source root with no curated catalogs or ground-height sidecar, so the
   // file-based packs contribute nothing and only the live lanes are in play.
+  // Personal fork: the linked-webcam pack would reach QLever (node:https,
+  // not fetch); keep it out of this test.
+  process.env.CCTV_LINKED_ENABLED = '0';
   const sources = await createCctvCatalog({ sourceRoot: '/nonexistent' })();
   return { requested, sources };
 };

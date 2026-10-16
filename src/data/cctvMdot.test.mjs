@@ -191,6 +191,9 @@ const runCatalog = async (t) => {
     if (href === DEFAULT_MDOT_CCTV_URL) return Response.json([row()]);
     return Response.json([]);
   });
+  // Personal fork: the linked-webcam pack would reach QLever (node:https,
+  // not fetch); keep it out of this test.
+  process.env.CCTV_LINKED_ENABLED = '0';
   const sources = await createCctvCatalog({ sourceRoot: '/nonexistent' })();
   return { requested, sources };
 };
