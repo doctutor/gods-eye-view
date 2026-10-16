@@ -567,7 +567,7 @@ export function normalizeSourceItem(item) {
     // badge can distinguish them from raw automated priors (e.g. Austin Open
     // Data, which never sets this field). Passed through as-is to the client.
     poseSource: item.poseSource === 'curated' ? 'curated' : undefined,
-    ...embedFields(item),
+    ...provenanceFields(item),
   };
 }
 
@@ -576,13 +576,11 @@ export function normalizeSourceItem(item) {
  * player may show (featured.js). Absent on every other source, so their
  * normalized shape is unchanged.
  */
-function embedFields(item) {
+function provenanceFields(item) {
   const videoId = String(item.embed?.videoId || '');
-  if (
-    item.embed?.provider !== 'youtube' ||
-    !/^[A-Za-z0-9_-]{11}$/.test(videoId)
-  )
-    return {};
+  const embedded =
+    item.embed?.provider === 'youtube' && /^[A-Za-z0-9_-]{11}$/.test(videoId);
+  if (!embedded && !item.licenseClass) return {};
   const word = (value) =>
     String(value || '')
       .replace(/[^a-z-]/gi, '')
@@ -595,7 +593,7 @@ function embedFields(item) {
     /* no operator page */
   }
   return {
-    embed: { provider: 'youtube', videoId },
+    ...(embedded ? { embed: { provider: 'youtube', videoId } } : {}),
     liveStatus: word(item.liveStatus) || 'unknown',
     category: word(item.category),
     coordinatesQuality: word(item.coordinatesQuality),

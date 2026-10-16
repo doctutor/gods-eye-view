@@ -131,14 +131,15 @@ export function createPresentation({
       basePose: camera.basePose ? { ...camera.basePose } : null,
       frameUrl: parts.frames.frameUrlFor(camera, refreshMs),
       mediaUrl: parts.frames.mediaUrlFor(camera),
-      // Personal fork: embed-only stream (catalog.js).
-      ...(camera.embed
+      // Personal fork: provenance (catalog.js).
+      ...(camera.embed ? { embed: { ...camera.embed } } : {}),
+      ...(camera.embed || camera.licenseClass
         ? {
-            embed: { ...camera.embed },
             liveStatus: camera.liveStatus,
             category: camera.category,
             coordinatesQuality: camera.coordinatesQuality,
             operatorUrl: camera.operatorUrl,
+            licenseClass: camera.licenseClass,
           }
         : {}),
     };

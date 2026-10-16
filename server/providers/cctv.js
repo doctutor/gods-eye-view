@@ -153,14 +153,16 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
     credit: source.credit || '',
     code: source.code || '',
     groundHeights: source.groundHeights || null,
-    // Personal fork: embed-only streams (cctv/featured.js).
-    ...(source.embed
+    // Personal fork: provenance of featured streams (cctv/featured.js) and
+    // dynamic webcams (cctv/windy.js).
+    ...(source.embed || source.licenseClass
       ? {
-          embed: source.embed,
+          ...(source.embed ? { embed: source.embed } : {}),
           liveStatus: source.liveStatus,
           category: source.category,
           coordinatesQuality: source.coordinatesQuality,
           operatorUrl: source.operatorUrl,
+          licenseClass: source.licenseClass,
         }
       : {}),
   });
@@ -171,14 +173,18 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
    * Rebuilt only when the catalog refreshes.
    */
   let lookupFor = null;
-  let lookup = new Map();
+  let lookup = { get: () => undefined };
   const sourceLookup = (sources) => {
     const index = getCctvSources.index?.() || [];
     if (lookupFor?.sources === sources && lookupFor?.index === index)
       return lookup;
-    lookup = new Map(index.map((source) => [source.id, source]));
-    for (const source of sources) lookup.set(source.id, source);
+    const map = new Map(index.map((source) => [source.id, source]));
+    for (const source of sources) map.set(source.id, source);
     lookupFor = { sources, index };
+    lookup = {
+      // Cameras from dynamic sources (Windy) are remembered by the source.
+      get: (id) => map.get(id) ?? getCctvSources.dynamic?.(id) ?? undefined,
+    };
     return lookup;
   };
 
@@ -197,7 +203,7 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
           const [lat, lon] = String(url.searchParams.get('near'))
             .split(',')
             .map(Number);
-          const near = getCctvSources.near?.(lat, lon, {
+          const near = await getCctvSources.near?.(lat, lon, {
             radiusKm: Number(url.searchParams.get('radiusKm')),
             limit: Number(url.searchParams.get('limit')),
           });

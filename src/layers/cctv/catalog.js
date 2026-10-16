@@ -204,16 +204,20 @@ export function createCatalog({ state: layerState, services, parts, source }) {
             ? source.groundHeights
             : null,
         poseSource,
-        // Personal fork: a stream only its own player may show (server
-        // cctv/featured.js); the panel embeds it, the scene uses its thumbnail.
+        // Personal fork: provenance of featured streams and dynamic webcams
+        // (server cctv/featured.js, cctv/windy.js). A YouTube stream plays in
+        // the panel's embedded player; the scene uses its thumbnail.
         ...(source.embed?.provider === 'youtube' &&
         /^[A-Za-z0-9_-]{11}$/.test(String(source.embed.videoId))
+          ? { embed: { provider: 'youtube', videoId: source.embed.videoId } }
+          : {}),
+        ...(source.embed || source.licenseClass
           ? {
-              embed: { provider: 'youtube', videoId: source.embed.videoId },
               liveStatus: String(source.liveStatus || 'unknown'),
               category: String(source.category || ''),
               coordinatesQuality: String(source.coordinatesQuality || ''),
               operatorUrl: String(source.operatorUrl || ''),
+              licenseClass: String(source.licenseClass || ''),
             }
           : {}),
       };

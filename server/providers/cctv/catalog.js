@@ -23,6 +23,7 @@ import {
 } from './sources.js';
 import { createFeaturedLoader } from './featured.js';
 import { haversineKm } from '../common/geo.js';
+import { createWindySource } from './windy.js';
 
 /** Env kill switch: unset or anything but "0" means enabled. */
 const envEnabled = (name) => String(process.env[name] || '1').trim() !== '0';
@@ -169,6 +170,13 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
   /** @type {Array<object>} Personal fork: every camera the packs offered,
    * uncapped, for proximity queries (`near`). */
   let _cctvIndex = [];
+  // Personal fork: sources too large to index, asked per proximity query.
+  const dynamicSources = [
+    {
+      source: createWindySource(),
+      enabled: () => envEnabled('CCTV_WINDY_ENABLED'),
+    },
+  ];
 
   /**
    * Assemble and cache the merged CCTV source list.
@@ -312,9 +320,35 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
   getCctvSources.trimmedPacks = () => _cctvTrimmedPacks;
   /** Personal fork: every known camera, including those the cap leaves out. */
   getCctvSources.index = () => _cctvIndex;
-  /** Personal fork: the cameras nearest a point (see nearSources). */
-  getCctvSources.near = (lat, lon, options) =>
-    nearSources(_cctvIndex, lat, lon, options);
+  /** Personal fork: a camera a dynamic source has returned before. */
+  getCctvSources.dynamic = (id) => {
+    for (const entry of dynamicSources) {
+      const found = entry.source.lookup(id);
+      if (found) return found;
+    }
+    return null;
+  };
+  /**
+   * Personal fork: the cameras nearest a point (see nearSources), from the
+   * index and from every enabled dynamic source. A dynamic source that fails
+   * contributes nothing; the indexed answer still comes back.
+   */
+  getCctvSources.near = async (lat, lon, options = {}) => {
+    const radiusKm = Math.min(
+      NEAR_MAX_RADIUS_KM,
+      Math.max(0.1, Number(options.radiusKm) || 25),
+    );
+    const extra = await Promise.all(
+      dynamicSources.map((entry) =>
+        entry.enabled() ? entry.source.near(lat, lon, radiusKm) : [],
+      ),
+    );
+    const byId = new Map(_cctvIndex.map((source) => [source.id, source]));
+    for (const list of extra)
+      for (const source of list)
+        if (!byId.has(source.id)) byId.set(source.id, source);
+    return nearSources([...byId.values()], lat, lon, options);
+  };
   return getCctvSources;
 }
 
@@ -323,6 +357,16 @@ export const NEAR_MAX_RADIUS_KM = 500;
 export const NEAR_MAX_LIMIT = 1000;
 /** Embedded public-interest streams rank as if this much closer. */
 const FEATURED_DISTANCE_FACTOR = 0.25;
+/** Scenic and nature webcams (any category but traffic) rank this much closer. */
+const SCENIC_DISTANCE_FACTOR = 0.5;
+
+/** How much nearer a camera counts than it is, by what it shows. */
+export function interestFactor(source) {
+  if (source?.embed) return FEATURED_DISTANCE_FACTOR;
+  if (source?.category && source.category !== 'traffic')
+    return SCENIC_DISTANCE_FACTOR;
+  return 1;
+}
 
 /**
  * Personal fork: the cameras within `radiusKm` of a point, nearest first,
@@ -355,9 +399,7 @@ export function nearSources(sources, lat, lon, options = {}) {
   for (const source of sources || []) {
     const distanceKm = haversineKm(lat, lon, source.lat, source.lon);
     if (!(distanceKm <= radiusKm)) continue;
-    const rank = source.embed
-      ? distanceKm * FEATURED_DISTANCE_FACTOR
-      : distanceKm;
+    const rank = distanceKm * interestFactor(source);
     scored.push({ source, rank });
   }
   scored.sort((a, b) => a.rank - b.rank);
