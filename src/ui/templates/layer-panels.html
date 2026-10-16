@@ -35,9 +35,11 @@
       </div>
       <div class="cctv-controls">
         <button id="cctv-prev-btn" class="scene-btn">PREV</button>
-        <select id="cctv-camera-select" aria-label="CCTV camera"></select>
+        <input id="cctv-camera-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search cameras…" aria-label="Search cameras" aria-controls="cctv-camera-list" />
         <button id="cctv-next-btn" class="scene-btn">NEXT</button>
       </div>
+      <select id="cctv-camera-select" aria-label="CCTV camera" hidden></select>
+      <div id="cctv-camera-list" class="cctv-camera-list" role="listbox" aria-label="Cameras, nearest first"></div>
       <div class="cctv-controls">
         <button id="cctv-focus-btn" class="scene-btn">FOCUS</button>
         <button id="cctv-coverage-btn" class="scene-btn">COVERAGE OFF</button>

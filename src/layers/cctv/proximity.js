@@ -89,12 +89,26 @@ export function createProximity({ state: layerState, parts, source }) {
   const added = new Set();
 
   function viewCenter(viewer) {
-    const camera = viewer.camera;
+    const camera = viewer?.camera;
+    if (!camera) return null;
     const altitude = camera.positionCartographic?.height;
-    const canvas = viewer.scene.canvas;
-    const hit = camera.pickEllipsoid(
-      new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2),
-    );
+    const canvas = viewer.scene?.canvas;
+    // Test doubles and headless viewers may lack picking; fall back to the
+    // point under the camera.
+    let hit = null;
+    try {
+      hit =
+        canvas && typeof camera.pickEllipsoid === 'function'
+          ? camera.pickEllipsoid(
+              new Cesium.Cartesian2(
+                canvas.clientWidth / 2,
+                canvas.clientHeight / 2,
+              ),
+            )
+          : null;
+    } catch {
+      hit = null;
+    }
     const carto = hit
       ? Cesium.Cartographic.fromCartesian(hit)
       : camera.positionCartographic;
@@ -191,5 +205,12 @@ export function createProximity({ state: layerState, parts, source }) {
       lastQuery = null;
     },
     addedCount: () => added.size,
+    /** The ground point under the centre of the view, or null. */
+    viewCenter: () => {
+      const viewer = layerState._viewer;
+      if (!viewer) return null;
+      const center = viewCenter(viewer);
+      return center ? { lat: center.lat, lon: center.lon } : null;
+    },
   };
 }

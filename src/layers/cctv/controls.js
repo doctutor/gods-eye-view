@@ -323,12 +323,30 @@ export function createControls({ state: layerState, services, parts, source }) {
     cycleCamera(step = 1, options = {}) {
       if (!layerState._records.length) return null;
       const current = parts.selection.getActiveRecord();
+      // Personal fork: walk the catalog nearest the view first, so NEXT goes
+      // to the next-closest camera instead of the next one loaded.
+      const center = parts.proximity?.viewCenter?.() ?? null;
+      const order = layerState._records
+        .map((record, index) => ({
+          id: record.camera.id,
+          index,
+          km: center
+            ? parts.model.haversineKm(
+                center.lat,
+                center.lon,
+                record.camera.lat,
+                record.camera.lon,
+              )
+            : index,
+        }))
+        .sort((a, b) => a.km - b.km || a.index - b.index)
+        .map((entry) => entry.id);
       const nextIdx = parts.navigation.cctvCycleIndex(
-        layerState._records.findIndex((record) => record === current),
+        order.indexOf(current?.camera.id),
         step,
-        layerState._records.length,
+        order.length,
       );
-      const nextId = layerState._records[nextIdx].camera.id;
+      const nextId = order[nextIdx];
       parts.selection.setActiveCamera(nextId);
       if (options.focus) {
         parts.navigation.focusCamera(nextId, options.durationSec || 1.8);

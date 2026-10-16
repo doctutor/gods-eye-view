@@ -397,3 +397,92 @@
 .cctv-operator-link[hidden] {
   display: none;
 }
+
+/* Personal fork: the nearest-first camera picker (cctvCameraList.js). */
+#cctv-camera-search {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  color: var(--text-primary);
+  padding: 6px 8px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+#cctv-camera-search:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -3px;
+}
+
+#cctv-camera-search:disabled {
+  opacity: 0.45;
+}
+
+.cctv-camera-list {
+  position: relative;
+  max-height: 168px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  flex-shrink: 0;
+}
+
+.cctv-camera-list::after {
+  content: attr(data-summary);
+  position: sticky;
+  bottom: 0;
+  display: block;
+  padding: 2px 8px;
+  text-align: right;
+  color: var(--text-secondary);
+  background: rgba(4, 7, 11, 0.9);
+}
+
+.cctv-camera-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.cctv-camera-row:hover,
+.cctv-camera-row.highlight {
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.cctv-camera-row.active {
+  color: var(--accent, #00d4ff);
+}
+
+.cctv-camera-row.empty {
+  cursor: default;
+  justify-content: center;
+}
+
+.cctv-camera-row-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cctv-camera-row-text mark {
+  background: none;
+  color: var(--accent, #00d4ff);
+  font-weight: 700;
+}
+
+.cctv-camera-row-meta {
+  flex-shrink: 0;
+  opacity: 0.75;
+}

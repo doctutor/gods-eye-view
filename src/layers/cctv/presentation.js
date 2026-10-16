@@ -190,6 +190,8 @@ export function createPresentation({
       cameras: layerState._records.map((record) =>
         getPublicCameraState(record, activeId),
       ),
+      // Personal fork: for the nearest-first camera picker (ui/cctvCameraList.js).
+      viewCenter: parts.proximity?.viewCenter?.() ?? null,
       summary: buildSummaryText(),
     };
     return payload;

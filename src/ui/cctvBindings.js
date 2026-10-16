@@ -1,3 +1,5 @@
+import { stepHighlight } from './cctvCameraList.js';
+
 export function _initCctvPanel() {
   if (!this._cctvPanel) return;
 
@@ -56,6 +58,51 @@ export function _initCctvPanel() {
       (cameraId) => this.cctv.focusCamera(cameraId, 1.4),
     );
   });
+
+  // Personal fork: the search box and list drive the hidden select.
+  if (this._cctvCameraSearch && this._cctvCameraList) {
+    const pick = (cameraId) => {
+      if (!cameraId || !this._cctvSelect) return;
+      this._cctvSelect.value = cameraId;
+      this._cctvSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    this.listen(this._cctvCameraSearch, 'input', () => {
+      this._cameraListHighlightId = null;
+      this._renderCameraList();
+    });
+    this.listen(this._cctvCameraSearch, 'focus', () => {
+      // Re-rank from wherever the view is now, once per visit to the box.
+      this._cameraListCenter = this._cctvState?.viewCenter ?? null;
+      this._renderCameraList();
+    });
+    this.listen(this._cctvCameraSearch, 'keydown', (event) => {
+      const ids = this._cameraListIds || [];
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        this._cameraListHighlightId = stepHighlight(
+          ids,
+          this._cameraListHighlightId,
+          event.key === 'ArrowDown' ? 1 : -1,
+        );
+        this._renderCameraList();
+        this._cctvCameraList
+          .querySelector('.cctv-camera-row.highlight')
+          ?.scrollIntoView({ block: 'nearest' });
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        pick(this._cameraListHighlightId || ids[0]);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        this._cctvCameraSearch.value = '';
+        this._cameraListHighlightId = null;
+        this._renderCameraList();
+      }
+    });
+    this.listen(this._cctvCameraList, 'click', (event) => {
+      const row = event.target.closest('[data-camera-id]');
+      if (row) pick(row.dataset.cameraId);
+    });
+  }
 
   this.listen(this._cctvSelect, 'change', async () => {
     const generation = ++this._actionGeneration;

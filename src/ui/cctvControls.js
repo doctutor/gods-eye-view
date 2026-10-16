@@ -13,6 +13,7 @@ import {
 import {
   _calBadgeLabel,
   _renderCctvState,
+  _renderCameraList,
   _typeCctvSummary,
   _updateCctvSyncChip,
 } from './cctvPresentation.js';
@@ -100,6 +101,9 @@ export class CctvControls {
   }
   _renderCctvState(...args) {
     return _renderCctvState.call(this, ...args);
+  }
+  _renderCameraList(...args) {
+    return _renderCameraList.call(this, ...args);
   }
   _typeCctvSummary(...args) {
     return _typeCctvSummary.call(this, ...args);

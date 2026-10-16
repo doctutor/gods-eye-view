@@ -1,5 +1,33 @@
 import { createCctvVideoSurface } from './cctvVideo.js';
 import { embedMetaText, operatorLinkFor, syncCctvEmbed } from './cctvEmbed.js';
+import { rankCameras, renderCameraList } from './cctvCameraList.js';
+
+/**
+ * Personal fork: rebuild the camera list from the current state, the
+ * search text and the centre captured when the search box was last focused.
+ */
+export function _renderCameraList() {
+  if (this.destroyed || !this._cctvCameraList) return;
+  const state = this._cctvState;
+  const enabled = !!state?.enabled && !!this.actions.isEnabled();
+  const cameras = state?.cameras || [];
+  const query = this._cctvCameraSearch?.value || '';
+  const center = this._cameraListCenter ?? state?.viewCenter ?? null;
+  const entries = enabled ? rankCameras(cameras, center, query) : [];
+  this._cameraListIds = entries.map((entry) => entry.camera.id);
+  if (
+    this._cameraListHighlightId &&
+    !this._cameraListIds.includes(this._cameraListHighlightId)
+  )
+    this._cameraListHighlightId = null;
+  renderCameraList(this._cctvCameraList, entries, {
+    activeId: state?.activeCameraId || null,
+    highlightId: this._cameraListHighlightId,
+    total: cameras.length,
+    query,
+  });
+  if (this._cctvCameraSearch) this._cctvCameraSearch.disabled = !enabled;
+}
 export function _calBadgeLabel(badge) {
   switch (badge) {
     case 'calibrated':
@@ -71,6 +99,12 @@ export function _renderCctvState(state) {
       }
     }
     this._cctvSelect.disabled = !enabled || cameras.length === 0;
+    // Personal fork: the visible picker follows the same state.
+    const listKey = `${enabled}|${cameras.length}|${activeId}`;
+    if (shouldRebuild || listKey !== this._cameraListKey) {
+      this._cameraListKey = listKey;
+      this._renderCameraList();
+    }
     if (
       activeId &&
       Array.from(this._cctvSelect.options).some((opt) => opt.value === activeId)
