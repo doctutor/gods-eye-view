@@ -20,6 +20,8 @@ import { sanitizeCctvRangeHeader } from './cctv/range.js';
 import { createHlsPuller } from './cctv/stream.js';
 import { createFrameCache } from './cctv/frameCache.js';
 import { createFeaturedQueueRoutes } from './cctv/featuredQueue.js';
+// Personal fork: whether a camera's stream carries sound.
+import { createAudioProbe } from './cctv/audioProbe.js';
 import { discardResponseBody } from './common/http.js';
 import { googleServerApiKey } from './places/google-key.js';
 export { CCTV_FRAME_FETCH_TIMEOUT_MS, fetchCctvImageFromUpstream };
@@ -67,8 +69,65 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
     });
   };
 
+  /**
+   * Personal fork: probed sound per camera, kept apart from health so an
+   * audio-only row never invents a status or source kind.
+   */
+  const audioProbe = createAudioProbe();
+  audioProbe.load();
+  const audioById = new Map();
+  const noteAudio = (cameraId, audio) => {
+    if (!audio || audio === 'unknown') return;
+    audioById.delete(cameraId);
+    audioById.set(cameraId, audio);
+    while (audioById.size > HEALTH_MAX_ENTRIES)
+      audioById.delete(audioById.keys().next().value);
+  };
+  /**
+   * Probe a camera's sound the first time its stream is asked for, a few
+   * seconds later so the probe never races the viewer's own first request.
+   */
+  const AUDIO_PROBE_DELAY_MS = 3000;
+  const probeAudio = (cameraId, source) => {
+    if (!source || audioProbe.peek(source)) return;
+    const timer = setTimeout(() => {
+      audioProbe
+        .request(source)
+        .then((audio) => noteAudio(cameraId, audio))
+        .catch(() => {});
+    }, AUDIO_PROBE_DELAY_MS);
+    timer.unref?.();
+  };
+  let audioSweepStarted = false;
+  /** CCTV_AUDIO_SWEEP=1: probe the catalog's streams at the per-host pace. */
+  const startAudioSweep = (sources) => {
+    if (audioSweepStarted || process.env.CCTV_AUDIO_SWEEP !== '1') return;
+    audioSweepStarted = true;
+    const streams = sources.filter((source) =>
+      ['hls', 'mp4', 'webm'].includes(normalizeFeedType(source.feedType)),
+    );
+    audioProbe
+      .sweep(streams, { onResult: noteAudio })
+      .then((count) => {
+        const { probes, requests } = audioProbe.stats();
+        console.log(
+          `[CCTV:audio] sweep checked ${count} streams (${probes} probes, ${requests} requests)`,
+        );
+      })
+      .catch(() => {});
+  };
+
   /** Snapshot all camera health entries as an array. */
-  const listHealth = () => Array.from(health.values());
+  const listHealth = () => {
+    const rows = Array.from(health.values(), (entry) =>
+      audioById.has(entry.id)
+        ? { ...entry, audio: audioById.get(entry.id) }
+        : entry,
+    );
+    for (const [id, audio] of audioById)
+      if (!health.has(id)) rows.push({ id, audio });
+    return rows;
+  };
 
   /** Build a JSON payload describing stream info (feedType, URLs) for a camera. */
   const buildStreamPayload = (source, cameraId) => {
@@ -161,6 +220,8 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
     credit: source.credit || '',
     code: source.code || '',
     groundHeights: source.groundHeights || null,
+    // Personal fork: sound, when known without a request or from the cache.
+    ...(audioProbe.peek(source) ? { audio: audioProbe.peek(source) } : {}),
     // Personal fork: provenance of featured streams (cctv/featured.js) and
     // dynamic webcams (cctv/windy.js).
     ...(source.embed || source.licenseClass
@@ -213,6 +274,7 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
       try {
         const sources = await getCctvSources();
         const sourceById = sourceLookup(sources);
+        startAudioSweep(sources);
         const url = new URL(req.url || '/', 'http://localhost');
 
         if (url.pathname === '/sources' && url.searchParams.has('near')) {
@@ -298,6 +360,7 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
             res.end();
             return;
           }
+          if (!match[2]) probeAudio(cameraId, source);
           if (feedType === 'hls') {
             if (
               !/^https?:\/\//i.test(mediaUrl) ||

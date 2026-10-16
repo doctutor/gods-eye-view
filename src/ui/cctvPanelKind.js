@@ -2,6 +2,7 @@
 import { cameraKind, CAMERA_KINDS } from '../layers/cctv/cameraKind.js';
 import { apparentSolarTime, daylightPhase } from '../data/solarDaylight.js';
 import { embedMetaText } from './cctvEmbed.js';
+import { audioMetaLabel } from '../layers/cctv/audio.js';
 
 /**
  * The panel kind of a public camera state: the layer's `panelKind`, else the
@@ -103,6 +104,7 @@ export function poselessMetaText(camera, now = Date.now()) {
   const first = [
     embedMetaText(camera),
     camera?.credit && camera.credit !== camera.provider ? camera.credit : null,
+    audioMetaLabel(camera) || null,
     camera?.sourceMessage || null,
   ]
     .filter(Boolean)

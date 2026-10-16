@@ -1,4 +1,5 @@
 import { CAMERA_SEEDS, SOURCE_ENDPOINT } from './policy.js';
+import { AUDIO_STATES } from './audio.js';
 
 export function createCatalog({ state: layerState, services, parts, source }) {
   const { CITY_POIS } = services.locations;
@@ -220,6 +221,8 @@ export function createCatalog({ state: layerState, services, parts, source }) {
               licenseClass: String(source.licenseClass || ''),
             }
           : {}),
+        // Personal fork: sound, when the server knows it (cctv/audioProbe.js).
+        ...(AUDIO_STATES.includes(source.audio) ? { audio: source.audio } : {}),
       };
       parts.model.ensureCameraPose(camera);
       catalog.push(camera);
