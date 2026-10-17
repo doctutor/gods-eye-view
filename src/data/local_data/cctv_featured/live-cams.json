@@ -758,6 +758,99 @@
           "monterey bay cam"
         ]
       }
+    },
+    {
+      "id": "aviary-monterey-bay-aquarium",
+      "name": "Aviary, Monterey Bay Aquarium",
+      "place": "Monterey Bay Aquarium, Monterey, California",
+      "category": "birds",
+      "lat": 36.61826,
+      "lon": -121.90195,
+      "coordinatesQuality": "site",
+      "operator": "Monterey Bay Aquarium",
+      "operatorUrl": "https://www.montereybayaquarium.org/animals/live-cams",
+      "youtube": {
+        "videoId": "AWJi0LgyA28",
+        "channelId": "UCnM5iMGiKsZg-iOlIO2ZkdQ",
+        "titleMatch": [
+          "aviary"
+        ]
+      }
+    },
+    {
+      "id": "moon-jellies-monterey-bay-aquarium",
+      "name": "Moon jellies, Monterey Bay Aquarium",
+      "place": "Monterey Bay Aquarium, Monterey, California",
+      "category": "marine",
+      "lat": 36.61826,
+      "lon": -121.90195,
+      "coordinatesQuality": "site",
+      "operator": "Monterey Bay Aquarium",
+      "operatorUrl": "https://www.montereybayaquarium.org/animals/live-cams",
+      "youtube": {
+        "videoId": "zL68biE6wAs",
+        "channelId": "UCnM5iMGiKsZg-iOlIO2ZkdQ",
+        "titleMatch": [
+          "moon",
+          "jelly"
+        ]
+      }
+    },
+    {
+      "id": "sea-nettles-monterey-bay-aquarium",
+      "name": "Sea nettles, Monterey Bay Aquarium",
+      "place": "Monterey Bay Aquarium, Monterey, California",
+      "category": "marine",
+      "lat": 36.61826,
+      "lon": -121.90195,
+      "coordinatesQuality": "site",
+      "operator": "Monterey Bay Aquarium",
+      "operatorUrl": "https://www.montereybayaquarium.org/animals/live-cams",
+      "youtube": {
+        "videoId": "eQ_foBERmzA",
+        "channelId": "UCnM5iMGiKsZg-iOlIO2ZkdQ",
+        "titleMatch": [
+          "jelly"
+        ]
+      }
+    },
+    {
+      "id": "open-sea-exhibit-monterey-bay-aquarium",
+      "name": "Open Sea exhibit, Monterey Bay Aquarium",
+      "place": "Monterey Bay Aquarium, Monterey, California",
+      "category": "marine",
+      "lat": 36.61826,
+      "lon": -121.90195,
+      "coordinatesQuality": "site",
+      "operator": "Monterey Bay Aquarium",
+      "operatorUrl": "https://www.montereybayaquarium.org/animals/live-cams",
+      "youtube": {
+        "videoId": "n_GpVsz4nHU",
+        "channelId": "UCnM5iMGiKsZg-iOlIO2ZkdQ",
+        "titleMatch": [
+          "open",
+          "sea"
+        ]
+      }
+    },
+    {
+      "id": "hellgate-canyon-osprey-nest",
+      "name": "Hellgate Canyon osprey nest",
+      "place": "Riverside Health Care Center, Hellgate Canyon, Missoula, Montana",
+      "category": "birds",
+      "lat": 46.86399,
+      "lon": -113.97396,
+      "coordinatesQuality": "site",
+      "operator": "Cornell Lab Bird Cams",
+      "operatorUrl": "https://www.allaboutbirds.org/cams/",
+      "youtube": {
+        "videoId": "J7HO0dkkomE",
+        "channelId": "UCZXZQxS3d6NpR-eH_gdDwYA",
+        "titleMatch": [
+          "hellgate",
+          "ospreys"
+        ]
+      }
     }
   ]
 }
