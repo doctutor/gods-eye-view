@@ -81,7 +81,7 @@
       </details>
       <div class="cctv-summary-label" data-i18n>SCENE SUMMARY</div>
       <div id="cctv-summary" data-i18n>Enable CCTV to start camera-linked intelligence summaries.</div>
-      <!-- Personal fork: the Recorded Video layer's videos near the view (recordedVideoPanel.js). -->
+      <!-- Personal fork: the Recorded Video layer's videos and landmarks near the view (recordedVideoPanel.js). -->
       <details translate="no" id="recorded-video-block" class="rv-block" data-recorded-video-panel hidden>
         <summary class="cctv-summary-label">RECORDED VIDEO (<span data-rv-total>0</span>)</summary>
         <div class="rv-counts" data-rv-counts></div>
@@ -91,6 +91,10 @@
         </div>
         <div class="rv-budget" data-rv-budget></div>
         <div class="rv-status" data-rv-status></div>
+        <div class="rv-landmarks" data-rv-landmarks-section hidden>
+          <div class="rv-section-head">LANDMARKS NEARBY (<span data-rv-landmarks-total>0</span>)</div>
+          <div class="rv-landmark-list" data-rv-landmarks role="list" aria-label="Landmarks nearby, nearest first; a row finds videos about the place (102 units of the day's budget)"></div>
+        </div>
         <div class="rv-list" data-rv-list role="list" aria-label="Recorded videos, nearest first"></div>
       </details>
       <!-- Personal fork: what the camera index holds and costs (cctvSources.js). -->

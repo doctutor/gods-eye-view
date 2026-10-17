@@ -2,6 +2,9 @@ import * as Cesium from 'cesium';
 import {
   PRECISION_STYLE,
   SOURCE_COLOR,
+  fetchLandmarkVideos,
+  fetchLandmarksNear,
+  fetchMentions,
   fetchNearVideos,
   fetchWikidataVideos,
   viewQuery,
@@ -17,6 +20,11 @@ export * from './source.js';
  * request in flight, one per cache cell). Pins say how precise they are:
  * site solid, area hollow, region faint. Clicking a pin plays the video in a
  * small floating YouTube player; nothing is projected into the scene.
+ *
+ * Landmarks (notable Wikidata places) show as outlined diamonds below
+ * LANDMARK_MAX_HEIGHT_M. Clicking one (or its panel row) asks for videos
+ * about it, which pin at the landmark tagged ABOUT; playing one asks Filmot
+ * (once per landmark) for the moments its captions name the place.
  */
 
 export const RECORDED_VIDEO_LAYER_ID = 'recorded-video';
@@ -27,6 +35,14 @@ const LABEL_RADIUS_M = 8000;
 const LABEL_LIMIT = 30;
 const WIKIDATA_REFRESH_MS = 24 * 60 * 60 * 1000;
 const ENTITY_PREFIX = `${RECORDED_VIDEO_LAYER_ID}:`;
+export const LANDMARK_MAX_HEIGHT_M = 20_000;
+const LANDMARK_PREFIX = `${ENTITY_PREFIX}landmark:`;
+const LANDMARK_RADIUS_KM = 8;
+const LANDMARK_LABEL_LIMIT = 12;
+/** An outlined diamond: unlike the round video pins, and hollow so an ABOUT pin shows through. */
+const LANDMARK_ICON = `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><path d="M11 2 20 11 11 20 2 11Z" fill="none" stroke="#0b0f14" stroke-opacity="0.7" stroke-width="4"/><path d="M11 2 20 11 11 20 2 11Z" fill="none" stroke="${SOURCE_COLOR.landmark}" stroke-width="2"/></svg>`,
+)}`;
 
 function distanceM(aLat, aLon, bLat, bLon) {
   const toRad = Math.PI / 180;
@@ -82,6 +98,18 @@ export function createRecordedVideoLayer({
   const _listeners = new Set();
   let _quota = null;
   let _lastSearch = null;
+  /** Personal fork: landmarks near the view, qid → landmark. */
+  let _landmarkSource = null;
+  const _landmarks = new Map();
+  /** qid → its video record ids in the server's ranked order. */
+  const _landmarkVideos = new Map();
+  /** qid → {loading, done, refused, configured, cached, error}. */
+  const _landmarkState = new Map();
+  let _landmarkRequest = null;
+  let _landmarkPending = null;
+  const _landmarkAreasDone = new Set();
+  let _selectedLandmark = null;
+  let _playing = null;
   const notify = () => {
     for (const listener of _listeners)
       try {
@@ -166,6 +194,40 @@ export function createRecordedVideoLayer({
     _dataSource.entities.resumeEvents();
   }
 
+  function landmarkEntity(landmark) {
+    return {
+      id: `${LANDMARK_PREFIX}${landmark.qid}`,
+      name: landmark.label,
+      position: Cesium.Cartesian3.fromDegrees(landmark.lon, landmark.lat),
+      billboard: {
+        image: LANDMARK_ICON,
+        width: 22,
+        height: 22,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        scaleByDistance: new Cesium.NearFarScalar(500, 1.1, 20_000, 0.7),
+      },
+      properties: { qid: landmark.qid, kind: landmark.kind },
+    };
+  }
+
+  function renderLandmarks() {
+    if (!_landmarkSource) return;
+    _landmarkSource.entities.suspendEvents();
+    _landmarkSource.entities.removeAll();
+    for (const landmark of _landmarks.values())
+      _landmarkSource.entities.add(landmarkEntity(landmark));
+    _landmarkSource.entities.resumeEvents();
+  }
+
+  /** Landmark diamonds only while on and below LANDMARK_MAX_HEIGHT_M. */
+  function showLandmarks(view) {
+    if (!_landmarkSource) return;
+    _landmarkSource.show = Boolean(
+      _enabled && view && view.height <= LANDMARK_MAX_HEIGHT_M,
+    );
+  }
+
   function refreshLabels() {
     if (!overlayHost) return;
     const view = _enabled ? viewCentre() : null;
@@ -181,16 +243,30 @@ export function createRecordedVideoLayer({
       .filter(({ d }) => d <= LABEL_RADIUS_M)
       .sort((a, b) => a.d - b.d)
       .slice(0, LABEL_LIMIT);
-    overlayHost.setEntries(
-      RECORDED_VIDEO_LAYER_ID,
-      nearest.map(({ record, d }) => ({
-        id: record.id,
-        position: Cesium.Cartesian3.fromDegrees(record.lon, record.lat),
+    const landmarks = [..._landmarks.values()]
+      .map((landmark) => ({
+        landmark,
+        d: distanceM(view.lat, view.lon, landmark.lat, landmark.lon),
+      }))
+      .filter(({ d }) => d <= LABEL_RADIUS_M)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, LANDMARK_LABEL_LIMIT);
+    const landmarkLabels = landmarks.map(({ landmark, d }) => {
+      const count = _landmarkVideos.get(landmark.qid)?.length;
+      return {
+        id: `landmark:${landmark.qid}`,
+        position: Cesium.Cartesian3.fromDegrees(landmark.lon, landmark.lat),
         variant: 'label',
-        title: record.title.slice(0, 48),
-        details: [PRECISION_STYLE[record.coordinatesQuality].label],
-        accent: SOURCE_COLOR[record.source],
-        priority: Math.round(LABEL_RADIUS_M - d),
+        title: landmark.label.slice(0, 48),
+        details: [
+          Number.isFinite(count)
+            ? // i18n-ignore: personal fork, English-only UI
+              `${count} VIDEO${count === 1 ? '' : 'S'}`
+            : // i18n-ignore: personal fork, English-only UI
+              'LANDMARK',
+        ],
+        accent: SOURCE_COLOR.landmark,
+        priority: Math.round((LABEL_RADIUS_M - d) / 2),
         collisionGroup: 'ambient-label',
         paintLane: 'ambient-label',
         interactive: false,
@@ -200,8 +276,35 @@ export function createRecordedVideoLayer({
         gapPx: 12,
         verticalOnly: true,
         placement: 'above',
-      })),
-      { cohortLimit: LABEL_LIMIT, collisionCapacity: 20, moving: false },
+      };
+    });
+    overlayHost.setEntries(
+      RECORDED_VIDEO_LAYER_ID,
+      landmarkLabels.concat(
+        nearest.map(({ record, d }) => ({
+          id: record.id,
+          position: Cesium.Cartesian3.fromDegrees(record.lon, record.lat),
+          variant: 'label',
+          title: record.title.slice(0, 48),
+          details: [PRECISION_STYLE[record.coordinatesQuality].label],
+          accent: SOURCE_COLOR[record.source],
+          priority: Math.round(LABEL_RADIUS_M - d),
+          collisionGroup: 'ambient-label',
+          paintLane: 'ambient-label',
+          interactive: false,
+          edgeFade: 'keyhole',
+          horizonCull: true,
+          terrainOcclusion: false,
+          gapPx: 12,
+          verticalOnly: true,
+          placement: 'above',
+        })),
+      ),
+      {
+        cohortLimit: LABEL_LIMIT + LANDMARK_LABEL_LIMIT,
+        collisionCapacity: 20,
+        moving: false,
+      },
     );
   }
 
@@ -287,7 +390,122 @@ export function createRecordedVideoLayer({
     }
   }
 
+  /** The landmarks around a low view (the server fills its cells a few at a time). */
+  async function loadLandmarks(view) {
+    // 0.05° areas: one answered in full is not asked again.
+    const area = `${Math.round(view.lat * 20)},${Math.round(view.lon * 20)}`;
+    if (_landmarkAreasDone.has(area)) return;
+    if (_landmarkRequest) {
+      _landmarkPending = view;
+      return;
+    }
+    const request = new AbortController();
+    _landmarkRequest = request;
+    try {
+      const result = await fetchLandmarksNear(
+        view.lat,
+        view.lon,
+        LANDMARK_RADIUS_KM,
+        { ...fetchOptions, signal: request.signal },
+      );
+      if (request.signal.aborted || !_enabled) return;
+      if (!result.pending) _landmarkAreasDone.add(area);
+      let added = 0;
+      for (const landmark of result.landmarks)
+        if (!_landmarks.has(landmark.qid)) {
+          _landmarks.set(landmark.qid, landmark);
+          added++;
+        }
+      if (added) {
+        renderLandmarks();
+        refreshLabels();
+      }
+      notify();
+    } catch (error) {
+      if (!request.signal.aborted)
+        // i18n-ignore: personal fork, English-only UI
+        _lastError = error?.message || 'Landmarks unavailable';
+    } finally {
+      if (_landmarkRequest === request) _landmarkRequest = null;
+      const next = _landmarkPending;
+      _landmarkPending = null;
+      if (next && _enabled) loadLandmarks(next);
+    }
+  }
+
+  /**
+   * Ask for one landmark's videos (once; again with refresh) and select it.
+   * Resolves to its state, or null when off or unknown.
+   */
+  async function openLandmark(qid, { refresh = false } = {}) {
+    if (!_enabled || !_landmarks.has(qid)) return null;
+    _selectedLandmark = qid;
+    const state = _landmarkState.get(qid);
+    if (state?.loading || (state?.done && !refresh)) {
+      notify();
+      return state;
+    }
+    _landmarkState.set(qid, { ...state, loading: true });
+    notify();
+    let next;
+    try {
+      const result = await fetchLandmarkVideos(qid, {
+        ...fetchOptions,
+        refresh,
+      });
+      if (result.quota) _quota = result.quota;
+      next = {
+        loading: false,
+        done: !result.refused && result.configured,
+        refused: result.refused,
+        configured: result.configured,
+        cached: result.cached,
+        error: null,
+      };
+      if (!result.refused && _enabled) {
+        // Only this landmark's own videos (a Wikidata video of the same id wins).
+        const own = result.records.filter(
+          (r) => r.source === 'landmark' && r.landmarkQid === qid,
+        );
+        for (const id of _landmarkVideos.get(qid) || []) _records.delete(id);
+        addRecords(own);
+        _landmarkVideos.set(
+          qid,
+          own.map((r) => r.id).filter((id) => _records.has(id)),
+        );
+        render();
+        refreshLabels();
+      }
+    } catch (error) {
+      next = {
+        loading: false,
+        done: false,
+        // i18n-ignore: personal fork, English-only UI
+        error: error?.message || 'Landmark videos unavailable',
+      };
+    }
+    _landmarkState.set(qid, next);
+    notify();
+    return next;
+  }
+
+  /** Play a record; a landmark's video also gets its "mentioned at" moments. */
+  function play(record) {
+    player.open(record);
+    _playing = record.id;
+    if (record.source !== 'landmark' || !player.showMentions) return;
+    fetchMentions(record.landmarkQid, record.videoId, fetchOptions)
+      .then((mentions) => {
+        if (_enabled && _playing === record.id && mentions.length)
+          player.showMentions(record, mentions);
+      })
+      .catch(() => {
+        /* no moments: the video plays from the start */
+      });
+  }
+
   function onSettled() {
+    showLandmarks(_enabled ? viewCentre() : null);
     refreshLabels();
     notify();
     clearTimeoutImpl(_debounce);
@@ -301,21 +519,26 @@ export function createRecordedVideoLayer({
           })
         : null;
       if (query) searchView(query);
+      if (view && view.height <= LANDMARK_MAX_HEIGHT_M) loadLandmarks(view);
     }, SEARCH_DEBOUNCE_MS);
   }
 
   function onPick(entity) {
     const id = String(entity?.id || '');
     if (!_enabled || !id.startsWith(ENTITY_PREFIX)) return;
+    if (id.startsWith(LANDMARK_PREFIX)) {
+      openLandmark(id.slice(LANDMARK_PREFIX.length));
+      return;
+    }
     const record = _records.get(id.slice(ENTITY_PREFIX.length));
-    if (record) player.open(record);
+    if (record) play(record);
   }
 
   return {
     id: RECORDED_VIDEO_LAYER_ID,
     name: 'Recorded Video',
     icon: '▶',
-    source: 'Wikidata · YouTube geotags',
+    source: 'Wikidata · YouTube geotags · landmarks',
     updateInterval: WIKIDATA_REFRESH_MS,
 
     init(viewer) {
@@ -323,6 +546,11 @@ export function createRecordedVideoLayer({
       _dataSource = new Cesium.CustomDataSource(RECORDED_VIDEO_LAYER_ID);
       _dataSource.show = false;
       viewer.dataSources.add(_dataSource);
+      _landmarkSource = new Cesium.CustomDataSource(
+        `${RECORDED_VIDEO_LAYER_ID}-landmarks`,
+      );
+      _landmarkSource.show = false;
+      viewer.dataSources.add(_landmarkSource);
       overlayHost?.setVisible(RECORDED_VIDEO_LAYER_ID, false);
     },
 
@@ -333,7 +561,7 @@ export function createRecordedVideoLayer({
       overlayHost?.setVisible(RECORDED_VIDEO_LAYER_ID, true);
       credits?.register?.(viewer || _viewer, {
         key: 'recorded-video-credit',
-        html: 'Recorded video: places from <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a> (CC0) and uploaders’ YouTube geotags; videos play in YouTube’s player',
+        html: 'Recorded video: places and landmarks from <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a> (CC0), uploaders’ YouTube geotags and YouTube search; caption moments from <a href="https://filmot.com/" target="_blank" rel="noopener">Filmot</a>; videos play in YouTube’s player',
       });
       if (_viewer && !_removeMoveListener)
         _removeMoveListener =
@@ -348,9 +576,13 @@ export function createRecordedVideoLayer({
       _wikidataRequest?.abort();
       _nearRequest?.abort();
       _pendingQuery = null;
+      _landmarkRequest?.abort();
+      _landmarkPending = null;
+      _playing = null;
       clearTimeoutImpl(_debounce);
       _debounce = null;
       if (_dataSource) _dataSource.show = false;
+      if (_landmarkSource) _landmarkSource.show = false;
       _removeMoveListener?.();
       _removeMoveListener = null;
       _removeClick?.();
@@ -369,7 +601,15 @@ export function createRecordedVideoLayer({
     destroy(viewer = _viewer) {
       this.disable();
       if (_dataSource && viewer) viewer.dataSources.remove(_dataSource, true);
+      if (_landmarkSource && viewer)
+        viewer.dataSources.remove(_landmarkSource, true);
       _dataSource = null;
+      _landmarkSource = null;
+      _landmarks.clear();
+      _landmarkVideos.clear();
+      _landmarkState.clear();
+      _landmarkAreasDone.clear();
+      _selectedLandmark = null;
       _viewer = null;
       _records.clear();
       _cellsAsked.clear();
@@ -378,11 +618,12 @@ export function createRecordedVideoLayer({
     },
 
     getStats() {
-      const bySource = { wikidata: 0, 'youtube-geotag': 0 };
+      const bySource = { wikidata: 0, 'youtube-geotag': 0, landmark: 0 };
       for (const record of _records.values()) bySource[record.source]++;
       return {
         count: _records.size,
         ...bySource,
+        landmarks: _landmarks.size,
         refused: _refused,
         error: _lastError,
       };
@@ -394,6 +635,27 @@ export function createRecordedVideoLayer({
     viewCentre: () => (_enabled ? viewCentre() : null),
     quota: () => _quota,
     lastSearch: () => _lastSearch,
+    /** Landmarks near the view with their state; videoCount is null until asked. */
+    landmarks: () =>
+      [..._landmarks.values()].map((landmark) => {
+        const state = _landmarkState.get(landmark.qid) || {};
+        const ids = _landmarkVideos.get(landmark.qid);
+        return {
+          ...landmark,
+          loading: Boolean(state.loading),
+          refused: Boolean(state.refused),
+          configured: state.configured !== false,
+          error: state.error || null,
+          videoCount: ids ? ids.length : null,
+        };
+      }),
+    /** A landmark's videos in ranked order. */
+    landmarkVideos: (qid) =>
+      (_landmarkVideos.get(qid) || [])
+        .map((id) => _records.get(id))
+        .filter(Boolean),
+    selectedLandmark: () => _selectedLandmark,
+    openLandmark,
     /** Listen for changes; returns the unsubscribe. */
     subscribe(listener) {
       _listeners.add(listener);
@@ -410,7 +672,7 @@ export function createRecordedVideoLayer({
         ),
         duration: 1.6,
       });
-      player.open(record);
+      play(record);
     },
     /**
      * Ask YouTube again for the current view (the 7-day answer is skipped),

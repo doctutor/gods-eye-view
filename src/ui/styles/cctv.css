@@ -812,6 +812,33 @@ html:not([lang='en']) #cctv-camera-select {
   border-bottom: 1px dotted currentColor;
 }
 
+.recorded-video-player-mentions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.recorded-video-player-mentions-head {
+  color: var(--text-secondary);
+}
+
+.recorded-video-player-mention {
+  padding: 0 5px;
+  border: 1px solid #7ee787;
+  border-radius: 3px;
+  background: transparent;
+  color: #7ee787;
+  font: inherit;
+  cursor: pointer;
+}
+
+.recorded-video-player-mention:hover,
+.recorded-video-player-mention:focus-visible {
+  background: rgba(126, 231, 135, 0.15);
+  outline: none;
+}
+
 /* Personal fork: the RECORDED VIDEO block (recordedVideoPanel.js). */
 .rv-block[hidden] {
   display: none;
@@ -943,4 +970,102 @@ html:not([lang='en']) #cctv-camera-select {
 
 .rv-tag.is-geotag {
   color: #ff5d73;
+}
+
+.rv-tag.is-about,
+.rv-tag.is-landmark {
+  color: #7ee787;
+}
+
+.rv-tag-kind {
+  color: var(--text-secondary);
+  border-style: dashed;
+}
+
+.rv-landmarks[hidden] {
+  display: none;
+}
+
+.rv-section-head {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  color: #7ee787;
+}
+
+.rv-landmark-list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 4px;
+  border: 1px solid rgba(126, 231, 135, 0.18);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.6px;
+}
+
+.rv-landmark {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.rv-landmark:hover,
+.rv-landmark:focus-visible,
+.rv-landmark.is-selected {
+  background: rgba(126, 231, 135, 0.1);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.rv-landmark-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.rv-landmark-name::before {
+  content: '◇ ';
+  color: #7ee787;
+}
+
+.rv-landmark-state {
+  font-size: 8px;
+  color: var(--text-secondary);
+}
+
+.rv-landmark.is-asked .rv-landmark-state {
+  color: #7ee787;
+}
+
+.rv-landmark-videos {
+  padding-left: 10px;
+  border-left: 2px solid rgba(126, 231, 135, 0.35);
+  margin: 0 0 4px 8px;
+}
+
+.rv-landmark-more {
+  margin: 3px 8px;
+  padding: 1px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.rv-landmark-none {
+  padding: 4px 8px;
+  color: var(--text-secondary);
 }

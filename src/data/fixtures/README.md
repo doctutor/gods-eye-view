@@ -41,3 +41,9 @@
   2026-09-25. Each record names its XYZ tile and expected traffic eligibility.
   Modified, test-only OpenStreetMap data; same ODbL attribution and database
   share-alike terms as the OpenFreeMap fixtures above.
+
+- `filmot-fort-mchenry-subtitles.json` — Personal fork: two videos of one
+  Filmot caption search (`getsearchsubtitles?query="Fort McHenry"&title=Fort
+  McHenry&lang=en&hitFormat=1`, via RapidAPI), retrieved 2026-10-16, trimmed
+  to the fields the landmark "mentioned at" parser reads and three hits each.
+  Caption lines are the uploaders'; test-only, never loaded at runtime.

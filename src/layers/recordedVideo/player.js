@@ -14,7 +14,10 @@ export function captionFor(record) {
   const where =
     record?.source === 'wikidata'
       ? `${record.place || record.title} · Wikidata · ${precision}`
-      : `${record?.place || 'YouTube geotag'} · geotag · ${precision}${record?.sharedBy ? ` (shared by ${record.sharedBy})` : ''}`;
+      : record?.source === 'landmark'
+        ? // i18n-ignore: personal fork, English-only UI
+          `${record.place} · ${precision} · ${String(record.kind || 'other').toUpperCase()}`
+        : `${record?.place || 'YouTube geotag'} · geotag · ${precision}${record?.sharedBy ? ` (shared by ${record.sharedBy})` : ''}`;
   const when = String(record?.recordedAt || record?.publishedAt || '').slice(
     0,
     10,
@@ -22,19 +25,57 @@ export function captionFor(record) {
   return [where, record?.channelTitle, when].filter(Boolean).join(' · ');
 }
 
+/** The embed URL for a record, starting at `start` seconds when given. */
+export function embedAt(videoId, start = 0) {
+  const src = youtubeEmbedUrl(videoId);
+  if (!src || !(start > 0)) return src;
+  const url = new URL(src);
+  url.searchParams.set('start', String(Math.floor(start)));
+  return url.href;
+}
+
 /**
  * @param {{document?: Document}} [options]
  * @returns {{open: (record: object) => void, close: () => void,
- *   isOpen: () => boolean}}
+ *   isOpen: () => boolean,
+ *   showMentions: (record: object, mentions: Array<{start: number, at: string, text: string}>) => void}}
  */
 export function createVideoPlayer({
   document: doc = globalThis.document,
 } = {}) {
   let panel = null;
+  let current = null;
 
   function close() {
     panel?.remove();
     panel = null;
+    current = null;
+  }
+
+  /** "Mentioned at 3:41" links under the player; each restarts it there. */
+  function showMentions(record, mentions) {
+    if (!panel || current?.id !== record?.id || !mentions?.length) return;
+    panel.querySelector('.recorded-video-player-mentions')?.remove();
+    const list = doc.createElement('div');
+    list.className = 'recorded-video-player-mentions';
+    const head = doc.createElement('span');
+    head.className = 'recorded-video-player-mentions-head';
+    // i18n-ignore: personal fork, English-only UI
+    head.textContent = 'MENTIONED AT';
+    list.append(head);
+    for (const mention of mentions) {
+      const jump = doc.createElement('button');
+      jump.type = 'button';
+      jump.className = 'recorded-video-player-mention';
+      jump.textContent = mention.at;
+      jump.title = mention.text;
+      jump.addEventListener('click', () => {
+        const frame = panel?.querySelector('.recorded-video-player-frame');
+        if (frame) frame.src = embedAt(record.videoId, mention.start);
+      });
+      list.append(jump);
+    }
+    panel.querySelector('.recorded-video-player-caption')?.after(list);
   }
 
   function open(record) {
@@ -79,7 +120,8 @@ export function createVideoPlayer({
     link.textContent = 'WATCH ON YOUTUBE ↗';
     panel.append(header, frame, caption, link);
     doc.body.appendChild(panel);
+    current = record;
   }
 
-  return { open, close, isOpen: () => Boolean(panel) };
+  return { open, close, showMentions, isOpen: () => Boolean(panel) };
 }

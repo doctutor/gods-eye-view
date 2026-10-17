@@ -2,9 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  LANDMARK_NEARBY_KM,
+  LANDMARK_TOP,
   NEARBY_KM,
   budgetLine,
   countsLine,
+  landmarkRowModel,
+  landmarkVideoSplit,
+  landmarkVideoState,
+  rankLandmarks,
   rankVideos,
   searchStatus,
   videoRowModel,
@@ -172,4 +178,104 @@ test('counts, budget and the last search read short', () => {
     searchStatus({ configured: false }),
     'No YouTube key: Wikidata only',
   );
+});
+
+const landmark = (qid, label, lat, lon, extra = {}) => ({
+  qid,
+  label,
+  lat,
+  lon,
+  sitelinks: 10,
+  kind: 'museum',
+  loading: false,
+  refused: false,
+  configured: true,
+  error: null,
+  videoCount: null,
+  ...extra,
+});
+const landmarks = [
+  landmark('Q1438634', 'Fort McHenry', 39.2633, -76.5797, {
+    kind: 'historic site',
+  }),
+  landmark('Q1000257', 'National Aquarium', 39.2853, -76.6083, {
+    kind: 'aquarium',
+    videoCount: 19,
+  }),
+  landmark('Q210081', 'Walters Art Museum', 39.2966, -76.6158),
+  landmark('Q1', 'Far Away Monument', 40.5, -74.0),
+];
+
+test('LANDMARKS NEARBY: nearest first within reach; a query matches names anywhere', () => {
+  assert.deepEqual(
+    rankLandmarks(landmarks, BALTIMORE, '').map((e) => e.landmark.qid),
+    ['Q1000257', 'Q210081', 'Q1438634'],
+  );
+  assert.ok(
+    rankLandmarks(landmarks, BALTIMORE, '').every(
+      (e) => e.distanceKm <= LANDMARK_NEARBY_KM,
+    ),
+  );
+  assert.deepEqual(
+    rankLandmarks(landmarks, BALTIMORE, 'monument').map((e) => e.landmark.qid),
+    ['Q1'],
+  );
+  assert.equal(rankLandmarks(landmarks, BALTIMORE, '', { limit: 1 }).length, 1);
+  assert.deepEqual(rankLandmarks(null, BALTIMORE, ''), []);
+});
+
+test('a landmark row says what is known of its videos', () => {
+  const [aquarium, walters] = rankLandmarks(landmarks, BALTIMORE, '');
+  assert.deepEqual(landmarkRowModel(aquarium), {
+    qid: 'Q1000257',
+    labelHtml: 'National Aquarium',
+    details: 'aquarium · 659 m',
+    state: '19 VIDEOS',
+    asked: true,
+  });
+  assert.equal(landmarkRowModel(walters).state, 'FIND VIDEOS');
+  assert.equal(landmarkRowModel(walters).asked, false);
+  assert.equal(
+    landmarkRowModel(rankLandmarks(landmarks, BALTIMORE, 'fort')[0]).labelHtml,
+    '<mark>Fort</mark> McHenry',
+  );
+  assert.equal(landmarkVideoState({ loading: true }), 'ASKING…');
+  assert.equal(landmarkVideoState({ refused: true }), 'BUDGET USED');
+  assert.equal(landmarkVideoState({ configured: false }), 'NO KEY');
+  assert.equal(landmarkVideoState({ error: 'x' }), 'FAILED');
+  assert.equal(landmarkVideoState({ videoCount: 1 }), '1 VIDEO');
+  assert.equal(landmarkVideoState({ videoCount: 0 }), '0 VIDEOS');
+});
+
+test('a landmark shows its top five, the rest behind MORE', () => {
+  const list = Array.from({ length: 8 }, (_, i) => record(`lm-${i}`));
+  const top = landmarkVideoSplit(list);
+  assert.equal(top.shown.length, LANDMARK_TOP);
+  assert.equal(top.more, 3);
+  assert.deepEqual(
+    top.shown.map((r) => r.id),
+    ['lm-0', 'lm-1', 'lm-2', 'lm-3', 'lm-4'],
+    'in the ranked order',
+  );
+  const all = landmarkVideoSplit(list, { expanded: true });
+  assert.equal(all.shown.length, 8);
+  assert.equal(all.more, 0);
+  assert.deepEqual(landmarkVideoSplit(null), { shown: [], more: 0 });
+});
+
+test('a landmark’s video row is tagged ABOUT, LANDMARK and its kind, and counted', () => {
+  const about = record('lm-Q1438634-aaaaaaaaaaa', {
+    title: 'Fort McHenry Full Tour',
+    place: 'Fort McHenry',
+    coordinatesQuality: 'about',
+    source: 'landmark',
+    kind: 'tour',
+    landmarkQid: 'Q1438634',
+  });
+  const row = videoRowModel({ record: about, ranges: [], distanceKm: NaN });
+  assert.equal(row.precision, 'ABOUT');
+  assert.equal(row.source, 'LANDMARK');
+  assert.equal(row.kind, 'tour');
+  assert.equal(videoRowModel({ record: records[0], ranges: [] }).kind, '');
+  assert.equal(countsLine([about, records[0]]), '2 videos · 1 site · 1 about');
 });

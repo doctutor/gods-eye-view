@@ -6,7 +6,17 @@
  */
 
 export const RECORDED_VIDEO_ENDPOINT = '/api/video/recorded';
-export const PRECISIONS = Object.freeze(['site', 'area', 'region']);
+export const LANDMARK_VIDEO_ENDPOINT = '/api/video/landmark';
+/** 'about': a video about a landmark, pinned at it (not where it was filmed). */
+export const PRECISIONS = Object.freeze(['site', 'area', 'region', 'about']);
+export const VIDEO_KINDS = Object.freeze([
+  'news',
+  'tour',
+  'event',
+  'vlog',
+  'music',
+  'other',
+]);
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
 /** Pin style per precision: site solid, area hollow, region faint. */
@@ -22,11 +32,14 @@ export const PRECISION_STYLE = Object.freeze({
     // i18n-ignore: personal fork, English-only UI
     label: 'REGION',
   }),
+  // i18n-ignore: personal fork, English-only UI
+  about: Object.freeze({ fill: 1, outline: 1, pixelSize: 8, label: 'ABOUT' }),
 });
-/** Wikidata pins and YouTube geotag pins in two hues. */
+/** Wikidata pins, YouTube geotag pins and landmark videos in three hues. */
 export const SOURCE_COLOR = Object.freeze({
   wikidata: '#ffd166',
   'youtube-geotag': '#ff5d73',
+  landmark: '#7ee787',
 });
 
 const text = (value, max = 200) =>
@@ -48,15 +61,23 @@ export function toRecord(video) {
     Math.abs(lon) > 180
   )
     return null;
-  const source = video.source === 'wikidata' ? 'wikidata' : 'youtube-geotag';
+  const source = ['wikidata', 'landmark'].includes(video.source)
+    ? video.source
+    : 'youtube-geotag';
   const wikidataId = /^Q\d+$/.test(String(video.wikidataId || ''))
     ? String(video.wikidataId)
     : '';
+  const landmarkQid = /^Q\d+$/.test(String(video.landmarkQid || ''))
+    ? String(video.landmarkQid)
+    : '';
+  if (source === 'landmark' && !landmarkQid) return null;
   return {
     id:
-      source === 'wikidata' && wikidataId
-        ? `wd-${wikidataId}-${videoId}`
-        : `yt-${videoId}`,
+      source === 'landmark'
+        ? `lm-${landmarkQid}-${videoId}`
+        : source === 'wikidata' && wikidataId
+          ? `wd-${wikidataId}-${videoId}`
+          : `yt-${videoId}`,
     videoId,
     title: text(video.title) || videoId,
     place: text(video.place, 160),
@@ -68,15 +89,119 @@ export function toRecord(video) {
       : null,
     lat,
     lon,
-    coordinatesQuality: PRECISIONS.includes(video.coordinatesQuality)
-      ? video.coordinatesQuality
-      : 'region',
+    // A landmark's video is always about it; nothing else may claim that.
+    coordinatesQuality:
+      source === 'landmark'
+        ? 'about'
+        : PRECISIONS.includes(video.coordinatesQuality) &&
+            video.coordinatesQuality !== 'about'
+          ? video.coordinatesQuality
+          : 'region',
     sharedBy: Number.isFinite(Number(video.sharedBy))
       ? Number(video.sharedBy)
       : 0,
     source,
     wikidataId,
+    ...(source === 'landmark'
+      ? {
+          landmarkQid,
+          kind: VIDEO_KINDS.includes(video.kind) ? video.kind : 'other',
+          youtubeRank: Number(video.youtubeRank) || 0,
+        }
+      : {}),
   };
+}
+
+/** A server landmark → {qid, label, lat, lon, sitelinks, kind}, or null. */
+export function toLandmark(row) {
+  const qid = String(row?.qid || '');
+  const lat = Number(row?.lat);
+  const lon = Number(row?.lon);
+  if (!/^Q\d+$/.test(qid) || !Number.isFinite(lat) || !Number.isFinite(lon))
+    return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return {
+    qid,
+    label: text(row.label, 160) || qid,
+    lat,
+    lon,
+    sitelinks: Number(row.sitelinks) || 0,
+    kind: text(row.kind, 24) || 'notable',
+  };
+}
+
+function quotaOf(body) {
+  if (!body?.quota || !Number.isFinite(Number(body.quota.budget))) return null;
+  const budget = Number(body.quota.budget);
+  const used = Number(body.quota.used) || 0;
+  return {
+    used,
+    budget,
+    remaining: Number.isFinite(Number(body.quota.remaining))
+      ? Number(body.quota.remaining)
+      : Math.max(0, budget - used),
+  };
+}
+
+/** Landmarks around a point (the server fills uncached cells a few at a time). */
+export async function fetchLandmarksNear(
+  lat,
+  lon,
+  radiusKm,
+  { fetchImpl = (...a) => fetch(...a), signal } = {},
+) {
+  const { body } = await getJson(
+    fetchImpl,
+    `${LANDMARK_VIDEO_ENDPOINT}/near?near=${lat.toFixed(4)},${lon.toFixed(4)}&radiusKm=${Math.round(radiusKm)}`,
+    signal,
+  );
+  return {
+    landmarks: (Array.isArray(body?.landmarks) ? body.landmarks : [])
+      .map(toLandmark)
+      .filter(Boolean),
+    pending: Number(body?.pending) || 0,
+  };
+}
+
+/** One landmark's videos (102 units when not stored). */
+export async function fetchLandmarkVideos(
+  qid,
+  { fetchImpl = (...a) => fetch(...a), signal, refresh = false } = {},
+) {
+  const { status, body } = await getJson(
+    fetchImpl,
+    `${LANDMARK_VIDEO_ENDPOINT}?qid=${encodeURIComponent(qid)}${refresh ? '&refresh=1' : ''}`,
+    signal,
+  );
+  return {
+    records: (Array.isArray(body?.videos) ? body.videos : [])
+      .map(toRecord)
+      .filter(Boolean),
+    refused: status === 429,
+    configured: body?.configured !== false,
+    cached: body?.cached === true,
+    quota: quotaOf(body),
+  };
+}
+
+/** "Mentioned at" moments of a landmark in one of its videos. */
+export async function fetchMentions(
+  qid,
+  videoId,
+  { fetchImpl = (...a) => fetch(...a), signal } = {},
+) {
+  const { body } = await getJson(
+    fetchImpl,
+    `${LANDMARK_VIDEO_ENDPOINT}/mentions?qid=${encodeURIComponent(qid)}&videoId=${encodeURIComponent(videoId)}`,
+    signal,
+  );
+  return (Array.isArray(body?.mentions) ? body.mentions : [])
+    .filter((m) => Number.isFinite(Number(m?.start)))
+    .map((m) => ({
+      start: Math.floor(Number(m.start)),
+      at: text(m.at, 12),
+      text: text(m.text, 160),
+    }));
 }
 
 async function getJson(fetchImpl, url, signal) {
@@ -125,19 +250,7 @@ export async function fetchNearVideos(
     refused: status === 429,
     configured: body?.configured !== false,
     cached: body?.cached === true,
-    quota:
-      body?.quota && Number.isFinite(Number(body.quota.budget))
-        ? {
-            used: Number(body.quota.used) || 0,
-            budget: Number(body.quota.budget),
-            remaining: Number.isFinite(Number(body.quota.remaining))
-              ? Number(body.quota.remaining)
-              : Math.max(
-                  0,
-                  Number(body.quota.budget) - (Number(body.quota.used) || 0),
-                ),
-          }
-        : null,
+    quota: quotaOf(body),
   };
 }
 
