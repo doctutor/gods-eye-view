@@ -78,6 +78,18 @@ export function createRecordedVideoLayer({
   let _refused = false;
   let _removeMoveListener = null;
   let _removeClick = null;
+  /** Personal fork: the panel's view of the layer (recordedVideoPanel.js). */
+  const _listeners = new Set();
+  let _quota = null;
+  let _lastSearch = null;
+  const notify = () => {
+    for (const listener of _listeners)
+      try {
+        listener();
+      } catch {
+        /* a listener's problem is its own */
+      }
+  };
   const fetchOptions = fetchImpl ? { fetchImpl } : {};
 
   function viewCentre() {
@@ -209,6 +221,7 @@ export function createRecordedVideoLayer({
       addRecords(records);
       render();
       refreshLabels();
+      notify();
       return true;
     } catch (error) {
       if (!request.signal.aborted)
@@ -220,13 +233,13 @@ export function createRecordedVideoLayer({
     }
   }
 
-  async function searchView(query) {
+  async function searchView(query, { refresh = false } = {}) {
     if (_nearRequest) {
       // One in flight: the newest settled view goes next.
-      _pendingQuery = query;
+      _pendingQuery = { query, refresh };
       return;
     }
-    if (_cellsAsked.has(query.cell)) return;
+    if (!refresh && _cellsAsked.has(query.cell)) return;
     _cellsAsked.add(query.cell);
     const request = new AbortController();
     _nearRequest = request;
@@ -235,15 +248,32 @@ export function createRecordedVideoLayer({
         query.lat,
         query.lon,
         query.radiusKm,
-        { ...fetchOptions, signal: request.signal },
+        { ...fetchOptions, signal: request.signal, refresh },
       );
       if (request.signal.aborted || !_enabled) return;
       _refused = result.refused;
+      if (result.quota) _quota = result.quota;
+      _lastSearch = {
+        cell: query.cell,
+        at: Date.now(),
+        cached: result.cached,
+        refused: result.refused,
+        configured: result.configured,
+      };
       if (result.refused) _cellsAsked.delete(query.cell);
-      if (addRecords(result.records)) {
+      // A refreshed answer replaces that view's geotags.
+      if (refresh && !result.refused)
+        for (const [id, record] of _records)
+          if (record.source !== 'wikidata' && record.cell === query.cell)
+            _records.delete(id);
+      if (
+        addRecords(result.records.map((r) => ({ ...r, cell: query.cell }))) ||
+        refresh
+      ) {
         render();
         refreshLabels();
       }
+      notify();
     } catch (error) {
       _cellsAsked.delete(query.cell);
       if (!request.signal.aborted)
@@ -253,12 +283,13 @@ export function createRecordedVideoLayer({
       if (_nearRequest === request) _nearRequest = null;
       const next = _pendingQuery;
       _pendingQuery = null;
-      if (next && _enabled) searchView(next);
+      if (next && _enabled) searchView(next.query, { refresh: next.refresh });
     }
   }
 
   function onSettled() {
     refreshLabels();
+    notify();
     clearTimeoutImpl(_debounce);
     _debounce = setTimeoutImpl(() => {
       _debounce = null;
@@ -297,6 +328,7 @@ export function createRecordedVideoLayer({
 
     enable(viewer) {
       _enabled = true;
+      queueMicrotask(notify);
       if (_dataSource) _dataSource.show = true;
       overlayHost?.setVisible(RECORDED_VIDEO_LAYER_ID, true);
       credits?.register?.(viewer || _viewer, {
@@ -326,6 +358,7 @@ export function createRecordedVideoLayer({
       player.close();
       overlayHost?.clearSource(RECORDED_VIDEO_LAYER_ID);
       overlayHost?.setVisible(RECORDED_VIDEO_LAYER_ID, false);
+      notify();
     },
 
     async update() {
@@ -355,8 +388,46 @@ export function createRecordedVideoLayer({
       };
     },
 
-    /** Personal fork: for tests and the console. */
-    _records: () => [..._records.values()],
+    /** Personal fork: the RECORDED VIDEO panel's view of the layer. */
+    records: () => [..._records.values()],
+    isEnabled: () => _enabled,
+    viewCentre: () => (_enabled ? viewCentre() : null),
+    quota: () => _quota,
+    lastSearch: () => _lastSearch,
+    /** Listen for changes; returns the unsubscribe. */
+    subscribe(listener) {
+      _listeners.add(listener);
+      return () => _listeners.delete(listener);
+    },
+    /** Fly to a record's pin and play it. */
+    focus(record) {
+      if (!_enabled || !record) return;
+      _viewer?.camera?.flyTo?.({
+        destination: Cesium.Cartesian3.fromDegrees(
+          record.lon,
+          record.lat,
+          1800,
+        ),
+        duration: 1.6,
+      });
+      player.open(record);
+    },
+    /**
+     * Ask YouTube again for the current view (the 7-day answer is skipped),
+     * budget permitting. False when the view is too high to search.
+     */
+    searchAgain() {
+      if (!_enabled) return false;
+      const view = viewCentre();
+      const query = view
+        ? viewQuery(view.lat, view.lon, view.height, {
+            maxHeightM: SEARCH_MAX_HEIGHT_M,
+          })
+        : null;
+      if (!query) return false;
+      searchView(query, { refresh: true });
+      return true;
+    },
     _pick: onPick,
   };
 }

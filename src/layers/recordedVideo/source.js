@@ -114,9 +114,9 @@ export async function fetchNearVideos(
   lat,
   lon,
   radiusKm,
-  { fetchImpl = (...a) => fetch(...a), signal } = {},
+  { fetchImpl = (...a) => fetch(...a), signal, refresh = false } = {},
 ) {
-  const url = `${RECORDED_VIDEO_ENDPOINT}?near=${lat.toFixed(4)},${lon.toFixed(4)}&radiusKm=${Math.round(radiusKm)}`;
+  const url = `${RECORDED_VIDEO_ENDPOINT}?near=${lat.toFixed(4)},${lon.toFixed(4)}&radiusKm=${Math.round(radiusKm)}${refresh ? '&refresh=1' : ''}`;
   const { status, body } = await getJson(fetchImpl, url, signal);
   return {
     records: (Array.isArray(body?.videos) ? body.videos : [])
@@ -124,6 +124,20 @@ export async function fetchNearVideos(
       .filter(Boolean),
     refused: status === 429,
     configured: body?.configured !== false,
+    cached: body?.cached === true,
+    quota:
+      body?.quota && Number.isFinite(Number(body.quota.budget))
+        ? {
+            used: Number(body.quota.used) || 0,
+            budget: Number(body.quota.budget),
+            remaining: Number.isFinite(Number(body.quota.remaining))
+              ? Number(body.quota.remaining)
+              : Math.max(
+                  0,
+                  Number(body.quota.budget) - (Number(body.quota.used) || 0),
+                ),
+          }
+        : null,
   };
 }
 

@@ -811,3 +811,136 @@ html:not([lang='en']) #cctv-camera-select {
   text-decoration: none;
   border-bottom: 1px dotted currentColor;
 }
+
+/* Personal fork: the RECORDED VIDEO block (recordedVideoPanel.js). */
+.rv-block[hidden] {
+  display: none;
+}
+
+.rv-block > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.rv-block > summary::-webkit-details-marker {
+  display: none;
+}
+
+.rv-block > summary::before {
+  content: '▸ ';
+}
+
+.rv-block[open] > summary::before {
+  content: '▾ ';
+}
+
+.rv-counts,
+.rv-budget,
+.rv-status {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  color: var(--text-secondary);
+}
+
+.rv-counts {
+  color: var(--accent, #00d4ff);
+}
+
+.rv-tools {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.rv-tools input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  color: var(--text-primary);
+  padding: 5px 8px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.rv-tools .scene-btn {
+  padding: 3px 8px;
+  font-size: 9px;
+}
+
+.rv-list {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.6px;
+}
+
+.rv-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.rv-row:hover,
+.rv-row:focus-visible {
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.rv-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.rv-row-details {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+
+.rv-tag {
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 8px;
+}
+
+.rv-tag + .rv-tag {
+  margin-left: 3px;
+}
+
+.rv-tag.is-site {
+  color: #7ee787;
+}
+
+.rv-tag.is-area {
+  color: #ffd166;
+}
+
+.rv-tag.is-region {
+  color: var(--text-secondary);
+}
+
+.rv-tag.is-wikidata {
+  color: #ffd166;
+}
+
+.rv-tag.is-geotag {
+  color: #ff5d73;
+}

@@ -19,6 +19,7 @@ function sendJson(res, status, payload, cache = 'no-store') {
  * shared YouTube key's quota):
  *   GET /wikidata                     every Wikidata video with coordinates
  *   GET ?near=lat,lon&radiusKm=…      geotagged YouTube videos near a point
+ *       &refresh=1                     ask YouTube again (SEARCH AGAIN)
  */
 export function createRecordedVideoHandler({ service }) {
   return async function handle(req, res, next) {
@@ -45,6 +46,7 @@ export function createRecordedVideoHandler({ service }) {
           Number(match[1]),
           Number(match[2]),
           Number(url.searchParams.get('radiusKm')),
+          { refresh: url.searchParams.get('refresh') === '1' },
         );
         return sendJson(res, result.status, result.body);
       }
