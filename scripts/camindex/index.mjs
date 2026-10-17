@@ -8,6 +8,7 @@ import * as openeagleeye from './adapters/openeagleeye.mjs';
 import * as pocketworld from './adapters/pocketworld.mjs';
 import {
   ROLLING_LIMIT,
+  VERIFY_PARALLEL,
   inBox,
   rollingQueue,
   stillPacing,
@@ -37,7 +38,8 @@ import {
  *        [--scope default|maryland|non-traffic|all] [--limit N]
  *        [--via listings|sitemap|commoncrawl] [--cc-index CC-MAIN-…]
  *        [--page-details] [--gap-ms MS]
- *   node scripts/camindex/index.mjs verify [--rolling] [--limit N] [--gap-ms MS]
+ *   node scripts/camindex/index.mjs verify [--source S] [--rolling] [--limit N]
+ *        [--gap-ms MS] [--parallel N]
  *   node scripts/camindex/index.mjs build [--only-verified]
  *   node scripts/camindex/index.mjs status
  *   node scripts/camindex/index.mjs schedule [--once] [--every-min 60]
@@ -228,6 +230,8 @@ async function verifyCommand(dir, flags) {
     source,
     log,
     queue,
+    // Several hosts at once; each host keeps its own floor (stillPacing).
+    parallel: limitOf(flags.parallel, VERIFY_PARALLEL),
     onRecord: (candidate) => {
       checked.push(candidate.id);
       if (checked.length >= 25) save();

@@ -37,7 +37,7 @@ import { createWindySource } from './windy.js';
 import { createLinkedLoader } from './linked.js';
 import { dedupeSources } from './dedupe.js';
 import { createCamindexLoader } from './camindex.js';
-import { createViewLog } from './observed.js';
+import { createViewLog, withObservedNear } from './observed.js';
 import { createNpsLoader } from './nps.js';
 import { createUsgsVolcanoLoader } from './usgs.js';
 
@@ -263,7 +263,8 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
   const dynamicSources = [
     {
       name: 'windy',
-      source: createWindySource(),
+      // Personal fork: what viewers' frame fetches saw (observed.js).
+      source: withObservedNear(createWindySource(), sourceRoot),
       enabled: () => envEnabled('CCTV_WINDY_ENABLED'),
     },
   ];

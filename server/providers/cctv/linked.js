@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import https from 'node:https';
 import path from 'node:path';
 import { isPlausibleLatLon } from './normalize.js';
+import { withObservations } from './observed.js';
 
 /**
  * Linked webcams: places whose public map record names a webcam.
@@ -619,6 +620,7 @@ export function createLinkedLoader({
     Object.defineProperty(kept, 'everything', { value: everything });
     Object.defineProperty(kept, 'available', { value: everything.length });
     Object.defineProperty(kept, 'proximityOnly', { value: true });
-    return kept;
+    // Personal fork: what viewers' frame fetches saw (observed.js).
+    return withObservations(kept, sourceRoot);
   };
 }

@@ -1,6 +1,7 @@
 import { readCappedResponseText, discardResponseBody } from '../common/http.js';
 import { createDailyCachedList } from './dailyCache.js';
 import { isPlausibleLatLon } from './normalize.js';
+import { withObservations } from './observed.js';
 
 /**
  * USGS volcano webcams: the stills USGS volcano observatories publish
@@ -197,6 +198,7 @@ export function createUsgsVolcanoLoader({
     cacheDir,
   });
   return async function loadUsgsVolcanoCams({ sourceRoot } = {}) {
-    return list(sourceRoot);
+    // Personal fork: what viewers' frame fetches saw (observed.js).
+    return withObservations(await list(sourceRoot), sourceRoot);
   };
 }

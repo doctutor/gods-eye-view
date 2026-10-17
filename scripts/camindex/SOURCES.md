@@ -26,6 +26,19 @@ These rules apply to every source:
 - Size and time are bounded: 4 MB per page, 3 MB per still, 30 s per request.
   Redirects are followed only within the same host, at most 3 hops.
 
+**Per-host floors for stills** (`verify`, `scripts/camindex/verify.mjs`):
+
+| Host | At least this between stills |
+| --- | --- |
+| opencctv.org | 30 s (its origin rate-limits stills; see OpenCCTV) |
+| every other host (Open-Eagle-Eye's and PocketWorld's operators) | 2 s |
+
+`--gap-ms` raises a floor and never lowers one. Up to 4 stills are checked
+at once (`--parallel`, at most 8), each on a different host when the queue
+allows, so one slow host does not hold the others. Each host still gets one
+request at a time. A host that fails five times in a row, or that robots.txt
+closes, is skipped for the rest of the run and its cameras stay unchecked.
+
 ## OpenCCTV (opencctv.org)
 
 A public directory of about 45,000 camera pages, browsable without an account.

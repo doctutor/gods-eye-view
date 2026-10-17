@@ -151,6 +151,8 @@ export function classifyCard(format, sourceUrl) {
       feedType: 'image',
       url: classified.url,
       snapshotUrl: classified.url,
+      // What camindex verify fetches to check the camera.
+      stillUrl: classified.url,
       operatorUrl: `${new URL(classified.url).origin}/`,
     };
   if (kind === 'mjpeg' && https)

@@ -198,6 +198,103 @@ export function createFrameObserver({
 }
 
 /**
+ * Sources with observations applied: a camera seen dead or showing a
+ * placeholder is left out, one seen live is marked live with `observedAt`;
+ * errors and unobserved cameras pass unchanged.
+ * @param {Array<object>} sources
+ * @param {Record<string, {status: string, at: number}>} observed
+ */
+export function applyObservations(sources, observed) {
+  const out = [];
+  for (const source of sources) {
+    const seen = observed[source?.id];
+    if (seen?.status === 'dead' || seen?.status === 'placeholder') continue;
+    out.push(
+      seen?.status === 'live'
+        ? {
+            ...source,
+            liveStatus: 'live',
+            observedAt: new Date(seen.at).toISOString(),
+          }
+        : source,
+    );
+  }
+  return out;
+}
+
+/** observed.json per file, re-read only when it changes. */
+const observedFiles = new Map();
+
+function currentObservations(sourceRoot, env) {
+  const file = path.join(camindexDir(sourceRoot, env), OBSERVED_FILE);
+  let key;
+  try {
+    const stat = fs.statSync(file);
+    key = `${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return {};
+  }
+  const held = observedFiles.get(file);
+  if (held?.key === key) return held.observed;
+  const observed = readObserved(file);
+  observedFiles.set(file, { key, observed });
+  return observed;
+}
+
+/**
+ * A pack's list with what viewers' frame fetches saw applied
+ * (applyObservations), keeping the list's own properties (`everything`,
+ * `available`, `proximityOnly`, …); `everything` is filtered the same way.
+ * The list itself is returned when nothing has been observed.
+ * @param {Array<object>} list
+ * @param {string} [sourceRoot]
+ * @param {object} [env]
+ */
+export function withObservations(
+  list,
+  sourceRoot = process.cwd(),
+  env = process.env,
+) {
+  if (!Array.isArray(list)) return list;
+  const observed = currentObservations(sourceRoot || process.cwd(), env);
+  let any = false;
+  for (const id in observed) {
+    any = true;
+    break;
+  }
+  if (!any) return list;
+  const out = applyObservations(list, observed);
+  for (const [key, descriptor] of Object.entries(
+    Object.getOwnPropertyDescriptors(list),
+  )) {
+    if (key === 'length' || /^\d+$/.test(key)) continue;
+    Object.defineProperty(
+      out,
+      key,
+      key === 'everything' && Array.isArray(list.everything)
+        ? {
+            value: applyObservations(list.everything, observed),
+            enumerable: descriptor.enumerable,
+            configurable: true,
+          }
+        : descriptor,
+    );
+  }
+  return out;
+}
+
+/**
+ * A per-query source (Windy) whose near() answers pass through
+ * withObservations; everything else is the source's own.
+ */
+export function withObservedNear(source, sourceRoot) {
+  return Object.assign(Object.create(source), {
+    near: async (...args) =>
+      withObservations(await source.near(...args), sourceRoot),
+  });
+}
+
+/**
  * Centres of recent proximity queries, one "at lat lon radiusKm" line each,
  * newest last, at most VIEWS_MAX_LINES. A centre within ~1 km of the last one
  * is not repeated.
