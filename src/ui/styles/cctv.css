@@ -82,6 +82,21 @@
   color: var(--text-secondary);
 }
 
+/* Personal fork: outside English the camera search box, which stands where
+   upstream's camera select stood, takes its own row above PREV / NEXT like
+   the select does, so its longer placeholder is not cut off; and the HIDE
+   WINDY note drops under its button instead of squeezing it (upstream wraps
+   .cctv-controls under es only). */
+html:not([lang='en']) .cctv-controls:has(#cctv-camera-search),
+html:not([lang='en']) .cctv-screenshot-safe {
+  flex-wrap: wrap;
+}
+
+html:not([lang='en']) #cctv-camera-search {
+  flex: 1 1 100%;
+  order: -1;
+}
+
 /* Spanish labels overflow the nowrap .scene-btn row of the fixed-width
    panel; wrap the row under es only, English stays as is. */
 html[lang='es'] .cctv-controls {
