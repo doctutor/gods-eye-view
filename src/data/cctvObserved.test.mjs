@@ -456,3 +456,28 @@ test('a per-query source answers through the observations', async (t) => {
     ],
   );
 });
+
+test('observations judge image cameras only', () => {
+  const observed = {
+    a: { status: 'dead', at: 1 },
+    b: { status: 'dead', at: 1 },
+    c: { status: 'live', at: 1 },
+  };
+  const out = applyObservations(
+    [
+      { id: 'a', feedType: 'image' },
+      // An image card that proved to be a page, now a link: its old image
+      // verdict does not drop it.
+      { id: 'b', feedType: 'link' },
+      { id: 'c', feedType: 'youtube' },
+    ],
+    observed,
+  );
+  assert.deepEqual(
+    out.map((s) => [s.id, s.liveStatus ?? '']),
+    [
+      ['b', ''],
+      ['c', ''],
+    ],
+  );
+});

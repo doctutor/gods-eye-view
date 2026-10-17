@@ -53,6 +53,8 @@
     "qa:street-level": "node scripts/qa-street-level.mjs",
     "qa:street-level:fixtures": "node scripts/qa-street-level.mjs --fixtures",
     "check:boundaries": "node scripts/check-import-directions.mjs && node scripts/check-package-boundaries.mjs",
+    "camindex:schedule": "node scripts/camindex/index.mjs schedule --once",
+    "camindex:status": "node scripts/camindex/index.mjs status",
     "qa:transit": "node scripts/qa-transit.mjs",
     "mcp": "node server/mcp/stdio.js"
   },

@@ -364,3 +364,101 @@ test('the catalog takes both adapters with their provenance', async () => {
   assert.equal(harbor.timeZone, 'America/New_York');
   assert.ok(catalog.cameras.every((c) => /^[a-z][a-z0-9-]{1,80}$/.test(c.id)));
 });
+
+// Personal fork: PocketWorld link hosts learned from verify (task 20).
+const card = (id, host, over = {}) => ({
+  id,
+  name: id,
+  lat: 35,
+  lon: 139,
+  feedType: 'image',
+  url: `https://${host}/page/${id}.html`,
+  snapshotUrl: `https://${host}/page/${id}.html`,
+  stillUrl: `https://${host}/page/${id}.html`,
+  operatorUrl: `https://${host}/`,
+  ...over,
+});
+
+test('a host whose image cards are pages becomes a link host', () => {
+  const candidates = [
+    ...Array.from({ length: 10 }, (_, i) => card(`p${i}`, 'pages.example.jp')),
+    card('live-one', 'pages.example.jp'),
+    card('unchecked', 'pages.example.jp'),
+    card('ok1', 'cams.example.org'),
+    card('ok2', 'cams.example.org'),
+    card('ok3', 'cams.example.org'),
+    card('lone-page', 'single.example.net'),
+    { ...card('yt', 'www.youtube.com'), feedType: 'youtube' },
+  ];
+  const records = {};
+  for (let i = 0; i < 10; i++)
+    records[`p${i}`] = { status: 'dead', reason: 'not an image' };
+  records['live-one'] = { status: 'live' };
+  records.ok1 = { status: 'live' };
+  records.ok2 = { status: 'dead', reason: 'HTTP 404' };
+  records.ok3 = { status: 'live' };
+  records['lone-page'] = { status: 'dead', reason: 'not an image' };
+  const hosts = pocketworld.learnLinkHosts(candidates, records);
+  // 10 of 11 checked are pages: over 90 %. Three checks minimum.
+  assert.deepEqual(hosts, {
+    'pages.example.jp': { checked: 11, nonImage: 10 },
+  });
+  const applied = pocketworld.applyLinkHosts(candidates, records, hosts);
+  const byId = new Map(applied.candidates.map((c) => [c.id, c]));
+  // Every card on the link host, checked or not, except one verified live.
+  for (const id of ['p0', 'p9', 'unchecked']) {
+    const linked = byId.get(id);
+    assert.equal(linked.feedType, 'link', id);
+    assert.equal(linked.url, '');
+    assert.equal(linked.snapshotUrl, '');
+    assert.equal(linked.stillUrl, undefined);
+    assert.equal(
+      linked.operatorUrl,
+      `https://pages.example.jp/page/${id}.html`,
+    );
+  }
+  assert.equal(byId.get('live-one').feedType, 'image');
+  // A page answered by its own check is a link even on an unlisted host.
+  assert.equal(byId.get('lone-page').feedType, 'link');
+  assert.equal(byId.get('ok2').feedType, 'image', 'a 404 is not a page');
+  assert.equal(byId.get('yt').feedType, 'youtube');
+  assert.equal(applied.converted, 12);
+  // Converted cards lose their image verdicts, so they are not dropped as dead.
+  assert.equal(applied.records.p0, undefined);
+  assert.equal(applied.records.ok2.status, 'dead');
+});
+
+test('link hosts are recorded on disk and applied at build without a recrawl', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-linkhosts-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const candidates = Array.from({ length: 4 }, (_, i) =>
+    card(`p${i}`, 'pages.example.jp'),
+  );
+  const records = Object.fromEntries(
+    candidates.map((c) => [c.id, { status: 'dead', reason: 'not an image' }]),
+  );
+  const adjusted = pocketworld.adjustCandidates(
+    dir,
+    candidates,
+    records,
+    Date.UTC(2026, 9, 17),
+  );
+  assert.deepEqual(adjusted.linkHosts, ['pages.example.jp']);
+  const saved = JSON.parse(
+    await fs.readFile(path.join(dir, 'pocketworld', 'link-hosts.json'), 'utf8'),
+  );
+  assert.equal(saved.updatedAt, '2026-10-17T00:00:00.000Z');
+  assert.equal(saved.share, 0.9);
+  assert.deepEqual(saved.hosts, {
+    'pages.example.jp': { checked: 4, nonImage: 4 },
+  });
+  const catalog = buildCatalog({
+    pocketworld: { candidates: adjusted.candidates, records: adjusted.records },
+  });
+  assert.equal(catalog.cameras.length, 4, 'served as links, not dropped');
+  assert.ok(catalog.cameras.every((c) => c.feedType === 'link'));
+  assert.equal(
+    catalog.cameras[0].operatorUrl,
+    'https://pages.example.jp/page/p0.html',
+  );
+});

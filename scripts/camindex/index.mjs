@@ -41,7 +41,7 @@ import {
  *   node scripts/camindex/index.mjs verify [--source S] [--rolling] [--limit N]
  *        [--gap-ms MS] [--parallel N]
  *   node scripts/camindex/index.mjs build [--only-verified]
- *   node scripts/camindex/index.mjs status
+ *   node scripts/camindex/index.mjs status [--json] [--write-doc]
  *   node scripts/camindex/index.mjs schedule [--once] [--every-min 60]
  *
  * Everything lives in CAMINDEX_DIR (default .gev-cache/camindex in the
@@ -315,8 +315,64 @@ function buildCommand(dir, flags) {
   console.log(JSON.stringify(summary, null, 2));
 }
 
-function statusCommand(dir) {
+/** Where `status --write-doc` keeps the counts table. */
+export const STATUS_DOC = path.join(ROOT, 'scripts', 'camindex', 'SOURCES.md');
+const DOC_START = '<!-- camindex-status:start -->';
+const DOC_END = '<!-- camindex-status:end -->';
+
+/**
+ * Per-source counts: candidates found, cameras in the catalog (after the
+ * cross-source merge), and verification verdicts (verify runs and viewers'
+ * frames folded in at build).
+ */
+export function statusRows(sources, catalog) {
+  const inCatalog = countBy(catalog?.cameras || [], (camera) =>
+    String(camera.id || '').replace(/-.*$/, ''),
+  );
+  return Object.entries(sources).map(
+    ([source, { candidates, records, links = 0 }]) => {
+      const states = countBy(Object.values(records), (record) => record.status);
+      return {
+        source,
+        found: candidates,
+        served: inCatalog[source] || 0,
+        verified: Object.keys(records).length,
+        live: states.live || 0,
+        dead: states.dead || 0,
+        placeholder: states.placeholder || 0,
+        links,
+      };
+    },
+  );
+}
+
+/** The counts as a Markdown table, with the build it describes. */
+export function statusTable(rows, generatedAt) {
+  const number = (value) => value.toLocaleString('en-US');
+  const lines = [
+    `Counts from the build of ${generatedAt || '(no build yet)'}; regenerate with \`npm run camindex:status -- --write-doc\`.`,
+    '',
+    '| Source | Found | In catalog | Checked | Live | Dead | Placeholder | Became links |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    ...rows.map(
+      (row) =>
+        `| ${row.source} | ${number(row.found)} | ${number(row.served)} | ${number(row.verified)} | ${number(row.live)} | ${number(row.dead)} | ${number(row.placeholder)} | ${number(row.links)} |`,
+    ),
+  ];
+  return lines.join('\n');
+}
+
+/** Replace the marked block in a document with `table`. */
+export function replaceStatusBlock(text, table) {
+  const start = text.indexOf(DOC_START);
+  const end = text.indexOf(DOC_END);
+  if (start < 0 || end < start) throw new Error('status block markers missing');
+  return `${text.slice(0, start + DOC_START.length)}\n${table}\n${text.slice(end)}`;
+}
+
+function statusCommand(dir, flags = {}) {
   const report = { dir, sources: {} };
+  const counts = {};
   for (const source of Object.keys(SOURCES)) {
     const files = sourceFiles(dir, source);
     const candidates = [...loadCandidates(files.candidates).values()];
@@ -327,6 +383,23 @@ function statusCommand(dir) {
       inMaryland: candidates.filter((item) => inBox(item)).length,
       verification: countBy(Object.values(records), (record) => record.status),
     };
+    if (candidates.length) {
+      // As build sees them: cards that proved to be pages count as links,
+      // not dead (PocketWorld's link hosts; nothing is written here).
+      const adapter = SOURCES[source];
+      const adjusted = adapter.learnLinkHosts
+        ? adapter.applyLinkHosts(
+            candidates,
+            records,
+            adapter.learnLinkHosts(candidates, records),
+          )
+        : null;
+      counts[source] = {
+        candidates: candidates.length,
+        records: adjusted?.records || records,
+        links: adjusted?.converted || 0,
+      };
+    }
   }
   const catalog = readJson(path.join(dir, CATALOG_FILE), null);
   report.catalog = catalog
@@ -336,7 +409,29 @@ function statusCommand(dir) {
         sources: catalog.sources,
       }
     : null;
-  console.log(JSON.stringify(report, null, 2));
+  if (flags.json === true) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  const table = statusTable(statusRows(counts, catalog), catalog?.generatedAt);
+  console.log(`camindex in ${dir}\n`);
+  console.log(table);
+  console.log(
+    `\nCatalog: ${report.catalog ? `${report.catalog.cameras.toLocaleString('en-US')} cameras` : 'not built'}.`,
+  );
+  // The last run of each command, from runs.jsonl.
+  const last = {};
+  for (const run of readRuns(dir))
+    last[run.rolling ? 'verify --rolling' : run.command] = run;
+  for (const [name, run] of Object.entries(last))
+    console.log(
+      `Last ${name}: ${run.at}${run.source ? ` (${run.source})` : ''}${run.seconds !== undefined ? `, ${run.seconds} s` : ''}${run.stoppedBy ? `, ${run.stoppedBy}` : ''}${run.error ? `, error: ${run.error}` : ''}`,
+    );
+  if (flags['write-doc'] === true) {
+    const doc = fs.readFileSync(STATUS_DOC, 'utf8');
+    fs.writeFileSync(STATUS_DOC, replaceStatusBlock(doc, table));
+    console.log(`\nWrote the table to ${STATUS_DOC}.`);
+  }
 }
 
 export const DISCOVER_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
@@ -423,7 +518,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   if (command === 'discover') return discoverCommand(dir, flags);
   if (command === 'verify') return verifyCommand(dir, flags);
   if (command === 'build') return buildCommand(dir, flags);
-  if (command === 'status') return statusCommand(dir);
+  if (command === 'status') return statusCommand(dir, flags);
   if (command === 'schedule') return scheduleCommand(dir, flags);
   throw new Error(
     `unknown command ${command} (discover, verify, build, status, schedule)`,

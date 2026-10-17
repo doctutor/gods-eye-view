@@ -51,6 +51,9 @@ import {
   ROLLING_EVERY_MS,
   dueJobs,
   parseArgs,
+  replaceStatusBlock,
+  statusRows,
+  statusTable,
 } from '../../scripts/camindex/index.mjs';
 
 // Personal fork: camindex crawler tooling (scripts/camindex/).
@@ -955,4 +958,74 @@ test('stills on many hosts are checked in parallel, each host at its floor', asy
     downChecks.every((id) => records[id].status === 'error'),
     'network failures are errors, not dead',
   );
+});
+
+test('status counts each source and writes them into the marked block', () => {
+  const rows = statusRows(
+    {
+      opencctv: {
+        candidates: 3,
+        records: { 1: { status: 'live' }, 2: { status: 'dead' } },
+      },
+      pocketworld: {
+        candidates: 2,
+        records: { a: { status: 'placeholder' } },
+        links: 1,
+      },
+    },
+    {
+      cameras: [
+        { id: 'opencctv-1' },
+        { id: 'opencctv-3' },
+        { id: 'pocketworld-a' },
+      ],
+    },
+  );
+  assert.deepEqual(rows, [
+    {
+      source: 'opencctv',
+      found: 3,
+      served: 2,
+      verified: 2,
+      live: 1,
+      dead: 1,
+      placeholder: 0,
+      links: 0,
+    },
+    {
+      source: 'pocketworld',
+      found: 2,
+      served: 1,
+      verified: 1,
+      live: 0,
+      dead: 0,
+      placeholder: 1,
+      links: 1,
+    },
+  ]);
+  const table = statusTable(rows, '2026-10-17T01:00:00.000Z');
+  assert.match(table, /build of 2026-10-17T01:00:00.000Z/);
+  assert.match(table, /\| opencctv \| 3 \| 2 \| 2 \| 1 \| 1 \| 0 \| 0 \|/);
+  const doc = [
+    '# t',
+    '',
+    '<!-- camindex-status:start -->',
+    'stale row',
+    '<!-- camindex-status:end -->',
+    '',
+    'rest',
+    '',
+  ].join('\n');
+  const once = replaceStatusBlock(doc, table);
+  assert.ok(
+    once.includes(table) &&
+      !once.includes('stale row') &&
+      once.endsWith('rest\n'),
+  );
+  assert.equal(
+    replaceStatusBlock(once, table),
+    once,
+    'rerunning changes nothing',
+  );
+  assert.throws(() => replaceStatusBlock('# no markers', table), /markers/);
 });
