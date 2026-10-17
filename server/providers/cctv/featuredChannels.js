@@ -76,6 +76,10 @@ export function quotaDay(epochMs) {
 
 /**
  * Units spent today, kept on disk so a restart does not reset the count.
+ * Every user of the shared key (the featured watcher, recorded video) counts
+ * through the same file: each change re-reads it first, so two counters in
+ * one process never overwrite each other's units. `feature` tallies a
+ * user's own share for its own budget.
  * @param {{now?: () => number, budget?: () => number, file?: string}} options
  */
 export function createYoutubeQuota({
@@ -86,41 +90,61 @@ export function createYoutubeQuota({
   },
   file = '',
 } = {}) {
-  const stored = file ? readJsonFile(file, null) : null;
-  let day = typeof stored?.day === 'string' ? stored.day : quotaDay(now());
-  let units = Number.isFinite(stored?.units) ? stored.units : 0;
-  let geocodes = Number.isFinite(stored?.geocodes) ? stored.geocodes : 0;
+  let state = { day: quotaDay(now()), units: 0, geocodes: 0, byFeature: {} };
   let stopLogged = false;
 
+  /** The file's count when it is today's (the file wins: others count too). */
+  function sync() {
+    if (!file) return;
+    const stored = readJsonFile(file, null);
+    if (typeof stored?.day !== 'string') return;
+    if (stored.day !== state.day && stored.day < state.day) return;
+    state = {
+      day: stored.day,
+      units: Number.isFinite(stored.units) ? stored.units : 0,
+      geocodes: Number.isFinite(stored.geocodes) ? stored.geocodes : 0,
+      byFeature:
+        stored.byFeature && typeof stored.byFeature === 'object'
+          ? { ...stored.byFeature }
+          : {},
+    };
+  }
   function roll() {
+    sync();
     const today = quotaDay(now());
-    if (today === day) return;
-    console.log(`[CCTV] YouTube units used on ${day}: ${units}`);
-    day = today;
-    units = 0;
-    geocodes = 0;
+    if (today === state.day) return;
+    console.log(`[CCTV] YouTube units used on ${state.day}: ${state.units}`);
+    state = { day: today, units: 0, geocodes: 0, byFeature: {} };
     stopLogged = false;
   }
   function save() {
     if (!file) return;
     try {
-      writeJsonAtomic(file, { day, units, geocodes });
+      const { day, units, geocodes, byFeature } = state;
+      writeJsonAtomic(file, {
+        day,
+        units,
+        geocodes,
+        ...(Object.keys(byFeature).length ? { byFeature } : {}),
+      });
     } catch {
       /* the count is advisory */
     }
   }
   return {
-    /** Count one or more units against today. */
-    spend(count = 1) {
+    /** Count units against today (and against `feature`'s share). */
+    spend(count = 1, feature = '') {
       roll();
-      units += count;
+      state.units += count;
+      if (feature)
+        state.byFeature[feature] = (state.byFeature[feature] || 0) + count;
       save();
     },
     /** Count one geocode; false once today's geocodes are used up. */
     geocode() {
       roll();
-      if (geocodes >= GEOCODES_PER_DAY) return false;
-      geocodes++;
+      if (state.geocodes >= GEOCODES_PER_DAY) return false;
+      state.geocodes++;
       save();
       return true;
     },
@@ -128,29 +152,35 @@ export function createYoutubeQuota({
     exhausted() {
       roll();
       const limit = budget();
-      if (units < limit) return false;
+      if (state.units < limit) return false;
       if (!stopLogged) {
         stopLogged = true;
         console.warn(
-          `[CCTV] YouTube budget reached (${units} of ${limit} units on ${day}); channel scans stop until tomorrow`,
+          `[CCTV] YouTube budget reached (${state.units} of ${limit} units on ${state.day}); channel scans stop until tomorrow`,
         );
       }
       return true;
     },
-    used: () => (roll(), units),
-    day: () => (roll(), day),
+    used: () => (roll(), state.units),
+    /** Today's units spent by one feature. */
+    usedBy: (feature) => (roll(), state.byFeature[feature] || 0),
+    day: () => (roll(), state.day),
   };
 }
 
+/** What each Data API call costs, in quota units (search.list is 100). */
+export const YOUTUBE_UNIT_COST = Object.freeze({ search: 100 });
+
 /**
- * A YouTube Data API client that counts every call.
+ * A YouTube Data API client that counts every call at its cost.
  * @param {{fetchImpl?: typeof fetch, apiKey?: () => string,
- *   quota: ReturnType<typeof createYoutubeQuota>}} options
+ *   quota: ReturnType<typeof createYoutubeQuota>, feature?: string}} options
  */
 export function createYoutubeClient({
   fetchImpl = (...args) => fetch(...args),
   apiKey = () => String(process.env.YOUTUBE_API_KEY || '').trim(),
   quota,
+  feature = '',
 }) {
   async function call(resource, params) {
     const key = apiKey();
@@ -159,7 +189,7 @@ export function createYoutubeClient({
     for (const [name, value] of Object.entries(params))
       url.searchParams.set(name, value);
     url.searchParams.set('key', key);
-    quota?.spend(1);
+    quota?.spend(YOUTUBE_UNIT_COST[resource] ?? 1, feature);
     const response = await fetchImpl(url.toString(), {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(CCTV_SOURCE_FETCH_TIMEOUT_MS),
