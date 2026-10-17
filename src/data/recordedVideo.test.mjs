@@ -12,6 +12,7 @@ import {
   createEntryStore,
   createRecordedVideoService,
   durationSeconds,
+  isChannelDefault,
   searchCacheKey,
   wikidataToVideos,
   youtubeItemToVideo,
@@ -173,8 +174,13 @@ test('precision: shared geotags are a place list’s pin, a town centre is a reg
   assert.equal(result.find((v) => v.videoId === 'four0').sharedBy, 3);
   assert.deepEqual(
     asked.sort(),
-    ['39.17,-76.66', '39.20371,-76.86105', '39.29,-76.61'],
-    'only shared coordinates are looked up',
+    [
+      '39.17,-76.66',
+      '39.20371,-76.86105',
+      '39.28351,-76.62191',
+      '39.29,-76.61',
+    ],
+    'shared coordinates, and the lone one too',
   );
   // Without a locality check, sharing alone decides.
   assert.equal(
@@ -278,7 +284,11 @@ test('a search costs 101 units, is reused for a week and refused past the daily 
     first.body.videos.map((v) => v.videoId),
     ['aaaaaaaaaaa', 'bbbbbbbbbbb'],
   );
-  assert.deepEqual(first.body.quota, { used: QUERY_COST, budget: 250 });
+  assert.deepEqual(first.body.quota, {
+    used: QUERY_COST,
+    budget: 250,
+    remaining: 250 - QUERY_COST,
+  });
   const search = api.calls.find((u) => u.pathname.endsWith('/search'));
   assert.equal(search.searchParams.get('type'), 'video');
   assert.equal(search.searchParams.get('locationRadius'), '25km');
@@ -422,9 +432,9 @@ test('Wikidata videos are fetched once a week and kept on disk', async (t) => {
 test('the routes are same-site only, GET only, and check their input', async () => {
   const service = {
     wikidataVideos: async () => [{ videoId: 'aBcDeFgHiJk' }],
-    near: async (lat, lon, radiusKm) => ({
+    near: async (lat, lon, radiusKm, options) => ({
       status: 200,
-      body: { lat, lon, radiusKm, videos: [] },
+      body: { lat, lon, radiusKm, refresh: options.refresh, videos: [] },
     }),
   };
   const handler = createRecordedVideoHandler({ service });
@@ -468,8 +478,143 @@ test('the routes are same-site only, GET only, and check their input', async () 
     lat: 39.29,
     lon: -76.61,
     radiusKm: 12,
+    refresh: false,
     videos: [],
   });
+  assert.equal(
+    (await call('/?near=39.29,-76.61&radiusKm=12&refresh=1')).body.refresh,
+    true,
+  );
   assert.equal((await call('/wikidata')).body.videos.length, 1);
   assert.equal((await call('/other')).nexted, true);
+});
+
+test('a town centre already known needs no lookup; lone geotags get at most five, nearest first', async () => {
+  const columbia = { lat: 39.20371, lon: -76.86105 };
+  const asked = [];
+  const isLocality = async (lat, lon) => {
+    asked.push(`${lat.toFixed(3)},${lon.toFixed(3)}`);
+    return lat > 39.4;
+  };
+  const videos = [
+    { videoId: 'nearCentre0', ...columbia, lat: columbia.lat + 0.0005 },
+    ...Array.from({ length: 8 }, (_, i) => ({
+      videoId: `lone${i}`,
+      lat: 39.3 + i * 0.03,
+      lon: -76.6,
+    })),
+  ];
+  const result = await assignPrecision(videos, {
+    isLocality,
+    knownCentres: () => [columbia],
+    centre: { lat: 39.3, lon: -76.6 },
+  });
+  const byId = Object.fromEntries(
+    result.map((v) => [v.videoId, v.coordinatesQuality]),
+  );
+  assert.equal(byId.nearCentre0, 'region', 'within 300 m of a known centre');
+  assert.equal(asked.length, 5, 'five lone lookups at most');
+  assert.deepEqual(asked, [
+    '39.300,-76.600',
+    '39.330,-76.600',
+    '39.360,-76.600',
+    '39.390,-76.600',
+    '39.420,-76.600',
+  ]);
+  assert.equal(byId.lone4, 'region');
+  assert.equal(byId.lone7, 'site', 'beyond the five: not looked up');
+  // A centre learned during the answer covers a neighbour in the same answer.
+  const learned = [];
+  const second = await assignPrecision(
+    [
+      { videoId: 'a', lat: 40, lon: -76 },
+      { videoId: 'b', lat: 40.0008, lon: -76 },
+    ],
+    {
+      isLocality: async (lat, lon) => {
+        learned.push({ lat, lon });
+        return true;
+      },
+      knownCentres: () => learned,
+      maxSingletonLookups: 1,
+    },
+  );
+  assert.deepEqual(
+    second.map((v) => v.coordinatesQuality),
+    ['region', 'region'],
+  );
+});
+
+test('a coordinate one channel uses on different days is its default: area at best', async () => {
+  const pin = { lat: 39.1, lon: -76.7 };
+  const video = (videoId, channelTitle, publishedAt) => ({
+    videoId,
+    channelTitle,
+    publishedAt,
+    ...pin,
+  });
+  assert.ok(
+    isChannelDefault([
+      video('a', 'Gardens', '2026-05-01T10:00:00Z'),
+      video('b', 'Gardens', '2026-06-01T10:00:00Z'),
+    ]),
+  );
+  assert.ok(
+    !isChannelDefault([
+      video('a', 'Gardens', '2026-05-01T10:00:00Z'),
+      video('b', 'Gardens', '2026-05-01T18:00:00Z'),
+    ]),
+    'one day: one shoot',
+  );
+  assert.ok(
+    !isChannelDefault([
+      video('a', 'Gardens', '2026-05-01T10:00:00Z'),
+      video('b', 'News', '2026-06-01T10:00:00Z'),
+    ]),
+  );
+  const result = await assignPrecision([
+    video('a', 'Gardens', '2026-05-01T10:00:00Z'),
+    video('b', 'Gardens', '2026-06-01T10:00:00Z'),
+  ]);
+  assert.deepEqual(
+    result.map((v) => v.coordinatesQuality),
+    ['area', 'area'],
+  );
+  // A town centre still wins.
+  const town = await assignPrecision(
+    [
+      video('a', 'Gardens', '2026-05-01T10:00:00Z'),
+      video('b', 'Gardens', '2026-06-01T10:00:00Z'),
+    ],
+    { knownCentres: () => [pin] },
+  );
+  assert.deepEqual(
+    town.map((v) => v.coordinatesQuality),
+    ['region', 'region'],
+  );
+});
+
+test('SEARCH AGAIN asks YouTube again for the cell, within the budget', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const root = await tempRoot(t);
+  const api = upstream();
+  const service = createRecordedVideoService({
+    sourceRoot: root,
+    fetchImpl: api.fetchImpl,
+    apiKey: () => 'k',
+    env: { RECORDED_VIDEO_DAILY_BUDGET: '210' },
+    isLocality: null,
+  });
+  await service.near(39.29, -76.61, 10);
+  assert.equal((await service.near(39.29, -76.61, 10)).body.cached, true);
+  const again = await service.near(39.29, -76.61, 10, { refresh: true });
+  assert.equal(again.body.cached, false);
+  assert.equal(api.count('search'), 2);
+  assert.equal(again.body.quota.remaining, 210 - 2 * QUERY_COST);
+  // The refreshed answer is what the cell serves now; past the budget a refresh is refused.
+  assert.equal(
+    (await service.near(39.29, -76.61, 10, { refresh: true })).status,
+    429,
+  );
+  assert.equal((await service.near(39.29, -76.61, 10)).body.cached, true);
 });

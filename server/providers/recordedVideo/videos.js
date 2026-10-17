@@ -56,8 +56,13 @@ const GEOCODE_API = 'https://maps.googleapis.com/maps/api/geocode/json';
 const USER_AGENT =
   'gods-eye-view-personal-fork/0.1 (+https://github.com/doctutor/gods-eye-view)';
 const FEATURE = 'recordedVideo';
-/** Coordinates within this of a town's own centre are that centre. */
-const LOCALITY_MATCH_M = 150;
+/**
+ * Coordinates within this of a town's own centre are that centre. Map
+ * providers place a town's pin a little differently: YouTube's "Baltimore"
+ * (39.2904,-76.6122) is 155 m from Google's (39.2905,-76.6104), so 150 m
+ * missed it; 300 m still keeps a camera filmed a few blocks away a site.
+ */
+export const LOCALITY_MATCH_M = 300;
 
 const clean = (value, max = 200) =>
   String(value ?? '')
@@ -175,38 +180,83 @@ function distanceM(aLat, aLon, bLat, bLon) {
 }
 
 /**
- * Precision by how the geotags fall: 'site' when at most two other videos
- * share the exact coordinate, 'area' when three or more do (a place list's
- * pin), 'region' when the coordinate is a town's own centre (`isLocality`,
- * asked once per shared coordinate). Returns new objects.
+ * Precision by how the geotags fall:
+ *  - 'site' by default;
+ *  - 'area' when three or more other videos share the exact coordinate (a
+ *    place list's pin), or when one channel uses it on different days (its
+ *    default location, not where each video was filmed);
+ *  - 'region' when the coordinate is a town's own centre: within 300 m of
+ *    a centre already known (no lookup), else asked once per shared
+ *    coordinate, and for at most `maxSingletonLookups` lone ones per query,
+ *    nearest the query centre first.
+ * Returns new objects.
  * @param {Array<object>} videos
- * @param {{isLocality?: (lat: number, lon: number) => Promise<boolean>}} [options]
+ * @param {{isLocality?: (lat: number, lon: number) => Promise<boolean>,
+ *   knownCentres?: () => Array<{lat: number, lon: number}>,
+ *   centre?: {lat: number, lon: number}|null,
+ *   maxSingletonLookups?: number}} [options]
  */
-export async function assignPrecision(videos, { isLocality } = {}) {
+export async function assignPrecision(
+  videos,
+  { isLocality, knownCentres, centre = null, maxSingletonLookups = 5 } = {},
+) {
   const groups = new Map();
   for (const video of videos) {
     const key = coordKey(video);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(video);
   }
+  const nearCentre = (centres, { lat, lon }) =>
+    centres.some((c) => distanceM(lat, lon, c.lat, c.lon) <= LOCALITY_MATCH_M);
   const quality = new Map();
+  const asked = [];
+  const singles = [];
+  let centres = knownCentres ? knownCentres() : [];
   for (const [key, members] of groups) {
     let value = members.length - 1 >= 3 ? 'area' : 'site';
-    if (members.length > 1 && isLocality) {
-      const [{ lat, lon }] = members;
+    if (value === 'site' && isChannelDefault(members)) value = 'area';
+    quality.set(key, value);
+    if (nearCentre(centres, members[0])) quality.set(key, 'region');
+    else if (members.length > 1) asked.push(key);
+    else singles.push(key);
+  }
+  if (isLocality) {
+    const distanceFrom = (key) => {
+      const [{ lat, lon }] = groups.get(key);
+      return centre ? distanceM(centre.lat, centre.lon, lat, lon) : 0;
+    };
+    singles.sort((a, b) => distanceFrom(a) - distanceFrom(b));
+    for (const key of [...asked, ...singles.slice(0, maxSingletonLookups)]) {
+      const [{ lat, lon }] = groups.get(key);
       try {
-        if (await isLocality(lat, lon)) value = 'region';
+        if (await isLocality(lat, lon)) quality.set(key, 'region');
       } catch {
         /* no answer: keep what sharing says */
       }
     }
-    quality.set(key, value);
+    // A centre learned just now covers its neighbours in this answer too.
+    centres = knownCentres ? knownCentres() : [];
+    for (const [key, members] of groups)
+      if (nearCentre(centres, members[0])) quality.set(key, 'region');
   }
   return videos.map((video) => ({
     ...video,
     coordinatesQuality: quality.get(coordKey(video)),
     sharedBy: groups.get(coordKey(video)).length - 1,
   }));
+}
+
+/** One channel's videos on one coordinate, published on different days. */
+export function isChannelDefault(members) {
+  const daysByChannel = new Map();
+  for (const video of members) {
+    const channel = String(video.channelTitle || '').trim();
+    const day = String(video.publishedAt || '').slice(0, 10);
+    if (!channel || !day) continue;
+    if (!daysByChannel.has(channel)) daysByChannel.set(channel, new Set());
+    daysByChannel.get(channel).add(day);
+  }
+  return [...daysByChannel.values()].some((days) => days.size >= 2);
 }
 
 /** The search cache key: ~0.05° cells and 5 km radius bands. */
@@ -252,6 +302,8 @@ export function createEntryStore(file, { maxAgeMs, now = () => Date.now() }) {
       return swept;
     },
     size: () => Object.keys(load().entries).length,
+    /** Every live entry. */
+    values: () => Object.values(load().entries),
   };
 }
 
@@ -265,7 +317,7 @@ export function createLocalityCheck({
   apiKey = googleServerApiKey,
   quota,
 }) {
-  return async function isLocality(lat, lon) {
+  async function isLocality(lat, lon) {
     const key = `${lat.toFixed(6)},${lon.toFixed(6)}`;
     const held = store.get(key);
     if (held) return held.locality === true;
@@ -282,12 +334,24 @@ export function createLocalityCheck({
     const body = await readResponseJsonCapped(response, 1024 * 1024);
     const town = body?.status === 'OK' ? body.results?.[0] : null;
     const at = town?.geometry?.location;
+    const centre =
+      at && Number.isFinite(Number(at.lat)) && Number.isFinite(Number(at.lng))
+        ? { lat: Number(at.lat), lon: Number(at.lng) }
+        : null;
     const locality =
-      Boolean(at) &&
-      distanceM(lat, lon, Number(at.lat), Number(at.lng)) <= LOCALITY_MATCH_M;
-    store.set(key, { locality });
+      Boolean(centre) &&
+      distanceM(lat, lon, centre.lat, centre.lon) <= LOCALITY_MATCH_M;
+    // The town's own centre is kept too: other geotags on it need no lookup.
+    store.set(key, { locality, ...(centre ? { centre } : {}) });
     return locality;
-  };
+  }
+  /** Town centres already learned (from the 30-day store). */
+  isLocality.knownCentres = () =>
+    store
+      .values()
+      .map((entry) => entry?.centre)
+      .filter((c) => c && Number.isFinite(c.lat) && Number.isFinite(c.lon));
+  return isLocality;
 }
 
 /**
@@ -395,7 +459,11 @@ export function createRecordedVideoService({
       if (result.video) kept.push(result.video);
       else skipped[result.skip]++;
     }
-    const videos = await assignPrecision(kept, { isLocality: locality });
+    const videos = await assignPrecision(kept, {
+      isLocality: locality,
+      knownCentres: locality?.knownCentres,
+      centre: { lat, lon },
+    });
     return { returned: ids.length, skipped, videos };
   }
 
@@ -407,7 +475,7 @@ export function createRecordedVideoService({
      * Geotagged videos near a point.
      * @returns {Promise<{status: number, body: object}>}
      */
-    async near(lat, lon, radiusKm, { order: requested } = {}) {
+    async near(lat, lon, radiusKm, { order: requested, refresh = false } = {}) {
       if (!isPlausibleLatLon(lat, lon))
         return { status: 400, body: { error: 'near=lat,lon is required' } };
       const radius = Math.min(
@@ -418,8 +486,16 @@ export function createRecordedVideoService({
         ? requested
         : order();
       const key = searchCacheKey(lat, lon, radius, sortOrder);
-      const used = () => ({ used: quota.usedBy(FEATURE), budget: budget() });
-      const held = searches.get(key);
+      const used = () => {
+        const spent = quota.usedBy(FEATURE);
+        return {
+          used: spent,
+          budget: budget(),
+          remaining: Math.max(0, budget() - spent),
+        };
+      };
+      // "Search again" skips the stored answer (and replaces it), budget permitting.
+      const held = refresh ? null : searches.get(key);
       if (held)
         return {
           status: 200,
@@ -477,6 +553,13 @@ export function createRecordedVideoService({
 
     /** Drop stored YouTube data past its age; returns entries removed. */
     sweep: () => searches.sweep() + localities.sweep(),
-    quota: () => ({ used: quota.usedBy(FEATURE), budget: budget() }),
+    quota: () => {
+      const spent = quota.usedBy(FEATURE);
+      return {
+        used: spent,
+        budget: budget(),
+        remaining: Math.max(0, budget() - spent),
+      };
+    },
   };
 }
