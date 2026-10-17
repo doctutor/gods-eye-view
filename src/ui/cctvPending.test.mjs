@@ -76,3 +76,24 @@ test('an accept carries the chosen position and its precision', () => {
     },
   );
 });
+
+test('a card the placement rule left for a person says why', () => {
+  assert.equal(
+    pendingCardModel({ videoId: 'x', triage: { code: 'area-not-campus' } })
+      .whyText,
+    'WHY: channel has only area precision',
+  );
+  assert.equal(
+    pendingCardModel({ videoId: 'x', triage: { code: 'geotag' } }).whyText,
+    'WHY: position is the operator’s geotag; check it is not a town centre',
+  );
+  assert.equal(
+    pendingCardModel({ videoId: 'x' }).whyText,
+    '',
+    'no rule, no line',
+  );
+  assert.equal(
+    pendingCardModel({ videoId: 'x', triage: { code: 'unknown' } }).whyText,
+    '',
+  );
+});

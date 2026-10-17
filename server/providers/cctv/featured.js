@@ -379,6 +379,8 @@ export function createFeaturedLoader(options = {}) {
       quota,
       now,
       geocode: options.geocode || createGoogleGeocoder({ quota }),
+      // Personal fork: the placement rule (featuredTriage.js), when given.
+      triage: options.triage || null,
     });
     const resolver = createLiveResolver({
       youtube,

@@ -197,6 +197,7 @@
       "server/providers/cctv/featured.js",
       "server/providers/cctv/featuredChannels.js",
       "server/providers/cctv/featuredQueue.js",
+      "server/providers/cctv/featuredTriage.js",
       "server/providers/cctv/featuredStore.js",
       "server/providers/cctv/nps.js",
       "server/providers/cctv/usgs.js",

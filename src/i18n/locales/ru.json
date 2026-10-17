@@ -3137,5 +3137,12 @@
   "MORE ({count})": "ЕЩЁ ({count})",
   "No videos found about this place": "Видео об этом месте не найдены",
   "LANDMARKS NEARBY": "ОРИЕНТИРЫ РЯДОМ",
-  "Landmarks nearby, nearest first; a row finds videos about the place (102 units of the day's budget)": "Ориентиры рядом, сначала ближайшие; строка ищет видео об этом месте (102 единицы дневного бюджета)"
+  "Landmarks nearby, nearest first; a row finds videos about the place (102 units of the day's budget)": "Ориентиры рядом, сначала ближайшие; строка ищет видео об этом месте (102 единицы дневного бюджета)",
+  "channel has only area precision": "у канала только точность до района",
+  "channel accepts only site precision": "канал принимает только точность до объекта",
+  "position is the operator’s geotag; check it is not a town centre": "позиция — геотег оператора; проверьте, что это не центр населённого пункта",
+  "position read from the title or description; check it": "позиция взята из названия или описания; проверьте её",
+  "daily limit of automatic accepts reached for this channel": "достигнут дневной лимит автоматических принятий для этого канала",
+  "could not be added automatically": "не удалось добавить автоматически",
+  "WHY: {reason}": "ПРИЧИНА: {reason}"
 }

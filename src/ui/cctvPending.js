@@ -28,6 +28,20 @@ const SUGGESTION_SOURCE = Object.freeze({
   text: msg('from the title/description'),
   default: msg('channel default'),
 });
+/**
+ * Why the placement rule left a stream for a person (server
+ * cctv/featuredTriage.js); the card's WHY line.
+ */
+const TRIAGE_WHY = Object.freeze({
+  'area-not-campus': msg('channel has only area precision'),
+  'site-only': msg('channel accepts only site precision'),
+  geotag: msg(
+    'position is the operator’s geotag; check it is not a town centre',
+  ),
+  'text-place': msg('position read from the title or description; check it'),
+  cap: msg('daily limit of automatic accepts reached for this channel'),
+  'invalid-entry': msg('could not be added automatically'),
+});
 /** A stream's YouTube state as the card says it. */
 const STREAM_STATUS = Object.freeze({
   live: msg('LIVE'),
@@ -66,6 +80,9 @@ export function pendingCardModel(item) {
       placed && SUGGESTION_SOURCE[suggestion.kind]
         ? t(SUGGESTION_SOURCE[suggestion.kind])
         : '',
+    whyText: TRIAGE_WHY[item?.triage?.code]
+      ? t('WHY: {reason}', { reason: t(TRIAGE_WHY[item.triage.code]) })
+      : '',
   };
 }
 
@@ -287,7 +304,10 @@ export function initPendingCams(
       { signal },
     );
 
-    body.append(title, meta, place, actions, editor);
+    const why = model.whyText
+      ? el('div', 'cctv-pending-why', model.whyText)
+      : null;
+    body.append(...[title, meta, why, place, actions, editor].filter(Boolean));
     row.append(thumb, body);
     showPlace();
     return row;
