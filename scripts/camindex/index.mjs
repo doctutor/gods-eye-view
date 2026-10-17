@@ -194,8 +194,12 @@ async function discoverCommand(dir, flags) {
 async function verifyCommand(dir, flags) {
   const source = String(flags.source || 'opencctv');
   const files = sourceFiles(dir, source);
-  const candidates = [...loadCandidates(files.candidates).values()];
   const records = readJson(files.verify, {}) || {};
+  // Cards a source has reclassified (PocketWorld's link hosts) have no still.
+  const loaded = [...loadCandidates(files.candidates).values()];
+  const candidates =
+    SOURCES[source]?.adjustCandidates?.(dir, loaded, records)?.candidates ||
+    loaded;
   const started = Date.now();
   const fetcher = createFetcher({
     cacheDir: path.join(dir, 'http'),
@@ -266,6 +270,7 @@ function buildCommand(dir, flags) {
   // ids are "<source>-<candidate id>").
   const observed = readObserved(path.join(dir, OBSERVED_FILE));
   const inputs = {};
+  const adjustments = {};
   let folded = 0;
   for (const source of Object.keys(SOURCES)) {
     const files = sourceFiles(dir, source);
@@ -274,10 +279,22 @@ function buildCommand(dir, flags) {
     const changed = foldObserved(records, observed, `${source}-`);
     if (changed) writeJsonAtomic(files.verify, records);
     folded += changed;
-    inputs[source] = {
-      candidates: [...loadCandidates(files.candidates).values()],
+    const candidates = [...loadCandidates(files.candidates).values()];
+    // A source may reclassify its candidates from what verify learned
+    // (PocketWorld's link hosts).
+    const adjusted = SOURCES[source].adjustCandidates?.(
+      dir,
+      candidates,
       records,
-    };
+    );
+    if (adjusted)
+      adjustments[source] = {
+        converted: adjusted.converted,
+        linkHosts: adjusted.linkHosts,
+      };
+    inputs[source] = adjusted
+      ? { candidates: adjusted.candidates, records: adjusted.records }
+      : { candidates, records };
   }
   const catalog = buildCatalog(inputs, {
     onlyVerified: flags['only-verified'] === true,
@@ -289,6 +306,7 @@ function buildCommand(dir, flags) {
     at: catalog.generatedAt,
     file,
     foldedObservations: folded,
+    ...(Object.keys(adjustments).length ? { adjustments } : {}),
     cameras: catalog.cameras.length,
     bytes: fs.statSync(file).size,
     sources: catalog.sources,

@@ -198,16 +198,21 @@ export function createFrameObserver({
 }
 
 /**
- * Sources with observations applied: a camera seen dead or showing a
+ * Sources with observations applied: an image camera seen dead or showing a
  * placeholder is left out, one seen live is marked live with `observedAt`;
- * errors and unobserved cameras pass unchanged.
+ * errors, unobserved cameras and other feed kinds pass unchanged.
  * @param {Array<object>} sources
  * @param {Record<string, {status: string, at: number}>} observed
  */
 export function applyObservations(sources, observed) {
   const out = [];
   for (const source of sources) {
-    const seen = observed[source?.id];
+    // Only image fetches are observed; a camera since reclassified (an
+    // image card that proved to be a page, now a link) is not judged by them.
+    const seen =
+      String(source?.feedType || 'image').toLowerCase() === 'image'
+        ? observed[source?.id]
+        : undefined;
     if (seen?.status === 'dead' || seen?.status === 'placeholder') continue;
     out.push(
       seen?.status === 'live'
