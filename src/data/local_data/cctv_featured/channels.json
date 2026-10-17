@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Operator channels the featured-cam watcher scans for live streams (personal fork; server/providers/cctv/featuredChannels.js). A stream found here is queued for review, never shown on the map until a person accepts its position. defaultPlace is offered only when every stream on the channel is at that place, at that precision. Channel ids resolved with channels.list forHandle on 2026-10-16 and checked against the operator's own site where it links one. Not added: Africam (its site links no channel; @africam does not exist), Smithsonian's National Zoo (its webcams stream on nationalzoo.si.edu, not YouTube), Virtual Telescope Project (@virtualtelescope last uploaded in 2013 and its site links no channel).",
+  "about": "Operator channels the featured-cam watcher scans for live streams (personal fork; server/providers/cctv/featuredChannels.js). A stream found here is queued for review, never shown on the map until a person accepts its position. defaultPlace is offered only when every stream on the channel is at that place, at that precision. Channel ids resolved with channels.list forHandle on 2026-10-16 and checked against the operator's own site where it links one. autoTriage (server/providers/cctv/featuredTriage.js) is the owner's placement rule per channel: a stream is accepted without review only at a site-precision place, or an area one marked campus: true (a bounded campus under about 1 km); accept: 'never' skips the channel's streams (NASA: events at studios); maxPerDay caps the automatic accepts a day (6 by default); locations place streams by titleMatch on a channel whose streams are at several places. Not added: Africam (its site links no channel; @africam does not exist), Smithsonian's National Zoo (its webcams stream on nationalzoo.si.edu, not YouTube), Virtual Telescope Project (@virtualtelescope last uploaded in 2013 and its site links no channel).",
   "channels": [
     {
       "channelId": "UC-2KSeUU5SMCX6XLRD-AEvw",
@@ -74,7 +74,19 @@
         "lat": 32.73604,
         "lon": -117.15098,
         "coordinatesQuality": "area",
-        "label": "San Diego Zoo, Balboa Park, San Diego, California"
+        "label": "San Diego Zoo, Balboa Park, San Diego, California",
+        "campus": true
+      },
+      "autoTriage": {
+        "locations": [
+          {
+            "titleMatch": ["safari park"],
+            "lat": 33.0975,
+            "lon": -116.996,
+            "coordinatesQuality": "area",
+            "label": "San Diego Zoo Safari Park, Escondido, California"
+          }
+        ]
       }
     },
     {
@@ -89,7 +101,8 @@
       "handle": "@nasa",
       "operator": "NASA",
       "operatorUrl": "https://www.nasa.gov/",
-      "defaultCategory": "space"
+      "defaultCategory": "space",
+      "autoTriage": { "accept": "never" }
     }
   ]
 }

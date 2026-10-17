@@ -632,6 +632,12 @@ html:not([lang='en']) .cctv-controls .scene-btn {
   overflow-wrap: anywhere;
 }
 
+/* Personal fork: why the placement rule left this stream for a person. */
+.cctv-pending-why {
+  color: #ffd166;
+  overflow-wrap: anywhere;
+}
+
 .cctv-pending-actions .scene-btn,
 .cctv-pending-editor .scene-btn {
   padding: 3px 8px;

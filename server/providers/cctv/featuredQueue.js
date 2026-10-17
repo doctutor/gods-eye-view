@@ -42,6 +42,7 @@ import { isPlausibleLatLon } from './normalize.js';
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_SKIPPED = 5000;
+const MAX_SKIPPED_MATCHES = 500;
 
 const clean = (value, max = 200) =>
   String(value ?? '')
@@ -55,7 +56,11 @@ const GENERIC_WORDS = new Set(
     'live livestream stream streaming streams cam cams camera cameras webcam webcams ' +
     'explore org powered presented partnership with the and for from at in on of by ' +
     'to an a hd 4k uhd view views now new nest nests official channel tv youtube feed ' +
-    'highlights replay daily season watch 24 7 247 our your this that is are'
+    'highlights replay daily season watch 24 7 247 our your this that is are ' +
+    // Dates change from one restart to the next ("… - 17 October 2026").
+    'january february march april may june july august september october ' +
+    'november december jan feb mar apr jun jul aug sep sept oct nov dec ' +
+    'monday tuesday wednesday thursday friday saturday sunday today tonight'
   ).split(' '),
 );
 
@@ -205,20 +210,13 @@ function removeFromPending(sourceRoot, videoId) {
 }
 
 /**
- * Accept a queued stream at the position in `body`.
+ * Add a stream to the hand-checked list at the position in `body` (a person's
+ * accept, or the triage rule's: featuredTriage.js).
  * @returns {Promise<{status: number, body: object}>}
  */
-export async function acceptPending(sourceRoot, body) {
-  const videoId = String(body?.videoId || '');
-  if (!VIDEO_ID.test(videoId))
-    return { status: 400, body: { error: 'A videoId is required' } };
-  const item = readPending(sourceRoot).find((row) => row.videoId === videoId);
-  if (!item)
-    return {
-      status: 404,
-      body: { error: 'That stream is not in the review queue' },
-    };
-  const outcome = await updateJsonFile(
+export function appendCatalogEntry(sourceRoot, item, body) {
+  const videoId = item.videoId;
+  return updateJsonFile(
     featuredCatalogPath(sourceRoot),
     { version: 1, cams: [] },
     (document) => {
@@ -240,27 +238,65 @@ export async function acceptPending(sourceRoot, body) {
       };
     },
   );
+}
+
+/**
+ * Accept a queued stream at the position in `body`.
+ * @returns {Promise<{status: number, body: object}>}
+ */
+export async function acceptPending(sourceRoot, body) {
+  const videoId = String(body?.videoId || '');
+  if (!VIDEO_ID.test(videoId))
+    return { status: 400, body: { error: 'A videoId is required' } };
+  const item = readPending(sourceRoot).find((row) => row.videoId === videoId);
+  if (!item)
+    return {
+      status: 404,
+      body: { error: 'That stream is not in the review queue' },
+    };
+  const outcome = await appendCatalogEntry(sourceRoot, item, body);
   if (outcome.status === 200 || outcome.status === 409)
     await removeFromPending(sourceRoot, videoId);
   return outcome;
 }
 
 /**
- * Skip a queued stream for good.
+ * Skip a queued stream for good. Its title match is remembered too, so the
+ * same recurring stream (a new id every day) is skipped on its own after
+ * (featuredTriage.js).
  * @returns {Promise<{status: number, body: object}>}
  */
 export async function skipPending(sourceRoot, body) {
   const videoId = String(body?.videoId || '');
   if (!VIDEO_ID.test(videoId))
     return { status: 400, body: { error: 'A videoId is required' } };
+  const item = readPending(sourceRoot).find((row) => row.videoId === videoId);
+  const titleMatch = item ? deriveTitleMatch(item.title, item.operator) : [];
   await updateJsonFile(
     skippedFile(sourceRoot),
     { version: 1, videoIds: [] },
     (document) => {
       const ids = Array.isArray(document.videoIds) ? document.videoIds : [];
-      if (ids.includes(videoId)) return { result: false, write: false };
+      const matches = Array.isArray(document.matches) ? document.matches : [];
+      const newMatch =
+        item?.channelId &&
+        titleMatch.length &&
+        !matches.some(
+          (match) =>
+            match?.channelId === item.channelId &&
+            match.titleMatch?.join(' ') === titleMatch.join(' '),
+        );
+      if (ids.includes(videoId) && !newMatch)
+        return { result: false, write: false };
       document.version = 1;
-      document.videoIds = [...ids, videoId].slice(-MAX_SKIPPED);
+      document.videoIds = ids.includes(videoId)
+        ? ids
+        : [...ids, videoId].slice(-MAX_SKIPPED);
+      if (newMatch)
+        document.matches = [
+          ...matches,
+          { channelId: item.channelId, titleMatch },
+        ].slice(-MAX_SKIPPED_MATCHES);
       return { result: true, write: true };
     },
   );

@@ -14,7 +14,9 @@ import { isPlausibleLatLon } from './normalize.js';
  * The featured-cam channel watcher: scans a list of operator channels for
  * live and upcoming streams and queues every one the hand-checked list does
  * not already carry, with a suggested position, for a person to accept,
- * adjust or skip (featuredQueue.js). Nothing reaches the map unreviewed.
+ * adjust or skip (featuredQueue.js). With the owner's placement rule
+ * (featuredTriage.js), a stream the rule can decide is accepted or skipped
+ * on its own, and only the exceptions wait for a person.
  *
  * A scan reads a channel's uploads playlist (`playlistItems.list`, 1 unit)
  * and asks `videos.list` (1 unit per 50) only about uploads it has not seen
@@ -233,6 +235,57 @@ export function createYoutubeClient({
   };
 }
 
+/** A place a channel vouches for: a default, or a location rule's. */
+function parsePlace(place) {
+  const lat = Number(place?.lat);
+  const lon = Number(place?.lon);
+  if (
+    !place ||
+    !isPlausibleLatLon(lat, lon) ||
+    !PRECISIONS.includes(place.coordinatesQuality)
+  )
+    return null;
+  return {
+    lat,
+    lon,
+    coordinatesQuality: place.coordinatesQuality,
+    label: clean(place.label, 120),
+    // A bounded campus under about a kilometre (an aquarium, a zoo, a lodge).
+    ...(place.campus === true ? { campus: true } : {}),
+  };
+}
+
+/**
+ * A channel's automatic-triage settings (featuredTriage.js): `accept` says
+ * how precise a place must be to be accepted without a person ('site';
+ * 'area', which takes a campus area too; or 'never'), `maxPerDay` caps the
+ * accepts a day, and `locations` place streams by title on a channel whose
+ * streams are at several places.
+ */
+function parseAutoTriage(value) {
+  if (!value || typeof value !== 'object') return null;
+  const accept = ['site', 'area', 'never'].includes(value.accept)
+    ? value.accept
+    : undefined;
+  const maxPerDay = Number(value.maxPerDay);
+  const locations = (Array.isArray(value.locations) ? value.locations : [])
+    .map((row) => {
+      const place = parsePlace(row);
+      const titleMatch = (Array.isArray(row?.titleMatch) ? row.titleMatch : [])
+        .map((token) => clean(token, 80).toLowerCase())
+        .filter(Boolean);
+      return place && titleMatch.length ? { ...place, titleMatch } : null;
+    })
+    .filter(Boolean);
+  return {
+    ...(accept ? { accept } : {}),
+    ...(Number.isInteger(maxPerDay) && maxPerDay >= 0 && maxPerDay <= 50
+      ? { maxPerDay }
+      : {}),
+    ...(locations.length ? { locations } : {}),
+  };
+}
+
 /**
  * Validate the watched-channel list; a malformed entry is dropped alone.
  * @param {object} document - Parsed channels.json.
@@ -245,20 +298,8 @@ export function parseChannels(document) {
     const channelId = String(row?.channelId || '');
     if (!CHANNEL_ID.test(channelId) || seen.has(channelId)) continue;
     seen.add(channelId);
-    const place = row?.defaultPlace;
-    const lat = Number(place?.lat);
-    const lon = Number(place?.lon);
-    const defaultPlace =
-      place &&
-      isPlausibleLatLon(lat, lon) &&
-      PRECISIONS.includes(place.coordinatesQuality)
-        ? {
-            lat,
-            lon,
-            coordinatesQuality: place.coordinatesQuality,
-            label: clean(place.label, 120),
-          }
-        : null;
+    const defaultPlace = parsePlace(row?.defaultPlace);
+    const autoTriage = parseAutoTriage(row?.autoTriage);
     channels.push({
       channelId,
       operator: clean(row?.operator, 120) || 'YouTube',
@@ -268,6 +309,7 @@ export function parseChannels(document) {
           .toLowerCase()
           .replace(/[^a-z-]/g, '') || 'nature',
       defaultPlace,
+      ...(autoTriage ? { autoTriage } : {}),
     });
   }
   return channels;
@@ -604,12 +646,17 @@ function titleMatches(title, tokens) {
  * @param {{youtube: ReturnType<typeof createYoutubeClient>,
  *   quota: ReturnType<typeof createYoutubeQuota>,
  *   geocode?: (address: string) => Promise<object|null>,
- *   now?: () => number, intervalMs?: () => number}} options
+ *   triage?: {review: Function},
+ *   now?: () => number, intervalMs?: () => number}} options - Personal
+ *   fork: with `triage` (featuredTriage.js), the queued and the new streams
+ *   are decided by the owner's placement rule, and only its exceptions wait
+ *   for a person.
  */
 export function createChannelWatcher({
   youtube,
   quota,
   geocode,
+  triage = null,
   now = () => Date.now(),
   intervalMs = () => {
     const minutes = Number(process.env.CCTV_CHANNEL_SCAN_MINUTES);
@@ -717,7 +764,9 @@ export function createChannelWatcher({
       }
     }
     let queued = 0;
-    if (fresh.length) {
+    let decided = '';
+    const rule = triage && triage.enabled?.() !== false ? triage : null;
+    if (fresh.length || rule) {
       const pending = readJsonFile(pendingFile(sourceRoot), { items: [] });
       const already = new Set(
         (pending.items || []).map((item) => item?.videoId),
@@ -742,7 +791,18 @@ export function createChannelWatcher({
           queuedAt: new Date(now()).toISOString(),
         });
       }
-      if (additions.length)
+      if (rule) {
+        // The queue as it stands and the new streams, through the rule.
+        const outcome = await rule.review({
+          sourceRoot,
+          channels,
+          entries,
+          additions,
+        });
+        queued = outcome.queued;
+        if (outcome.accepted.length || outcome.skipped)
+          decided = `, accepted ${outcome.accepted.length} and skipped ${outcome.skipped} by the placement rule`;
+      } else if (additions.length)
         queued = await updateJsonFile(
           pendingFile(sourceRoot),
           { version: 1, items: [] },
@@ -758,9 +818,9 @@ export function createChannelWatcher({
           },
         );
     }
-    if (scanned)
+    if (scanned || decided)
       console.log(
-        `[CCTV] featured channels: scanned ${scanned}, queued ${queued} new stream(s) for review; YouTube units today ${quota.used()}`,
+        `[CCTV] featured channels: scanned ${scanned}, queued ${queued} new stream(s) for review${decided}; YouTube units today ${quota.used()}`,
       );
     return { scanned, queued };
   }

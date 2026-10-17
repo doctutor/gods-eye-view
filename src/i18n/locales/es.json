@@ -3068,5 +3068,12 @@
   "MORE ({count})": "MÁS ({count})",
   "No videos found about this place": "No se encontraron vídeos sobre este lugar",
   "LANDMARKS NEARBY": "HITOS CERCANOS",
-  "Landmarks nearby, nearest first; a row finds videos about the place (102 units of the day's budget)": "Hitos cercanos, los más cercanos primero; una fila busca vídeos sobre el lugar (102 unidades del presupuesto diario)"
+  "Landmarks nearby, nearest first; a row finds videos about the place (102 units of the day's budget)": "Hitos cercanos, los más cercanos primero; una fila busca vídeos sobre el lugar (102 unidades del presupuesto diario)",
+  "channel has only area precision": "el canal solo tiene precisión de zona",
+  "channel accepts only site precision": "el canal solo acepta precisión de sitio",
+  "position is the operator’s geotag; check it is not a town centre": "la posición es la geoetiqueta del operador; comprueba que no sea el centro de una localidad",
+  "position read from the title or description; check it": "posición leída del título o la descripción; compruébala",
+  "daily limit of automatic accepts reached for this channel": "se alcanzó el límite diario de aceptaciones automáticas de este canal",
+  "could not be added automatically": "no se pudo añadir automáticamente",
+  "WHY: {reason}": "MOTIVO: {reason}"
 }

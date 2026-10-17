@@ -32,6 +32,7 @@ import {
   loadMdotSourcesFromOpenData,
 } from './sources.js';
 import { createFeaturedLoader } from './featured.js';
+import { createFeaturedTriage } from './featuredTriage.js';
 import { haversineKm } from '../common/geo.js';
 import { createWindySource } from './windy.js';
 import { createLinkedLoader } from './linked.js';
@@ -167,7 +168,12 @@ const LIVE_PACKS = [
   {
     name: 'featured',
     enabled: () => envEnabled('CCTV_FEATURED_ENABLED'),
-    load: createFeaturedLoader(),
+    // The owner's placement rule decides most found streams (featuredTriage.js).
+    load: createFeaturedLoader({
+      triage: createFeaturedTriage({
+        enabled: () => envEnabled('CCTV_FEATURED_TRIAGE'),
+      }),
+    }),
   },
   // Personal fork: USGS volcano observatory stills (usgs.js) and National
   // Park Service webcams (nps.js; needs NPS_API_KEY).
