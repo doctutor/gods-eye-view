@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 
 import {
+  LANDMARK_MAX_HEIGHT_M,
   SEARCH_MAX_HEIGHT_M,
   createRecordedVideoLayer,
   toRecord,
   viewQuery,
 } from './index.js';
-import { captionFor } from './player.js';
+import { captionFor, embedAt } from './player.js';
 
 const wikidata = {
   videoId: 'aBcDeFgHiJk',
@@ -132,18 +133,35 @@ function fakeApi() {
     ],
   };
   let hold = null;
+  let landmarks = { landmarks: [], pending: 0 };
+  let landmarkVideos = { videos: [] };
+  let mentions = { mentions: [] };
   const fetchImpl = async (url) => {
     calls.push(String(url));
     if (String(url).endsWith('/wikidata'))
       return Response.json({ videos: [wikidata] });
+    if (String(url).startsWith('/api/video/landmark/near'))
+      return Response.json(landmarks);
+    if (String(url).startsWith('/api/video/landmark/mentions'))
+      return Response.json(mentions);
+    if (String(url).startsWith('/api/video/landmark'))
+      return typeof landmarkVideos === 'function'
+        ? landmarkVideos(String(url))
+        : Response.json(landmarkVideos);
     if (hold) await hold;
     return Response.json(near);
   };
   return {
     fetchImpl,
     calls,
-    nearCalls: () => calls.filter((u) => u.includes('near=')),
+    nearCalls: () =>
+      calls.filter((u) => u.startsWith('/api/video/recorded?near=')),
+    landmarkCalls: () =>
+      calls.filter((u) => u.startsWith('/api/video/landmark')),
     setNear: (body) => (near = body),
+    setLandmarks: (body) => (landmarks = body),
+    setLandmarkVideos: (body) => (landmarkVideos = body),
+    setMentions: (body) => (mentions = body),
     holdNear: () => {
       let release;
       hold = new Promise((r) => (release = r));
@@ -204,8 +222,9 @@ test('the layer loads Wikidata on enable, searches settled low views once per ce
   };
   assert.equal(layer.id, 'recorded-video');
   layer.init(viewer);
-  assert.equal(dataSources.length, 1);
+  assert.equal(dataSources.length, 2, 'video pins and landmark diamonds');
   assert.equal(dataSources[0].show, false);
+  assert.equal(dataSources[1].show, false);
   assert.equal(await layer.update(), false, 'nothing loads while off');
 
   layer.enable(viewer);
@@ -261,6 +280,8 @@ test('the layer loads Wikidata on enable, searches settled low views once per ce
     count: 4,
     wikidata: 1,
     'youtube-geotag': 3,
+    landmark: 0,
+    landmarks: 0,
     refused: false,
     error: null,
   });
@@ -313,7 +334,7 @@ test('a refused or failed search can be asked again later', async (t) => {
   const timers = [];
   const layer = createRecordedVideoLayer({
     fetchImpl: async (url) =>
-      String(url).includes('near=')
+      String(url).startsWith('/api/video/recorded?near=')
         ? (api.calls.push(String(url)),
           Response.json({ error: 'budget', videos: [] }, { status: 429 }))
         : api.fetchImpl(url),
@@ -419,4 +440,247 @@ test('the panel hears of changes, focuses a record and asks for the view again',
   layer.focus(record);
   assert.equal(opened.length, 1, 'nothing plays while off');
   layer.destroy(viewer);
+});
+
+const aboutVideo = (videoId, qid = 'Q1000257', extra = {}) => ({
+  id: `lm-${qid}-${videoId}`,
+  videoId,
+  title: `National Aquarium ${videoId}`,
+  channelTitle: 'Channel',
+  lat: 39.2853,
+  lon: -76.6083,
+  coordinatesQuality: 'about',
+  source: 'landmark',
+  kind: 'tour',
+  landmarkQid: qid,
+  place: 'National Aquarium',
+  youtubeRank: 1,
+  ...extra,
+});
+
+test('landmarks: diamonds below 20 km, videos on a click, ABOUT pins and "mentioned at" moments', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const { viewer, dataSources, setHeight, settle } = fakeViewer();
+  const api = fakeApi();
+  api.setNear({ videos: [geotag('ddddddddddd', 'site')] });
+  api.setLandmarks({
+    landmarks: [
+      {
+        qid: 'Q1000257',
+        label: 'National Aquarium',
+        lat: 39.2853,
+        lon: -76.6083,
+        sitelinks: 10,
+        kind: 'aquarium',
+      },
+      {
+        qid: 'Q210081',
+        label: 'Walters Art Museum',
+        lat: 39.2966,
+        lon: -76.6158,
+      },
+      { qid: 'bad', label: 'Not an item', lat: 1, lon: 1 },
+    ],
+    pending: 0,
+  });
+  api.setLandmarkVideos((url) =>
+    url.includes('Q210081')
+      ? Response.json(
+          { error: 'budget', videos: [], quota: { used: 1000, budget: 1000 } },
+          { status: 429 },
+        )
+      : Response.json({
+          videos: [
+            aboutVideo('bbbbbbbbbbb', 'Q1000257', { youtubeRank: 2 }),
+            aboutVideo('aaaaaaaaaaa'),
+            // Not this landmark's video: left out.
+            geotag('ccccccccccc', 'about'),
+            aboutVideo('eeeeeeeeeee', 'Q210081'),
+          ],
+          cached: false,
+          quota: { used: 102, budget: 1000, remaining: 898 },
+        }),
+  );
+  api.setMentions({
+    mentions: [
+      {
+        start: 221.4,
+        at: '3:41',
+        text: 'the National Aquarium opened in 1981',
+      },
+    ],
+  });
+  const opened = [];
+  const mentioned = [];
+  const player = {
+    open: (record) => opened.push(record),
+    close() {},
+    showMentions: (record, mentions) => mentioned.push([record.id, mentions]),
+  };
+  const timers = [];
+  let pick = null;
+  const layer = createRecordedVideoLayer({
+    fetchImpl: api.fetchImpl,
+    player,
+    createClickHandler: (v, onPick) => ((pick = onPick), () => {}),
+    setTimeoutImpl: (fn) => (timers.push(fn), fn),
+    clearTimeoutImpl: (fn) => {
+      const i = timers.indexOf(fn);
+      if (i >= 0) timers.splice(i, 1);
+    },
+  });
+  const runTimers = async () => {
+    while (timers.length) timers.shift()();
+    for (let i = 0; i < 4; i++) await flush();
+  };
+  layer.init(viewer);
+  const landmarkSource = dataSources[1];
+  layer.enable(viewer);
+  // 30 km up: no landmarks asked for, none shown.
+  setHeight(30_000);
+  settle();
+  await runTimers();
+  assert.equal(api.landmarkCalls().length, 0);
+  assert.equal(landmarkSource.show, false);
+
+  // Below 20 km: the landmarks around the view, as diamonds.
+  setHeight(LANDMARK_MAX_HEIGHT_M / 2);
+  settle();
+  assert.equal(landmarkSource.show, true);
+  await runTimers();
+  assert.match(
+    api.landmarkCalls()[0],
+    /^\/api\/video\/landmark\/near\?near=39\.2900,-76\.6100&radiusKm=8$/,
+  );
+  const diamonds = landmarkSource.entities.values;
+  assert.deepEqual(
+    diamonds.map((e) => e.id),
+    ['recorded-video:landmark:Q1000257', 'recorded-video:landmark:Q210081'],
+    'a bad row is dropped',
+  );
+  assert.ok(diamonds[0].billboard, 'a billboard, not a round pin');
+  assert.equal(diamonds[0].point, undefined);
+  assert.equal(dataSources[0].entities.values.length, 1, 'the geotag pin');
+  assert.equal(
+    layer.landmarks().find((l) => l.qid === 'Q1000257').videoCount,
+    null,
+    'not asked yet',
+  );
+  // The same area again: answered in full, not asked again.
+  settle();
+  await runTimers();
+  assert.equal(api.landmarkCalls().length, 1);
+
+  // Higher again: the diamonds hide, and come back below 20 km.
+  setHeight(25_000);
+  settle();
+  assert.equal(landmarkSource.show, false);
+  setHeight(5_000);
+  settle();
+  assert.equal(landmarkSource.show, true);
+  await runTimers();
+
+  // A click on a diamond asks for its videos; they pin at it, tagged ABOUT.
+  let heard = 0;
+  layer.subscribe(() => heard++);
+  pick({ id: 'recorded-video:landmark:Q1000257' });
+  assert.equal(layer.landmarks()[0].loading, true);
+  for (let i = 0; i < 4; i++) await flush();
+  assert.equal(api.landmarkCalls().filter((u) => u.includes('qid=')).length, 1);
+  assert.equal(layer.selectedLandmark(), 'Q1000257');
+  assert.deepEqual(
+    layer.landmarkVideos('Q1000257').map((r) => r.videoId),
+    ['bbbbbbbbbbb', 'aaaaaaaaaaa'],
+    'in the server’s ranked order; a non-landmark record is not one of them',
+  );
+  const about = layer.landmarkVideos('Q1000257')[1];
+  assert.equal(about.coordinatesQuality, 'about');
+  assert.deepEqual([about.lat, about.lon], [39.2853, -76.6083]);
+  assert.deepEqual(
+    layer
+      .records()
+      .filter((r) => ['ccccccccccc', 'eeeeeeeeeee'].includes(r.videoId)),
+    [],
+    'nothing but this landmark’s own videos',
+  );
+  assert.equal(layer.landmarks()[0].videoCount, 2);
+  assert.deepEqual(layer.quota(), { used: 102, budget: 1000, remaining: 898 });
+  assert.ok(heard >= 2, 'loading and loaded are heard');
+  assert.equal(
+    dataSources[0].entities.values.filter(
+      (e) => e.properties.coordinatesQuality.getValue() === 'about',
+    ).length,
+    2,
+  );
+  // Clicked again: nothing more is asked.
+  pick({ id: 'recorded-video:landmark:Q1000257' });
+  await flush();
+  assert.equal(api.landmarkCalls().filter((u) => u.includes('qid=')).length, 1);
+
+  // Playing a landmark's video asks for its moments and shows them.
+  layer.focus(about);
+  assert.equal(opened.at(-1), about);
+  for (let i = 0; i < 4; i++) await flush();
+  assert.match(
+    api.landmarkCalls().at(-1),
+    /\/mentions\?qid=Q1000257&videoId=aaaaaaaaaaa$/,
+  );
+  assert.deepEqual(mentioned, [
+    [
+      about.id,
+      [
+        {
+          start: 221,
+          at: '3:41',
+          text: 'the National Aquarium opened in 1981',
+        },
+      ],
+    ],
+  ]);
+  // A geotag pin asks for no moments.
+  pick({ id: 'recorded-video:yt-ddddddddddd' });
+  assert.equal(opened.at(-1).videoId, 'ddddddddddd');
+  await flush();
+  assert.equal(
+    api.landmarkCalls().filter((u) => u.includes('/mentions')).length,
+    1,
+  );
+
+  // Past the budget: refused, nothing pinned, the budget shown.
+  const state = await layer.openLandmark('Q210081');
+  assert.equal(state.refused, true);
+  const walters = layer.landmarks().find((l) => l.qid === 'Q210081');
+  assert.equal(walters.refused, true);
+  assert.equal(walters.videoCount, null);
+  assert.equal(layer.quota().remaining, 0);
+  assert.equal(await layer.openLandmark('Q404'), null, 'unknown landmark');
+  assert.equal(layer.getStats().landmarks, 2);
+  assert.equal(layer.getStats().landmark, 2);
+
+  layer.disable();
+  assert.equal(landmarkSource.show, false);
+  assert.equal(await layer.openLandmark('Q1000257'), null, 'off');
+  layer.destroy(viewer);
+  assert.equal(dataSources.length, 0, 'both data sources removed');
+  assert.deepEqual(layer.landmarks(), []);
+});
+
+test('a landmark video’s caption says ABOUT and its kind; a moment restarts the embed there', () => {
+  const record = toRecord(aboutVideo('aaaaaaaaaaa'));
+  assert.equal(record.id, 'lm-Q1000257-aaaaaaaaaaa');
+  assert.equal(
+    captionFor(record),
+    'National Aquarium · ABOUT · TOUR · Channel',
+  );
+  assert.equal(
+    toRecord({ ...aboutVideo('aaaaaaaaaaa'), landmarkQid: '' }),
+    null,
+  );
+  assert.equal(
+    toRecord({ ...aboutVideo('aaaaaaaaaaa'), kind: 'weird' }).kind,
+    'other',
+  );
+  assert.match(embedAt('aaaaaaaaaaa', 221.4), /[?&]start=221(&|$)/);
+  assert.doesNotMatch(embedAt('aaaaaaaaaaa', 0), /start=/);
+  assert.equal(embedAt('bad', 10), '');
 });

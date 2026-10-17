@@ -1,0 +1,93 @@
+{
+  "totalresultcount": 90,
+  "result": [
+    {
+      "id": "Umg8v6DLZjs",
+      "title": "The History of the Star-Spangled Banner for Kids: Francis Scott Key and Fort McHenry - FreeSchool",
+      "duration": 170,
+      "channelname": "Free School",
+      "lang": "en",
+      "hits": [
+        {
+          "id": 0,
+          "start": 55.4,
+          "token": "Fort McHenry",
+          "lines": [
+            {
+              "start": 55.4,
+              "dur": 5.3,
+              "text": "British attacked Fort McHenry as Francis"
+            }
+          ]
+        },
+        {
+          "id": 1,
+          "start": 113.6,
+          "token": "Fort McHenry",
+          "lines": [
+            {
+              "start": 113.6,
+              "dur": 5.3,
+              "text": "titled defense of Fort McHenry and was"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "N20k3ix_RLI",
+      "title": "The Battle of Fort McHenry: War of 1812",
+      "duration": 147,
+      "channelname": "American Battlefield Trust",
+      "lang": "en",
+      "hits": [
+        {
+          "id": 0,
+          "start": 33.7,
+          "token": "Fort McHenry",
+          "lines": [
+            {
+              "start": 33.7,
+              "dur": 4.6,
+              "text": "next they set their sights on Fort"
+            },
+            {
+              "start": 36,
+              "dur": 4.4,
+              "text": "McHenry the star-shaped stronghold"
+            }
+          ]
+        },
+        {
+          "id": 1,
+          "start": 50.5,
+          "token": "Fort McHenry",
+          "lines": [
+            {
+              "start": 50.5,
+              "dur": 4.6,
+              "text": "the trouble was Fort McHenry had been"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start": 93.4,
+          "token": "Fort McHenry",
+          "lines": [
+            {
+              "start": 93.4,
+              "dur": 5.9,
+              "text": "on the morning of September 14th Fort"
+            },
+            {
+              "start": 96,
+              "dur": 5.1,
+              "text": "McHenry still stood in celebration the"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
