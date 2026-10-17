@@ -851,6 +851,63 @@
           "ospreys"
         ]
       }
+    },
+    {
+      "id": "djuma-waterhole",
+      "name": "Djuma waterhole",
+      "place": "Djuma Waterhole (Gowrie Dam), Djuma Game Reserve, Sabi Sand, South Africa",
+      "category": "wildlife",
+      "lat": -24.70815,
+      "lon": 31.53643,
+      "coordinatesQuality": "site",
+      "operator": "WildEarth",
+      "operatorUrl": "https://wildearth.tv/",
+      "youtube": {
+        "videoId": "YGO0xHdGaPE",
+        "channelId": "UCV6HJBZD_hZcIX9JVJ3dCXQ",
+        "titleMatch": [
+          "waterhole",
+          "october"
+        ]
+      }
+    },
+    {
+      "id": "safarilive-sunset-drive-djuma",
+      "name": "SafariLIVE sunset drive, Djuma",
+      "place": "Djuma Game Reserve, Sabi Sand, South Africa (roaming drive)",
+      "category": "wildlife",
+      "lat": -24.724,
+      "lon": 31.563,
+      "coordinatesQuality": "area",
+      "operator": "WildEarth",
+      "operatorUrl": "https://wildearth.tv/",
+      "youtube": {
+        "videoId": "oEL9teHB3U0",
+        "channelId": "UCV6HJBZD_hZcIX9JVJ3dCXQ",
+        "titleMatch": [
+          "safarilive",
+          "sunset"
+        ]
+      }
+    },
+    {
+      "id": "safarilive-sunrise-drive-djuma",
+      "name": "SafariLIVE sunrise drive, Djuma",
+      "place": "Djuma Game Reserve, Sabi Sand, South Africa (roaming drive)",
+      "category": "wildlife",
+      "lat": -24.724,
+      "lon": 31.563,
+      "coordinatesQuality": "area",
+      "operator": "WildEarth",
+      "operatorUrl": "https://wildearth.tv/",
+      "youtube": {
+        "videoId": "gjK71lPBeD8",
+        "channelId": "UCV6HJBZD_hZcIX9JVJ3dCXQ",
+        "titleMatch": [
+          "safarilive",
+          "sunrise"
+        ]
+      }
     }
   ]
 }
