@@ -694,3 +694,72 @@
   color: #ff8a65;
   overflow-wrap: anywhere;
 }
+
+/* Personal fork: the Recorded Video layer's floating player (src/layers/recordedVideo/player.js). */
+.recorded-video-player {
+  position: fixed;
+  right: 16px;
+  bottom: 72px;
+  z-index: 60;
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  background: rgba(4, 7, 11, 0.94);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  color: var(--text-secondary);
+}
+
+.recorded-video-player-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recorded-video-player-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 10px;
+}
+
+.recorded-video-player-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.recorded-video-player-close:hover {
+  color: var(--text-primary);
+}
+
+.recorded-video-player-frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 6px;
+  background: #000;
+}
+
+.recorded-video-player-caption {
+  overflow-wrap: anywhere;
+}
+
+.recorded-video-player-link {
+  align-self: flex-start;
+  color: var(--accent, #00d4ff);
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
