@@ -47,3 +47,11 @@
   McHenry&lang=en&hitFormat=1`, via RapidAPI), retrieved 2026-10-16, trimmed
   to the fields the landmark "mentioned at" parser reads and three hits each.
   Caption lines are the uploaders'; test-only, never loaded at runtime.
+- `wikidata-landmark-cells.json` — Personal fork: the Wikidata Query Service
+  answers to the landmark cell query (`landmarksQuery` in
+  `server/providers/recordedVideo/landmarks.js`) for the 0.1° cells over
+  downtown Baltimore (`392_-767`) and Detroit/Windsor (`423_-831`),
+  retrieved 2026-10-16, trimmed to the fields the parser reads. Wikidata
+  data is CC0. Used by the misplaced-landmark check's tests (Gatchina
+  Palace's coordinate error; the Windsor items over the border); never
+  loaded at runtime.

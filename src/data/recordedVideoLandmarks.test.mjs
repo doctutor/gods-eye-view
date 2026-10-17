@@ -21,7 +21,9 @@ import {
   landmarkCell,
   landmarkNames,
   landmarksQuery,
+  misplacedLandmarks,
   parseFilmotHits,
+  parseLandmarkCell,
   parseLandmarkDetail,
   parseLandmarks,
   rankLandmarkVideos,
@@ -35,6 +37,11 @@ const FILMOT_FIXTURE = path.join(
   __dirname,
   'fixtures',
   'filmot-fort-mchenry-subtitles.json',
+);
+const CELLS_FIXTURE = path.join(
+  __dirname,
+  'fixtures',
+  'wikidata-landmark-cells.json',
 );
 const WD = 'http://www.wikidata.org/entity/';
 
@@ -84,6 +91,11 @@ test('a cell’s landmarks: one per item, unlabelled ones out, most sitelinks fi
   assert.match(query, /cornerNorthEast "Point\(-76\.6 39\.3\)"/);
   assert.match(query, /wd:Q2281788/, 'aquariums are a landmark class');
   assert.match(query, /\?sitelinks >= 5/);
+  assert.match(
+    query,
+    /OPTIONAL \{ \?item wdt:P17 \?country \. OPTIONAL \{ \?item wdt:P131\/wdt:P625 \?adminLoc \} \}/,
+  );
+  assert.match(query, /\(MIN\(\?adminKm\) AS \?adminDist\)/);
   const rows = [
     cellRow('Q1000257', 'National Aquarium', 10, 'Q2281788'),
     cellRow('Q1000257', 'National Aquarium', 10, 'Q43501'),
@@ -594,4 +606,144 @@ test('the landmark routes are same-site only, GET only, and check their input', 
     ['mentions', 'Q1438634', 'N20k3ix_RLI'],
   ]);
   assert.equal((await call('/other')).nexted, true);
+});
+
+test('a landmark whose country is none of the cell’s is dropped (real Baltimore and Detroit cells)', async () => {
+  const { cells } = JSON.parse(await fs.readFile(CELLS_FIXTURE, 'utf8'));
+  // Baltimore: Gatchina Palace (near St Petersburg; P17 Russian Empire) has
+  // coordinates in Baltimore, the one item of 79 naming that country.
+  const baltimore = parseLandmarkCell(cells.baltimore.rows);
+  assert.deepEqual(baltimore.dropped, [
+    { qid: 'Q636696', label: 'Gatchina Palace', countries: ['Q34266'] },
+  ]);
+  assert.equal(baltimore.landmarks.length, LANDMARKS_PER_CELL);
+  assert.ok(!baltimore.landmarks.some((l) => l.qid === 'Q636696'));
+  assert.ok(baltimore.landmarks.some((l) => l.qid === 'Q1000257'));
+  assert.deepEqual(
+    Object.keys(baltimore.landmarks[0]).sort(),
+    ['kind', 'label', 'lat', 'lon', 'qid', 'sitelinks'],
+    'the check’s fields are not stored with the landmark',
+  );
+  // An item without a country (Mr. Trash Wheel) is not a misplaced one.
+  assert.ok(
+    parseLandmarkCell(cells.baltimore.rows, { cap: 80 }).landmarks.some(
+      (l) => l.qid === 'Q29033855',
+    ),
+  );
+  // Detroit: Windsor's Canadian items are one of the cell's countries.
+  const detroit = parseLandmarkCell(cells.detroit.rows, { cap: 80 });
+  assert.deepEqual(detroit.dropped, []);
+  assert.ok(detroit.landmarks.some((l) => l.qid === 'Q3098087'));
+  assert.ok(
+    detroit.landmarks.some((l) => l.qid === 'Q12575'),
+    'two countries',
+  );
+});
+
+test('the check spares a lone item over a border when its own place is near, and small cells', () => {
+  const item = (qid, countries, adminKm = NaN) => ({ qid, countries, adminKm });
+  const us = Array.from({ length: 30 }, (_, i) => item(`Q${i + 100}`, ['Q30']));
+  assert.deepEqual(
+    [
+      ...misplacedLandmarks([
+        ...us,
+        item('Q1', ['Q16'], 2),
+        item('Q2', ['Q96'], 600),
+        item('Q3', ['Q159']),
+        item('Q4', []),
+        item('Q5', ['Q30', 'Q16']),
+      ]),
+    ].sort(),
+    ['Q2', 'Q3'],
+    'near its own place: kept; far or unknown: dropped',
+  );
+  // 2 items name a country, but under 5% of 60: still not the cell's.
+  const many = Array.from({ length: 58 }, (_, i) =>
+    item(`Q${i + 100}`, ['Q30']),
+  );
+  assert.deepEqual(
+    [
+      ...misplacedLandmarks([
+        ...many,
+        item('Q1', ['Q16']),
+        item('Q2', ['Q16']),
+      ]),
+    ],
+    ['Q1', 'Q2'],
+  );
+  // Too few items name a country to know the cell's: nothing is dropped.
+  assert.deepEqual(
+    [
+      ...misplacedLandmarks([
+        item('Q1', ['Q30']),
+        item('Q2', ['Q30']),
+        item('Q3', ['Q30']),
+        item('Q4', ['Q159']),
+        item('Q5', []),
+      ]),
+    ],
+    [],
+  );
+  // One item on two rows: its countries and nearest place are pooled.
+  const row = (country, adminKm) => ({
+    item: { value: `${WD}Q9` },
+    itemLabel: { value: 'Twice' },
+    lat: { value: '39.25' },
+    lon: { value: '-76.65' },
+    sitelinks: { value: '5' },
+    countries: { value: country },
+    ...(adminKm === undefined ? {} : { adminDist: { value: String(adminKm) } }),
+  });
+  const pooled = parseLandmarkCell([
+    ...us.map((u) => ({
+      ...row('Q30', 1),
+      item: { value: `${WD}${u.qid}` },
+    })),
+    row('Q16', 3),
+    row('Q16'),
+  ]);
+  assert.deepEqual(
+    pooled.dropped,
+    [],
+    'its 3 km place is kept from the first row',
+  );
+});
+
+test('a cell stored before the check is asked again, and what was dropped is kept with it', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const root = await tempRoot(t);
+  const api = upstream();
+  const service = createLandmarkService({
+    sourceRoot: root,
+    fetchImpl: api.fetchImpl,
+    apiKey: () => '',
+  });
+  const file = path.join(
+    root,
+    '.gev-cache',
+    'recorded-video',
+    'landmarks',
+    'cells.json',
+  );
+  await service.near(39.25, -76.65, 0.5);
+  assert.equal(api.sparql(), 1);
+  const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+  const [entry] = Object.values(stored.entries || stored);
+  const value = entry.value || entry;
+  assert.equal(value.v, 2);
+  assert.deepEqual(value.dropped, []);
+  // The same answer without the version, as stored before the check.
+  const old = JSON.parse(JSON.stringify(stored));
+  const [oldEntry] = Object.values(old.entries || old);
+  delete (oldEntry.value || oldEntry).v;
+  await fs.writeFile(file, JSON.stringify(old));
+  const again = createLandmarkService({
+    sourceRoot: root,
+    fetchImpl: api.fetchImpl,
+    apiKey: () => '',
+  });
+  await again.near(39.25, -76.65, 0.5);
+  assert.equal(api.sparql(), 2, 'asked again');
+  await again.near(39.25, -76.65, 0.5);
+  assert.equal(api.sparql(), 2, 'then stored');
 });

@@ -30,7 +30,8 @@ import {
  *   stadiums, parks, monuments, bridges, stations, markets, aquariums, zoos,
  *   historic sites, or anything with 5+ sitelinks that is not an event, an
  *   organisation or a settlement) with coordinates, per 0.1° cell, the 40
- *   with most sitelinks, kept 30 days (CC0).
+ *   with most sitelinks, kept 30 days (CC0). Items whose country is none of
+ *   the cell's are dropped as coordinate errors (misplacedLandmarks).
  * - A landmark's videos: one search.list for "<label>" <city> (relevance,
  *   any duration, 25), videos.list and channels.list (102 units), Shorts
  *   and live streams dropped, then a hard gate: the title names the
@@ -53,6 +54,8 @@ export const LANDMARK_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const LANDMARK_QUERY_COST = 102;
 /** Uncached cells fetched per request; the next settle asks for the rest. */
 const CELLS_PER_REQUEST = 2;
+/** Stored cells' shape: 2 added the misplaced-item check (older ones are asked again). */
+const CELL_VERSION = 2;
 const FILMOT_HOST = 'filmot-tube-metadata-archive.p.rapidapi.com';
 export const FILMOT_DAILY_CAP = 30;
 const WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql';
@@ -154,10 +157,14 @@ export function cellsAround(lat, lon, radiusKm) {
   });
 }
 
-/** The SPARQL for one cell's landmarks. */
+/**
+ * The SPARQL for one cell's landmarks, with each item's countries (P17) and
+ * the distance to its nearest enclosing place's coordinates (P131 → P625)
+ * for the misplaced-item check.
+ */
 export function landmarksQuery(cell) {
   const values = (ids) => ids.map((q) => `wd:${q}`).join(' ');
-  return `SELECT ?item ?itemLabel ?lat ?lon ?sitelinks (SAMPLE(?cls) AS ?class) WHERE {
+  return `SELECT ?item ?itemLabel ?lat ?lon ?sitelinks (SAMPLE(?cls) AS ?class) (GROUP_CONCAT(DISTINCT STRAFTER(STR(?country), "entity/"); separator=" ") AS ?countries) (MIN(?adminKm) AS ?adminDist) WHERE {
   SERVICE wikibase:box {
     ?item wdt:P625 ?loc .
     bd:serviceParam wikibase:cornerSouthWest "Point(${cell.west} ${cell.south})"^^geo:wktLiteral .
@@ -168,13 +175,60 @@ export function landmarksQuery(cell) {
   FILTER(BOUND(?cls) || ?sitelinks >= 5)
   FILTER NOT EXISTS { ?item wdt:P31/wdt:P279? ?x . VALUES ?x { ${values(NOT_PLACES)} } }
   FILTER(BOUND(?cls) || NOT EXISTS { ?item wdt:P31/wdt:P279* ?y . VALUES ?y { ${values(NOT_THINGS)} } })
+  OPTIONAL { ?item wdt:P17 ?country . OPTIONAL { ?item wdt:P131/wdt:P625 ?adminLoc } }
+  BIND(geof:distance(?loc, ?adminLoc) AS ?adminKm)
   BIND(geof:latitude(?loc) AS ?lat) BIND(geof:longitude(?loc) AS ?lon)
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 } GROUP BY ?item ?itemLabel ?lat ?lon ?sitelinks ORDER BY DESC(?sitelinks) LIMIT ${LANDMARKS_PER_CELL * 2}`;
 }
 
-/** SPARQL rows → the cell's landmarks: one per item, most sitelinks first, capped. */
-export function parseLandmarks(bindings, { cap = LANDMARKS_PER_CELL } = {}) {
+/** A country is the cell's when at least this many of its items name it… */
+const CELL_COUNTRY_MIN_ITEMS = 2;
+/** …and at least this share of the items that name a country. */
+const CELL_COUNTRY_MIN_SHARE = 0.05;
+/** Fewer items naming a country than this: the cell's country is not known. */
+const COUNTRY_CHECK_MIN_ITEMS = 5;
+/** A foreign item is kept when its own enclosing place is this close. */
+const ADMIN_NEAR_KM = 50;
+
+/**
+ * The misplaced-item check: an item whose countries are none of the cell's
+ * (each named by at least 2 items and 5% of those with a country) is a
+ * coordinate error, unless its own enclosing place is within 50 km (a real
+ * landmark just over a border). Gatchina Palace (Russian Empire) has 1 of
+ * the Baltimore cell's 79; Windsor's 9 Canadian items in the Detroit cell
+ * make Canada one of its countries.
+ * @returns {Set<string>} The qids to drop.
+ */
+export function misplacedLandmarks(items) {
+  const withCountry = items.filter((item) => item.countries.length);
+  if (withCountry.length < COUNTRY_CHECK_MIN_ITEMS) return new Set();
+  const counts = new Map();
+  for (const item of withCountry)
+    for (const country of item.countries)
+      counts.set(country, (counts.get(country) || 0) + 1);
+  const minItems = Math.max(
+    CELL_COUNTRY_MIN_ITEMS,
+    withCountry.length * CELL_COUNTRY_MIN_SHARE,
+  );
+  const cellCountries = new Set(
+    [...counts].filter(([, n]) => n >= minItems).map(([country]) => country),
+  );
+  const drop = new Set();
+  for (const item of withCountry) {
+    if (item.countries.some((country) => cellCountries.has(country))) continue;
+    if (Number.isFinite(item.adminKm) && item.adminKm <= ADMIN_NEAR_KM)
+      continue;
+    drop.add(item.qid);
+  }
+  return drop;
+}
+
+/**
+ * SPARQL rows → the cell's landmarks (one per item, misplaced items out,
+ * most sitelinks first, capped) and what the check dropped.
+ */
+export function parseLandmarkCell(bindings, { cap = LANDMARKS_PER_CELL } = {}) {
   const byQid = new Map();
   for (const row of Array.isArray(bindings) ? bindings : []) {
     const qid = qidOf(row?.item?.value);
@@ -184,7 +238,18 @@ export function parseLandmarks(bindings, { cap = LANDMARKS_PER_CELL } = {}) {
     // An unlabelled item is shown by its Q-id in the label service: skip it.
     if (!qid || !isPlausibleLatLon(lat, lon) || !label || label === qid)
       continue;
-    if (byQid.has(qid)) continue;
+    const countries = String(row?.countries?.value || '')
+      .split(/\s+/)
+      .filter((country) => /^Q\d+$/.test(country));
+    const adminKm = row?.adminDist ? Number(row.adminDist.value) : NaN;
+    const held = byQid.get(qid);
+    if (held) {
+      // One item on several rows (several coordinates): pool what they say.
+      held.countries = [...new Set([...held.countries, ...countries])];
+      if (Number.isFinite(adminKm) && !(held.adminKm <= adminKm))
+        held.adminKm = adminKm;
+      continue;
+    }
     const classQid = qidOf(row?.class?.value);
     byQid.set(qid, {
       qid,
@@ -193,11 +258,34 @@ export function parseLandmarks(bindings, { cap = LANDMARKS_PER_CELL } = {}) {
       lon,
       sitelinks: Number(row?.sitelinks?.value) || 0,
       kind: LANDMARK_CLASSES[classQid] || 'notable',
+      countries,
+      adminKm,
     });
   }
-  return [...byQid.values()]
-    .sort((a, b) => b.sitelinks - a.sitelinks || a.label.localeCompare(b.label))
-    .slice(0, cap);
+  const items = [...byQid.values()];
+  const drop = misplacedLandmarks(items);
+  const record = ({ countries, adminKm, ...landmark }) => landmark;
+  return {
+    landmarks: items
+      .filter((item) => !drop.has(item.qid))
+      .sort(
+        (a, b) => b.sitelinks - a.sitelinks || a.label.localeCompare(b.label),
+      )
+      .slice(0, cap)
+      .map(record),
+    dropped: items
+      .filter((item) => drop.has(item.qid))
+      .map((item) => ({
+        qid: item.qid,
+        label: item.label,
+        countries: item.countries,
+      })),
+  };
+}
+
+/** SPARQL rows → the cell's landmarks: one per item, most sitelinks first, capped. */
+export function parseLandmarks(bindings, options) {
+  return parseLandmarkCell(bindings, options).landmarks;
 }
 
 /** The SPARQL for one landmark's names and the places around it. */
@@ -594,7 +682,8 @@ export function createLandmarkService({
       let pending = 0;
       for (const cell of around) {
         const held = cells.get(cell.key);
-        if (held) {
+        // A cell stored before the misplaced-item check is asked again.
+        if (held?.v === CELL_VERSION) {
           landmarks.push(...held.landmarks);
           continue;
         }
@@ -605,9 +694,12 @@ export function createLandmarkService({
         fetched++;
         try {
           const found = await once(`cell:${cell.key}`, async () => {
-            const parsed = parseLandmarks(await sparql(landmarksQuery(cell)));
-            cells.set(cell.key, { landmarks: parsed });
-            return parsed;
+            const parsed = parseLandmarkCell(
+              await sparql(landmarksQuery(cell)),
+            );
+            // What the check dropped is kept with the cell, for a look later.
+            cells.set(cell.key, { v: CELL_VERSION, ...parsed });
+            return parsed.landmarks;
           });
           landmarks.push(...found);
         } catch (error) {
