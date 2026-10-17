@@ -413,6 +413,11 @@ export const VOICE_OFF_LAYERS = Object.freeze({
   'baltimore-enforcement-cameras': 'personal fork layer',
   'baltimore-citiwatch-cameras': 'personal fork layer',
   'recorded-video': 'personal fork layer',
+  'ee-terrain-slope': 'personal fork layer',
+  'ee-terrain-aspect': 'personal fork layer',
+  'ee-terrain-hillshade': 'personal fork layer',
+  'ee-forest-loss': 'personal fork layer',
+  'ee-admin-boundaries': 'personal fork layer',
 });
 
 const TYPE_NAMES = Object.freeze({

@@ -1031,6 +1031,26 @@ html:not([lang='en']) .data-row-list-text {
   padding-top: 3px;
   overflow-wrap: anywhere;
 }
+
+/* Personal fork: a row's range input (an Earth Engine overlay's opacity). */
+.data-toggle-slider {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+
+.data-toggle-slider[hidden] {
+  display: none;
+}
+
+.data-toggle-slider input {
+  flex: 1;
+  min-width: 0;
+}
 /* ── Local RTL-SDR card (FM + Local ADS-B receiver) ── */
 .sdr-radio-card {
   display: grid;

@@ -1,0 +1,341 @@
+// Personal fork: the Earth Engine overlays in the scene and their panel rows.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import * as Cesium from 'cesium';
+
+import { EARTH_ENGINE_LAYERS } from '../../data/earthEngineLayers.js';
+import {
+  DEFAULT_OPACITY,
+  OPACITY_STORAGE_PREFIX,
+  attributionCredit,
+  createEarthEngineLayer,
+  readOpacity,
+} from './index.js';
+import {
+  CATALOG_TTL_MS,
+  createEarthEngineSource,
+  tileTemplate,
+  toCatalogLayer,
+} from './source.js';
+import { legendLabel, statusText } from './presentation.js';
+
+const record = (id) => EARTH_ENGINE_LAYERS.find((layer) => layer.id === id);
+
+function fakeViewer(height = 5_000_000) {
+  const layers = [];
+  const listeners = [];
+  return {
+    layers,
+    listeners,
+    setHeight: (h) => (height = h),
+    settle: () => listeners.forEach((fn) => fn()),
+    viewer: {
+      imageryLayers: {
+        addImageryProvider(provider) {
+          const layer = { provider, alpha: 1 };
+          layers.push(layer);
+          return layer;
+        },
+        remove(layer) {
+          const i = layers.indexOf(layer);
+          if (i >= 0) layers.splice(i, 1);
+          return i >= 0;
+        },
+      },
+      camera: {
+        get positionCartographic() {
+          return { height };
+        },
+        moveEnd: {
+          addEventListener(fn) {
+            listeners.push(fn);
+            return () => listeners.splice(listeners.indexOf(fn), 1);
+          },
+        },
+      },
+    },
+  };
+}
+
+function memoryStorage(entries = {}) {
+  const map = new Map(Object.entries(entries));
+  return {
+    map,
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => map.set(key, String(value)),
+  };
+}
+
+const serverLayer = (id, extra = {}) => ({
+  id,
+  name: record(id).name,
+  kind: record(id).kind,
+  tileUrl: `/api/earth-engine/tile/${id}/{variant}/{z}/{x}/{y}`,
+  maxZoom: record(id).maxZoom,
+  variants: (record(id).variants || [{ key: 'default' }]).map((v) => ({
+    key: v.key,
+    ready: true,
+    ...(v.minHeightM !== undefined ? { minHeightM: v.minHeightM } : {}),
+    ...(v.maxHeightM !== undefined ? { maxHeightM: v.maxHeightM } : {}),
+  })),
+  legend: record(id).legend,
+  attribution: `Google Earth Engine · ${record(id).attribution}`,
+  error: null,
+  ...extra,
+});
+
+function fakeServer(body) {
+  const calls = [];
+  return {
+    calls,
+    set: (next) => (body = next),
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return Response.json(body);
+    },
+  };
+}
+
+const flush = async () => {
+  for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
+};
+
+test('the catalog is checked on the way in, shared, and kept a few minutes', async () => {
+  assert.equal(toCatalogLayer({ id: '../etc' }), null);
+  assert.deepEqual(
+    toCatalogLayer({
+      id: 'ee-forest-loss',
+      maxZoom: 40,
+      variants: [{ key: 'default', ready: true }, { key: 'bad key!' }],
+      legend: [
+        { label: '2001', color: '#ffff00' },
+        { label: 'x', color: 'red' },
+      ],
+      error: null,
+    }),
+    {
+      id: 'ee-forest-loss',
+      attribution: '',
+      maxZoom: 18,
+      variants: [{ key: 'default', ready: true }],
+      legend: [{ label: '2001', color: '#ffff00' }],
+      error: null,
+    },
+  );
+  assert.equal(
+    tileTemplate('ee-forest-loss', 'default'),
+    '/api/earth-engine/tile/ee-forest-loss/default/{z}/{x}/{y}',
+  );
+  let clock = 0;
+  const server = fakeServer({
+    configured: true,
+    tiles: { used: 12, budget: 20000 },
+    layers: [serverLayer('ee-forest-loss')],
+  });
+  const source = createEarthEngineSource({
+    fetchImpl: server.fetchImpl,
+    now: () => clock,
+  });
+  const [a, b] = await Promise.all([source.catalog(), source.catalog()]);
+  assert.equal(a, b);
+  assert.equal(server.calls.length, 1);
+  assert.equal(server.calls[0], '/api/earth-engine/layers');
+  assert.equal(a.layers.get('ee-forest-loss').maxZoom, 12);
+  assert.deepEqual(a.tiles, { used: 12, budget: 20000 });
+  clock += CATALOG_TTL_MS + 1;
+  await source.catalog();
+  assert.equal(server.calls.length, 2);
+  assert.equal(source.last().at, clock);
+});
+
+test('an overlay drapes the proxy’s tiles at its stored opacity, and its row carries legend, slider and status', async () => {
+  const fake = fakeViewer(3_000_000);
+  const server = fakeServer({
+    configured: true,
+    tiles: { used: 40, budget: 20000 },
+    layers: EARTH_ENGINE_LAYERS.map((layer) => serverLayer(layer.id)),
+  });
+  const source = createEarthEngineSource({ fetchImpl: server.fetchImpl });
+  const storage = memoryStorage({
+    [`${OPACITY_STORAGE_PREFIX}ee-forest-loss`]: '0.4',
+  });
+  const renders = [];
+  const layer = createEarthEngineLayer({
+    record: record('ee-forest-loss'),
+    source,
+    storage,
+    requestRender: (reason) => renders.push(reason),
+  });
+  let heard = 0;
+  layer.setRowControlsListener(() => heard++);
+  assert.equal(layer.id, 'ee-forest-loss');
+  assert.equal(layer.name, 'Forest loss');
+  layer.init(fake.viewer);
+  layer.enable(fake.viewer);
+  await flush();
+  assert.equal(fake.layers.length, 1);
+  const [imagery] = fake.layers;
+  assert.ok(imagery.provider instanceof Cesium.UrlTemplateImageryProvider);
+  assert.equal(imagery.alpha, 0.4, 'the stored opacity');
+  assert.equal(imagery.provider.maximumLevel, 12);
+  assert.match(
+    imagery.provider.url,
+    /\/api\/earth-engine\/tile\/ee-forest-loss\/default\/\{z\}\/\{x\}\/\{y\}$/,
+  );
+  assert.match(
+    imagery.provider.credit.html,
+    /Google Earth Engine · Hansen\/UMD/,
+  );
+  assert.ok(renders.includes('earth-engine-show'));
+  assert.ok(heard > 0);
+  const controls = layer.getRowControls();
+  assert.deepEqual(
+    controls.legend.map((entry) => entry.label),
+    ['2001', '2009', '2017', '2025'],
+  );
+  assert.equal(controls.slider.value, 40);
+  assert.equal(controls.info, '40 of 20000 tiles today');
+  assert.match(controls.infoTitle, /CC BY 4\.0/);
+  // The slider sets and keeps the opacity.
+  controls.slider.onInput(85);
+  assert.equal(imagery.alpha, 0.85);
+  assert.equal(
+    storage.map.get(`${OPACITY_STORAGE_PREFIX}ee-forest-loss`),
+    '0.85',
+  );
+  assert.ok(renders.includes('earth-engine-opacity'));
+  assert.equal(layer.getStats().countLabel, '85%');
+  layer.disable();
+  assert.equal(fake.layers.length, 0, 'off: nothing draped');
+  assert.equal(fake.listeners.length, 0);
+  layer.destroy();
+});
+
+test('the boundaries change level with the camera, and a broken store falls back', async () => {
+  const fake = fakeViewer(3_000_000);
+  const server = fakeServer({
+    configured: true,
+    tiles: { used: 0, budget: 0 },
+    layers: [serverLayer('ee-admin-boundaries')],
+  });
+  const throwing = {
+    getItem: () => {
+      throw new Error('denied');
+    },
+    setItem: () => {
+      throw new Error('denied');
+    },
+  };
+  assert.equal(readOpacity(throwing, 'x'), DEFAULT_OPACITY);
+  const layer = createEarthEngineLayer({
+    record: record('ee-admin-boundaries'),
+    source: createEarthEngineSource({ fetchImpl: server.fetchImpl }),
+    storage: throwing,
+  });
+  layer.init(fake.viewer);
+  layer.enable(fake.viewer);
+  await flush();
+  assert.equal(layer._state().variant, 'level1');
+  assert.match(fake.layers[0].provider.url, /ee-admin-boundaries\/level1\//);
+  assert.equal(layer.getRowControls().info, 'First-level units');
+  fake.setHeight(200_000);
+  fake.settle();
+  assert.equal(layer._state().variant, 'level2');
+  assert.equal(fake.layers.length, 1, 'one level at a time');
+  assert.match(fake.layers[0].provider.url, /ee-admin-boundaries\/level2\//);
+  layer.getRowControls().slider.onInput(50);
+  assert.equal(
+    fake.layers[0].alpha,
+    0.5,
+    'kept for the page when the store refuses',
+  );
+  layer.destroy();
+});
+
+test('without a key, or with an Earth Engine error, the row says so and nothing is draped', async () => {
+  const fake = fakeViewer();
+  const server = fakeServer({
+    configured: false,
+    message:
+      'Set EARTH_ENGINE_KEY_FILE and EARTH_ENGINE_PROJECT in .env to draw the Earth Engine layers',
+    tiles: { used: 0, budget: 20000 },
+    layers: [
+      serverLayer('ee-terrain-slope', { error: 'Set EARTH_ENGINE_KEY_FILE…' }),
+    ],
+  });
+  const source = createEarthEngineSource({ fetchImpl: server.fetchImpl });
+  const layer = createEarthEngineLayer({
+    record: record('ee-terrain-slope'),
+    source,
+    storage: memoryStorage(),
+  });
+  layer.init(fake.viewer);
+  layer.enable(fake.viewer);
+  await flush();
+  assert.equal(fake.layers.length, 0);
+  assert.equal(
+    layer.getRowControls().info,
+    'Set EARTH_ENGINE_KEY_FILE and EARTH_ENGINE_PROJECT in .env to draw the Earth Engine layers',
+  );
+  // Configured, but Earth Engine refused the map: its words, verbatim.
+  server.set({
+    configured: true,
+    tiles: { used: 0, budget: 20000 },
+    layers: [
+      serverLayer('ee-terrain-slope', {
+        error: 'Earth Engine 400: Image.setDefaultProjection: Unknown argument',
+      }),
+    ],
+  });
+  await layer.update();
+  assert.equal(
+    layer.getRowControls().info,
+    'Earth Engine: Earth Engine 400: Image.setDefaultProjection: Unknown argument',
+  );
+  assert.equal(
+    layer.getStats().error,
+    'Earth Engine 400: Image.setDefaultProjection: Unknown argument',
+  );
+  layer.destroy();
+  // The server unreachable.
+  const down = createEarthEngineLayer({
+    record: record('ee-terrain-slope'),
+    source: createEarthEngineSource({
+      fetchImpl: async () => new Response('{}', { status: 500 }),
+    }),
+    storage: memoryStorage(),
+  });
+  down.init(fake.viewer);
+  down.enable(fake.viewer);
+  await flush();
+  assert.equal(
+    down.getRowControls().info,
+    'Earth Engine unavailable: HTTP 500',
+  );
+  down.destroy();
+});
+
+test('each overlay credits Earth Engine and its dataset, escaped', () => {
+  const credit = attributionCredit(record('ee-admin-boundaries'));
+  assert.equal(credit.key, 'earth-engine-ee-admin-boundaries');
+  assert.match(
+    credit.html,
+    /^Administrative boundaries: <a href="https:\/\/earthengine\.google\.com\/"[^>]*>Google Earth Engine<\/a> · FAO GAUL 2025/,
+  );
+  assert.equal(
+    attributionCredit({
+      id: 'ee-x',
+      name: '<b>',
+      attribution: 'a & b',
+    }).html.includes('&lt;b&gt;'),
+    true,
+  );
+});
+
+test('legend words and status lines read in English by default', () => {
+  assert.equal(legendLabel('N'), 'N');
+  assert.equal(legendLabel('Shade'), 'Shade');
+  assert.equal(legendLabel('2001'), '2001');
+  assert.equal(statusText({ loading: true }), 'Asking Earth Engine…');
+  assert.equal(statusText({}), '');
+});

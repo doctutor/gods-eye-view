@@ -1,0 +1,364 @@
+{
+  "about": "Personal fork: the exact map requests server/providers/earthEngine.js sends to POST https://earthengine.googleapis.com/v1/projects/<project>/maps, one per layer variant (src/data/earthEngineLayers.js). Regenerate with the test in src/data/earthEngine.test.mjs when a layer changes.",
+  "requests": {
+    "ee-terrain-slope/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Terrain.slope",
+              "arguments": {
+                "input": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.setDefaultProjection",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.mosaic",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.load",
+                                      "arguments": {
+                                        "id": {
+                                          "constantValue": "COPERNICUS/DEM/GLO30_2024_1"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "DEM"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "crs": {
+                        "functionInvocationValue": {
+                          "functionName": "Projection",
+                          "arguments": {
+                            "crs": {
+                              "constantValue": "EPSG:3857"
+                            }
+                          }
+                        }
+                      },
+                      "scale": {
+                        "constantValue": 30
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 45
+          }
+        ],
+        "paletteColors": [
+          "1a9850",
+          "91cf60",
+          "fee08b",
+          "fc8d59",
+          "d73027"
+        ]
+      }
+    },
+    "ee-terrain-aspect/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Terrain.aspect",
+              "arguments": {
+                "input": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.setDefaultProjection",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.mosaic",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.load",
+                                      "arguments": {
+                                        "id": {
+                                          "constantValue": "COPERNICUS/DEM/GLO30_2024_1"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "DEM"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "crs": {
+                        "functionInvocationValue": {
+                          "functionName": "Projection",
+                          "arguments": {
+                            "crs": {
+                              "constantValue": "EPSG:3857"
+                            }
+                          }
+                        }
+                      },
+                      "scale": {
+                        "constantValue": 30
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 360
+          }
+        ],
+        "paletteColors": [
+          "3288bd",
+          "99d594",
+          "fee08b",
+          "fc8d59",
+          "3288bd"
+        ]
+      }
+    },
+    "ee-terrain-hillshade/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Terrain.hillshade",
+              "arguments": {
+                "input": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.setDefaultProjection",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.mosaic",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.load",
+                                      "arguments": {
+                                        "id": {
+                                          "constantValue": "COPERNICUS/DEM/GLO30_2024_1"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "DEM"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "crs": {
+                        "functionInvocationValue": {
+                          "functionName": "Projection",
+                          "arguments": {
+                            "crs": {
+                              "constantValue": "EPSG:3857"
+                            }
+                          }
+                        }
+                      },
+                      "scale": {
+                        "constantValue": 30
+                      }
+                    }
+                  }
+                },
+                "azimuth": {
+                  "constantValue": 315
+                },
+                "elevation": {
+                  "constantValue": 45
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 255
+          }
+        ],
+        "paletteColors": [
+          "000000",
+          "ffffff"
+        ]
+      }
+    },
+    "ee-forest-loss/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.selfMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.select",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.load",
+                          "arguments": {
+                            "id": {
+                              "constantValue": "UMD/hansen/global_forest_change_2025_v1_13"
+                            }
+                          }
+                        }
+                      },
+                      "bandSelectors": {
+                        "constantValue": [
+                          "lossyear"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 1,
+            "max": 25
+          }
+        ],
+        "paletteColors": [
+          "ffff00",
+          "ff9900",
+          "ff0000",
+          "990000"
+        ]
+      }
+    },
+    "ee-admin-boundaries/level1": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "FeatureCollection.style",
+              "arguments": {
+                "collection": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.loadTable",
+                    "arguments": {
+                      "tableId": {
+                        "constantValue": "FAO/GAUL/2025/level1"
+                      }
+                    }
+                  }
+                },
+                "color": {
+                  "constantValue": "ffffffcc"
+                },
+                "fillColor": {
+                  "constantValue": "00000000"
+                },
+                "width": {
+                  "constantValue": 1
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-admin-boundaries/level2": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "FeatureCollection.style",
+              "arguments": {
+                "collection": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.loadTable",
+                    "arguments": {
+                      "tableId": {
+                        "constantValue": "FAO/GAUL/2025/level2"
+                      }
+                    }
+                  }
+                },
+                "color": {
+                  "constantValue": "ffffffcc"
+                },
+                "fillColor": {
+                  "constantValue": "00000000"
+                },
+                "width": {
+                  "constantValue": 1
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    }
+  }
+}

@@ -34,6 +34,11 @@ import { createInfrastructureLayers } from '../data/infrastructure.js';
 import { createApplicationBaltimoreCameras } from './layers/baltimoreCameras.js';
 // Personal fork: non-live videos tied to places (local-only, not upstream).
 import { createApplicationRecordedVideo } from './layers/recordedVideo.js';
+// Personal fork: Earth Engine overlays (local-only, not upstream).
+import {
+  EARTH_ENGINE_LAYER_IDS,
+  createApplicationEarthEngineLayers,
+} from './layers/earthEngine.js';
 import { localGeoJsonServices } from './localGeojsonServices.js';
 import { createBhoteKoshiEventLayer } from '../data/bhoteKoshiEvent.js';
 import { createBhoteKoshiLocatorLayer } from '../data/bhoteKoshiLocator.js';
@@ -54,6 +59,9 @@ export const LOCAL_ONLY_LAYER_METADATA = Object.freeze([
     disposition: 'local-only',
   }),
   Object.freeze({ id: 'recorded-video', disposition: 'local-only' }),
+  ...EARTH_ENGINE_LAYER_IDS.map((id) =>
+    Object.freeze({ id, disposition: 'local-only' }),
+  ),
 ]);
 
 /** Serialization metadata for every layer the application catalog constructs. */
@@ -151,6 +159,7 @@ export function createApplicationCatalog({
           providers: streetLevelProviders,
         }),
         createApplicationRecordedVideo(),
+        ...createApplicationEarthEngineLayers(),
         satellites,
         createApplicationLaunches({ source: sources.launches, satellites }),
         createApplicationTraffic({ source: sources.traffic, surface }),

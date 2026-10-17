@@ -28,6 +28,7 @@ unless its switch is set to `0`.
 - [Screenshot-safe mode (HIDE WINDY)](#screenshot-safe-mode-hide-windy)
 - [Google indoor views (Street Level)](#google-indoor-views-street-level)
 - [Baltimore enforcement and CitiWatch cameras](#baltimore-enforcement-and-citiwatch-cameras)
+- [Earth Engine layers (ANALYSIS)](#earth-engine-layers-analysis)
 - [Smaller additions](#smaller-additions)
 - [Keeping up with upstream](#keeping-up-with-upstream)
 - [What you need to do](#what-you-need-to-do)
@@ -489,6 +490,89 @@ browser once a session.
 
 Code: `src/layers/baltimoreCameras/`.
 
+## Earth Engine layers (ANALYSIS)
+
+The **ANALYSIS** group in the DATA LAYERS panel draws Google Earth Engine
+images over the globe. Each overlay is its own toggle. Its row has a legend,
+an opacity slider (kept per layer in this browser as
+`gev.earthEngine.opacity.<id>`), and a status line.
+
+| Layer | Dataset (Earth Engine id) | Licence |
+| --- | --- | --- |
+| Terrain slope, Terrain aspect, Hillshade | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`) | Copernicus DEM licence; notice required |
+| Forest loss (2001–2025, coloured by year) | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear` | CC BY 4.0 |
+| Administrative boundaries | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km | CC BY 4.0 |
+
+The ids were taken from Earth Engine's catalog records on 2026-10-17. The
+older ids, `COPERNICUS/DEM/GLO30` and `FAO/GAUL/2015/*`, are deprecated, and
+the 2015 GAUL tables were noncommercial only. Each layer credits Google Earth
+Engine and its dataset in Cesium's credit line and in the data-attribution
+popover.
+
+**Registration.** The Cloud project "gods-eye-view"
+(`true-energy-511503-v7`) is registered for **noncommercial** Earth Engine
+use. That is the Community tier: 150 EECU-hours a month. The server signs in
+as the service account `gods-eye-view-earth-engine` (roles Earth Engine
+Resource Viewer and Service Usage Consumer) with the scope
+`https://www.googleapis.com/auth/earthengine`.
+
+**Setup.** Put the account's JSON key at `.gev-secrets/earth-engine.json`.
+That folder is gitignored, and the key never leaves the server. Then set, in
+`.env`:
+
+```
+EARTH_ENGINE_KEY_FILE=.gev-secrets/earth-engine.json
+EARTH_ENGINE_PROJECT=true-energy-511503-v7
+```
+
+Until both are set and the file exists, each row says "Set
+EARTH_ENGINE_KEY_FILE and EARTH_ENGINE_PROJECT in .env to draw the Earth
+Engine layers", and nothing is fetched.
+
+**How it works** (`server/providers/earthEngine.js`). It uses Earth Engine's
+REST API, with no npm dependency. The official `@google/earthengine` client
+pulls in about 110 MB (`googleapis@92`).
+
+1. The server signs a JWT with the key (RS256, `node:crypto`) and exchanges it
+   for an access token, which it keeps for its hour.
+2. For each layer it makes a map: `POST
+   /v1/projects/<project>/maps` with the layer's expression, the computation
+   graph Earth Engine's own clients send. The map is made again after two
+   hours, or when a tile says it has expired. One request is in flight per
+   layer at a time. When a new map cannot be made, the old one keeps serving.
+3. The browser asks this server for tiles at
+   `/api/earth-engine/tile/<layer>/<variant>/<z>/<x>/<y>`. The server keeps
+   each tile on disk for 30 days in `.gev-cache/earth-engine/tiles/`.
+4. Tiles fetched from Earth Engine count against `EARTH_ENGINE_DAILY_TILES`
+   (20,000 a day by default); tiles from disk do not. Past the budget, the
+   server answers 429.
+5. `GET /api/earth-engine/layers` lists the layers with their tile template,
+   legend, attribution and map expiry. When Earth Engine refused a map, it
+   also carries Earth Engine's own error text, which the row's status line
+   shows.
+
+Both routes are same-site only. The exact JSON sent for each layer is
+committed as `src/data/fixtures/earth-engine-expressions.json`, so a
+rejection can be read against what was sent. A test fails when a layer's
+request and the fixture drift apart.
+
+**Adding a layer** is a record in `src/data/earthEngineLayers.js`; the file's
+header lists the fields. Then:
+
+1. Regenerate the expressions fixture.
+2. Add the id to the ANALYSIS group in `src/ui/layerPanel.js` and to
+   `src/voice/layerManifest.js`.
+3. Add its name to `src/ui/layerNames.js` and to `forkStrings.test.mjs`,
+   with Spanish and Russian names.
+4. Bump the layer counts in `src/app/constructCatalog.test.mjs` and
+   `src/app/sourceComposition.test.mjs`.
+
+An image layer names an asset (a collection is mosaicked) and its band, and
+optionally a terrain operation, `selfMask` and `vis` (min, max, palette). A
+features layer names a table and a `style`, with variants by camera height.
+Anything else Earth Engine can compute needs a small addition to
+`expressionFor`.
+
 ## Smaller additions
 
 - **Frame cache.** Camera stills are kept for their Cache-Control lifetime (at
@@ -538,9 +622,10 @@ git merge origin/main
 - `src/data/dataCredits.js`, `.env.example` and `DATA_SOURCES.md`.
 - **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (two
   places) and `src/app/sourceComposition.test.mjs` assert `layers.length`.
-  The fork's count is upstream's plus 3 (the two Baltimore layers and
-  Recorded Video): 35 after the 2026-10-16 sync. An upstream layer added later
-  changes both numbers.
+  The fork's count is upstream's plus 8 (the two Baltimore layers, Recorded
+  Video and the five Earth Engine overlays): 40 since the Earth Engine
+  layers (2026-10-17). A record added to `src/data/earthEngineLayers.js` or an
+  upstream layer added later changes the number.
 - **Translations.** Upstream checks that every UI string is marked for
   translation (`npm run i18n`). Fork UI text goes through `t()`, `tn()` and
   `msg()` (or `data-i18n*` in markup) like upstream's, with Spanish and

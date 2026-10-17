@@ -20,6 +20,7 @@ const FORK_FILES = [
   'src/layers/cctv/audio.js',
   'src/layers/baltimoreCameras/',
   'src/layers/recordedVideo/',
+  'src/layers/earthEngine/',
   'src/layers/streetLevel/providers/googleIndoor/',
 ];
 
@@ -47,6 +48,12 @@ const FORK_LAYER_NAMES = [
   'Enforcement Cameras (Baltimore)',
   'CitiWatch Cameras (Baltimore)',
   'Recorded Video',
+  'Terrain slope',
+  'Terrain aspect',
+  'Hillshade',
+  'Forest loss',
+  'Administrative boundaries',
+  'Analysis',
 ];
 
 function forkMessages() {
