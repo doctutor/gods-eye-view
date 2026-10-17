@@ -3,6 +3,16 @@ import { cameraKind, CAMERA_KINDS } from '../layers/cctv/cameraKind.js';
 import { apparentSolarTime, daylightPhase } from '../data/solarDaylight.js';
 import { embedMetaText } from './cctvEmbed.js';
 import { audioMetaLabel } from '../layers/cctv/audio.js';
+import { msg, t } from '../i18n/index.js';
+
+/** Daylight phases as the panel says them. */
+const PHASE_WORDS = Object.freeze({
+  day: msg('day'),
+  dawn: msg('dawn'),
+  dusk: msg('dusk'),
+  night: msg('night'),
+});
+const phaseWord = (phase) => t(PHASE_WORDS[phase] || phase);
 
 /**
  * The panel kind of a public camera state: the layer's `panelKind`, else the
@@ -88,9 +98,11 @@ export function localTimeLine(camera, now = Date.now()) {
   const local = cameraLocalTime(camera, now);
   if (!local) return '';
   return [
-    `Local ${local.clock}${local.solar ? ' solar' : ''}`,
-    local.phase,
-    probablyReplay(camera, local) ? 'probably a replay' : null,
+    local.solar
+      ? t('Local {clock} solar', { clock: local.clock })
+      : t('Local {clock}', { clock: local.clock }),
+    phaseWord(local.phase),
+    probablyReplay(camera, local) ? t('probably a replay') : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -104,7 +116,7 @@ export function poselessMetaText(camera, now = Date.now()) {
   const first = [
     embedMetaText(camera),
     camera?.credit && camera.credit !== camera.provider ? camera.credit : null,
-    audioMetaLabel(camera) || null,
+    audioMetaLabel(camera) ? t(audioMetaLabel(camera)) : null,
     camera?.sourceMessage || null,
   ]
     .filter(Boolean)
@@ -116,18 +128,37 @@ export function poselessMetaText(camera, now = Date.now()) {
 const KIND_PHRASE = {
   embed: (camera) =>
     String(camera?.liveStatus).toLowerCase() === 'live'
-      ? 'Live stream'
-      : 'Video stream',
-  still: () => 'Still camera',
-  link: () => 'Webcam link',
+      ? msg('Live stream')
+      : msg('Video stream'),
+  still: () => msg('Still camera'),
+  link: () => msg('Webcam link'),
 };
 
+/** How precisely a camera is pinned, inside a sentence and as one. */
 const PRECISION_PHRASE = {
-  site: 'pinned at the site',
-  area: 'pinned to the area',
-  region: 'pinned only to the region',
-  'operator-geotag': "pinned at the operator's geotag",
+  site: msg('pinned at the site'),
+  area: msg('pinned to the area'),
+  region: msg('pinned only to the region'),
+  'operator-geotag': msg("pinned at the operator's geotag"),
 };
+const PRECISION_SENTENCE = {
+  site: msg('Pinned at the site.'),
+  area: msg('Pinned to the area.'),
+  region: msg('Pinned only to the region.'),
+  'operator-geotag': msg("Pinned at the operator's geotag."),
+};
+
+/** The local-time sentence of the summary, solar or civil, with or without the replay hint. */
+function timeSentence(local, replay) {
+  const values = { clock: local.clock, phase: phaseWord(local.phase) };
+  if (local.solar)
+    return replay
+      ? t('Local time {clock} (solar), {phase} — probably a replay.', values)
+      : t('Local time {clock} (solar), {phase}.', values);
+  return replay
+    ? t('Local time {clock}, {phase} — probably a replay.', values)
+    : t('Local time {clock}, {phase}.', values);
+}
 
 /**
  * The scene summary for a camera without a pose, in plain words instead of
@@ -142,22 +173,30 @@ export function plainCameraSummary(camera, now = Date.now()) {
   const place = [name, city && city !== name ? city : null]
     .filter(Boolean)
     .join(', ');
-  const category = String(camera.category || '').trim();
-  const precision = PRECISION_PHRASE[camera.coordinatesQuality] || null;
-  const detail = [
-    category ? `${category[0].toUpperCase()}${category.slice(1)} camera` : null,
-    precision,
-  ]
-    .filter(Boolean)
-    .join(', ');
-  const operator = camera.provider ? `Operator: ${camera.provider}.` : null;
+  const raw = String(camera.category || '').trim();
+  const category = raw ? `${raw[0].toUpperCase()}${raw.slice(1)}` : '';
+  const quality = camera.coordinatesQuality;
+  let detail = null;
+  if (category && PRECISION_PHRASE[quality])
+    detail = t('{category} camera, {precision}.', {
+      category,
+      precision: t(PRECISION_PHRASE[quality]),
+    });
+  else if (category) detail = t('{category} camera.', { category });
+  else if (PRECISION_SENTENCE[quality]) detail = t(PRECISION_SENTENCE[quality]);
+  const operator = camera.provider
+    ? t('Operator: {operator}.', { operator: camera.provider })
+    : null;
   const local = cameraLocalTime(camera, now);
   const time = local
-    ? `Local time ${local.clock}${local.solar ? ' (solar)' : ''}, ${local.phase}${probablyReplay(camera, local) ? ' — probably a replay' : ''}.`
+    ? timeSentence(local, probablyReplay(camera, local))
     : null;
+  const kindText = t(KIND_PHRASE[kind](camera));
   return [
-    `${KIND_PHRASE[kind](camera)}${place ? `: ${place}` : ''}.`,
-    detail ? `${detail[0].toUpperCase()}${detail.slice(1)}.` : null,
+    place
+      ? t('{kind}: {place}.', { kind: kindText, place })
+      : t('{kind}.', { kind: kindText }),
+    detail,
     operator,
     time,
   ]

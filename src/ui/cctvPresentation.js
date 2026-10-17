@@ -218,7 +218,7 @@ export function _renderCctvState(state) {
           projection: projLabel,
           calBadge: calBadge ? ` · ${calBadge}` : '',
           provider,
-          status: `${credit}${sound ? ` · ${sound}` : ''}${statusMsg}`,
+          status: `${credit}${sound ? ` · ${t(sound)}` : ''}${statusMsg}`,
         },
       );
     } else if (cameras.length > 0) {

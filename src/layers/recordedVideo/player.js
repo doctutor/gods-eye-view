@@ -1,5 +1,5 @@
 import { youtubeEmbedUrl } from '../../ui/cctvEmbed.js';
-import { PRECISION_STYLE } from './source.js';
+import { t } from '../../i18n/index.js';
 
 /**
  * Personal fork: a small floating player for one recorded video — YouTube's
@@ -8,16 +8,35 @@ import { PRECISION_STYLE } from './source.js';
  * closing it removes the player, so nothing plays unseen.
  */
 
+/** A video's pin precision as the map and the player say it. */
+export function precisionLabel(quality) {
+  if (quality === 'site') return t('SITE', { context: 'pin precision' });
+  if (quality === 'area') return t('AREA', { context: 'pin precision' });
+  if (quality === 'region') return t('REGION', { context: 'pin precision' });
+  // i18n-ignore: personal fork, English-only UI (not yet translated)
+  if (quality === 'about') return 'ABOUT';
+  return '?';
+}
+
 /** What the player's caption says about a record. */
 export function captionFor(record) {
-  const precision = PRECISION_STYLE[record?.coordinatesQuality]?.label || '?';
-  const where =
-    record?.source === 'wikidata'
-      ? `${record.place || record.title} · Wikidata · ${precision}`
-      : record?.source === 'landmark'
-        ? // i18n-ignore: personal fork, English-only UI
-          `${record.place} · ${precision} · ${String(record.kind || 'other').toUpperCase()}`
-        : `${record?.place || 'YouTube geotag'} · geotag · ${precision}${record?.sharedBy ? ` (shared by ${record.sharedBy})` : ''}`;
+  const precision = precisionLabel(record?.coordinatesQuality);
+  let where;
+  if (record?.source === 'wikidata')
+    where = `${record.place || record.title} · Wikidata · ${precision}`;
+  else if (record?.source === 'landmark')
+    // i18n-ignore: personal fork, English-only UI
+    where = `${record.place} · ${precision} · ${String(record.kind || 'other').toUpperCase()}`;
+  else {
+    const place = record?.place || t('YouTube geotag');
+    where = record?.sharedBy
+      ? t('{place} · geotag · {precision} (shared by {count})', {
+          place,
+          precision,
+          count: record.sharedBy,
+        })
+      : t('{place} · geotag · {precision}', { place, precision });
+  }
   const when = String(record?.recordedAt || record?.publishedAt || '').slice(
     0,
     10,
@@ -85,8 +104,10 @@ export function createVideoPlayer({
     panel = doc.createElement('div');
     panel.className = 'recorded-video-player';
     panel.setAttribute('role', 'dialog');
-    // i18n-ignore: personal fork, English-only UI
-    panel.setAttribute('aria-label', `Recorded video: ${record.title}`);
+    panel.setAttribute(
+      'aria-label',
+      t('Recorded video: {title}', { title: record.title }),
+    );
     const header = doc.createElement('div');
     header.className = 'recorded-video-player-header';
     const title = doc.createElement('span');
@@ -96,15 +117,13 @@ export function createVideoPlayer({
     shut.type = 'button';
     shut.className = 'recorded-video-player-close';
     shut.textContent = '×';
-    // i18n-ignore: personal fork, English-only UI
-    shut.setAttribute('aria-label', 'Close the video');
+    shut.setAttribute('aria-label', t('Close the video'));
     shut.addEventListener('click', close);
     header.append(title, shut);
     const frame = doc.createElement('iframe');
     frame.className = 'recorded-video-player-frame';
     frame.src = src;
-    // i18n-ignore: personal fork, English-only UI
-    frame.title = `${record.title} on YouTube`;
+    frame.title = t('{name} on YouTube', { name: record.title });
     frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
     frame.allowFullscreen = true;
     frame.referrerPolicy = 'strict-origin-when-cross-origin';
@@ -116,8 +135,7 @@ export function createVideoPlayer({
     link.href = `https://www.youtube.com/watch?v=${record.videoId}`;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    // i18n-ignore: personal fork, English-only UI
-    link.textContent = 'WATCH ON YOUTUBE ↗';
+    link.textContent = t('WATCH ON {site} ↗', { site: 'YOUTUBE' });
     panel.append(header, frame, caption, link);
     doc.body.appendChild(panel);
     current = record;

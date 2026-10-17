@@ -9,7 +9,8 @@ import {
   fetchWikidataVideos,
   viewQuery,
 } from './source.js';
-import { createVideoPlayer } from './player.js';
+import { createVideoPlayer, precisionLabel } from './player.js';
+import { msg } from '../../i18n/index.js';
 export * from './source.js';
 
 /**
@@ -286,7 +287,7 @@ export function createRecordedVideoLayer({
           position: Cesium.Cartesian3.fromDegrees(record.lon, record.lat),
           variant: 'label',
           title: record.title.slice(0, 48),
-          details: [PRECISION_STYLE[record.coordinatesQuality].label],
+          details: [precisionLabel(record.coordinatesQuality)],
           accent: SOURCE_COLOR[record.source],
           priority: Math.round(LABEL_RADIUS_M - d),
           collisionGroup: 'ambient-label',
@@ -328,8 +329,7 @@ export function createRecordedVideoLayer({
       return true;
     } catch (error) {
       if (!request.signal.aborted)
-        // i18n-ignore: personal fork, English-only UI
-        _lastError = error?.message || 'Recorded video unavailable';
+        _lastError = error?.message || msg('Recorded video unavailable');
       return false;
     } finally {
       if (_wikidataRequest === request) _wikidataRequest = null;
@@ -380,8 +380,7 @@ export function createRecordedVideoLayer({
     } catch (error) {
       _cellsAsked.delete(query.cell);
       if (!request.signal.aborted)
-        // i18n-ignore: personal fork, English-only UI
-        _lastError = error?.message || 'Recorded video search failed';
+        _lastError = error?.message || msg('Recorded video search failed');
     } finally {
       if (_nearRequest === request) _nearRequest = null;
       const next = _pendingQuery;

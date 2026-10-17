@@ -6,7 +6,17 @@
  * unseen.
  */
 
+import { msg, t } from '../i18n/index.js';
+
 const EMBED_ORIGIN = 'https://www.youtube-nocookie.com';
+
+/** A YouTube stream's live state as the badge says it. */
+const LIVE_STATUS_LABELS = Object.freeze({
+  live: msg('LIVE'),
+  upcoming: msg('UPCOMING'),
+  offline: msg('OFFLINE'),
+  unknown: msg('STATUS UNKNOWN'),
+});
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
 /** Player URL for one stream: muted autoplay, inline, no unrelated suggestions. */
@@ -56,8 +66,9 @@ export function syncCctvEmbed(
   const frame = document.createElement('iframe');
   frame.className = 'cctv-embed';
   frame.src = src;
-  // i18n-ignore: personal fork, English-only UI
-  frame.title = `${activeCamera.name || 'Live stream'} on YouTube`;
+  frame.title = t('{name} on YouTube', {
+    name: activeCamera.name || t('Live stream'),
+  });
   frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
   frame.allowFullscreen = true;
   frame.referrerPolicy = 'strict-origin-when-cross-origin';
@@ -83,28 +94,35 @@ export function operatorLinkFor(activeCamera) {
   }
   if (url.protocol !== 'https:') return null;
   const host = url.hostname.replace(/^www\./, '');
-  const verb = activeCamera?.feedType === 'link' ? 'WATCH ON' : 'OPEN ON';
-  return { href: url.href, text: `${verb} ${host.toUpperCase()} ↗` };
+  const site = host.toUpperCase();
+  const text =
+    activeCamera?.feedType === 'link'
+      ? t('WATCH ON {site} ↗', { site })
+      : t('OPEN ON {site} ↗', { site });
+  return { href: url.href, text };
 }
 
 /** Badge text for an embedded stream, e.g. "YOUTUBE · LIVE". */
 export function embedBadgeText(activeCamera) {
-  const status = String(activeCamera?.liveStatus || 'unknown').toUpperCase();
-  return `YOUTUBE · ${status === 'UNKNOWN' ? 'STATUS UNKNOWN' : status}`;
+  const code = String(activeCamera?.liveStatus || 'unknown').toLowerCase();
+  const label = LIVE_STATUS_LABELS[code];
+  return t('YOUTUBE · {status}', {
+    status: label ? t(label) : code.toUpperCase(),
+  });
 }
 
 /** Meta line for an embedded stream: place, how precise the pin is, operator. */
 export function embedMetaText(activeCamera) {
   const quality = {
-    site: 'PIN AT SITE',
-    area: 'PIN AT AREA',
-    region: 'PIN AT REGION',
-    'operator-geotag': 'OPERATOR GEOTAG',
+    site: msg('PIN AT SITE'),
+    area: msg('PIN AT AREA'),
+    region: msg('PIN AT REGION'),
+    'operator-geotag': msg('OPERATOR GEOTAG'),
   }[activeCamera?.coordinatesQuality];
   return [
     activeCamera?.city,
     String(activeCamera?.category || '').toUpperCase(),
-    quality,
+    quality ? t(quality) : null,
     activeCamera?.provider,
   ]
     .filter(Boolean)

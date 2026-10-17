@@ -241,15 +241,32 @@ week, so a rerun costs nothing.
 
 **Limits.**
 
-- Nothing runs camindex automatically. The pack is empty until you run
-  `discover` and `build`.
-- The pack serves only still-image cameras for now. PocketWorld's YouTube,
-  HLS and link cameras, and the time zones, are in `catalog.json` waiting for
-  the pack to pass them through (being added).
-- Lazy verification (`observed.json`, `verify --rolling`, a schedule) is on
-  an unmerged branch, not on `local-fixes` **(check)**.
+- Nothing runs camindex automatically unless you install the nightly task
+  (below). The pack is empty until `discover` and `build` have run.
+- The pack serves every feed kind the catalog holds: stills, MJPEG, HLS,
+  YouTube and operator links, with each camera's time zone.
+- A camera whose still a viewer opened is checked as it loads
+  (`observed.json`): seen dead or as a placeholder, it leaves this and the
+  Windy, linked, USGS and NPS packs; seen live, it is marked live.
+  PocketWorld cards that proved to be web pages become operator links
+  (`pocketworld/link-hosts.json`).
 
-Code: `scripts/camindex/`, `server/providers/cctv/camindex.js`.
+**Install the nightly run (optional).** `npm run camindex:schedule` runs
+whatever is due (weekly `discover`, nightly `verify --rolling`, then `build`)
+and exits. To have Windows run it every night at 03:00, open a Command
+Prompt and run this once:
+
+```bat
+schtasks /Create /TN "God's Eye View camindex" /SC DAILY /ST 03:00 /TR "cmd /c cd /d C:\Users\nospa\Desktop\godseye && npm run camindex:schedule >> .gev-cache\camindex\schedule.log 2>&1"
+```
+
+`npm run camindex:status` shows the counts per source and when each step
+last ran (from `.gev-cache/camindex/runs.jsonl`). Remove the task with
+`schtasks /Delete /TN "God's Eye View camindex" /F`. More detail is in
+`scripts/camindex/SOURCES.md` under Install.
+
+Code: `scripts/camindex/`, `server/providers/cctv/camindex.js`,
+`server/providers/cctv/observed.js`.
 
 ## One pin per camera (cross-source dedupe)
 
@@ -525,11 +542,11 @@ git merge origin/main
   Recorded Video): 35 after the 2026-10-16 sync. An upstream layer added later
   changes both numbers.
 - **Translations.** Upstream checks that every UI string is marked for
-  translation (`npm run i18n`). Fork UI text is English-only: markup carries
-  `translate="no"`, code carries `// i18n-ignore: personal fork, English-only
-UI`, and the Baltimore layers are listed as untranslated in
-  `src/ui/layerNames.test.mjs` (with Recorded Video). New fork UI text needs the same, or real
-  Spanish and Russian entries in `src/i18n/locales/`.
+  translation (`npm run i18n`). Fork UI text goes through `t()`, `tn()` and
+  `msg()` (or `data-i18n*` in markup) like upstream's, with Spanish and
+  Russian entries in `src/i18n/locales/`. `src/i18n/forkStrings.test.mjs`
+  fails when a fork module adds text without both translations. Brand names
+  (YOUTUBE, WINDY, STREET VIEW, WIKIDATA) stay English.
 - **Street Level providers.** Upstream's Google provider took
   `providers/google/`; the fork's indoor provider moved to
   `providers/googleIndoor/`.
@@ -591,6 +608,6 @@ These keys go in `.env`; the in-app POWER UP panel doesn't list them.
       lookup and the channel watcher.
 - [ ] Set `WINDY_WEBCAMS_API_KEY` for Windy webcams, and turn on HIDE WINDY
       before sharing screenshots.
-- [ ] Run camindex (`discover`, then `build`) when you want its cameras; it
-      doesn't run on its own.
+- [ ] Run camindex (`discover`, then `build`) when you want its cameras, or
+      install the nightly task (camindex section) so it keeps itself current.
 - [ ] Optional: `STREETVIEW_INDOOR_GRID=1`, `CCTV_AUDIO_SWEEP=1`.

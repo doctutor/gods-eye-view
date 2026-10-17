@@ -384,7 +384,12 @@ doubling to a 15 s cap, with every retry waiting behind one shared cooldown
 plus up to 1.5 s of jitter, and `Retry-After` extending the cooldown when the
 upstream exposes it. One console warning is logged per cooldown window. Other
 failures keep Cesium's handling and the flat `EllipsoidTerrainProvider`
-fallback. `scripts/qa-terrain-429.mjs` reproduces the burst against a keyless
+fallback; while that flat terrain is on a shown globe the map controller
+retries Re:Earth in the background (30 s, doubling to a 10-minute cap, each
+attempt abandoned after 60 s) and installs the real terrain without waiting
+for a map switch or an imagery retry. Behind a 3D tileset it neither retries
+nor installs; the next globe activation does.
+`scripts/qa-terrain-429.mjs` reproduces the burst against a keyless
 dev server, counts real throttles with their headers as evidence, synthesises
 throttles with `--inject N` when the upstream is not throttling, and fails if
 a throttled tile never loads.
@@ -1370,6 +1375,14 @@ outside its promise, so an unusual mirror status cannot crash the server.
 Node-only package entries expose both provider factories. Routes, payloads,
 fallback behavior and existing dev/preview hook registration are preserved;
 browser rendering is unchanged.
+The portable frame source retains the proxy's known `X-CCTV-Source` kind. Camera
+snapshot tools label Street View fallback imagery as historical and credit Google,
+while upstream frames retain their current-view label and catalog attribution.
+Synthetic placeholders are unavailable as snapshots. Injected frame sources may
+supply `sourceKind`; missing or unknown provenance keeps `current_view` null and
+does not claim the image is current. The `current_view` field distinguishes camera-feed
+provenance from historical fallback imagery; it does not measure capture time or
+image freshness.
 
 ## CCTV missing numeric fields
 
@@ -4712,12 +4725,17 @@ Coordinate input requires exactly two nonempty components; extra comma or semico
 
 Location search/fly-to, annotations and Radio location lookup receive one
 `placeSearch.geocode(query, { bias, signal })` service. `src/standalone` composes
-two offline providers first — a strict decimal-degree coordinate reader and an
+two offline providers first — a strict decimal-degree/geo-URI coordinate reader and an
 exact-match reader over the bundled city and landmark names — then Google when
 configured and Photon/OpenStreetMap as fallback, including Google transport
 failures or declined requests. The offline pair answer with no request and no
 key, and decline everything they are not certain of: a coordinate must be a
-decimal-degree pair (either order when N/S/E/W fix the axes), and a bundled name
+decimal-degree pair (either order when N/S/E/W fix the axes), or a two-dimensional
+WGS84 `geo:latitude,longitude` URI with an optional `;crs=wgs84`. URI scheme and
+CRS names are case-insensitive; internal whitespace, altitude, uncertainty, other
+parameters, query strings and fragments decline rather than silently dropping
+information. For example, `geo:39.7392,-104.9903` resolves offline to the same exact
+point, decimal label and framing box as `39.7392, -104.9903`. A bundled name
 must match exactly, so `12junk, 34oops` and `austin, tx` both reach the
 geocoders instead of being answered from the bundle. Degrees/minutes/seconds and
 grid references are not parsed. An answer either provider gives is exact, so
@@ -4774,7 +4792,7 @@ are omitted rather than framing the wrong part of the globe.
 - The bottom Visual Presets tray presents a **five-tile MAP SOURCE row** (`#map-stack-chips`, `src/mapStackChips.js`): Google 3D, Esri Satellite, Bing Aerial, Bing Labels, and OSM. The duplicate left `#stack-panel` is retired. The five tiles share one row on desktop and two rows on narrow screens, carry `aria-pressed` on the active source, and remain keyboard-reachable with a visible focus outline.
 - The lit tile follows controller state, not the click: a rejected switch (no ion token) or a superseded one (rapid A→B) leaves the genuinely active source lit, and the tray heading keeps its short-label status readout (`...` while switching, amber on `lastError`).
 - Ion stacks remain visible and keyboard-focusable when no ion token is configured, but expose `aria-disabled="true"` and do not switch. Their accessible label and tooltip quote `getStacks().unavailableReason` — the same string `setStack()` puts in the toast. OSM works keyless. The `ION` badge is gated on the stack's own `requiresIon`, so a `photoreal` chip unavailable because the Google tileset failed says so instead of falsely demanding an ion token.
-- Stack choice participates in share links (`src/sharelink.js`) and falls back to the best available stack when the requested one is unavailable (keyless boots land on Esri; OSM takes over automatically if Esri is unreachable). Share-link restore, the `set_map_stack` voice tool, and the chip row all land on the same `_setMapStack()` path.
+- Stack choice participates in share links (`src/sharelink.js`) and falls back to the best available stack when the requested one is unavailable (keyless boots land on Esri; OSM takes over automatically if Esri is unreachable; while that construction fallback is on screen Esri is retried in the background, 30 s doubling to a 10-minute cap with each attempt abandoned after 60 s, and replaces OSM once it loads. The switch to OSM after repeated Esri tile failures is not retried; selecting Esri again tries it). Share-link restore, the `set_map_stack` voice tool, and the chip row all land on the same `_setMapStack()` path.
 
 ### Voice Map Whiteboard / Annotations (June 2026)
 

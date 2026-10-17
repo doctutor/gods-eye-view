@@ -6,6 +6,7 @@
     "AIS: {name}",
     "ANIME",
     "ASIA",
+    "AUDIO",
     "AUTO",
     "Ambient",
     "Anime",
@@ -86,6 +87,7 @@
     "Sector",
     "Sonar",
     "Soul",
+    "Street View {used} / {budget}",
     "Techno",
     "Trance",
     "USB {rate} msg/s",
@@ -93,6 +95,7 @@
     "VS",
     "WHOT/BHOT",
     "WX",
+    "YOUTUBE · {status}",
     "audio {state}",
     "dB",
     "fire confidence|nominal",
@@ -132,6 +135,7 @@
     "R&B",
     "REC",
     "VS",
-    "WHOT/BHOT"
+    "WHOT/BHOT",
+    "YOUTUBE · {status}"
   ]
 }

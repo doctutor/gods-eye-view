@@ -1,10 +1,11 @@
 // Personal fork: Google Street View indoor views for the Street Level layer.
+import { msg } from '../../../../i18n/marker.js';
 import { COLORS as SHARED_COLORS, PROVIDER_COLORS } from '../../policy.js';
 
 /** Identity of the Google indoor-views provider. */
 export const GSV_INDOOR_PROVIDER_ID = 'gsv-indoor';
-export const GSV_INDOOR_NAME = 'Google indoor views';
-export const GSV_INDOOR_LABEL = 'GOOGLE INDOOR';
+export const GSV_INDOOR_NAME = msg('Google indoor views');
+export const GSV_INDOOR_LABEL = msg('GOOGLE INDOOR');
 /** The browser key frames the Maps Embed viewer; the server key probes. */
 export const GSV_INDOOR_KEY_ID = 'google-maps';
 export const GSV_INDOOR_ROUTE = '/api/streetview/indoor';

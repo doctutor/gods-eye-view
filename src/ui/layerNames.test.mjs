@@ -11,15 +11,7 @@ import {
 
 // Layers whose module name is a proper name and stays as it is in every
 // language: the Bhote Koshi pair belong to a scripted scene.
-// Personal fork: the Baltimore camera and Recorded Video layers keep their
-// English names.
-const UNTRANSLATED_NAMES = new Set([
-  'bhote-koshi-2026',
-  'bhote-koshi-locator',
-  'baltimore-enforcement-cameras',
-  'baltimore-citiwatch-cameras',
-  'recorded-video',
-]);
+const UNTRANSLATED_NAMES = new Set(['bhote-koshi-2026', 'bhote-koshi-locator']);
 
 const catalogIds = APPLICATION_LAYER_METADATA.map((layer) => layer.id);
 

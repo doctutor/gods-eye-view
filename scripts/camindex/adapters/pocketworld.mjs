@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { HostBlockedError, RobotsDisallowedError } from '../fetch.mjs';
 import { decodeEntities } from './opencctv.mjs';
 import { classifyWebcamUrl } from '../../../server/providers/cctv/linked.js';
@@ -405,6 +407,119 @@ export function markSharedPoints(candidates) {
     counts.set(at(c), (counts.get(at(c)) || 0) + 1);
   for (const c of candidates.values()) c.sharedPoint = counts.get(at(c));
   return candidates;
+}
+
+/**
+ * Hosts whose "image" cards are really web pages. A host whose checked cards
+ * (verify.json) answered something other than an image at least this often,
+ * over at least this many checks, is a link host: its cards become operator
+ * links, except a card verified live on its own.
+ */
+export const LINK_HOST_SHARE = 0.9;
+export const LINK_HOST_MIN_CHECKED = 3;
+export const LINK_HOSTS_FILE = 'link-hosts.json';
+const NOT_AN_IMAGE = 'not an image';
+
+const hostOf = (url) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return '';
+  }
+};
+
+/** Link hosts from verify records: {host: {checked, nonImage}}. */
+export function learnLinkHosts(candidates, records) {
+  const byHost = new Map();
+  for (const candidate of candidates) {
+    const record = records[candidate.id];
+    if (candidate.feedType !== 'image' || !record) continue;
+    const host = hostOf(candidate.stillUrl || candidate.url);
+    if (!host) continue;
+    const seen = byHost.get(host) || { checked: 0, nonImage: 0 };
+    seen.checked += 1;
+    if (record.reason === NOT_AN_IMAGE) seen.nonImage += 1;
+    byHost.set(host, seen);
+  }
+  const hosts = {};
+  for (const [host, seen] of byHost)
+    if (
+      seen.checked >= LINK_HOST_MIN_CHECKED &&
+      seen.nonImage / seen.checked >= LINK_HOST_SHARE
+    )
+      hosts[host] = seen;
+  return hosts;
+}
+
+/** An image card that is really a page, as a link to that page. */
+export function asLinkCard(candidate) {
+  const page = String(candidate.url || '');
+  const { stillUrl: _still, ...rest } = candidate;
+  return {
+    ...rest,
+    feedType: 'link',
+    url: '',
+    snapshotUrl: '',
+    operatorUrl: page.startsWith('https:') ? page : candidate.operatorUrl,
+    linkedFrom: 'image',
+  };
+}
+
+/**
+ * Turn page-not-image cards into links: every image card on a link host
+ * (unless verified live itself) and any card whose own check answered
+ * something other than an image. Their image verdicts no longer apply, so
+ * those records are left out.
+ * @returns {{candidates: Array<object>, records: Record<string, object>,
+ *   converted: number}}
+ */
+export function applyLinkHosts(candidates, records, hosts) {
+  const kept = { ...records };
+  let converted = 0;
+  const out = candidates.map((candidate) => {
+    if (candidate.feedType !== 'image') return candidate;
+    const record = records[candidate.id];
+    const onLinkHost =
+      Boolean(hosts[hostOf(candidate.stillUrl || candidate.url)]) &&
+      record?.status !== 'live';
+    if (!onLinkHost && record?.reason !== NOT_AN_IMAGE) return candidate;
+    converted += 1;
+    delete kept[candidate.id];
+    return asLinkCard(candidate);
+  });
+  return { candidates: out, records: kept, converted };
+}
+
+/**
+ * Learn link hosts from this source's verify records, record them in
+ * <dir>/pocketworld/link-hosts.json and apply them; build and verify both
+ * call this, so a new verdict applies on the next build with no recrawl.
+ */
+export function adjustCandidates(dir, candidates, records, now = Date.now()) {
+  const hosts = learnLinkHosts(candidates, records);
+  const file = path.join(dir, SOURCE, LINK_HOSTS_FILE);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const temporary = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(
+      temporary,
+      JSON.stringify(
+        {
+          updatedAt: new Date(now).toISOString(),
+          share: LINK_HOST_SHARE,
+          minChecked: LINK_HOST_MIN_CHECKED,
+          hosts,
+        },
+        null,
+        1,
+      ),
+    );
+    fs.renameSync(temporary, file);
+  } catch {
+    /* the rule still applies to this run */
+  }
+  const applied = applyLinkHosts(candidates, records, hosts);
+  return { ...applied, linkHosts: Object.keys(hosts) };
 }
 
 /** One candidate → a catalog camera. */

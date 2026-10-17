@@ -36,11 +36,11 @@
       </div>
       <div class="cctv-controls">
         <button id="cctv-prev-btn" class="scene-btn" data-i18n>PREV</button>
-        <input translate="no" id="cctv-camera-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search cameras…" aria-label="Search cameras" aria-controls="cctv-camera-list" />
+        <input id="cctv-camera-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search cameras…" aria-label="Search cameras" aria-controls="cctv-camera-list" data-i18n-placeholder data-i18n-aria-label />
         <button id="cctv-next-btn" class="scene-btn" data-i18n>NEXT</button>
       </div>
       <select id="cctv-camera-select" aria-label="CCTV camera" data-i18n-aria-label hidden></select>
-      <div translate="no" id="cctv-camera-list" class="cctv-camera-list" role="listbox" aria-label="Cameras, nearest first"></div>
+      <div id="cctv-camera-list" class="cctv-camera-list" role="listbox" aria-label="Cameras, nearest first" data-i18n-aria-label></div>
       <div class="cctv-controls">
         <button id="cctv-focus-btn" class="scene-btn" data-i18n>FOCUS</button>
         <button id="cctv-coverage-btn" class="scene-btn" data-i18n>COVERAGE OFF</button>
@@ -48,7 +48,7 @@
       </div>
       <!-- Personal fork: screenshot-safe mode (src/ui/cctvScreenshotSafe.js). -->
       <div class="cctv-controls cctv-screenshot-safe">
-        <button translate="no" id="cctv-hide-windy-btn" class="scene-btn" aria-pressed="false" title="Hide Windy webcams: Windy's terms forbid sharing images of them">HIDE WINDY</button>
+        <button id="cctv-hide-windy-btn" class="scene-btn" aria-pressed="false" title="Hide Windy webcams: Windy's terms forbid sharing images of them" data-i18n data-i18n-title>HIDE WINDY</button>
         <span id="cctv-windy-note" class="cctv-windy-note" hidden></span>
       </div>
       <div class="cctv-controls">
@@ -76,30 +76,30 @@
       </div>
       <!-- Personal fork: streams the featured-cam watcher found, waiting for a confirmed position (cctvPending.js). -->
       <details id="cctv-pending" class="cctv-pending" data-cctv-pending hidden>
-        <summary translate="no" class="cctv-summary-label">PENDING CAMS (<span data-cctv-pending-count>0</span>)</summary>
+        <summary class="cctv-summary-label"><span data-i18n>PENDING CAMS</span> (<span data-cctv-pending-count>0</span>)</summary>
         <div class="cctv-pending-list" data-cctv-pending-list></div>
       </details>
       <div class="cctv-summary-label" data-i18n>SCENE SUMMARY</div>
       <div id="cctv-summary" data-i18n>Enable CCTV to start camera-linked intelligence summaries.</div>
       <!-- Personal fork: the Recorded Video layer's videos and landmarks near the view (recordedVideoPanel.js). -->
-      <details translate="no" id="recorded-video-block" class="rv-block" data-recorded-video-panel hidden>
-        <summary class="cctv-summary-label">RECORDED VIDEO (<span data-rv-total>0</span>)</summary>
+      <details id="recorded-video-block" class="rv-block" data-recorded-video-panel hidden>
+        <summary class="cctv-summary-label"><span data-i18n>RECORDED VIDEO</span> (<span data-rv-total>0</span>)</summary>
         <div class="rv-counts" data-rv-counts></div>
         <div class="rv-tools">
-          <input type="search" data-rv-search autocomplete="off" spellcheck="false" placeholder="Search videos…" aria-label="Search recorded videos" />
-          <button type="button" class="scene-btn" data-rv-again title="Ask YouTube again for this view (101 units of the day's budget)">SEARCH AGAIN</button>
+          <input type="search" data-rv-search autocomplete="off" spellcheck="false" placeholder="Search videos…" aria-label="Search recorded videos" data-i18n-placeholder data-i18n-aria-label />
+          <button type="button" class="scene-btn" data-rv-again title="Ask YouTube again for this view (101 units of the day's budget)" data-i18n data-i18n-title>SEARCH AGAIN</button>
         </div>
         <div class="rv-budget" data-rv-budget></div>
         <div class="rv-status" data-rv-status></div>
-        <div class="rv-landmarks" data-rv-landmarks-section hidden>
+        <div translate="no" class="rv-landmarks" data-rv-landmarks-section hidden>
           <div class="rv-section-head">LANDMARKS NEARBY (<span data-rv-landmarks-total>0</span>)</div>
           <div class="rv-landmark-list" data-rv-landmarks role="list" aria-label="Landmarks nearby, nearest first; a row finds videos about the place (102 units of the day's budget)"></div>
         </div>
-        <div class="rv-list" data-rv-list role="list" aria-label="Recorded videos, nearest first"></div>
+        <div class="rv-list" data-rv-list role="list" aria-label="Recorded videos, nearest first" data-i18n-aria-label></div>
       </details>
       <!-- Personal fork: what the camera index holds and costs (cctvSources.js). -->
       <details id="cctv-sources" class="cctv-sources" data-cctv-sources>
-        <summary translate="no" class="cctv-summary-label">SOURCES</summary>
+        <summary class="cctv-summary-label" data-i18n>SOURCES</summary>
         <div class="cctv-sources-quota" data-cctv-sources-quota></div>
         <div class="cctv-sources-list" data-cctv-sources-list></div>
       </details>

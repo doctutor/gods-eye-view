@@ -1,10 +1,11 @@
 // Personal fork: the HIDE WINDY toggle for screenshot-safe mode.
+import { t } from '../i18n/index.js';
 
 /** Button and note text for the mode's state. */
 export function hideWindyLabels(on) {
   return {
-    button: on ? 'WINDY HIDDEN' : 'HIDE WINDY',
-    note: on ? 'Windy cams hidden for screenshots' : '',
+    button: on ? t('WINDY HIDDEN') : t('HIDE WINDY'),
+    note: on ? t('Windy cams hidden for screenshots') : '',
   };
 }
 

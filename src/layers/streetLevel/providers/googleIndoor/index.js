@@ -1,4 +1,5 @@
 // Personal fork: "Google indoor views" Street Level provider.
+import { msg } from '../../../../i18n/marker.js';
 import { createIndoorCoverage } from './coverage.js';
 import { createGoogleIndoorViewer } from './viewer.js';
 import { passesImageryFilter } from '../../filter.js';
@@ -84,17 +85,15 @@ export function createGoogleIndoorProvider({ source }) {
             const status = await source.getStatus();
             state.configured = status?.configured === true;
             state.usage = status;
-            // i18n-ignore: personal fork, English-only UI
             state.coverage.error = state.configured
               ? null
-              : status?.message || 'Indoor views are not configured';
+              : status?.message || msg('Indoor views are not configured');
             if (!state.configured)
               state.coverage.holdUntil = Date.now() + PROBE_BACKOFF_MS;
           } catch (error) {
             state.configured = false;
             state.coverage.error =
-              // i18n-ignore: personal fork, English-only UI
-              error?.message || 'Indoor views status unavailable';
+              error?.message || msg('Indoor views status unavailable');
           }
           // Hits already in the database still draw when probing is off.
           if (first) coverage.refresh();

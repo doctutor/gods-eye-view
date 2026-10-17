@@ -6,6 +6,18 @@ and writes `.gev-cache/camindex/catalog.json`. The app's `camindex` pack
 read under its own rules. A new source starts with a section here, written
 before its adapter.
 
+## Current counts
+
+<!-- camindex-status:start -->
+Counts from the build of 2026-10-17T01:22:36.553Z; regenerate with `npm run camindex:status -- --write-doc`.
+
+| Source | Found | In catalog | Checked | Live | Dead | Placeholder | Became links |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencctv | 30,176 | 29,870 | 225 | 193 | 31 | 0 | 0 |
+| openeagleeye | 29,197 | 29,072 | 998 | 873 | 9 | 116 | 0 |
+| pocketworld | 2,108 | 1,287 | 908 | 816 | 46 | 43 | 270 |
+<!-- camindex-status:end -->
+
 These rules apply to every source:
 
 - robots.txt is read first, and a path it disallows is never requested. If
@@ -153,18 +165,31 @@ whose last check was an error always is. Results go to `verify.json` and
 `observed.json`, saved every 25 checks.
 
 **Unattended:** `node scripts/camindex/index.mjs schedule` loops hourly. It
-runs `discover --scope default` once a week, `verify --rolling` when the last
-rolling run is 20 hours old, and `build` after either. Each step is logged
-to the console and to `runs.jsonl`. `schedule --once` does whatever is due
-and exits. To run it nightly from Windows Task Scheduler (03:00, from the
-main checkout, so the catalog lands where the app reads it):
+runs `discover --scope default` once a week, `verify --rolling` for each
+source when the last rolling run is 20 hours old, and `build` after either.
+Each step is logged to the console and to `runs.jsonl`. `schedule --once`
+(`npm run camindex:schedule`) does whatever is due and exits.
+
+### Install (nightly, Windows)
+
+Nothing installs this for you. To run it every night at 03:00, open a
+Command Prompt and run this once. It runs from the main checkout, so the
+catalog lands where the app reads it:
 
 ```bat
-schtasks /Create /TN "God's Eye View camindex" /SC DAILY /ST 03:00 ^
-  /TR "cmd /c cd /d C:\Users\nospa\Desktop\godseye && node scripts\camindex\index.mjs schedule --once >> .gev-cache\camindex\schedule.log 2>&1"
+schtasks /Create /TN "God's Eye View camindex" /SC DAILY /ST 03:00 /TR "cmd /c cd /d C:\Users\nospa\Desktop\godseye && npm run camindex:schedule >> .gev-cache\camindex\schedule.log 2>&1"
 ```
 
-To remove it: `schtasks /Delete /TN "God's Eye View camindex" /F`.
+- **Check it is installed:** `schtasks /Query /TN "God's Eye View camindex"`.
+- **Run it now, once:** `schtasks /Run /TN "God's Eye View camindex"`.
+- **Remove it:** `schtasks /Delete /TN "God's Eye View camindex" /F`.
+- **See what it did:** `npm run camindex:status` prints the counts and the
+  last run of each command from `.gev-cache/camindex/runs.jsonl`. For the raw
+  log, run `Get-Content .gev-cache\camindex\runs.jsonl -Tail 5` in
+  PowerShell. Console output goes to `.gev-cache\camindex\schedule.log`.
+- If the task cannot find `npm` (Task Scheduler runs with a short PATH),
+  replace `npm run camindex:schedule` with the full path to `node.exe`
+  followed by `scripts\camindex\index.mjs schedule --once`.
 
 **In the app:**
 

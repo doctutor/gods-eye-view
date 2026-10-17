@@ -1,5 +1,7 @@
 // Personal fork: whether a camera's stream carries sound (server cctv/audioProbe.js).
 
+import { msg } from '../../i18n/marker.js';
+
 /**
  * 'audio' a sound track was found; 'silent' none (or a still/link);
  * 'likely' YouTube, whose streams always carry a track that may be silence;
@@ -28,11 +30,11 @@ export function hasSound(camera) {
 export function audioMetaLabel(camera) {
   switch (camera?.audio) {
     case 'audio':
-      return 'sound';
+      return msg('sound');
     case 'likely':
-      return 'sound likely';
+      return msg('sound likely');
     case 'silent':
-      return 'silent';
+      return msg('silent');
     default:
       return '';
   }

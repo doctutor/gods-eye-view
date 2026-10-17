@@ -6,6 +6,8 @@
  * textContent.
  */
 
+import { t } from '../i18n/index.js';
+
 export const SOURCES_REFRESH_MS = 60_000;
 const STATUS_URL = '/api/cctv/status';
 const STREETVIEW_STATUS_URL = '/api/streetview/indoor/status';
@@ -57,10 +59,10 @@ export function ageText(iso, now = Date.now()) {
   const at = Date.parse(String(iso || ''));
   if (!Number.isFinite(at)) return '';
   const s = Math.max(0, Math.round((now - at) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86_400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86_400)}d ago`;
+  if (s < 60) return t('{n}s ago', { n: s });
+  if (s < 3600) return t('{n}m ago', { n: Math.round(s / 60) });
+  if (s < 86_400) return t('{n}h ago', { n: Math.round(s / 3600) });
+  return t('{n}d ago', { n: Math.round(s / 86_400) });
 }
 
 /** The quota line: YouTube units, Windy requests, Street View probes (exact). */
@@ -71,16 +73,29 @@ export function quotaLine(status, streetview) {
   const youtube = status?.featured?.youtube;
   if (youtube)
     parts.push(
-      `YouTube ${exact(youtube.units)} / ${exact(youtube.budget)} units today`,
+      t('YouTube {used} / {budget} units today', {
+        used: exact(youtube.units),
+        budget: exact(youtube.budget),
+      }),
     );
   const windy = (status?.dynamic || []).find((d) => d.name === 'windy');
   if (windy?.enabled && windy.configured !== false)
     parts.push(
-      `Windy ${exact(windy.requestsLastMinute ?? 0)}${windy.budgetPerMinute ? ` / ${exact(windy.budgetPerMinute)}` : ''} req/min`,
+      windy.budgetPerMinute
+        ? t('Windy {used} / {budget} req/min', {
+            used: exact(windy.requestsLastMinute ?? 0),
+            budget: exact(windy.budgetPerMinute),
+          })
+        : t('Windy {used} req/min', {
+            used: exact(windy.requestsLastMinute ?? 0),
+          }),
     );
   if (streetview && Number.isFinite(Number(streetview.dailyCap)))
     parts.push(
-      `Street View ${exact(streetview.usedToday)} / ${exact(streetview.dailyCap)}`,
+      t('Street View {used} / {budget}', {
+        used: exact(streetview.usedToday),
+        budget: exact(streetview.dailyCap),
+      }),
     );
   return parts.join(' · ');
 }
@@ -96,13 +111,15 @@ export function sourceRows(status, streetview, now = Date.now()) {
   const rows = [];
   for (const pack of status?.packs || []) {
     const counts = pack.skipped
-      ? `off: ${String(pack.skipped).slice(0, 60)}`
+      ? t('off: {reason}', { reason: String(pack.skipped).slice(0, 60) })
       : [
-          `${formatCount(pack.inIndex)} indexed`,
+          t('{count} indexed', { count: formatCount(pack.inIndex) }),
           pack.proximityOnly
             ? null
-            : `${formatCount(pack.servedCapped)} on map`,
-          pack.dedupedAway ? `${formatCount(pack.dedupedAway)} folded` : null,
+            : t('{count} on map', { count: formatCount(pack.servedCapped) }),
+          pack.dedupedAway
+            ? t('{count} folded', { count: formatCount(pack.dedupedAway) })
+            : null,
         ]
           .filter(Boolean)
           .join(' · ');
@@ -122,8 +139,11 @@ export function sourceRows(status, streetview, now = Date.now()) {
       label: label(source.name),
       counts:
         source.configured === false
-          ? 'no key'
-          : `${formatCount(source.cacheEntries)} areas cached · ${formatCount(source.knownCameras)} cams`,
+          ? t('no key')
+          : t('{areas} areas cached · {cams} cams', {
+              areas: formatCount(source.cacheEntries),
+              cams: formatCount(source.knownCameras),
+            }),
       age: '',
       error: errorText(source.lastError),
       state:
@@ -139,14 +159,22 @@ export function sourceRows(status, streetview, now = Date.now()) {
     const verified = camindex.verified;
     rows.push({
       key: 'camindex:catalog',
-      // i18n-ignore: personal fork, English-only UI
-      label: 'OPENCCTV FILE',
+      label: t('OPENCCTV FILE'),
       counts: [
         camindex.catalog
-          ? `${formatCount(camindex.catalog.cameras)} cams`
+          ? t('{count} cams', { count: formatCount(camindex.catalog.cameras) })
           : null,
         verified
-          ? `checked ${formatCount(verified.live)} live / ${formatCount(verified.dead)} dead${verified.unknown ? ` / ${formatCount(verified.unknown)} ?` : ''}`
+          ? verified.unknown
+            ? t('checked {live} live / {dead} dead / {unknown} ?', {
+                live: formatCount(verified.live),
+                dead: formatCount(verified.dead),
+                unknown: formatCount(verified.unknown),
+              })
+            : t('checked {live} live / {dead} dead', {
+                live: formatCount(verified.live),
+                dead: formatCount(verified.dead),
+              })
           : null,
       ]
         .filter(Boolean)
@@ -160,9 +188,13 @@ export function sourceRows(status, streetview, now = Date.now()) {
   if (featured)
     rows.push({
       key: 'featured:youtube',
-      // i18n-ignore: personal fork, English-only UI
+      // i18n-ignore: brand name
       label: 'YOUTUBE',
-      counts: `${formatCount(featured.listed)} listed · ${formatCount(featured.liveNow)} live · ${formatCount(featured.pending)} pending`,
+      counts: t('{listed} listed · {live} live · {pending} pending', {
+        listed: formatCount(featured.listed),
+        live: formatCount(featured.liveNow),
+        pending: formatCount(featured.pending),
+      }),
       age: '',
       error: null,
       state: 'ok',
@@ -171,9 +203,16 @@ export function sourceRows(status, streetview, now = Date.now()) {
   if (audio)
     rows.push({
       key: 'audio',
-      // i18n-ignore: personal fork, English-only UI
-      label: 'AUDIO',
-      counts: `${formatCount(audio.audio)} sound · ${formatCount(audio.silent)} silent · ${formatCount(audio.likely)} likely · ${formatCount(audio.unknown)} ?`,
+      label: t('AUDIO'),
+      counts: t(
+        '{sound} sound · {silent} silent · {likely} likely · {unknown} ?',
+        {
+          sound: formatCount(audio.audio),
+          silent: formatCount(audio.silent),
+          likely: formatCount(audio.likely),
+          unknown: formatCount(audio.unknown),
+        },
+      ),
       age: '',
       error: null,
       state: 'ok',
@@ -182,9 +221,18 @@ export function sourceRows(status, streetview, now = Date.now()) {
   if (frames)
     rows.push({
       key: 'frames',
-      // i18n-ignore: personal fork, English-only UI
-      label: 'FRAME CACHE',
-      counts: `${formatCount(frames.entries)} frames · ${formatBytes(frames.bytes)}${frames.hitRate === null || frames.hitRate === undefined ? '' : ` · ${Math.round(frames.hitRate * 100)}% hits`}`,
+      label: t('FRAME CACHE'),
+      counts:
+        frames.hitRate === null || frames.hitRate === undefined
+          ? t('{frames} frames · {size}', {
+              frames: formatCount(frames.entries),
+              size: formatBytes(frames.bytes),
+            })
+          : t('{frames} frames · {size} · {rate}% hits', {
+              frames: formatCount(frames.entries),
+              size: formatBytes(frames.bytes),
+              rate: Math.round(frames.hitRate * 100),
+            }),
       age: '',
       error: null,
       state: 'ok',
@@ -192,15 +240,18 @@ export function sourceRows(status, streetview, now = Date.now()) {
   if (streetview?.counts)
     rows.push({
       key: 'streetview',
-      // i18n-ignore: personal fork, English-only UI
+      // i18n-ignore: brand name
       label: 'STREET VIEW',
-      counts: `${formatCount(streetview.counts.places)} places · ${formatCount(streetview.counts.panos)} panos`,
+      counts: t('{places} places · {panos} panos', {
+        places: formatCount(streetview.counts.places),
+        panos: formatCount(streetview.counts.panos),
+      }),
       age: '',
       error:
         streetview.configured === false
           ? errorText({
               message:
-                streetview.message || streetview.reason || 'not configured',
+                streetview.message || streetview.reason || t('not configured'),
             })
           : null,
       state: streetview.configured === false ? 'off' : 'ok',
@@ -239,8 +290,7 @@ export function initSourcesBlock(
     ]);
     if (signal?.aborted) return;
     if (!status) {
-      // i18n-ignore: personal fork, English-only UI
-      if (quota) quota.textContent = 'Status unavailable';
+      if (quota) quota.textContent = t('Status unavailable');
       list?.replaceChildren();
       return;
     }

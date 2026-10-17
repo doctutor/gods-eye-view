@@ -198,28 +198,40 @@ export function createFrameObserver({
 }
 
 /**
- * Sources with observations applied: a camera seen dead or showing a
+ * Sources with observations applied: an image camera seen dead or showing a
  * placeholder is left out, one seen live is marked live with `observedAt`;
- * errors and unobserved cameras pass unchanged.
+ * errors, unobserved cameras and other feed kinds pass unchanged.
  * @param {Array<object>} sources
  * @param {Record<string, {status: string, at: number}>} observed
  */
 export function applyObservations(sources, observed) {
   const out = [];
+  let changed = false;
   for (const source of sources) {
-    const seen = observed[source?.id];
-    if (seen?.status === 'dead' || seen?.status === 'placeholder') continue;
-    out.push(
-      seen?.status === 'live'
-        ? {
-            ...source,
-            liveStatus: 'live',
-            observedAt: new Date(seen.at).toISOString(),
-          }
-        : source,
-    );
+    // Only image fetches are observed; a camera since reclassified (an
+    // image card that proved to be a page, now a link) is not judged by them.
+    const seen =
+      String(source?.feedType || 'image').toLowerCase() === 'image'
+        ? observed[source?.id]
+        : undefined;
+    if (seen?.status === 'dead' || seen?.status === 'placeholder') {
+      changed = true;
+      continue;
+    }
+    if (seen?.status === 'live') {
+      changed = true;
+      out.push({
+        ...source,
+        liveStatus: 'live',
+        observedAt: new Date(seen.at).toISOString(),
+      });
+    } else {
+      out.push(source);
+    }
   }
-  return out;
+  // The same list when no camera in it was observed, so callers that rely
+  // on identity (single-flight loaders, tests) see no change.
+  return changed ? out : sources;
 }
 
 /** observed.json per file, re-read only when it changes. */
@@ -264,23 +276,31 @@ export function withObservations(
   }
   if (!any) return list;
   const out = applyObservations(list, observed);
+  const everything = Array.isArray(list.everything)
+    ? applyObservations(list.everything, observed)
+    : null;
+  if (out === list && (everything === null || everything === list.everything))
+    return list;
+  // A changed `everything` on an unchanged (often empty) capped list still
+  // needs a fresh array to carry the new property.
+  const target = out === list ? [...list] : out;
   for (const [key, descriptor] of Object.entries(
     Object.getOwnPropertyDescriptors(list),
   )) {
     if (key === 'length' || /^\d+$/.test(key)) continue;
     Object.defineProperty(
-      out,
+      target,
       key,
       key === 'everything' && Array.isArray(list.everything)
         ? {
-            value: applyObservations(list.everything, observed),
+            value: everything,
             enumerable: descriptor.enumerable,
             configurable: true,
           }
         : descriptor,
     );
   }
-  return out;
+  return target;
 }
 
 /**

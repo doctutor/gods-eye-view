@@ -1,4 +1,5 @@
 // Personal fork: indoor-view pins for the view, and probes of unexplored ground.
+import { msg } from '../../../../i18n/marker.js';
 import * as Cesium from 'cesium';
 import { passesImageryFilter } from '../../filter.js';
 import {
@@ -163,8 +164,7 @@ export function createIndoorCoverage({ state, source, now = Date.now }) {
   function applyRefusal(result) {
     if (result?.configured === false) {
       state.configured = false;
-      // i18n-ignore: personal fork, English-only UI
-      cov.error = result.error || 'Indoor views are not configured';
+      cov.error = result.error || msg('Indoor views are not configured');
       cov.holdUntil = now() + PROBE_BACKOFF_MS;
       return true;
     }
@@ -173,7 +173,7 @@ export function createIndoorCoverage({ state, source, now = Date.now }) {
 
   async function probe(centre) {
     cov.probing = true;
-    cov.hint = 'Looking for indoor views here…';
+    cov.hint = msg('Looking for indoor views here…');
     context.notify();
     const controller = new AbortController();
     cov.probeAbort = controller;
@@ -190,7 +190,7 @@ export function createIndoorCoverage({ state, source, now = Date.now }) {
         cov.error = null;
         if (result?.capReached) {
           cov.holdUntil = Infinity;
-          cov.hint = 'Daily Street View lookup cap reached';
+          cov.hint = msg('Daily Street View lookup cap reached');
         } else if (result?.stopped && result.stopped !== 'aborted') {
           cov.holdUntil = now() + PROBE_BACKOFF_MS;
           cov.error = result.error || null;
@@ -208,12 +208,12 @@ export function createIndoorCoverage({ state, source, now = Date.now }) {
     } catch (error) {
       if (controller.signal.aborted) return;
       cov.holdUntil = now() + PROBE_BACKOFF_MS;
-      // i18n-ignore: personal fork, English-only UI
-      cov.error = error?.message || 'Indoor probe failed';
+      cov.error = error?.message || msg('Indoor probe failed');
     } finally {
       if (cov.probeAbort === controller) cov.probeAbort = null;
       cov.probing = false;
-      if (!cov.hint.startsWith('Daily')) cov.hint = '';
+      if (cov.hint !== msg('Daily Street View lookup cap reached'))
+        cov.hint = '';
       context.notify();
     }
   }
@@ -225,7 +225,7 @@ export function createIndoorCoverage({ state, source, now = Date.now }) {
     if (!current) return;
     const { centre, heightM } = current;
     if (Number.isFinite(heightM) && heightM > COVERAGE_MAX_HEIGHT_M) {
-      cov.hint = 'Zoom in to see indoor views';
+      cov.hint = msg('Zoom in to see indoor views');
       removeCollection();
       cov.drawn = 0;
       requestRender();
@@ -249,8 +249,7 @@ export function createIndoorCoverage({ state, source, now = Date.now }) {
       );
     } catch (error) {
       if (controller.signal.aborted) return;
-      // i18n-ignore: personal fork, English-only UI
-      cov.error = error?.message || 'Indoor views could not be loaded';
+      cov.error = error?.message || msg('Indoor views could not be loaded');
       answer = null;
     } finally {
       if (cov.fetchAbort === controller) {
@@ -260,7 +259,7 @@ export function createIndoorCoverage({ state, source, now = Date.now }) {
     }
     if (controller.signal.aborted || !context.isActive()) return;
     if (answer) {
-      if (cov.hint === 'Zoom in to see indoor views') cov.hint = '';
+      if (cov.hint === msg('Zoom in to see indoor views')) cov.hint = '';
       merge(answer.hits);
       prune(centre);
       draw();
