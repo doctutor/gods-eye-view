@@ -338,3 +338,85 @@ test('a refused or failed search can be asked again later', async (t) => {
   assert.equal(layer.getStats().refused, true);
   layer.destroy(viewer);
 });
+
+test('the panel hears of changes, focuses a record and asks for the view again', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const { viewer, setHeight, settle } = fakeViewer();
+  const flights = [];
+  viewer.camera.flyTo = (options) => flights.push(options);
+  const api = fakeApi();
+  const opened = [];
+  const timers = [];
+  const layer = createRecordedVideoLayer({
+    fetchImpl: api.fetchImpl,
+    player: { open: (r) => opened.push(r), close() {} },
+    createClickHandler: () => () => {},
+    setTimeoutImpl: (fn) => (timers.push(fn), fn),
+    clearTimeoutImpl: (fn) => {
+      const i = timers.indexOf(fn);
+      if (i >= 0) timers.splice(i, 1);
+    },
+  });
+  const runTimers = async () => {
+    while (timers.length) timers.shift()();
+    await flush();
+    await flush();
+  };
+  let heard = 0;
+  const unsubscribe = layer.subscribe(() => heard++);
+  layer.init(viewer);
+  assert.equal(layer.isEnabled(), false);
+  assert.equal(layer.viewCentre(), null);
+  assert.equal(layer.searchAgain(), false, 'off: nothing to search');
+  layer.enable(viewer);
+  await flush();
+  assert.ok(heard >= 1, 'enable is heard');
+  await layer.update();
+  setHeight(20_000);
+  settle();
+  await runTimers();
+  assert.equal(api.nearCalls().length, 1);
+  assert.deepEqual(layer.quota(), null, 'the fake answer carries no budget');
+  assert.equal(layer.lastSearch().cached, false);
+  const before = heard;
+
+  // SEARCH AGAIN: the same cell, asked with refresh=1; its geotags replaced.
+  api.setNear({
+    videos: [geotag('ggggggggggg', 'site')],
+    cached: false,
+    quota: { used: 303, budget: 1000, remaining: 697 },
+  });
+  assert.equal(layer.searchAgain(), true);
+  await flush();
+  await flush();
+  assert.equal(api.nearCalls().length, 2);
+  assert.match(api.nearCalls()[1], /&refresh=1$/);
+  assert.deepEqual(
+    layer
+      .records()
+      .map((r) => r.videoId)
+      .sort(),
+    ['aBcDeFgHiJk', 'ggggggggggg'],
+    'the old geotags of this view went; Wikidata stays',
+  );
+  assert.deepEqual(layer.quota(), { used: 303, budget: 1000, remaining: 697 });
+  assert.ok(heard > before);
+  // Too high to search: SEARCH AGAIN says no.
+  setHeight(80_000);
+  assert.equal(layer.searchAgain(), false);
+
+  // A row's record: fly to the pin and play it.
+  const record = layer.records().find((r) => r.videoId === 'ggggggggggg');
+  layer.focus(record);
+  assert.equal(opened[0], record);
+  assert.equal(flights.length, 1);
+  const carto = Cesium.Cartographic.fromCartesian(flights[0].destination);
+  assert.ok(
+    Math.abs(Cesium.Math.toDegrees(carto.latitude) - record.lat) < 1e-6,
+  );
+  unsubscribe();
+  layer.disable();
+  layer.focus(record);
+  assert.equal(opened.length, 1, 'nothing plays while off');
+  layer.destroy(viewer);
+});
