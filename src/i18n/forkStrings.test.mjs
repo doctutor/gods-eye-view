@@ -37,6 +37,8 @@ const FORK_MARKUP = [
   'SEARCH AGAIN',
   "Ask YouTube again for this view (101 units of the day's budget)",
   'Recorded videos, nearest first',
+  'LANDMARKS NEARBY',
+  "Landmarks nearby, nearest first; a row finds videos about the place (102 units of the day's budget)",
   'SOURCES',
 ];
 
@@ -68,6 +70,8 @@ test('the fork has its own UI messages to check', () => {
     'HIDE WINDY',
     'camera tag|SOUND',
     'pin precision|SITE',
+    'video kind|TOUR',
+    'BUDGET USED',
     'probably a replay',
     'Google indoor views',
     'Recorded Video',

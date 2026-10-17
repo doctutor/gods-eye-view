@@ -109,6 +109,7 @@
     "mph",
     "nominal",
     "panel",
+    "video kind|VLOG",
     "view band|GLOBAL",
     "voice|ERROR",
     "{rate} msg/s",

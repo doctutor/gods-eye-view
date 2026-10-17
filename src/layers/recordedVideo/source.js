@@ -32,7 +32,7 @@ export const PRECISION_STYLE = Object.freeze({
     // i18n-ignore: internal code; shown through precisionLabel() in player.js
     label: 'REGION',
   }),
-  // i18n-ignore: personal fork, English-only UI
+  // i18n-ignore: internal code; shown through precisionLabel() in player.js
   about: Object.freeze({ fill: 1, outline: 1, pixelSize: 8, label: 'ABOUT' }),
 });
 /** Wikidata pins, YouTube geotag pins and landmark videos in three hues. */

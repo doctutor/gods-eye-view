@@ -3042,5 +3042,31 @@
   "SEARCH AGAIN": "BUSCAR DE NUEVO",
   "Ask YouTube again for this view (101 units of the day's budget)": "Volver a consultar YouTube para esta vista (101 unidades del presupuesto diario)",
   "Recorded videos, nearest first": "Vídeos grabados, los más cercanos primero",
-  "SOURCES": "FUENTES"
+  "SOURCES": "FUENTES",
+  "{count} VIDEOS": {
+    "one": "{count} VÍDEO",
+    "many": "{count} VÍDEOS",
+    "other": "{count} VÍDEOS"
+  },
+  "video source|LANDMARK": "HITO",
+  "Landmarks unavailable": "Hitos no disponibles",
+  "Landmark videos unavailable": "Vídeos del hito no disponibles",
+  "pin precision|ABOUT": "SOBRE",
+  "video kind|NEWS": "NOTICIAS",
+  "video kind|TOUR": "RECORRIDO",
+  "video kind|EVENT": "EVENTO",
+  "video kind|VLOG": "VLOG",
+  "video kind|MUSIC": "MÚSICA",
+  "video kind|OTHER": "OTRO",
+  "MENTIONED AT": "MENCIONADO EN",
+  "ASKING…": "CONSULTANDO…",
+  "BUDGET USED": "PRESUPUESTO AGOTADO",
+  "NO KEY": "SIN CLAVE",
+  "FAILED": "ERROR",
+  "FIND VIDEOS": "BUSCAR VÍDEOS",
+  "{count} about": "{count} sobre el lugar",
+  "MORE ({count})": "MÁS ({count})",
+  "No videos found about this place": "No se encontraron vídeos sobre este lugar",
+  "LANDMARKS NEARBY": "HITOS CERCANOS",
+  "Landmarks nearby, nearest first; a row finds videos about the place (102 units of the day's budget)": "Hitos cercanos, los más cercanos primero; una fila busca vídeos sobre el lugar (102 unidades del presupuesto diario)"
 }

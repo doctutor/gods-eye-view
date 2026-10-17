@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { setLocale } from '../i18n/index.js';
 import {
   LANDMARK_NEARBY_KM,
   LANDMARK_TOP,
@@ -278,4 +279,31 @@ test('a landmark’s video row is tagged ABOUT, LANDMARK and its kind, and count
   assert.equal(row.kind, 'tour');
   assert.equal(videoRowModel({ record: records[0], ranges: [] }).kind, '');
   assert.equal(countsLine([about, records[0]]), '2 videos · 1 site · 1 about');
+});
+
+test('a translated tag keeps the code its colour class comes from', () => {
+  const about = record('lm-Q1438634-aaaaaaaaaaa', {
+    place: 'Fort McHenry',
+    coordinatesQuality: 'about',
+    source: 'landmark',
+    kind: 'tour',
+  });
+  setLocale('es');
+  try {
+    const row = videoRowModel({ record: about, ranges: [], distanceKm: NaN });
+    assert.deepEqual(
+      [row.precision, row.source, row.kindLabel],
+      ['SOBRE', 'HITO', 'RECORRIDO'],
+    );
+    assert.deepEqual(
+      [row.precisionCode, row.sourceCode, row.kind],
+      ['about', 'landmark', 'tour'],
+    );
+    const site = videoRowModel({ record: records[0], ranges: [] });
+    assert.equal(site.precision, 'LUGAR');
+    assert.equal(site.precisionCode, 'site');
+    assert.equal(landmarkVideoState({ videoCount: 3 }), '3 VÍDEOS');
+  } finally {
+    setLocale('en');
+  }
 });

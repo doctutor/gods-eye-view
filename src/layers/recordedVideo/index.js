@@ -10,7 +10,7 @@ import {
   viewQuery,
 } from './source.js';
 import { createVideoPlayer, precisionLabel } from './player.js';
-import { msg } from '../../i18n/index.js';
+import { msg, t, tn } from '../../i18n/index.js';
 export * from './source.js';
 
 /**
@@ -261,10 +261,8 @@ export function createRecordedVideoLayer({
         title: landmark.label.slice(0, 48),
         details: [
           Number.isFinite(count)
-            ? // i18n-ignore: personal fork, English-only UI
-              `${count} VIDEO${count === 1 ? '' : 'S'}`
-            : // i18n-ignore: personal fork, English-only UI
-              'LANDMARK',
+            ? tn(count, '{count} VIDEO', '{count} VIDEOS')
+            : t('LANDMARK', { context: 'video source' }),
         ],
         accent: SOURCE_COLOR.landmark,
         priority: Math.round((LABEL_RADIUS_M - d) / 2),
@@ -422,8 +420,7 @@ export function createRecordedVideoLayer({
       notify();
     } catch (error) {
       if (!request.signal.aborted)
-        // i18n-ignore: personal fork, English-only UI
-        _lastError = error?.message || 'Landmarks unavailable';
+        _lastError = error?.message || msg('Landmarks unavailable');
     } finally {
       if (_landmarkRequest === request) _landmarkRequest = null;
       const next = _landmarkPending;
@@ -479,8 +476,7 @@ export function createRecordedVideoLayer({
       next = {
         loading: false,
         done: false,
-        // i18n-ignore: personal fork, English-only UI
-        error: error?.message || 'Landmark videos unavailable',
+        error: error?.message || msg('Landmark videos unavailable'),
       };
     }
     _landmarkState.set(qid, next);

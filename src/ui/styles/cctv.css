@@ -97,6 +97,13 @@ html:not([lang='en']) #cctv-camera-search {
   order: -1;
 }
 
+/* Recorded video rows: three translated tags (ABOUT, LANDMARK and a kind in
+   a landmark's list) leave the title too little room in the narrow panel;
+   below this width the tags drop under the title instead. */
+html:not([lang='en']) .rv-row-title {
+  min-width: 96px;
+}
+
 /* Spanish labels overflow the nowrap .scene-btn row of the fixed-width
    panel; wrap the row under es only, English stays as is. */
 html[lang='es'] .cctv-controls {

@@ -30,17 +30,42 @@ export const LANDMARK_TOP = 5;
 function precisionTag(quality) {
   if (quality === 'site') return t('SITE', { context: 'pin precision' });
   if (quality === 'area') return t('AREA', { context: 'pin precision' });
-  // i18n-ignore: personal fork, English-only UI (not yet translated)
-  if (quality === 'about') return 'ABOUT';
+  if (quality === 'about') return t('ABOUT', { context: 'pin precision' });
   return t('REGION', { context: 'pin precision' });
+}
+/** The precision code a row tag is styled by (.rv-tag.is-…), never translated. */
+function precisionCode(quality) {
+  return ['site', 'area', 'about'].includes(quality) ? quality : 'region';
 }
 /** Where a video's position came from, as its row tag says it. */
 function sourceTag(source) {
   // i18n-ignore: brand name
   if (source === 'wikidata') return 'WIKIDATA';
-  // i18n-ignore: personal fork, English-only UI (not yet translated)
-  if (source === 'landmark') return 'LANDMARK';
+  if (source === 'landmark') return t('LANDMARK', { context: 'video source' });
   return t('GEOTAG', { context: 'pin precision' });
+}
+/** The source code a row tag is styled by (.rv-tag.is-…), never translated. */
+function sourceCode(source) {
+  return source === 'wikidata' || source === 'landmark' ? source : 'geotag';
+}
+/** A landmark video's kind as its row tag says it. */
+function kindLabel(kind) {
+  switch (kind) {
+    case 'news':
+      return t('NEWS', { context: 'video kind' });
+    case 'tour':
+      return t('TOUR', { context: 'video kind' });
+    case 'event':
+      return t('EVENT', { context: 'video kind' });
+    case 'vlog':
+      return t('VLOG', { context: 'video kind' });
+    case 'music':
+      return t('MUSIC', { context: 'video kind' });
+    case 'other':
+      return t('OTHER', { context: 'video kind' });
+    default:
+      return String(kind || '').toUpperCase();
+  }
 }
 
 /** What a video is searched by: title, channel and place. */
@@ -106,9 +131,15 @@ export function videoRowModel(entry) {
       .filter(Boolean)
       .join(' · '),
     precision: precisionTag(record.coordinatesQuality),
+    precisionCode: precisionCode(record.coordinatesQuality),
     source: sourceTag(record.source),
+    sourceCode: sourceCode(record.source),
     // A landmark's video also says what kind it is (news, tour, …).
     kind: record.source === 'landmark' ? String(record.kind || 'other') : '',
+    kindLabel:
+      record.source === 'landmark'
+        ? kindLabel(String(record.kind || 'other'))
+        : '',
   };
 }
 
@@ -148,13 +179,13 @@ export function rankLandmarks(
 
 /** What a landmark row says about its videos: asked or not, and how many. */
 export function landmarkVideoState(landmark) {
-  if (landmark?.loading) return 'ASKING…';
-  if (landmark?.refused) return 'BUDGET USED';
-  if (landmark?.configured === false) return 'NO KEY';
-  if (landmark?.error) return 'FAILED';
+  if (landmark?.loading) return t('ASKING…');
+  if (landmark?.refused) return t('BUDGET USED');
+  if (landmark?.configured === false) return t('NO KEY');
+  if (landmark?.error) return t('FAILED');
   const count = landmark?.videoCount;
-  if (!Number.isFinite(count)) return 'FIND VIDEOS';
-  return `${count} VIDEO${count === 1 ? '' : 'S'}`;
+  if (!Number.isFinite(count)) return t('FIND VIDEOS');
+  return tn(count, '{count} VIDEO', '{count} VIDEOS');
 }
 
 /** One landmark row: marked name, kind and distance, and its video state. */
@@ -192,9 +223,7 @@ export function countsLine(records) {
   if (counts.site) parts.push(t('{count} site', { count: counts.site }));
   if (counts.area) parts.push(t('{count} area', { count: counts.area }));
   if (counts.region) parts.push(t('{count} region', { count: counts.region }));
-  if (counts.about)
-    // i18n-ignore: personal fork, English-only UI (not yet translated)
-    parts.push(`${counts.about} about`);
+  if (counts.about) parts.push(t('{count} about', { count: counts.about }));
   return parts.join(' · ');
 }
 
@@ -255,14 +284,15 @@ export function initRecordedVideoPanel(root, { layer, signal }) {
     title.innerHTML = row.titleHtml; // escaped by markedHtml
     const tags = doc.createElement('span');
     tags.className = 'rv-row-tags';
-    for (const [name, value] of [
-      ['precision', row.precision],
-      ['source', row.source],
-      ['kind', row.kind.toUpperCase()],
+    // Classes come from the codes, so a translated tag keeps its colour.
+    for (const [name, value, code] of [
+      ['precision', row.precision, row.precisionCode],
+      ['source', row.source, row.sourceCode],
+      ['kind', row.kindLabel, row.kind],
     ]) {
       if (!value) continue;
       const tag = doc.createElement('span');
-      tag.className = `rv-tag rv-tag-${name} is-${value.toLowerCase()}`;
+      tag.className = `rv-tag rv-tag-${name} is-${code}`;
       tag.textContent = value;
       tags.append(tag);
     }
@@ -324,15 +354,13 @@ export function initRecordedVideoPanel(root, { layer, signal }) {
         more.type = 'button';
         more.className = 'rv-landmark-more';
         more.dataset.moreQid = row.qid;
-        // i18n-ignore: personal fork, English-only UI
-        more.textContent = `MORE (${split.more})`;
+        more.textContent = t('MORE ({count})', { count: split.more });
         videos.append(more);
       }
       if (!split.shown.length) {
         const none = doc.createElement('div');
         none.className = 'rv-landmark-none';
-        // i18n-ignore: personal fork, English-only UI
-        none.textContent = 'No videos found about this place';
+        none.textContent = t('No videos found about this place');
         videos.append(none);
       }
       rows.push(videos);
