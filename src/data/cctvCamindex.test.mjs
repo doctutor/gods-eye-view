@@ -8,6 +8,8 @@ import {
   camindexCatalogPath,
   catalogCameraToSource,
   createCamindexLoader,
+  isPublicHost,
+  validTimeZone,
 } from '../../server/providers/cctv/camindex.js';
 import {
   createCctvCatalog,
@@ -20,6 +22,7 @@ import {
 } from '../../server/providers/cctv/frameCache.js';
 import { fetchCctvImageFromUpstream } from '../../server/providers/cctv/media.js';
 import { cameraTag } from '../ui/cctvCameraList.js';
+import { normalizeSourceItem } from '../../server/providers/cctv/normalize.js';
 
 // Personal fork: the camindex pack (server/providers/cctv/camindex.js) and
 // the upstream frame cache (frameCache.js).
@@ -42,8 +45,8 @@ const camera = (over = {}) => ({
   category: 'nature',
   coordinatesQuality: 'site',
   operatorUrl: PAGE,
-  publishSignal: 'directory-embed',
-  licenseClass: 'embed-only',
+  publishSignal: 'directory-still',
+  licenseClass: 'display-only',
   feedType: 'image',
   url: 'https://opencctv.org/still/212832.jpg',
   snapshotUrl: 'https://opencctv.org/still/212832.jpg',
@@ -299,4 +302,205 @@ test('upstream frames carry their Cache-Control to the cache', async () => {
   );
   assert.equal(frame.cacheControl, 'public, max-age=14400, s-maxage=600');
   assert.equal(frame.body.length, 2048);
+});
+
+// Every feed kind the camindex adapters write (pocketworld.mjs and
+// openeagleeye.mjs), in linked.js's shapes.
+const listed = (over = {}) =>
+  camera({
+    id: 'pocketworld-pw-abc123',
+    sourceKind: 'pocketworld',
+    publishSignal: 'directory-link',
+    licenseClass: 'display-only',
+    operatorUrl: 'https://operator.example.org/cams/',
+    snapshotUrl: '',
+    url: '',
+    ...over,
+  });
+
+test('a YouTube camera keeps its embed, rebuilt from a valid id only', () => {
+  const source = catalogCameraToSource(
+    listed({
+      feedType: 'youtube',
+      licenseClass: 'embed-only',
+      url: 'https://www.youtube.com/watch?v=1_BdSTneH3s',
+      snapshotUrl: 'https://evil.example/thumb.jpg',
+      embed: { provider: 'youtube', videoId: '1_BdSTneH3s' },
+      liveStatus: 'live',
+    }),
+  );
+  assert.equal(source.feedType, 'youtube');
+  assert.deepEqual(source.embed, {
+    provider: 'youtube',
+    videoId: '1_BdSTneH3s',
+  });
+  assert.equal(source.url, 'https://www.youtube.com/watch?v=1_BdSTneH3s');
+  assert.equal(
+    source.snapshotUrl,
+    'https://i.ytimg.com/vi/1_BdSTneH3s/hqdefault.jpg',
+    'the thumbnail comes from the id, not the catalog',
+  );
+  assert.equal(source.liveStatus, 'unknown');
+  assert.equal(source.licenseClass, 'embed-only');
+  assert.deepEqual(normalizeSourceItem(source).embed, {
+    provider: 'youtube',
+    videoId: '1_BdSTneH3s',
+  });
+  // A non-YouTube url is replaced by the watch URL for the id.
+  assert.equal(
+    catalogCameraToSource(
+      listed({
+        feedType: 'youtube',
+        url: 'https://evil.example/watch',
+        embed: { provider: 'youtube', videoId: '1_BdSTneH3s' },
+      }),
+    ).url,
+    'https://www.youtube.com/watch?v=1_BdSTneH3s',
+  );
+  for (const embed of [
+    { provider: 'youtube', videoId: 'short' },
+    { provider: 'youtube', videoId: '1_BdSTneH3s&x=1' },
+    { provider: 'vimeo', videoId: '1_BdSTneH3s' },
+    undefined,
+  ])
+    assert.equal(
+      catalogCameraToSource(listed({ feedType: 'youtube', embed })),
+      null,
+      JSON.stringify(embed),
+    );
+});
+
+test('an HLS camera needs an https .m3u8 on a public host', () => {
+  const source = catalogCameraToSource(
+    listed({ feedType: 'hls', url: 'https://cdn.example.org/live/index.m3u8' }),
+  );
+  assert.equal(source.feedType, 'hls');
+  assert.equal(source.url, 'https://cdn.example.org/live/index.m3u8');
+  assert.equal(source.snapshotUrl, '');
+  for (const url of [
+    'http://cdn.example.org/live/index.m3u8',
+    'https://cdn.example.org/live/index.mp4',
+    'https://192.168.1.20/live/index.m3u8',
+    'https://user:pw@cdn.example.org/live/index.m3u8',
+  ])
+    assert.equal(
+      catalogCameraToSource(listed({ feedType: 'hls', url })),
+      null,
+      url,
+    );
+});
+
+test('image and MJPEG cameras need https stills on public hosts', () => {
+  const image = catalogCameraToSource(
+    listed({
+      feedType: 'image',
+      url: 'https://cam.example.org/latest.jpg',
+      snapshotUrl: 'https://cam.example.org/latest.jpg',
+    }),
+  );
+  assert.equal(image.feedType, 'image');
+  assert.equal(image.url, image.snapshotUrl);
+  const mjpeg = catalogCameraToSource(
+    listed({ feedType: 'mjpeg', url: 'https://cam.example.org/video.cgi' }),
+  );
+  assert.equal(mjpeg.feedType, 'mjpeg');
+  assert.equal(mjpeg.url, 'https://cam.example.org/video.cgi');
+  assert.equal(mjpeg.snapshotUrl, '');
+  for (const url of [
+    'http://cam.example.org/a.jpg',
+    'https://localhost/a.jpg',
+    'https://10.0.0.5/a.jpg',
+    'https://cam.local/a.jpg',
+    'https://[::1]/a.jpg',
+  ]) {
+    assert.equal(
+      catalogCameraToSource(listed({ feedType: 'image', snapshotUrl: url })),
+      null,
+      url,
+    );
+    assert.equal(
+      catalogCameraToSource(listed({ feedType: 'mjpeg', url })),
+      null,
+      url,
+    );
+  }
+  assert.equal(
+    catalogCameraToSource(listed({ feedType: 'rtsp', url: 'rtsp://x' })),
+    null,
+  );
+});
+
+test('a link camera shows no picture and needs an https operator page', () => {
+  const source = catalogCameraToSource(
+    listed({ feedType: 'link', url: 'https://ignored.example/x' }),
+  );
+  assert.equal(source.feedType, 'link');
+  assert.equal(source.url, '');
+  assert.equal(source.snapshotUrl, '');
+  assert.equal(source.operatorUrl, 'https://operator.example.org/cams/');
+  assert.equal(source.publishSignal, 'directory-link');
+  assert.equal(
+    catalogCameraToSource(
+      listed({ feedType: 'link', operatorUrl: 'http://x.example/' }),
+    ),
+    null,
+  );
+});
+
+test('an IANA time zone rides along to the public state', () => {
+  const source = catalogCameraToSource(
+    camera({
+      id: 'openeagleeye-12',
+      sourceKind: 'openeagleeye',
+      publishSignal: 'operator-page',
+      timeZone: 'Europe/Oslo',
+    }),
+  );
+  assert.equal(source.timeZone, 'Europe/Oslo');
+  assert.equal(source.publishSignal, 'operator-page');
+  assert.equal(normalizeSourceItem(source).timeZone, 'Europe/Oslo');
+  for (const zone of [
+    'Mars/Olympus_Mons',
+    '../etc/passwd',
+    'Europe/Oslo; x',
+    42,
+  ])
+    assert.equal(validTimeZone(zone), '', String(zone));
+  assert.equal(
+    validTimeZone('America/Argentina/Buenos_Aires'),
+    'America/Argentina/Buenos_Aires',
+  );
+  assert.equal(validTimeZone('UTC'), 'UTC');
+  assert.equal(
+    catalogCameraToSource(camera({ timeZone: 'Nowhere/Land' })).timeZone,
+    undefined,
+  );
+});
+
+test('only public hosts are accepted', () => {
+  for (const host of [
+    'opencctv.org',
+    'cam.example.co.uk',
+    '8.8.8.8',
+    '172.32.0.1',
+  ])
+    assert.equal(isPublicHost(host), true, host);
+  for (const host of [
+    'localhost',
+    'a.localhost',
+    'printer.local',
+    'nas.lan',
+    'intranet',
+    '127.0.0.1',
+    '10.1.2.3',
+    '172.16.0.1',
+    '192.168.0.1',
+    '169.254.169.254',
+    '100.64.0.1',
+    '0.0.0.0',
+    '224.0.0.1',
+    '[::1]',
+    '999.1.1.1',
+  ])
+    assert.equal(isPublicHost(host), false, host);
 });

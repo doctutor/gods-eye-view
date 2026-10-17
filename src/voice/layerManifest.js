@@ -412,6 +412,7 @@ export const VOICE_OFF_LAYERS = Object.freeze({
   'bhote-koshi-locator': 'scene-driven event layer (control_scene)',
   'baltimore-enforcement-cameras': 'personal fork layer',
   'baltimore-citiwatch-cameras': 'personal fork layer',
+  'recorded-video': 'personal fork layer',
 });
 
 const TYPE_NAMES = Object.freeze({

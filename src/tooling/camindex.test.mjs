@@ -25,8 +25,12 @@ import {
   warcHtmlBody,
 } from '../../scripts/camindex/adapters/opencctv.mjs';
 import {
+  NEAR_VIEW_KM,
+  ROLLING_LIMIT,
   judgeStill,
+  knownPlaceholders,
   markSharedPlaceholders,
+  rollingQueue,
   stillPacing,
   verifyCandidates,
 } from '../../scripts/camindex/verify.mjs';
@@ -37,9 +41,16 @@ import {
 } from '../../scripts/camindex/merge.mjs';
 import {
   buildCatalog,
+  foldObserved,
   openCctvToSource,
+  recordsToObserved,
 } from '../../scripts/camindex/catalog.mjs';
-import { parseArgs } from '../../scripts/camindex/index.mjs';
+import {
+  DISCOVER_EVERY_MS,
+  ROLLING_EVERY_MS,
+  dueJobs,
+  parseArgs,
+} from '../../scripts/camindex/index.mjs';
 
 // Personal fork: camindex crawler tooling (scripts/camindex/).
 
@@ -571,8 +582,8 @@ test('the catalog carries provenance and leaves out dead cameras', () => {
   assert.equal(first.category, 'nature');
   assert.equal(first.feedType, 'image');
   assert.equal(first.snapshotUrl, 'https://opencctv.org/still/1.jpg');
-  assert.equal(first.publishSignal, 'directory-embed');
-  assert.equal(first.licenseClass, 'embed-only');
+  assert.equal(first.publishSignal, 'directory-still');
+  assert.equal(first.licenseClass, 'display-only');
   assert.equal(first.coordinatesQuality, 'site');
   assert.equal(first.operatorUrl, candidate('1').pageUrl);
   assert.equal(first.embed, undefined, 'no directory player is framed');
@@ -619,9 +630,10 @@ test('the CLI parses commands and flags', () => {
   assert.throws(() => parseArgs(['discover', 'opencctv']), /unexpected/);
 });
 
-test('stills from opencctv.org stay under 40 uncached requests per 10 minutes', async (t) => {
-  assert.deepEqual(stillPacing(1500), { '*': 1500, 'opencctv.org': 16_000 });
-  assert.equal(stillPacing(20_000)['opencctv.org'], 20_000, 'only ever slower');
+test('stills from opencctv.org stay under 20 uncached requests per 10 minutes', async (t) => {
+  assert.deepEqual(stillPacing(1500), { '*': 1500, 'opencctv.org': 30_000 });
+  assert.equal(stillPacing(40_000)['opencctv.org'], 40_000);
+  assert.equal(stillPacing(20_000)['opencctv.org'], 30_000, 'never faster');
   const dir = await tempDir(t);
   const web = fakeWeb({
     'https://opencctv.org/robots.txt': new Response(ROBOTS),
@@ -647,9 +659,183 @@ test('stills from opencctv.org stay under 40 uncached requests per 10 minutes', 
   await verifyCandidates(fetcher, candidates, {}, { now: web.now });
   const stills = web.calls.filter((call) => call.url.includes('/still/'));
   assert.equal(stills.length, 60);
-  for (let i = 40; i < stills.length; i++)
+  for (let i = 20; i < stills.length; i++)
     assert.ok(
-      stills[i].at - stills[i - 40].at >= 10 * 60 * 1000,
-      `40 stills span at least 10 minutes (${i})`,
+      stills[i].at - stills[i - 20].at >= 10 * 60 * 1000,
+      `20 stills span at least 10 minutes (${i})`,
     );
+});
+
+const DAY = 24 * 60 * 60 * 1000;
+
+test('a rolling run checks stale observations, then near views, then the oldest', () => {
+  const now = 100 * DAY;
+  const cam = (id, lat, lon) => ({
+    id,
+    lat,
+    lon,
+    stillUrl: `https://opencctv.org/still/${id}.jpg`,
+  });
+  const candidates = [
+    cam('far-never', 10, 10),
+    cam('near-never-2', 39.5, -76.6), // ~25 km from the view
+    cam('near-never-1', 39.3, -76.6),
+    cam('stale-seen', 0, 50),
+    cam('stale-seen-older', 0, 51),
+    cam('fresh-seen', 0, 52),
+    cam('fresh-verified', 0, 53),
+    cam('old-verified', 0, 54),
+    cam('errored', 0, 55),
+    cam('no-place', NaN, NaN),
+    { id: 'no-still', lat: 1, lon: 1 },
+  ];
+  const records = {
+    'fresh-verified': { status: 'live', verifiedAt: now - DAY },
+    'old-verified': { status: 'live', verifiedAt: now - 30 * DAY },
+    errored: { status: 'error', verifiedAt: now - DAY },
+  };
+  const observed = {
+    'opencctv-stale-seen': { status: 'live', at: now - 8 * DAY },
+    'opencctv-stale-seen-older': { status: 'dead', at: now - 9 * DAY },
+    'opencctv-fresh-seen': { status: 'live', at: now - 2 * DAY },
+  };
+  const views = [
+    { lat: 39.29, lon: -76.61 },
+    { lat: 39.29, lon: -76.61 },
+  ];
+  assert.deepEqual(
+    rollingQueue({ candidates, records, observed, views, now }).map(
+      (c) => c.id,
+    ),
+    [
+      'stale-seen-older',
+      'stale-seen',
+      'near-never-1',
+      'near-never-2',
+      // Then the rest, least recently checked first (never = oldest).
+      'far-never',
+      'old-verified',
+      'errored',
+    ],
+  );
+  // Without views, never-checked cameras simply count as oldest.
+  assert.deepEqual(
+    rollingQueue({ candidates, records, observed, now })
+      .map((c) => c.id)
+      .slice(2, 5)
+      .sort(),
+    ['far-never', 'near-never-1', 'near-never-2'],
+  );
+  assert.equal(NEAR_VIEW_KM, 50);
+  assert.equal(ROLLING_LIMIT, 200);
+});
+
+test('a rolling run keeps to the host floor and stops at its limit', async (t) => {
+  const dir = await tempDir(t);
+  const web = fakeWeb({
+    'https://opencctv.org/robots.txt': new Response(ROBOTS),
+    '*': () =>
+      new Response(Buffer.alloc(3000, 1), {
+        headers: { 'content-type': 'image/jpeg' },
+      }),
+  });
+  const fetcher = createFetcher({
+    cacheDir: dir,
+    transport: web.transport,
+    now: web.now,
+    sleep: web.sleep,
+    minIntervalMs: stillPacing(1500),
+  });
+  const candidates = Array.from({ length: 250 }, (_, i) => ({
+    id: String(i),
+    lat: 10,
+    lon: 10,
+    stillUrl: `https://opencctv.org/still/${i}.jpg`,
+  }));
+  const queue = rollingQueue({ candidates, records: {}, now: web.now() });
+  const records = {};
+  const run = await verifyCandidates(fetcher, candidates, records, {
+    queue,
+    limit: ROLLING_LIMIT,
+    now: web.now,
+  });
+  assert.equal(run.checked, 200);
+  assert.equal(run.stoppedBy, 'limit');
+  const stills = web.calls.filter((call) => call.url.includes('/still/'));
+  assert.equal(stills.length, 200);
+  for (let i = 20; i < stills.length; i++)
+    assert.ok(stills[i].at - stills[i - 20].at >= 10 * 60 * 1000);
+});
+
+test('observations fold into verify records, newer wins, errors skipped', () => {
+  const records = {
+    1: { status: 'live', verifiedAt: 50 },
+    2: { status: 'live', verifiedAt: 50 },
+  };
+  const changed = foldObserved(records, {
+    'opencctv-1': { status: 'dead', at: 60, httpStatus: 404 },
+    'opencctv-2': { status: 'dead', at: 40 },
+    'opencctv-3': { status: 'live', at: 70, bytes: 5000 },
+    'opencctv-4': { status: 'error', at: 80 },
+    'windy-5': { status: 'dead', at: 90 },
+  });
+  assert.equal(changed, 2);
+  assert.deepEqual(records, {
+    1: { status: 'dead', verifiedAt: 60, httpStatus: 404, by: 'observed' },
+    2: { status: 'live', verifiedAt: 50 },
+    3: { status: 'live', verifiedAt: 70, bytes: 5000, by: 'observed' },
+  });
+  assert.deepEqual(recordsToObserved(records, ['3', '9']), {
+    'opencctv-3': { status: 'live', at: 70, bytes: 5000 },
+  });
+});
+
+test('the scheduler runs discover weekly and a rolling verify nightly', () => {
+  const now = Date.UTC(2026, 9, 20, 3);
+  const at = (ms) => new Date(now - ms).toISOString();
+  assert.deepEqual(dueJobs([], now), { discover: true, verify: true });
+  assert.deepEqual(
+    dueJobs(
+      [
+        { command: 'discover', at: at(DAY), stoppedBy: 'complete' },
+        { command: 'verify', at: at(2 * 60 * 60 * 1000), rolling: true },
+      ],
+      now,
+    ),
+    { discover: false, verify: false },
+  );
+  assert.deepEqual(
+    dueJobs(
+      [
+        {
+          command: 'discover',
+          at: at(DISCOVER_EVERY_MS + 1),
+          stoppedBy: 'complete',
+        },
+        // A discover that died does not count as done.
+        {
+          command: 'discover',
+          at: at(DAY),
+          stoppedBy: 'opencctv.org: too many consecutive failures',
+        },
+        // A plain verify does not count as the nightly run.
+        { command: 'verify', at: at(60 * 1000) },
+        { command: 'verify', at: at(ROLLING_EVERY_MS), rolling: true },
+      ],
+      now,
+    ),
+    { discover: true, verify: true },
+  );
+});
+
+test('verify reads the shared placeholder list', async (t) => {
+  const dir = await tempDir(t);
+  const file = path.join(dir, 'placeholders.json');
+  await fs.writeFile(
+    file,
+    JSON.stringify({ hashes: { opencctv: ['c'.repeat(40), 'short'] } }),
+  );
+  assert.deepEqual(knownPlaceholders('opencctv', file), ['c'.repeat(40)]);
+  assert.deepEqual(knownPlaceholders('other', file), []);
+  assert.deepEqual(knownPlaceholders('opencctv', path.join(dir, 'none')), []);
 });

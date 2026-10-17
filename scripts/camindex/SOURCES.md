@@ -85,25 +85,73 @@ left out of the catalog. Unchecked cameras go in with `liveStatus: 'unknown'`.
 Maryland is verified first, then scenic cameras, then the rest.
 
 Uncached stills come from the site's origin, and the origin rate-limits them.
-On 2026-10-16 it answered 503 (Retry-After 600 s) after about 50 stills in
-3 minutes, twice. So `verify` paces stills on opencctv.org at one per 16 s,
-which keeps a run under 40 per 10 minutes. `--gap-ms` can only slow that
-down. A 429 or 503 marks the camera `error`, not dead, and the next run
+On 2026-10-16 it answered 503 (Retry-After 600 s) twice after about 50 stills
+in 3 minutes. It answered 503 again after 159 stills at one per 17 s (45
+minutes). That fits a bucket of about 50 requests that refills at about one
+per 25 s. So `verify` paces stills on opencctv.org at one per 30 s (20 per
+10 minutes), below the refill rate. `--gap-ms` can only slow that down. A 429 or 503 marks the camera `error`, not dead, and the next run
 retries it. Bulk verification is not the plan for this source; the first run
 stopped after 53 stills. The intended way is lazy: a still the app fetches
 because someone opened that camera counts as its check (see the follow-up
 below).
 
-**Follow-up (not built): lazy verification.** The frame route already
-fetches a camera's still when someone views it and records the result in
-its health map. A small store, for example
-`.gev-cache/camindex/observed.json` (`{id: {status, at}}`, written by the
-CCTV provider with a debounce), would keep those results: live on an image
-of at least 1 KB, dead on a 404 or non-image answer, placeholder by hash. The
-camindex pack would apply them when it loads (dead ones dropped, live marked
-`live`), and `build` would fold them into `verify.json`. The index would then
-correct itself from real use without extra requests. A nightly re-verify, if
-one is added, uses the pacing above.
+**Lazy verification** (`server/providers/cctv/observed.js`). A still the app
+fetches because someone opened that camera counts as that camera's check.
+For every display-only image camera (camindex, Windy, linked, USGS, NPS: any
+source with a `licenseClass`), the frame route classifies the upstream's
+answer:
+
+- `live`: an image of at least 1 KB.
+- `placeholder`: an image whose SHA-1 is listed in `placeholders.json`.
+- `dead`: a 404 or 410, a non-image answer, or an image under 1 KB.
+- `error`: anything else (rate limit, server error, timeout).
+
+Results are written to `.gev-cache/camindex/observed.json` as
+`{id: {status, at, bytes?, httpStatus?}}`. Writes are batched, at most one
+per 30 s, merged with what is on disk (newer wins) and replaced atomically.
+
+The camindex pack applies `observed.json` when it loads. Dead and placeholder
+cameras leave the index; they stay in the file so a later check can bring
+them back. Live ones are marked `liveStatus: 'live'` with `observedAt`.
+`build` folds the file into `verify.json`. Observations of Windy, linked and
+other packs are recorded under their own ids, but only the camindex pack
+applies them today.
+
+Every proximity query also appends its centre to
+`.gev-cache/camindex/views.log` (`at lat lon radiusKm`, at most 1,000 lines;
+a centre within ~1 km of the previous one is skipped).
+
+**Placeholders:** `placeholders.json` lists, per source, the SHA-1s of images
+served in place of a view. It is shared by the server and `verify`. On
+2026-10-16, OpenCCTV answered a dead camera's still with a 404 `text/plain`
+body of 24 bytes, not a placeholder image, so its list is empty. Separately,
+`verify` flags any image that three or more cameras share byte for byte.
+
+**Rolling verify** (`verify --rolling`): at most 200 stills per run, at the
+30 s floor above, so a full run takes about 100 minutes. The queue is:
+
+1. Cameras whose last observation is over a week old.
+2. Never-checked cameras within 50 km of the 200 most recent distinct view
+   centres, nearest first.
+3. Everything else that is due, least recently checked first.
+
+A camera checked within the week, by `verify` or by a viewer, is not due. One
+whose last check was an error always is. Results go to `verify.json` and
+`observed.json`, saved every 25 checks.
+
+**Unattended:** `node scripts/camindex/index.mjs schedule` loops hourly. It
+runs `discover --scope default` once a week, `verify --rolling` when the last
+rolling run is 20 hours old, and `build` after either. Each step is logged
+to the console and to `runs.jsonl`. `schedule --once` does whatever is due
+and exits. To run it nightly from Windows Task Scheduler (03:00, from the
+main checkout, so the catalog lands where the app reads it):
+
+```bat
+schtasks /Create /TN "God's Eye View camindex" /SC DAILY /ST 03:00 ^
+  /TR "cmd /c cd /d C:\Users\nospa\Desktop\godseye && node scripts\camindex\index.mjs schedule --once >> .gev-cache\camindex\schedule.log 2>&1"
+```
+
+To remove it: `schtasks /Delete /TN "God's Eye View camindex" /F`.
 
 **In the app:**
 

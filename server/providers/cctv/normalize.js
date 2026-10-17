@@ -673,6 +673,15 @@ function provenanceFields(item) {
     operatorUrl,
     publishSignal: word(item.publishSignal),
     licenseClass: word(item.licenseClass),
+    // Personal fork: the camera's IANA zone, for the panel's local time.
+    ...(typeof item.timeZone === 'string' &&
+    /^[A-Za-z]+(?:\/[A-Za-z0-9_+-]+){0,2}$/.test(item.timeZone)
+      ? { timeZone: item.timeZone }
+      : {}),
+    // Personal fork: when a viewer's frame fetch last saw it live (observed.js).
+    ...(Number.isFinite(Date.parse(item.observedAt))
+      ? { observedAt: new Date(Date.parse(item.observedAt)).toISOString() }
+      : {}),
   };
 }
 

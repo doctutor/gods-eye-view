@@ -516,6 +516,9 @@ export function cctvUpstreamUserAgent(url) {
  * @param {typeof fetch} [options.fetchImpl=fetch] - Fetch implementation.
  * @param {number} [options.timeoutMs=CCTV_FRAME_FETCH_TIMEOUT_MS] - Abort timeout.
  * @param {number} [options.maxBytes=CCTV_FRAME_MAX_BODY_BYTES] - Snapshot byte cap.
+ * @param {(answer: {status: number, contentType: string, body: Buffer|null}) => void} [options.onAnswer]
+ *   Personal fork: told what the upstream answered (status 0 when it did not
+ *   answer), for observed.js.
  * @returns {Promise<{ok:true,body:Buffer,contentType:string}|null>}
  */
 export async function fetchCctvImageFromUpstream(
@@ -524,6 +527,7 @@ export async function fetchCctvImageFromUpstream(
     fetchImpl = fetch,
     timeoutMs = CCTV_FRAME_FETCH_TIMEOUT_MS,
     maxBytes = CCTV_FRAME_MAX_BODY_BYTES,
+    onAnswer = () => {},
   } = {},
 ) {
   if (!url || !/^https?:\/\//i.test(url)) return null;
@@ -542,18 +546,24 @@ export async function fetchCctvImageFromUpstream(
       },
       fetchImpl,
     );
-    if (!upstream) return null;
+    if (!upstream) {
+      onAnswer({ status: 0, contentType: '', body: null });
+      return null;
+    }
     const contentType = upstream.headers.get('content-type') || '';
     if (!upstream.ok || !contentType.startsWith('image/')) {
+      onAnswer({ status: upstream.status, contentType, body: null });
       controller.abort();
       return null;
     }
     const body = await readCappedResponseBytes(upstream, maxBytes);
+    onAnswer({ status: body ? upstream.status : 0, contentType, body });
     if (!body) return null;
     // Personal fork: the upstream's freshness, for frameCache.js.
     const cacheControl = upstream.headers.get('cache-control') || '';
     return { ok: true, body, contentType, cacheControl };
   } catch {
+    onAnswer({ status: 0, contentType: '', body: null });
     return null;
   } finally {
     clearTimeout(timeoutId);

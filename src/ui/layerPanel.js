@@ -53,7 +53,7 @@ const PANEL_GROUPS = [
   },
   {
     label: msg('Cameras'),
-    ids: ['cctv', 'recent-imagery', 'street-level'],
+    ids: ['cctv', 'recent-imagery', 'street-level', 'recorded-video'],
   },
   {
     label: msg('Infrastructure'),

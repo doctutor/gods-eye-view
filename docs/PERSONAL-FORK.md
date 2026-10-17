@@ -521,13 +521,14 @@ git merge origin/main
 - `src/data/dataCredits.js`, `.env.example` and `DATA_SOURCES.md`.
 - **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (two
   places) and `src/app/sourceComposition.test.mjs` assert `layers.length`.
-  The fork's count is upstream's plus 2 (the Baltimore layers): 34 after the
-  2026-10-16 sync. An upstream layer added later changes both numbers.
+  The fork's count is upstream's plus 3 (the two Baltimore layers and
+  Recorded Video): 35 after the 2026-10-16 sync. An upstream layer added later
+  changes both numbers.
 - **Translations.** Upstream checks that every UI string is marked for
   translation (`npm run i18n`). Fork UI text is English-only: markup carries
   `translate="no"`, code carries `// i18n-ignore: personal fork, English-only
 UI`, and the Baltimore layers are listed as untranslated in
-  `src/ui/layerNames.test.mjs`. New fork UI text needs the same, or real
+  `src/ui/layerNames.test.mjs` (with Recorded Video). New fork UI text needs the same, or real
   Spanish and Russian entries in `src/i18n/locales/`.
 - **Street Level providers.** Upstream's Google provider took
   `providers/google/`; the fork's indoor provider moved to

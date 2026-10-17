@@ -1,6 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isPlausibleLatLon } from './normalize.js';
+import {
+  CAMINDEX_DIR,
+  OBSERVED_FILE,
+  camindexDir,
+  readObserved,
+} from './observed.js';
 
 /**
  * Webcams found by camindex (scripts/camindex/), the crawler that reads
@@ -14,10 +20,15 @@ import { isPlausibleLatLon } from './normalize.js';
  * words), since it was assembled from pages the crawler does not control.
  * Cameras are still images; no directory player is framed.
  *
+ * What viewers' frame fetches observed (observed.json, observed.js) applies
+ * on top: a camera seen dead or showing a placeholder leaves the index (the
+ * observation stays on file, so `camindex verify --rolling` re-checks it),
+ * and one seen live is marked live with the time it was seen.
+ *
  * Personal-fork pack; not part of upstream God's Eye View.
  */
 
-export const CAMINDEX_DIR = path.join('.gev-cache', 'camindex');
+export { CAMINDEX_DIR };
 export const CAMINDEX_CATALOG = 'catalog.json';
 const MAX_CATALOG_BYTES = 128 * 1024 * 1024;
 const ID = /^[a-z][a-z0-9-]{1,80}$/;
@@ -25,18 +36,85 @@ const WORD = /^[a-z][a-z-]{0,23}$/i;
 
 /** The catalog file: CAMINDEX_DIR (relative to the source root) or the default. */
 export function camindexCatalogPath(sourceRoot, env = process.env) {
-  const dir = String(env.CAMINDEX_DIR || '').trim();
-  return path.join(
-    dir ? path.resolve(sourceRoot, dir) : path.join(sourceRoot, CAMINDEX_DIR),
-    CAMINDEX_CATALOG,
+  return path.join(camindexDir(sourceRoot, env), CAMINDEX_CATALOG);
+}
+
+/**
+ * The catalog's sources with observations applied: dead and placeholder
+ * cameras out, live ones marked live with `observedAt`.
+ * @param {Array<object>} sources
+ * @param {Record<string, {status: string, at: number}>} observed
+ */
+export function applyObserved(sources, observed) {
+  const out = [];
+  for (const source of sources) {
+    const seen = observed[source.id];
+    if (seen?.status === 'dead' || seen?.status === 'placeholder') continue;
+    out.push(
+      seen?.status === 'live'
+        ? {
+            ...source,
+            liveStatus: 'live',
+            observedAt: new Date(seen.at).toISOString(),
+          }
+        : source,
+    );
+  }
+  return out;
+}
+
+const YOUTUBE_HOSTS = new Set([
+  'youtube.com',
+  'www.youtube.com',
+  'm.youtube.com',
+  'youtu.be',
+  'youtube-nocookie.com',
+  'www.youtube-nocookie.com',
+]);
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
+/** Hosts the server must never be pointed at: local names and private IPs. */
+export function isPublicHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  if (!host || host === 'localhost' || host.endsWith('.localhost'))
+    return false;
+  if (/\.(?:local|internal|lan|home|corp|intranet)$/.test(host)) return false;
+  if (host.startsWith('[')) return false; // IPv6 literals: none needed.
+  const ip = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!ip) return host.includes('.');
+  const [a, b] = [Number(ip[1]), Number(ip[2])];
+  if (ip.slice(1).some((part) => Number(part) > 255)) return false;
+  return !(
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a >= 224
   );
 }
 
+/** An https URL on a public host, without credentials; else ''. */
 function httpsUrl(value) {
   try {
     const url = new URL(String(value || ''));
     if (url.protocol !== 'https:' || url.username || url.password) return '';
+    if (!isPublicHost(url.hostname)) return '';
     return url.href;
+  } catch {
+    return '';
+  }
+}
+
+/** An IANA zone the runtime knows ("Europe/Oslo"), else ''. */
+export function validTimeZone(value) {
+  const zone = String(value || '');
+  if (!/^[A-Za-z]+(?:\/[A-Za-z0-9_+-]+){0,2}$/.test(zone)) return '';
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: zone });
+    return zone;
   } catch {
     return '';
   }
@@ -51,6 +129,62 @@ const word = (value, fallback = '') =>
   WORD.test(String(value || '')) ? String(value) : fallback;
 
 /**
+ * Playback fields for one camera, in the shapes linked.js's feedFields()
+ * produces, or null when its feed is not usable:
+ * - image   url and snapshotUrl, the still (https);
+ * - mjpeg   url (https), snapshotUrl only if one is given;
+ * - hls     url, an https .m3u8; no snapshot;
+ * - youtube embed {provider: 'youtube', videoId}, the watch URL and its
+ *           thumbnail, rebuilt from the id; liveStatus 'unknown';
+ * - link    no picture (url and snapshotUrl ''); needs an https operatorUrl.
+ */
+export function feedFieldsFor(camera, operatorUrl) {
+  switch (String(camera.feedType || '')) {
+    case 'image': {
+      const snapshotUrl = httpsUrl(camera.snapshotUrl || camera.url);
+      return snapshotUrl
+        ? { feedType: 'image', url: snapshotUrl, snapshotUrl }
+        : null;
+    }
+    case 'mjpeg': {
+      const url = httpsUrl(camera.url);
+      return url
+        ? { feedType: 'mjpeg', url, snapshotUrl: httpsUrl(camera.snapshotUrl) }
+        : null;
+    }
+    case 'hls': {
+      const url = httpsUrl(camera.url);
+      return url && /\.m3u8$/i.test(new URL(url).pathname)
+        ? { feedType: 'hls', url, snapshotUrl: '' }
+        : null;
+    }
+    case 'youtube': {
+      const videoId = String(camera.embed?.videoId || '');
+      if (camera.embed?.provider !== 'youtube' || !VIDEO_ID.test(videoId))
+        return null;
+      const given = httpsUrl(camera.url);
+      const url =
+        given && YOUTUBE_HOSTS.has(new URL(given).hostname)
+          ? given
+          : `https://www.youtube.com/watch?v=${videoId}`;
+      return {
+        feedType: 'youtube',
+        url,
+        snapshotUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        embed: { provider: 'youtube', videoId },
+        liveStatus: 'unknown',
+      };
+    }
+    case 'link':
+      return operatorUrl
+        ? { feedType: 'link', url: '', snapshotUrl: '' }
+        : null;
+    default:
+      return null;
+  }
+}
+
+/**
  * One catalog camera → a source, or null when it is unusable.
  * @param {object} camera
  */
@@ -61,9 +195,11 @@ export function catalogCameraToSource(camera) {
   const lon = Number(camera.lon);
   if (!ID.test(id) || !isPlausibleLatLon(lat, lon)) return null;
   if (camera.liveStatus === 'offline') return null;
-  const snapshotUrl = httpsUrl(camera.snapshotUrl);
-  if (camera.feedType !== 'image' || !snapshotUrl) return null;
+  const operatorUrl = httpsUrl(camera.operatorUrl);
+  const feed = feedFieldsFor(camera, operatorUrl);
+  if (!feed) return null;
   const name = text(camera.name, 120) || id;
+  const timeZone = validTimeZone(camera.timeZone);
   return {
     id,
     name,
@@ -81,14 +217,16 @@ export function catalogCameraToSource(camera) {
     code: name.toUpperCase(),
     category: word(camera.category, 'webcam'),
     coordinatesQuality: word(camera.coordinatesQuality, 'site'),
-    operatorUrl: httpsUrl(camera.operatorUrl),
-    // The directory's still is shown; its page is never framed.
-    publishSignal: 'directory-still',
-    licenseClass: 'display-only',
+    operatorUrl,
+    // As the catalog says; a directory still is the default.
+    publishSignal: word(camera.publishSignal, 'directory-still'),
+    licenseClass: word(
+      camera.licenseClass,
+      feed.feedType === 'youtube' ? 'embed-only' : 'display-only',
+    ),
     liveStatus: camera.liveStatus === 'live' ? 'live' : 'unknown',
-    feedType: 'image',
-    url: snapshotUrl,
-    snapshotUrl,
+    ...(timeZone ? { timeZone } : {}),
+    ...feed,
   };
 }
 
@@ -99,6 +237,24 @@ export function catalogCameraToSource(camera) {
 export function createCamindexLoader({ env = process.env } = {}) {
   /** The last file read: {file, mtimeMs, size, sources}. */
   let held = null;
+  /** The last observations applied: {key, sources}. */
+  let applied = null;
+
+  /** The catalog with observed.json on top, recomputed when either changes. */
+  function withObservations(sources, file) {
+    let key = '';
+    try {
+      const stat = fs.statSync(file);
+      key = `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      return sources;
+    }
+    if (applied?.sources === sources && applied.key === key)
+      return applied.result;
+    const result = applyObserved(sources, readObserved(file));
+    applied = { sources, key, result };
+    return result;
+  }
 
   function read(file) {
     let stat;
@@ -134,7 +290,10 @@ export function createCamindexLoader({ env = process.env } = {}) {
   return async function loadCamindexWebcams({
     sourceRoot = process.cwd(),
   } = {}) {
-    const everything = read(camindexCatalogPath(sourceRoot, env));
+    const everything = withObservations(
+      read(camindexCatalogPath(sourceRoot, env)),
+      path.join(camindexDir(sourceRoot, env), OBSERVED_FILE),
+    );
     const kept = [];
     Object.defineProperty(kept, 'everything', { value: everything });
     Object.defineProperty(kept, 'available', { value: everything.length });

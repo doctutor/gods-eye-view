@@ -40,8 +40,9 @@ test('catalogs construct distinct layers and classification from their supplied 
     signal: b.signal,
     surface: fixtureSurface(b.signal),
   });
-  // Personal fork: upstream's 32 plus the two Baltimore camera layers.
-  assert.equal(first.layers.length, 34);
+  // Personal fork: upstream's 32 plus the two Baltimore camera layers and
+  // the Recorded Video layer.
+  assert.equal(first.layers.length, 35);
   assert.ok(first.get('local-adsb'), 'Local ADS-B is registered');
   assert.deepEqual(
     first.metadata.find(({ id }) => id === 'local-adsb'),
@@ -157,8 +158,9 @@ test('Mapillary can be omitted or replaced without changing catalog membership',
     surface: fixtureSurface(lifetime.signal),
   };
   const catalog = createApplicationCatalog(options);
-  // Personal fork: upstream's 32 plus the two Baltimore camera layers.
-  assert.equal(catalog.layers.length, 34);
+  // Personal fork: upstream's 32 plus the two Baltimore camera layers and
+  // the Recorded Video layer.
+  assert.equal(catalog.layers.length, 35);
   assert.deepEqual(catalog.get('street-level').providerIds, []);
   assert.equal(
     catalogControlServices(catalog).streetLevelLayer,

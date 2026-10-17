@@ -23,6 +23,8 @@ import { googlePlacesContextProxy } from './places.js';
 import { mapillaryProxy } from './mapillary.js';
 // Personal fork: Street View indoor views.
 import { streetViewIndoorProxy } from './streetview.js';
+// Personal fork: the Recorded Video layer.
+import { recordedVideoProxy } from './recordedVideo.js';
 import { keySetupEndpoint } from '../standalone/key-setup.js';
 import { weatherProxy } from './weather.js';
 import { firePerimetersProxy } from './firePerimeters.js';
@@ -63,6 +65,7 @@ function localProviderPlugins({ realtime } = {}) {
     cycloneProxy(),
     mapillaryProxy(),
     streetViewIndoorProxy(),
+    recordedVideoProxy({ sourceRoot: defaultSourceRoot }),
     firePerimetersProxy(),
     gnssIntegrityProxy(),
     keySetupEndpoint(),
