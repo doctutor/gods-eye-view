@@ -242,6 +242,9 @@ test('a frame is fetched once per freshness period and shared by concurrent miss
   assert.equal(loads, 4, 'no-store is never kept');
   await cache.get('https://x/miss.jpg', async () => null);
   assert.equal(cache.stats().entries, 1, 'misses are not kept');
+  // The shared concurrent load and the fresh reuse are hits.
+  assert.equal(cache.stats().hits, 2);
+  assert.equal(cache.stats().misses, 5);
 });
 
 test('the frame cache is bounded by entries and bytes, oldest use first out', async () => {
@@ -262,11 +265,26 @@ test('the frame cache is bounded by entries and bytes, oldest use first out', as
     return null;
   });
   assert.equal(reloaded, false, 'a was used recently and stayed');
-  assert.deepEqual(cache.stats(), { entries: 2, bytes: 20 });
+  assert.deepEqual(cache.stats(), {
+    entries: 2,
+    bytes: 20,
+    hits: 2,
+    misses: 3,
+  });
   await cache.get('big', load(95));
-  assert.deepEqual(cache.stats(), { entries: 1, bytes: 95 });
+  assert.deepEqual(cache.stats(), {
+    entries: 1,
+    bytes: 95,
+    hits: 2,
+    misses: 4,
+  });
   await cache.get('huge', load(101));
-  assert.deepEqual(cache.stats(), { entries: 1, bytes: 95 });
+  assert.deepEqual(cache.stats(), {
+    entries: 1,
+    bytes: 95,
+    hits: 2,
+    misses: 5,
+  });
 });
 
 test('upstream frames carry their Cache-Control to the cache', async () => {

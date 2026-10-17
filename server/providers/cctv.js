@@ -23,6 +23,8 @@ import { createFrameObserver } from './cctv/observed.js';
 import { createFeaturedQueueRoutes } from './cctv/featuredQueue.js';
 // Personal fork: whether a camera's stream carries sound.
 import { createAudioProbe } from './cctv/audioProbe.js';
+import { createCctvStatus } from './cctv/status.js';
+import { admitSameSite } from './common/same-site.js';
 import { discardResponseBody } from './common/http.js';
 import { googleServerApiKey } from './places/google-key.js';
 export { CCTV_FRAME_FETCH_TIMEOUT_MS, fetchCctvImageFromUpstream };
@@ -77,6 +79,12 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
    * audio-only row never invents a status or source kind.
    */
   const audioProbe = createAudioProbe();
+  // Personal fork: the SOURCES readout (cctv/status.js).
+  const sourcesStatus = createCctvStatus({
+    sourceRoot,
+    getCctvSources,
+    frameCache,
+  });
   audioProbe.load();
   const audioById = new Map();
   const noteAudio = (cameraId, audio) => {
@@ -313,6 +321,18 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
             'Cache-Control': 'no-store',
           });
           res.end(JSON.stringify(body));
+          return;
+        }
+
+        // Personal fork: what each camera source holds and costs; it names
+        // quotas and errors, so same-site only.
+        if (url.pathname === '/status') {
+          if (admitSameSite(req, res)) return;
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
+          });
+          res.end(JSON.stringify(sourcesStatus()));
           return;
         }
 

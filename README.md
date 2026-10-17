@@ -38,6 +38,10 @@ _“pretty cool”_ — [Brendan Eich](https://x.com/BrendanEich/status/20945920
 
 ---
 
+## Personal fork
+
+This checkout carries personal-fork additions (more camera sources, indoor Street View, screenshot-safe mode and others); see [docs/PERSONAL-FORK.md](docs/PERSONAL-FORK.md).
+
 ## 🌍 Why This Exists
 
 God's Eye View brings public signals into one explorable globe. Track the world live. Talk to it. Break it. Extend it.

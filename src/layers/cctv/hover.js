@@ -4,6 +4,7 @@ import {
 } from '../../data/cctvCards.js';
 import { staticFrameRefreshMs } from '../../data/cctvLod.js';
 import { HOVER_PICK_THROTTLE_MS, HOVER_RELEASE_MS } from './policy.js';
+import { hiddenForScreenshots } from './screenshotSafe.js';
 
 export function createHover({ state: layerState, services, parts, source }) {
   /**
@@ -49,6 +50,8 @@ export function createHover({ state: layerState, services, parts, source }) {
       !!record &&
       cameraId !== layerState._activeCameraId &&
       !layerState._cardIds.has(cameraId) &&
+      // Personal fork: screenshot-safe mode shows no Windy card.
+      !hiddenForScreenshots(record.camera, layerState._hideWindy) &&
       !parts.model.isVideoFeedType(
         parts.model.normalizeFeedType(record.camera.feedType),
       );

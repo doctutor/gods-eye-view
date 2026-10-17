@@ -208,6 +208,11 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
   let _cctvIndex = [];
   // Personal fork: centres of proximity queries (observed.js).
   const viewLog = createViewLog({ sourceRoot });
+  /** Personal fork: per-pack figures as of the last refresh (status.js). */
+  let _cctvPackStatus = [];
+  let _cctvRefreshedAt = 0;
+  /** pack name → {lastRefreshAt, lastError}, kept across refreshes. */
+  const packHistory = new Map();
   // Personal fork: sources too large to index, asked per proximity query.
   const dynamicSources = [
     {
@@ -368,9 +373,25 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
           (pack, i) =>
             pack.enabled() &&
             (liveResults[i]?.status !== 'fulfilled' ||
-              !liveResults[i].value?.length),
+              // A proximity-only pack keeps its capped list empty by design;
+              // its offer lives in `everything`.
+              !(
+                liveResults[i].value?.length ||
+                liveResults[i].value?.everything?.length
+              )),
         ).map((pack) => pack.name)
       : [];
+    _cctvRefreshedAt = Date.now();
+    _cctvPackStatus = summarizePacks({
+      packs,
+      results: needsLiveSources ? liveResults : [],
+      enabled: LIVE_PACKS.map((pack) => pack.enabled()),
+      capped,
+      before: [...indexById.values()],
+      after: deduped.sources,
+      history: packHistory,
+      now: _cctvRefreshedAt,
+    });
     if (capped.length > 0 || _cctvSourceCache.length === 0) {
       _cctvSourceCache = capped;
       _cctvTrimmedPacks = trimmedPacks;
@@ -400,6 +421,16 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
   getCctvSources.invalidate = () => {
     _cctvSourceCacheAt = 0;
   };
+  /** Personal fork: what each pack and dynamic source holds (status.js). */
+  getCctvSources.status = () => ({
+    refreshedAt: _cctvRefreshedAt || null,
+    packs: _cctvPackStatus,
+    dynamic: dynamicSources.map((entry) => ({
+      name: entry.name,
+      enabled: entry.enabled(),
+      ...(entry.source.stats?.() || {}),
+    })),
+  });
   /** Personal fork: every known camera, including those the cap leaves out. */
   getCctvSources.index = () => _cctvIndex;
   /** Personal fork: a camera a dynamic source has returned before. */
@@ -455,6 +486,84 @@ export function createCctvCatalog({ sourceRoot = process.cwd() } = {}) {
     return nearSources(dedupeSources(pool).sources, lat, lon, options);
   };
   return getCctvSources;
+}
+
+/**
+ * Personal fork: per-pack figures for the status readout. A pack's last
+ * good refresh and last error are kept in `history` across refreshes.
+ * @param {{packs: Array<object>, results: Array<PromiseSettledResult>,
+ *   enabled: boolean[], capped: Array<object>, before: Array<object>,
+ *   after: Array<object>, history: Map<string, object>, now: number}} input
+ */
+export function summarizePacks({
+  packs,
+  results,
+  enabled,
+  capped,
+  before,
+  after,
+  history,
+  now,
+}) {
+  const count = (list) => {
+    const counts = new Map();
+    for (const source of list)
+      counts.set(source.pack, (counts.get(source.pack) || 0) + 1);
+    return counts;
+  };
+  const served = count(capped);
+  const offered = count(before);
+  const kept = count(after);
+  return packs
+    .map((pack, index) => {
+      const live = index < enabled.length;
+      const isEnabled = live ? enabled[index] : pack.everything.length > 0;
+      const past = history.get(pack.name) || {
+        lastRefreshAt: null,
+        lastError: null,
+      };
+      const result = results[index];
+      if (isEnabled && result) {
+        const value = result.status === 'fulfilled' ? result.value : null;
+        const got =
+          (Array.isArray(value?.everything) && value.everything.length) ||
+          value?.length ||
+          0;
+        if (typeof value?.skipped === 'string') {
+          past.skipped = value.skipped.slice(0, 120);
+          past.lastError = null;
+        } else if (result.status === 'rejected')
+          past.lastError = {
+            at: now,
+            message: String(result.reason?.message || result.reason).slice(
+              0,
+              200,
+            ),
+          };
+        else if (!got) past.lastError = { at: now, message: 'empty' };
+        else {
+          past.lastRefreshAt = now;
+          past.lastError = null;
+        }
+        if (typeof value?.skipped !== 'string') delete past.skipped;
+      } else if (!live && pack.everything.length) past.lastRefreshAt = now;
+      history.set(pack.name, past);
+      const inIndex = kept.get(pack.name) || 0;
+      return {
+        name: pack.name,
+        enabled: isEnabled,
+        proximityOnly: pack.proximityOnly === true,
+        available: pack.available,
+        servedCapped: served.get(pack.name) || 0,
+        inIndex,
+        dedupedAway: Math.max(0, (offered.get(pack.name) || 0) - inIndex),
+        lastRefreshAt: past.lastRefreshAt,
+        lastError: past.lastError,
+        // Enabled but deliberately empty (no key), with the reason.
+        ...(past.skipped ? { skipped: past.skipped } : {}),
+      };
+    })
+    .filter((pack) => pack.enabled || pack.lastRefreshAt || pack.lastError);
 }
 
 /**

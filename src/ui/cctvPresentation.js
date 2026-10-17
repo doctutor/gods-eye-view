@@ -4,6 +4,7 @@ import { rankCameras, renderCameraList } from './cctvCameraList.js';
 // Personal fork: panel parts and wording by camera kind.
 import { syncCctvPanelKind } from './cctvPanelKind.js';
 import { audioMetaLabel } from '../layers/cctv/audio.js';
+import { panelFrameHidden, syncHideWindy } from './cctvScreenshotSafe.js';
 
 /**
  * Personal fork: rebuild the camera list from the current state, the
@@ -246,7 +247,11 @@ export function _renderCctvState(state) {
   if (this._cctvFrame && embedActive) this._cctvFrame.hidden = true;
 
   if (this._cctvFrame && !liveIntent && !embedActive) {
-    const nextSrc = enabled ? activeCamera?.frameUrl : null;
+    // Personal fork: no still for a camera screenshot-safe mode hides.
+    const nextSrc =
+      enabled && !panelFrameHidden(activeCamera)
+        ? activeCamera?.frameUrl
+        : null;
     const nextCameraId = enabled ? activeCamera?.id || '' : '';
     const cameraChanged = this._cctvFrame.dataset.cameraId !== nextCameraId;
     const frameLoading = this._cctvFrame.dataset.loading === 'true';
@@ -271,6 +276,7 @@ export function _renderCctvState(state) {
   // Personal fork: embed, still and link cameras have no pose: hide the
   // pose-only controls (CSS on data-camera-kind) and use plain wording.
   const kindSummary = syncCctvPanelKind(this, { enabled, activeCamera });
+  syncHideWindy(this, state);
 
   this._syncCctvSourceBadge(activeCamera, enabled);
   this._typeCctvSummary(

@@ -70,6 +70,18 @@
   margin-bottom: 0;
 }
 
+/* Personal fork: screenshot-safe mode (ui/cctvScreenshotSafe.js). */
+.cctv-screenshot-safe {
+  align-items: center;
+}
+
+.cctv-windy-note {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+}
+
 .cctv-calibration-block {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 9px;
@@ -613,4 +625,72 @@
 
 .cctv-pending-precision {
   flex: 1 1 auto;
+}
+
+/* Personal fork: the SOURCES readout (cctvSources.js). */
+.cctv-sources > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.cctv-sources > summary::-webkit-details-marker {
+  display: none;
+}
+
+.cctv-sources > summary::before {
+  content: '▸ ';
+}
+
+.cctv-sources[open] > summary::before {
+  content: '▾ ';
+}
+
+.cctv-sources-quota,
+.cctv-sources-list {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  color: var(--text-secondary);
+}
+
+.cctv-sources-quota {
+  margin-bottom: 4px;
+  color: var(--accent, #00d4ff);
+  overflow-wrap: anywhere;
+}
+
+.cctv-sources-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.cctv-sources-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.cctv-sources-name {
+  color: var(--text-primary);
+}
+
+.cctv-sources-row.is-off .cctv-sources-name {
+  color: var(--text-secondary);
+}
+
+.cctv-sources-row.is-error .cctv-sources-name {
+  color: #ff8a65;
+}
+
+.cctv-sources-counts {
+  text-align: right;
+}
+
+.cctv-sources-error {
+  flex-basis: 100%;
+  color: #ff8a65;
+  overflow-wrap: anywhere;
 }
