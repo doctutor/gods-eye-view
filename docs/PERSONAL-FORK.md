@@ -3,7 +3,7 @@
 This checkout's `local-fixes` branch adds the features below to upstream God's
 Eye View, for the fork owner's own use. Fork-only code is marked with
 "Personal fork" comments. Everything here is as of 2026-10-16 (`local-fixes`
-at `d459e5d7` plus this change). Items marked **(check)** are unclear or
+at `04a5df85` plus this change). Items marked **(check)** are unclear or
 unconfirmed in the code and need a second look.
 
 All caches live under `.gev-cache/`, which git ignores. Every fork pack is on
@@ -21,6 +21,7 @@ unless its switch is set to `0`.
   - [Maryland CHART traffic video](#maryland-chart-traffic-video)
   - [camindex: OpenCCTV, Open-Eagle-Eye and PocketWorld](#camindex-opencctv-open-eagle-eye-and-pocketworld)
 - [One pin per camera (cross-source dedupe)](#one-pin-per-camera-cross-source-dedupe)
+- [The SOURCES readout](#the-sources-readout)
 - [The camera picker](#the-camera-picker)
 - [Panel kinds and local time](#panel-kinds-and-local-time)
 - [Sound detection](#sound-detection)
@@ -122,6 +123,10 @@ minute (Windy allows 300).
 **Limits.** Display only. The panel shows an "OPEN ON WINDY.COM" link, which
 the terms require. Windy cameras are stills with no pose, so they draw no cone
 or projection.
+
+**Screenshots.** The camera panel's HIDE WINDY toggle hides every Windy pin,
+card and still until it is turned off; see
+[Screenshot-safe mode](#screenshot-safe-mode-hide-windy).
 
 Code: `server/providers/cctv/windy.js`.
 
@@ -243,8 +248,6 @@ week, so a rerun costs nothing.
   the pack to pass them through (being added).
 - Lazy verification (`observed.json`, `verify --rolling`, a schedule) is on
   an unmerged branch, not on `local-fixes` **(check)**.
-- SOURCES.md's OpenCCTV section still says `directory-embed` / `embed-only`,
-  while the pack now uses `directory-still` / `display-only` **(check)**.
 
 Code: `scripts/camindex/`, `server/providers/cctv/camindex.js`.
 
@@ -272,6 +275,47 @@ Baltimore's 60 km view went from 886 to 498 pins.
 because only fork packs are listed as non-agency.
 
 Code: `server/providers/cctv/dedupe.js`.
+
+## The SOURCES readout
+
+**What it does.** A collapsible SOURCES block at the bottom of the camera panel
+shows what the camera index holds and what it costs. It is fetched when the
+block opens and every 60 seconds while it stays open. It reads
+`GET /api/cctv/status` (and the indoor Street View status, when that route is
+mounted). Nothing in it fetches from a camera source, and no key is ever
+returned.
+
+**One row per pack.** For example: "1.2k indexed · 300 on map · 45 folded",
+then how long ago the pack last refreshed, and its last error if the most
+recent attempt failed. The status route reports four counts per pack:
+
+- `available`: cameras the pack offered.
+- `servedCapped`: cameras in the startup set ("on map"). Proximity-only packs
+  (linked, camindex) have none.
+- `inIndex`: cameras kept in the proximity index after dedupe ("indexed").
+- `dedupedAway`: cameras folded into a better source's pin ("folded"; see
+  [One pin per camera](#one-pin-per-camera-cross-source-dedupe)).
+
+A pack switched off, or left empty on purpose (for example NPS without a key),
+reads "off" with the reason.
+
+**Other rows.**
+
+- Windy: areas cached and cameras known, or "no key".
+- The camindex file: cameras, and how many have been checked live or dead.
+- YouTube featured cams: listed, live now and pending review.
+- The audio cache: sound, silent, likely, unknown.
+- The frame cache: frames, size and hit rate.
+- Indoor Street View: places and panoramas.
+
+**The quota line** sits above the rows, for example "YouTube 120 / 1500 units
+today · Windy 3 / 120 req/min · Street View 677 / 3000". It shows today's
+YouTube Data API units against `YOUTUBE_DAILY_BUDGET`, Windy requests in the
+last minute against the pack's per-minute budget, and today's indoor Street
+View metadata requests against `STREETVIEW_INDOOR_DAILY_CAP`. A part is left
+out when its source is off.
+
+Code: `server/providers/cctv/status.js`, `src/ui/cctvSources.js`.
 
 ## The camera picker
 
@@ -435,9 +479,12 @@ Code: `src/layers/baltimoreCameras/`.
   upstream request.
 - **Upstream response bodies** are now always cancelled, which stopped a dev
   server crash (`server/providers/common/http.js`).
-- **Older fork commits.** Server-side Google geocoding (`/api/google/geocode`)
-  and https Bing tiles predate the featured cams. Both now appear upstream
-  too; whether they're identical is not confirmed **(check)**.
+- **Older fork commits that upstream solved differently.** The fork's https
+  Bing tiles (`5b294fa3`, PR #1104) and server-side Google geocoding
+  (`4c613f02`, PR #1105) were proposed upstream, and both PRs were closed
+  unmerged. Upstream then fixed the same two problems its own way, after the
+  fork point, so `local-fixes` carries diverged versions, not upstream's
+  changes. See [Keeping up with upstream](#keeping-up-with-upstream).
 
 ## Keeping up with upstream
 
@@ -473,6 +520,30 @@ git merge origin/main
   `layers.length` 32. Upstream also moved its count from 30 to 32 with
   different layers, so git may merge cleanly while the right number is
   probably 34. Run the tests after merging **(check)**.
+
+**Two fixes that diverged from upstream.** Expect conflicts here and prefer
+upstream's version, then re-apply what only the fork needs:
+
+- **Bing tiles over https** (`src/maps/imagery.js` and
+  `src/maps/sourceFactories.test.mjs`).
+  - The fork (`5b294fa3`) rewrites the ion provider's private
+    `_imageUrlTemplate` to https in `upgradeBingTileProtocol`.
+  - Upstream PR #1092 (merged 2026-10-14) resolves the ion endpoint and builds
+    a `BingMapsImageryProvider` with `tileProtocol: 'https'` through public
+    APIs, keeping ion's credits.
+  - Same result, different code. Take upstream's.
+- **Google geocoding through the server.**
+  - Files: `server/providers/places/google.js`, `google-key.js`,
+    `src/search/defaults.js`, `src/search/http.js`,
+    `src/googleGeocodeProxy.test.mjs` (added on both sides).
+  - The fork (`4c613f02`) adds one route, `/api/google/geocode`, that takes
+    `address` or `latlng`.
+  - Upstream PR #693 (merged 2026-10-15, issue #363) builds its routes with an
+    `installGeocodeRoute` helper and adds a separate
+    `/api/google/reverse-geocode` taking `lat`/`lon`, which the browser's
+    reverse geocoder calls.
+  - Take upstream's, then keep the fork's `requestNearbyPlaces` helper in
+    `places/google.js`, which the indoor Street View probe uses.
 
 After a merge, run:
 

@@ -156,7 +156,8 @@ To remove it: `schtasks /Delete /TN "God's Eye View camindex" /F`.
 **In the app:**
 
 - `sourceKind` is `opencctv` and `publishSignal` is `directory-still`.
-- `licenseClass` is `display-only`.
+- `licenseClass` is `display-only`: the app shows the directory's published
+  still and links the camera page; it frames nothing.
 - `coordinatesQuality` is `site`.
 - `category` is the directory's category in the app's words: nature, beach,
   ski, airport, satellite, meteo (the directory's "weather") or traffic. A
