@@ -164,11 +164,15 @@ test('mounted camera fallback provenance survives the source and MCP image resul
   cctvProxy().configureServer({
     middlewares: {
       use(route, handler) {
+        // Personal fork: the proxy also mounts its own /api/cctv/* routes
+        // (featured queue, status) ahead of the main one.
+        if (route.startsWith('/api/cctv/')) return;
         assert.equal(route, '/api/cctv');
         middleware = handler;
       },
     },
   });
+  assert.ok(middleware, 'the main /api/cctv route is mounted');
   const source = createCctvSource({
     fetchImpl: async (path) => {
       assert.ok(path.startsWith('/api/cctv/'));
