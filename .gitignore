@@ -24,3 +24,6 @@ pinokio/.installed
 
 # Transient: a release interrupted mid-assembly (npm run changelog recovers it)
 changelog.d/.assembling/
+
+# Personal fork: local credential files (Earth Engine service-account key); never committed
+.gev-secrets/
