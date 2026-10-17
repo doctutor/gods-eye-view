@@ -236,6 +236,8 @@ export function applyObservations(sources, observed) {
 
 /** observed.json per file, re-read only when it changes. */
 const observedFiles = new Map();
+/** withObservations answers per input list, valid while its observations are. */
+const observedLists = new WeakMap();
 
 function currentObservations(sourceRoot, env) {
   const file = path.join(camindexDir(sourceRoot, env), OBSERVED_FILE);
@@ -275,6 +277,16 @@ export function withObservations(
     break;
   }
   if (!any) return list;
+  // One answer per (list, observations) pair: concurrent loaders that share
+  // one fetch keep sharing one result until observed.json changes.
+  const held = observedLists.get(list);
+  if (held?.observed === observed) return held.result;
+  const result = applyObservationsTo(list, observed);
+  observedLists.set(list, { observed, result });
+  return result;
+}
+
+function applyObservationsTo(list, observed) {
   const out = applyObservations(list, observed);
   const everything = Array.isArray(list.everything)
     ? applyObservations(list.everything, observed)
