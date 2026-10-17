@@ -1,80 +1,68 @@
-// Personal fork: Google Street View indoor views for the Street Level layer.
 import { COLORS as SHARED_COLORS, PROVIDER_COLORS } from '../../policy.js';
+import { msg } from '../../../../i18n/index.js';
 
-/** Identity of the Google indoor-views provider. */
-export const GSV_INDOOR_PROVIDER_ID = 'gsv-indoor';
-export const GSV_INDOOR_NAME = 'Google indoor views';
-export const GSV_INDOOR_LABEL = 'GOOGLE INDOOR';
-/** The browser key frames the Maps Embed viewer; the server key probes. */
-export const GSV_INDOOR_KEY_ID = 'google-maps';
-export const GSV_INDOOR_ROUTE = '/api/streetview/indoor';
+export { NEAREST_RADIUS_M } from '../../policy.js';
 
-/** Methods a source (./source.js or a stand-in) must have. */
-export const GSV_INDOOR_SOURCE_METHODS = Object.freeze([
-  'getStatus',
-  'hitsNear',
-  'probe',
-  'embedKey',
-]);
+export const GOOGLE_PROVIDER_ID = 'google';
+export const GOOGLE_NAME = msg('Google Street View');
+export const GOOGLE_LABEL = msg('GOOGLE STREET VIEW');
+/** The browser Maps key; Street View also needs the Maps JavaScript API on it. */
+export const GOOGLE_KEY_ID = 'google-maps';
 
-/** Stable id prefixes for picked primitives; every one starts with `gsv-indoor:`. */
-export const PICK_PREFIX = Object.freeze({
-  root: 'gsv-indoor:',
-  pano: 'gsv-indoor:pano:',
-});
+export const PICK_PREFIX = Object.freeze({ root: 'gsv:' });
 
 export const COLORS = Object.freeze({
-  coverage: PROVIDER_COLORS[GSV_INDOOR_PROVIDER_ID],
+  coverage: PROVIDER_COLORS.google,
   selected: SHARED_COLORS.selected,
 });
 
-export const GSV_INDOOR_CREDIT_HTML = 'Street View imagery © Google';
+export const GOOGLE_CREDIT_HTML =
+  'Street View imagery © <a href="https://www.google.com/streetview/" target="_blank" rel="noopener">Google</a>';
 
-/** Camera settle → refetch hits, debounced. */
-export const COVERAGE_DEBOUNCE_MS = 600;
-/** Hits are fetched around the view centre within camera height × this. */
-export const FETCH_RADIUS_PER_HEIGHT = 1.5;
-export const FETCH_RADIUS_MIN_M = 400;
-export const FETCH_RADIUS_MAX_M = 8000;
-/** Above this camera height no hits are drawn (they would be sub-pixel clutter). */
-export const COVERAGE_MAX_HEIGHT_M = 60_000;
-/** Below this camera height unprobed ground around the view centre is probed. */
-export const PROBE_BELOW_HEIGHT_M = 3000;
-export const PROBE_RADIUS_KM = 0.5;
-/** A failed or refused probe holds further probes back this long. */
-export const PROBE_BACKOFF_MS = 60_000;
-/** Nearest indoor view to open from a point: hits are sparse, so wider than Mapillary's. */
-export const NEAREST_INDOOR_RADIUS_M = 150;
-export const PIN_SIZE_PX = 10;
-export const MAX_PINS = 3000;
+/** Shown when Google refuses the key (gm_authFailure). */
+export const KEY_REJECTED_MESSAGE = msg(
+  'Google refused GOOGLE_MAPS_API_KEY for Street View — check that the Maps JavaScript API is enabled for it and this site is an allowed referrer',
+);
 
-/** Google panorama ids, as the metadata API returns them. */
-export const PANO_ID_PATTERN = /^[A-Za-z0-9_-]{10,64}$/;
+/** Past these, a nearest lookup, an open or a details lookup has failed. */
+export const NEAREST_TIMEOUT_MS = 10_000;
+export const OPEN_TIMEOUT_MS = 20_000;
+export const DETAILS_TIMEOUT_MS = 10_000;
+/** Pause after a failed details lookup before a view event can retry. */
+export const DETAILS_RETRY_COOLDOWN_MS = 5_000;
 
-export function isPanoId(value) {
-  return typeof value === 'string' && PANO_ID_PATTERN.test(value);
+export const NO_ANSWER_MESSAGE = msg(
+  'Street View did not answer — check the network, and that the Maps JavaScript API is enabled for GOOGLE_MAPS_API_KEY',
+);
+
+export const GROUND_CLICK_HINT = msg('click a street to open Street View');
+
+/** Deep link to a panorama on Google Maps (Maps URLs). */
+export function streetViewUrl(panoId, { heading = 0, pitch = 0 } = {}) {
+  const params = new URLSearchParams({
+    api: '1',
+    map_action: 'pano',
+    pano: String(panoId),
+    heading: String(Math.round(heading)),
+    pitch: String(Math.round(pitch)),
+  });
+  return `https://www.google.com/maps/@?${params}`;
 }
 
-/**
- * The only URL the viewer ever frames: the free Maps Embed API Street View
- * mode for one validated panorama. Null for a bad id or no key.
- */
-export function embedUrl(key, panoId) {
-  const apiKey = String(key || '').trim();
-  if (!apiKey || !isPanoId(panoId)) return null;
-  return `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(apiKey)}&pano=${panoId}`;
-}
-
-/** Deep link to the panorama on Google Maps. */
-export function panoExternalUrl(panoId) {
-  if (!isPanoId(panoId)) return 'https://www.google.com/maps';
-  return `https://www.google.com/maps/@?api=1&map_action=pano&pano=${panoId}`;
-}
-
-/** "2019-05" → epoch ms of the month's first day (UTC), else null. */
-export function panoDateMs(date) {
-  const match = /^(\d{4})-(\d{2})/.exec(String(date || ''));
+/** Epoch ms for a Street View image date ('YYYY-MM'), or null. */
+export function imageDateMs(imageDate) {
+  const match = /^(\d{4})-(\d{2})/.exec(String(imageDate ?? ''));
   if (!match) return null;
-  const ms = Date.UTC(Number(match[1]), Number(match[2]) - 1, 1);
-  return Number.isFinite(ms) ? ms : null;
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return null;
+  return Date.UTC(Number(match[1]), month - 1, 1);
+}
+
+/** The photographer from a copyright line ('© 2024 Google' → 'Google'). */
+export function creatorFrom(copyright) {
+  const text = String(copyright ?? '')
+    .replace(/^©\s*(\d{4}\s+)?/, '')
+    .replace(/^From the Owner,\s*Photo by:\s*/i, '')
+    .trim();
+  return text || null;
 }

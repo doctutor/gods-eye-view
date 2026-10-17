@@ -125,6 +125,7 @@ export function initPendingCams(
       chosen.delete(payload.videoId);
       await refresh();
     } catch (error) {
+      // i18n-ignore: personal fork, English-only UI
       showToast(`Not saved: ${error.message}`);
     }
   }
@@ -172,9 +173,12 @@ export function initPendingCams(
     editor.hidden = true;
     const input = el('input', 'cctv-pending-input');
     input.type = 'text';
+    // i18n-ignore: personal fork, English-only UI
     input.placeholder = 'Place, or lat, lon';
+    // i18n-ignore: personal fork, English-only UI
     input.setAttribute('aria-label', 'Position for this stream');
     const precision = el('select', 'cctv-pending-precision');
+    // i18n-ignore: personal fork, English-only UI
     precision.setAttribute('aria-label', 'How precise the position is');
     for (const quality of qualities) {
       const option = el('option', '', PRECISION_LABEL[quality] || quality);
@@ -212,6 +216,7 @@ export function initPendingCams(
           });
           precision.value = found.coordinatesQuality;
         } catch (error) {
+          // i18n-ignore: personal fork, English-only UI
           return showToast(`Not found: ${error.message}`);
         }
       }

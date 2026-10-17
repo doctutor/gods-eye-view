@@ -201,6 +201,7 @@ export function renderCameraList(host, entries, state = {}) {
   if (!entries.length) {
     const empty = doc.createElement('div');
     empty.className = 'cctv-camera-row empty';
+    // i18n-ignore: personal fork, English-only UI
     empty.textContent = state.query ? 'No camera matches' : 'No cameras loaded';
     host.appendChild(empty);
   }

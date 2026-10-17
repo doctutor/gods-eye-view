@@ -13,24 +13,29 @@ const ATVES_ROOT =
 /** Enforcement camera kinds, keyed by the service's CamType. */
 export const ENFORCEMENT_KINDS = Object.freeze({
   'Red Light Camera': Object.freeze({
+    // i18n-ignore: personal fork, English-only UI
     label: 'Red-light camera',
     color: '#ff4d4d',
   }),
   'Speed Camera Fixed': Object.freeze({
+    // i18n-ignore: personal fork, English-only UI
     label: 'Speed camera (fixed)',
     color: '#ff9f1a',
   }),
   'Speed Camera Portable': Object.freeze({
+    // i18n-ignore: personal fork, English-only UI
     label: 'Speed camera (portable)',
     color: '#ffd84d',
   }),
   'Commercial Vehicles Height Camera': Object.freeze({
+    // i18n-ignore: personal fork, English-only UI
     label: 'Truck height camera',
     color: '#c77dff',
   }),
 });
 
 export const CITIWATCH_KIND = Object.freeze({
+  // i18n-ignore: personal fork, English-only UI
   label: 'CitiWatch police camera',
   color: '#4dd2ff',
 });
@@ -104,6 +109,7 @@ export function parseCameraCollection(collection, setKey) {
         id: `citiwatch-${number}`,
         lat,
         lon,
+        // i18n-ignore: personal fork, English-only UI
         title: clean(props.CAM_LOCATION) || `CitiWatch ${number}`,
         kind: CITIWATCH_KIND.label,
         color: CITIWATCH_KIND.color,

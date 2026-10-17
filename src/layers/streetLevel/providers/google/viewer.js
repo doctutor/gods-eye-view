@@ -1,29 +1,63 @@
-// Personal fork: Maps Embed API Street View viewer for indoor panoramas.
 import {
-  GSV_INDOOR_PROVIDER_ID,
-  embedUrl,
-  isPanoId,
-  panoDateMs,
-  panoExternalUrl,
+  DETAILS_RETRY_COOLDOWN_MS,
+  DETAILS_TIMEOUT_MS,
+  GOOGLE_PROVIDER_ID,
+  KEY_REJECTED_MESSAGE,
+  NO_ANSWER_MESSAGE,
+  OPEN_TIMEOUT_MS,
+  creatorFrom,
+  imageDateMs,
+  streetViewUrl,
 } from './policy.js';
+import { msg } from '../../../../i18n/index.js';
 
-/** Give up waiting for the frame's load event after this long; the pose still goes out. */
-const FRAME_LOAD_TIMEOUT_MS = 8000;
+const PANORAMA_OPTIONS = Object.freeze({
+  visible: false,
+  // The caption has the address; Google's card covers a docked panorama.
+  addressControl: false,
+  linksControl: true,
+  panControl: true,
+  zoomControl: true,
+  clickToGo: true,
+  showRoadLabels: true,
+  // The panel has EXPAND and ×.
+  fullscreenControl: false,
+  enableCloseButton: false,
+  motionTracking: false,
+  motionTrackingControl: false,
+});
 
 /**
- * Viewer adapter: one iframe in the core's host, pointed only at the Maps
- * Embed Street View URL for a validated panorama id. The embed reports no
- * view changes, so the single pose comes from the database hit (`lookup`).
- * @param {{source: {embedKey: () => string}, lookup: (panoId: string) => object|null}} options
- * @returns {import('../../registry.js').ViewerAdapter}
+ * Viewer adapter over Google's StreetViewPanorama: emits a pose for every
+ * panorama and view change, including steps along Google's arrows.
+ * @param {{loader: ReturnType<import('./mapsLoader.js').createMapsLoader>, getService?: () => Promise<object>, render?: object}} options
+ * @returns {import('../../registry.js').ViewerAdapter & {remember: Function}}
  */
-export function createGoogleIndoorViewer({ source, lookup = () => null }) {
+export function createGoogleViewer({ loader, getService, render } = {}) {
+  let library = null;
+  let panorama = null;
+  let element = null;
   let host = null;
-  let wrapper = null;
-  let frame = null;
-  let restorePosition = null;
-  let openSeq = 0;
+  let service = null;
+  let pendingOpen = null;
+  let cancelShown = null;
+  /** Bumped by `unmount`: a construction it overtook builds nothing. */
+  let generation = 0;
+  let subscriptions = [];
+  const described = new Map();
+  /** Panorama id → its lookup in flight; a late answer to a dropped one is ignored. */
+  const lookingUp = new Map();
+  const retryAfter = new Map();
   const listeners = new Set();
+
+  function requestRender() {
+    render?.governorRequestRender?.('google-street-view');
+  }
+
+  async function ensureLibrary() {
+    library ||= await loader.importLibrary('streetView');
+    return library;
+  }
 
   function emit(pose) {
     for (const listener of [...listeners]) {
@@ -35,119 +69,222 @@ export function createGoogleIndoorViewer({ source, lookup = () => null }) {
     }
   }
 
-  function build(element) {
-    const doc = element.ownerDocument || globalThis.document;
-    wrapper = doc.createElement('div');
-    wrapper.className = 'gsv-indoor-viewer';
-    Object.assign(wrapper.style, {
-      position: 'absolute',
-      inset: '0',
-      zIndex: '2',
-      background: '#000',
-    });
-    frame = doc.createElement('iframe');
-    frame.title = 'Google Street View';
-    frame.setAttribute('allowfullscreen', '');
-    frame.setAttribute('loading', 'eager');
-    // The browser key is referrer-restricted: send the page's origin.
-    frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
-    Object.assign(frame.style, {
-      border: '0',
-      width: '100%',
-      height: '100%',
-      display: 'block',
-    });
-    wrapper.appendChild(frame);
-    // The wrapper fills the host; a static host would let it escape.
-    const view = doc.defaultView;
-    const position = view?.getComputedStyle?.(element)?.position;
-    if (!position || position === 'static') {
-      const previous = element.style.position;
-      element.style.position = 'relative';
-      restorePosition = () => {
-        element.style.position = previous;
-      };
-    }
-    element.appendChild(wrapper);
-    host = element;
+  function metaFrom(data) {
+    return {
+      capturedAt: imageDateMs(data?.imageDate),
+      creator: creatorFrom(data?.copyright),
+      title: data?.location?.description || null,
+    };
   }
 
-  function waitForLoad(target, seq) {
-    return new Promise((resolve) => {
-      let timer = null;
-      const done = () => {
-        clearTimeout(timer);
-        target.removeEventListener?.('load', done);
-        resolve(seq === openSeq);
+  /**
+   * Look up a panorama's date, photographer and address once, then re-emit
+   * the pose. A failed or timed-out lookup can retry after the cooldown.
+   */
+  async function describe(panoId) {
+    if (described.has(panoId) || lookingUp.has(panoId)) return;
+    if (Date.now() < (retryAfter.get(panoId) ?? 0)) return;
+    const lookup = { timer: null };
+    lookingUp.set(panoId, lookup);
+    const current = () => lookingUp.get(panoId) === lookup;
+    try {
+      const { data } = await new Promise((resolve, reject) => {
+        lookup.timer = setTimeout(
+          () => reject(new Error(NO_ANSWER_MESSAGE)),
+          DETAILS_TIMEOUT_MS,
+        );
+        (async () => {
+          service ||= getService
+            ? await getService()
+            : new (await ensureLibrary()).StreetViewService();
+          if (!current())
+            throw new Error('Street View details lookup was released');
+          return service.getPanorama({ pano: panoId });
+        })().then(resolve, reject);
+      });
+      if (!current()) return;
+      described.set(panoId, metaFrom(data));
+      retryAfter.delete(panoId);
+    } catch {
+      if (current())
+        retryAfter.set(panoId, Date.now() + DETAILS_RETRY_COOLDOWN_MS);
+      return;
+    } finally {
+      clearTimeout(lookup.timer);
+      if (current()) lookingUp.delete(panoId);
+    }
+    publishPose();
+  }
+
+  function releaseLookups() {
+    for (const lookup of lookingUp.values()) clearTimeout(lookup.timer);
+    lookingUp.clear();
+  }
+
+  function publishPose() {
+    const panoId = panorama?.getPano?.();
+    const latLng = panorama?.getPosition?.();
+    if (!panoId || !latLng || pendingOpen === null) return;
+    const meta = described.get(panoId);
+    if (!meta) describe(panoId);
+    const pov = panorama.getPov() || {};
+    emit({
+      providerId: GOOGLE_PROVIDER_ID,
+      imageId: panoId,
+      position: { lon: latLng.lng(), lat: latLng.lat() },
+      bearing: Number.isFinite(pov.heading) ? pov.heading : null,
+      tilt: Number.isFinite(pov.pitch) ? pov.pitch : 0,
+      altitude: null,
+      isPano: true,
+      capturedAt: meta?.capturedAt ?? null,
+      capturedAtPrecision: 'month',
+      creator: meta?.creator ?? null,
+      title: meta?.title ?? null,
+      sequenceId: null,
+      externalUrl: streetViewUrl(panoId, {
+        heading: pov.heading || 0,
+        pitch: pov.pitch || 0,
+      }),
+    });
+    requestRender();
+  }
+
+  async function ensurePanorama(target) {
+    if (panorama && host === target) return panorama;
+    const built = generation;
+    const { StreetViewPanorama } = await ensureLibrary();
+    if (built !== generation) throw new Error('Street View was unmounted');
+    if (panorama && host === target) return panorama;
+    destroyPanorama();
+    element = target.ownerDocument.createElement('div');
+    element.className = 'sl-google-panorama';
+    element.style.cssText = 'position:absolute;inset:0;';
+    target.append(element);
+    host = target;
+    panorama = new StreetViewPanorama(element, PANORAMA_OPTIONS);
+    // Not pano_changed: it can fire with the old panorama's position.
+    subscriptions = ['position_changed', 'pov_changed'].map((name) =>
+      panorama.addListener(name, () => publishPose()),
+    );
+    return panorama;
+  }
+
+  function destroyPanorama() {
+    for (const subscription of subscriptions) subscription.remove();
+    subscriptions = [];
+    try {
+      panorama?.setVisible(false);
+    } catch {
+      /* already gone */
+    }
+    element?.remove();
+    panorama = null;
+    element = null;
+    host = null;
+  }
+
+  /**
+   * Resolves once `panoId` shows (OK status, or a new position when the
+   * status stays OK); rejects on no imagery, a refused key or no answer.
+   */
+  function shown(instance, panoId) {
+    if (instance.getPano() === panoId && instance.getStatus() === 'OK')
+      return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => finish(reject, new Error(NO_ANSWER_MESSAGE)),
+        OPEN_TIMEOUT_MS,
+      );
+      const stopAuthWatch = loader.onAuthFailure(() =>
+        finish(reject, new Error(KEY_REJECTED_MESSAGE)),
+      );
+      cancelShown = () => finish(resolve);
+      // At a position event the status may still be the last panorama's failure.
+      const onStatus = () => {
+        if (pendingOpen !== panoId) return finish(resolve);
+        const status = instance.getStatus();
+        if (status === 'OK') finish(resolve);
+        else if (status)
+          finish(
+            reject,
+            new Error(msg('Street View has no imagery for this place')),
+          );
       };
-      target.addEventListener?.('load', done);
-      timer = setTimeout(done, FRAME_LOAD_TIMEOUT_MS);
+      const onPosition = () => {
+        if (pendingOpen !== panoId || instance.getStatus() === 'OK')
+          finish(resolve);
+      };
+      const subscriptions = [
+        instance.addListener('status_changed', onStatus),
+        instance.addListener('position_changed', onPosition),
+      ];
+      function finish(settle, value) {
+        cancelShown = null;
+        clearTimeout(timer);
+        for (const subscription of subscriptions) subscription.remove();
+        stopAuthWatch();
+        settle(value);
+      }
     });
   }
 
   return {
-    async mount(element) {
-      if (!element) throw new Error('Street Level viewer has no host element');
-      if (host === element && wrapper?.isConnected !== false) return;
-      this.unmount();
-      build(element);
+    async mount(target) {
+      if (!target) throw new Error('Street Level viewer has no host element');
+      await ensurePanorama(target);
     },
 
-    /** Resolves once the frame loaded (or the wait timed out) and the pose went out. */
     async open(imageId) {
       const panoId = String(imageId);
-      if (!frame) throw new Error('Google viewer is not mounted');
-      if (!isPanoId(panoId)) throw new Error('Not a Google panorama id');
-      const url = embedUrl(source.embedKey(), panoId);
-      if (!url)
-        throw new Error(
-          'Set GOOGLE_MAPS_API_KEY to view Google indoor imagery',
-        );
-      const seq = ++openSeq;
-      const loaded = waitForLoad(frame, seq);
-      frame.src = url;
-      if (!(await loaded)) return;
-      const hit = lookup(panoId);
-      emit({
-        providerId: GSV_INDOOR_PROVIDER_ID,
-        imageId: panoId,
-        position:
-          Number.isFinite(hit?.lon) && Number.isFinite(hit?.lat)
-            ? { lon: hit.lon, lat: hit.lat }
-            : null,
-        bearing: null,
-        tilt: 0,
-        altitude: null,
-        isPano: true,
-        capturedAt: panoDateMs(hit?.panoDate),
-        creator: hit?.copyright
-          ? String(hit.copyright).replace(/^©\s*/, '')
-          : null,
-        sequenceId: null,
-        externalUrl: panoExternalUrl(panoId),
-      });
+      if (!host) throw new Error('Street View is not mounted');
+      if (loader.authFailed()) throw new Error(KEY_REJECTED_MESSAGE);
+      cancelShown?.();
+      pendingOpen = panoId;
+      const instance = await ensurePanorama(host);
+      if (pendingOpen !== panoId) return;
+      const ready = shown(instance, panoId);
+      instance.setPano(panoId);
+      instance.setVisible(true);
+      await ready;
+      if (pendingOpen !== panoId) return;
+      publishPose();
     },
 
     close() {
-      openSeq++;
-      if (frame) frame.src = 'about:blank';
+      pendingOpen = null;
+      cancelShown?.();
+      try {
+        panorama?.setVisible(false);
+      } catch {
+        /* torn down */
+      }
     },
 
     unmount() {
-      openSeq++;
-      wrapper?.remove?.();
-      restorePosition?.();
-      restorePosition = null;
-      wrapper = null;
-      frame = null;
-      host = null;
+      pendingOpen = null;
+      cancelShown?.();
+      releaseLookups();
+      generation++;
+      destroyPanorama();
     },
 
-    resize() {},
+    resize() {
+      if (!panorama) return;
+      try {
+        globalThis.google?.maps?.event?.trigger(panorama, 'resize');
+      } catch {
+        /* no-op */
+      }
+    },
 
     onPose(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+
+    /** Seed the details cache from a nearest lookup's answer. */
+    remember(panoId, data) {
+      if (panoId && data) described.set(String(panoId), metaFrom(data));
     },
   };
 }

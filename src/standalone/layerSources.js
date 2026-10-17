@@ -21,7 +21,7 @@ import { createWindSource } from '../layers/wind/source.js';
 import { createFirmsSource } from '../layers/firms/source.js';
 import { createMapillarySource } from '../layers/streetLevel/providers/mapillary/source.js';
 // Personal fork: Google Street View indoor views.
-import { createGoogleIndoorSource } from '../layers/streetLevel/providers/google/source.js';
+import { createGoogleIndoorSource } from '../layers/streetLevel/providers/googleIndoor/source.js';
 import { createReferenceSources } from '../sources/reference.js';
 export { createReferenceSources as createStandaloneReferenceSources } from '../sources/reference.js';
 

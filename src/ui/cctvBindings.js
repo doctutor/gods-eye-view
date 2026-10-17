@@ -1,3 +1,4 @@
+import { t } from '../i18n/index.js';
 import { stepHighlight } from './cctvCameraList.js';
 import { initPendingCams } from './cctvPending.js';
 import { initSourcesBlock } from './cctvSources.js';
@@ -210,7 +211,7 @@ export function _initCctvPanel() {
       },
       { origin: 'user' },
     );
-    this.actions.showToast('CCTV calibration saved');
+    this.actions.showToast(t('CCTV calibration saved'));
   });
 
   this.listen(this._cctvCalibResetBtn, 'click', () => {

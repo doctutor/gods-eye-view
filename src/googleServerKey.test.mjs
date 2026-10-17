@@ -71,8 +71,15 @@ test('every Google route selects the intended key and keeps it out of responses'
   const original = { server: process.env.GOOGLE_MAPS_SERVER_API_KEY, browser: process.env.GOOGLE_MAPS_API_KEY, limit: process.env.GEV_RATELIMIT_GOOGLE_PER_MIN };
   const calls = [];
   t.mock.method(globalThis, 'fetch', async (url, options) => {
-    // Places sends the key as a header; Geocoding only accepts it in the query.
-    calls.push({ url, key: options.headers?.['X-Goog-Api-Key'] ?? new URL(url).searchParams.get('key') });
+    // Places sends the key as a header; Geocoding's web service takes it as a
+    // query parameter. Either way it must be the server key, and never the
+    // browser's copy of it.
+    calls.push({
+      url,
+      key:
+        options?.headers?.['X-Goog-Api-Key'] ??
+        new URL(String(url)).searchParams.get('key'),
+    });
     return Response.json({ places: [] });
   });
   try {
@@ -89,13 +96,12 @@ test('every Google route selects the intended key and keeps it out of responses'
       for (const install of ['configureServer', 'configurePreviewServer']) {
         const routes = new Map();
         googlePlacesContextProxy()[install]({ middlewares: { use: (name, handler) => routes.set(name, handler) } });
-        assert.equal(routes.size, 3);
-        for (const [name, handler] of routes) {
+        assert.equal(routes.size, 4);
+        for (const handler of routes.values()) {
           const before = calls.length;
           let body;
           const res = { setHeader() {}, end(value) { body = value; } };
-          const url = name === '/api/google/geocode' ? '/?address=capitol' : '/?lat=30&lon=-97&q=capitol';
-          await handler({ method: 'GET', url, headers: {}, socket: { remoteAddress: '127.0.0.1' } }, res);
+          await handler({ method: 'GET', url: '/?lat=30&lon=-97&q=capitol&address=capitol', headers: {}, socket: { remoteAddress: '127.0.0.1' } }, res);
           assert.equal(res.statusCode, 200);
           assert.ok(!body.includes('server-secret'));
           if (expected) {

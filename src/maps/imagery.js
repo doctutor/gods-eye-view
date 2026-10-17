@@ -25,26 +25,42 @@ export function createEsriImagery() {
 export function createIonImagery(style, accessToken) {
   accessToken = String(accessToken || '').trim();
   if (!accessToken) throw new Error('Ion imagery requires an explicit token');
-  return Cesium.IonImageryProvider.fromAssetId(style, { accessToken }).then(
-    upgradeBingTileProtocol,
-  );
+  if (
+    style === Cesium.IonWorldImageryStyle.AERIAL ||
+    style === Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS
+  ) {
+    return createBingIonImagery(style, accessToken);
+  }
+  return Cesium.IonImageryProvider.fromAssetId(style, { accessToken });
 }
 
-/**
- * Cesium's Bing provider requests tiles over the page's own protocol, so on
- * http://localhost every tile is an http:// URL that the CSP's https-only
- * img-src blocks and the globe renders blank. ion offers no way to pass
- * Bing's `tileProtocol` option through, so upgrade the inner template here.
- * The labelled style's http host has no matching certificate; Bing serves
- * those tiles over https from its `{subdomain}.ssl.ak.dynamic` host instead.
- */
-export function upgradeBingTileProtocol(provider) {
-  const bing = provider?._imageryProvider;
-  const template = bing?._imageUrlTemplate;
-  if (typeof template === 'string' && template.startsWith('http:'))
-    bing._imageUrlTemplate = `https:${template.slice('http:'.length)}`.replace(
-      'https://ak.dynamic.{subdomain}.tiles.virtualearth.net/',
-      'https://{subdomain}.ssl.ak.dynamic.tiles.virtualearth.net/',
-    );
+async function createBingIonImagery(style, accessToken) {
+  const endpoint = await new Cesium.Resource({
+    url: `https://api.cesium.com/v1/assets/${style}/endpoint`,
+    queryParameters: { access_token: accessToken },
+  }).fetchJson();
+  if (
+    endpoint?.type !== 'IMAGERY' ||
+    endpoint.externalType !== 'BING' ||
+    typeof endpoint.options?.url !== 'string'
+  ) {
+    throw new Error('Ion world imagery did not return a Bing imagery endpoint');
+  }
+  // Bing otherwise follows the page's HTTP scheme on localhost. Resolve its
+  // ion-issued credentials through public APIs so tiles use HTTPS without
+  // weakening CSP, changing SDK defaults or touching provider internals.
+  const { url, ...options } = endpoint.options;
+  const provider = await Cesium.BingMapsImageryProvider.fromUrl(url, {
+    ...options,
+    tileProtocol: 'https',
+  });
+  const ionCredits = (endpoint.attributions ?? []).map(
+    ({ html, collapsible }) => new Cesium.Credit(html, collapsible === false),
+  );
+  const getTileCredits = provider.getTileCredits.bind(provider);
+  provider.getTileCredits = (x, y, level) => [
+    ...ionCredits,
+    ...(getTileCredits(x, y, level) ?? []),
+  ];
   return provider;
 }

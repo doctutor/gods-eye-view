@@ -42,9 +42,14 @@ export function createDefaultPlaceSearch({
       ...(selected
         ? [selected]
         : [
-            // Google Geocoding refuses referrer-restricted keys, so the browser
-            // key only signals that Google is configured; the server proxy
-            // answers with the server key.
+            // Google answers through the local proxy, which holds the server
+            // key: its Geocoding web service refuses referrer-restricted keys,
+            // so calling it from here would force the bundled browser key to be
+            // left unrestricted (#363). That key still gates the provider,
+            // because a keyless session must not spend a request to learn it
+            // has no Google: the proxy's "not configured" reads as an
+            // unanswered provider, which stops the chain caching the negative
+            // Photon or Nominatim then produces.
             createGoogleGeocoder({
               request(query, { bias, signal }) {
                 if (!resolveApiKey?.()) return null;

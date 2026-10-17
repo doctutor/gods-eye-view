@@ -139,6 +139,7 @@ export function sourceRows(status, streetview, now = Date.now()) {
     const verified = camindex.verified;
     rows.push({
       key: 'camindex:catalog',
+      // i18n-ignore: personal fork, English-only UI
       label: 'OPENCCTV FILE',
       counts: [
         camindex.catalog
@@ -159,6 +160,7 @@ export function sourceRows(status, streetview, now = Date.now()) {
   if (featured)
     rows.push({
       key: 'featured:youtube',
+      // i18n-ignore: personal fork, English-only UI
       label: 'YOUTUBE',
       counts: `${formatCount(featured.listed)} listed · ${formatCount(featured.liveNow)} live · ${formatCount(featured.pending)} pending`,
       age: '',
@@ -169,6 +171,7 @@ export function sourceRows(status, streetview, now = Date.now()) {
   if (audio)
     rows.push({
       key: 'audio',
+      // i18n-ignore: personal fork, English-only UI
       label: 'AUDIO',
       counts: `${formatCount(audio.audio)} sound · ${formatCount(audio.silent)} silent · ${formatCount(audio.likely)} likely · ${formatCount(audio.unknown)} ?`,
       age: '',
@@ -179,6 +182,7 @@ export function sourceRows(status, streetview, now = Date.now()) {
   if (frames)
     rows.push({
       key: 'frames',
+      // i18n-ignore: personal fork, English-only UI
       label: 'FRAME CACHE',
       counts: `${formatCount(frames.entries)} frames · ${formatBytes(frames.bytes)}${frames.hitRate === null || frames.hitRate === undefined ? '' : ` · ${Math.round(frames.hitRate * 100)}% hits`}`,
       age: '',
@@ -188,6 +192,7 @@ export function sourceRows(status, streetview, now = Date.now()) {
   if (streetview?.counts)
     rows.push({
       key: 'streetview',
+      // i18n-ignore: personal fork, English-only UI
       label: 'STREET VIEW',
       counts: `${formatCount(streetview.counts.places)} places · ${formatCount(streetview.counts.panos)} panos`,
       age: '',
@@ -234,6 +239,7 @@ export function initSourcesBlock(
     ]);
     if (signal?.aborted) return;
     if (!status) {
+      // i18n-ignore: personal fork, English-only UI
       if (quota) quota.textContent = 'Status unavailable';
       list?.replaceChildren();
       return;

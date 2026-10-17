@@ -197,6 +197,7 @@ export function createBaltimoreCameraLayer({
         return true;
       } catch (error) {
         if (request.signal.aborted || _request !== request) return false;
+        // i18n-ignore: personal fork, English-only UI
         _lastError = error?.message || 'Baltimore camera service unavailable';
         console.warn(`[Data:${set.id}] Fetch error:`, error);
         return false;

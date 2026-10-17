@@ -1,9 +1,11 @@
 import {
   googleServerApiKey,
   keylessGooglePlacesResponse,
+  keylessGoogleGeocodeResponse,
 } from './google-key.js';
 import { makeCostRateLimiter, clientKey } from '../common/rate-limit.js';
 import { admitSameSite } from '../common/same-site.js';
+import { readResponseJsonCapped } from '../common/http.js';
 import {
   projectNearbyPlaces,
   projectTextSearchPlaces,
@@ -25,7 +27,8 @@ let _googleRateLimiter;
  */
 export const GOOGLE_DEFAULT_PER_MIN = 120;
 
-/** Google cost endpoints (nearby-places + text-search). Null only when set to 0. */
+/** Google cost endpoints (nearby-places, text-search, geocoding). Null only when set to 0. */
+// Personal fork: exported for the Street View indoor probe (server/providers/streetview/).
 export function googleRateLimiter() {
   if (_googleRateLimiter === undefined)
     _googleRateLimiter = makeCostRateLimiter(
@@ -33,6 +36,72 @@ export function googleRateLimiter() {
       GOOGLE_DEFAULT_PER_MIN,
     );
   return _googleRateLimiter;
+}
+
+/** Validate raw lat/lon presence and WGS84 bounds before consuming request quota. */
+export function validatePlacesCoordinates(searchParams) {
+  const rawLat = searchParams.get('lat');
+  const rawLon = searchParams.get('lon');
+  if (rawLat === null || rawLon === null || !rawLat.trim() || !rawLon.trim()) {
+    return { ok: false, error: 'lat and lon are required' };
+  }
+  const latitude = Number(rawLat);
+  const longitude = Number(rawLon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return { ok: false, error: 'Valid lat and lon are required' };
+  }
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    return {
+      ok: false,
+      error: 'lat must be within [-90, 90] and lon within [-180, 180]',
+    };
+  }
+  return { ok: true, latitude, longitude };
+}
+
+/** Longest accepted geocoder query. Real place names are far shorter. */
+const GEOCODE_MAX_QUERY = 200;
+
+/**
+ * Upstream deadline and body ceiling for the geocode routes. The deadline stays
+ * armed through body consumption, so a stalled upstream cannot hold a handler
+ * open, and the cap bounds a chunked or length-omitted reply. A geocode answer
+ * is a handful of results; 256 KiB is far above any honest one.
+ */
+const GEOCODE_UPSTREAM_TIMEOUT_MS = 10_000;
+
+const GEOCODE_MAX_RESPONSE_BYTES = 256 * 1024;
+
+/** Validate a free-text geocoder query before consuming request quota. */
+export function validateGeocodeAddress(searchParams) {
+  const address = String(searchParams.get('address') || '').trim();
+  if (!address) return { ok: false, error: 'address is required' };
+  if (address.length > GEOCODE_MAX_QUERY)
+    return { ok: false, error: 'address is too long' };
+  return { ok: true, address };
+}
+
+/**
+ * Validate the optional viewport bias, which Google reads as
+ * `sw_lat,sw_lng|ne_lat,ne_lng`. An unparsed value is dropped rather than
+ * refused: the bias only ranks results, so a malformed one costs relevance,
+ * not an answer.
+ */
+export function geocodeBounds(searchParams) {
+  const raw = String(searchParams.get('bounds') || '').trim();
+  if (!raw) return null;
+  const corners = raw.split('|');
+  if (corners.length !== 2) return null;
+  const parts = corners.flatMap((corner) => corner.split(','));
+  // A blank component must be refused before Number() turns it into 0 and a
+  // half-written corner like `30.4,` reads as the equator.
+  if (parts.length !== 4 || parts.some((part) => !part.trim())) return null;
+  const numbers = parts.map(Number);
+  if (!numbers.every(Number.isFinite)) return null;
+  const [swLat, swLon, neLat, neLon] = numbers;
+  if (Math.abs(swLat) > 90 || Math.abs(neLat) > 90) return null;
+  if (Math.abs(swLon) > 180 || Math.abs(neLon) > 180) return null;
+  return raw;
 }
 
 const NEARBY_FIELD_MASK = [
@@ -92,27 +161,6 @@ export async function requestNearbyPlaces({
       ? null
       : data.error?.message || 'Google Places request failed',
   };
-}
-
-/** Validate raw lat/lon presence and WGS84 bounds before consuming request quota. */
-export function validatePlacesCoordinates(searchParams) {
-  const rawLat = searchParams.get('lat');
-  const rawLon = searchParams.get('lon');
-  if (rawLat === null || rawLon === null || !rawLat.trim() || !rawLon.trim()) {
-    return { ok: false, error: 'lat and lon are required' };
-  }
-  const latitude = Number(rawLat);
-  const longitude = Number(rawLon);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    return { ok: false, error: 'Valid lat and lon are required' };
-  }
-  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-    return {
-      ok: false,
-      error: 'lat must be within [-90, 90] and lon within [-180, 180]',
-    };
-  }
-  return { ok: true, latitude, longitude };
 }
 
 /** Nearby place labels and view-biased text search, with request-time key resolution. */
@@ -320,102 +368,147 @@ export function googlePlacesContextProxy({
       }
     });
 
-    // Geocoding (forward `address`, reverse `latlng`). The browser cannot call
-    // it directly: Google's Geocoding web service rejects any key carrying an
-    // HTTP-referrer restriction, which is exactly the restriction the
-    // browser-exposed key must have. So the search bar comes through here and
-    // the server key answers, with Google's JSON passed through unchanged.
-    middlewares.use('/api/google/geocode', async (req, res) => {
-      if (admitSameSite(req, res)) return;
-      if (req.method !== 'GET') {
-        res.statusCode = 405;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ status: 'INVALID_REQUEST', results: [] }));
-        return;
-      }
+    /**
+     * Geocoding belongs on the server, not in the page. Google's Geocoding web
+     * service refuses referrer-restricted keys, so calling it from the browser
+     * forces GOOGLE_MAPS_API_KEY — which ships in the bundle by design — to be
+     * left unrestricted (#363). Here the request carries the server key, and
+     * the browser key no longer needs the Geocoding API at all.
+     *
+     * Unlike the two Places routes above, these answer in Google's own shape
+     * (`status` + `results`) rather than the `places: []` contract: the browser
+     * normalizers read that shape directly, and keeping it means the proxy adds
+     * a hop without adding a translation nobody asked for.
+     */
+    function installGeocodeRoute(path, readQuery) {
+      middlewares.use(path, async (req, res) => {
+        const refuse = (statusCode, error) => {
+          res.statusCode = statusCode;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(
+            JSON.stringify({ status: 'REQUEST_DENIED', results: [], error }),
+          );
+        };
 
-      // Unconfigured is not a failure: REQUEST_DENIED with no results lets the
-      // client fall through to its keyless providers without an error.
-      const apiKey = resolveApiKey();
-      if (!String(apiKey ?? '').trim()) {
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Cache-Control', 'no-store');
-        res.end(
-          JSON.stringify({
-            status: 'REQUEST_DENIED',
-            results: [],
-            configured: false,
-          }),
-        );
-        return;
-      }
+        // Gate first, like the Places routes above: a cross-site caller learns
+        // nothing about this endpoint's method surface.
+        if (admitSameSite(req, res)) return;
+        if (req.method !== 'GET') {
+          refuse(405, 'Method not allowed');
+          return;
+        }
 
-      const requestUrl = new URL(req.url || '', 'http://localhost');
-      const address = String(
-        requestUrl.searchParams.get('address') || '',
-      ).trim();
-      const latlng = String(requestUrl.searchParams.get('latlng') || '').trim();
-      const bounds = String(requestUrl.searchParams.get('bounds') || '').trim();
-      if (!address === !latlng || address.length > 512) {
-        res.statusCode = 400;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(
-          JSON.stringify({
-            status: 'INVALID_REQUEST',
-            results: [],
-            error_message: 'Exactly one of address or latlng is required',
-          }),
-        );
-        return;
-      }
+        // A keyless geocode has no provider cost, so it resolves before the
+        // paid-endpoint limiter can consume or exhaust quota (mirrors the
+        // Places routes above).
+        const apiKey = resolveApiKey();
+        const keyless = keylessGoogleGeocodeResponse(apiKey);
+        if (keyless) {
+          res.statusCode = keyless.statusCode;
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(JSON.stringify(keyless.payload));
+          return;
+        }
 
-      const _grl = googleRateLimiter();
-      if (_grl && !_grl(clientKey(req))) {
-        res.statusCode = 429;
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Retry-After', '5');
-        res.end(JSON.stringify({ status: 'OVER_QUERY_LIMIT', results: [] }));
-        return;
-      }
+        const requestUrl = new URL(req.url || '', 'http://localhost');
+        const query = readQuery(requestUrl.searchParams);
+        if (!query.ok) {
+          refuse(400, query.error);
+          return;
+        }
 
-      const upstream = new URL(
-        endpoints.geocode ||
-          'https://maps.googleapis.com/maps/api/geocode/json',
-      );
-      if (address) upstream.searchParams.set('address', address);
-      else upstream.searchParams.set('latlng', latlng);
-      if (bounds) upstream.searchParams.set('bounds', bounds);
-      upstream.searchParams.set('key', apiKey);
+        // Per-IP throttle (GEV_RATELIMIT_GOOGLE_PER_MIN), shared with the
+        // Places routes because both spend the same Google budget.
+        const _grl = googleRateLimiter();
+        if (_grl && !_grl(clientKey(req))) {
+          res.statusCode = 429;
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Retry-After', '5');
+          res.end(
+            JSON.stringify({
+              status: 'OVER_QUERY_LIMIT',
+              results: [],
+              error: 'Rate limit exceeded',
+            }),
+          );
+          return;
+        }
 
-      try {
-        const response = await fetchImpl(upstream.toString(), {
-          redirect: 'error',
-        });
-        const data = await response.json().catch(() => ({}));
-        res.statusCode = response.ok ? 200 : response.status;
-        res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.setHeader('Cache-Control', 'private, max-age=300');
-        res.end(
-          JSON.stringify({
-            status: String(data.status || 'UNKNOWN_ERROR'),
-            results: Array.isArray(data.results) ? data.results : [],
-            ...(data.error_message
-              ? { error_message: String(data.error_message) }
-              : {}),
-          }),
-        );
-      } catch {
-        res.statusCode = 502;
-        res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.end(
-          JSON.stringify({
-            status: 'UNKNOWN_ERROR',
-            results: [],
-            error_message: 'Google Geocoding request failed',
-          }),
-        );
-      }
+        try {
+          const upstream = new URL(
+            endpoints.geocode ||
+              'https://maps.googleapis.com/maps/api/geocode/json',
+          );
+          for (const [name, value] of Object.entries(query.params))
+            upstream.searchParams.set(name, value);
+          upstream.searchParams.set('key', apiKey);
+          const deadline = AbortSignal.timeout(GEOCODE_UPSTREAM_TIMEOUT_MS);
+          const response = await fetchImpl(upstream.toString(), {
+            redirect: 'error',
+            signal: deadline,
+          });
+          // An unreadable, oversized or timed-out body is not an answer: it
+          // falls through to the same shaped failure as a refusal below.
+          const data = await readResponseJsonCapped(
+            response,
+            GEOCODE_MAX_RESPONSE_BYTES,
+            deadline,
+          ).catch(() => null);
+
+          // A body we could not read is an upstream failure, not an answer with
+          // a status of its own, so it does not borrow the upstream's code.
+          if (!data) {
+            res.statusCode = 502;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(
+              JSON.stringify({
+                status: 'UNKNOWN_ERROR',
+                results: [],
+                error: 'Google Geocoding request failed',
+              }),
+            );
+            return;
+          }
+
+          res.statusCode = response.ok ? 200 : response.status;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'private, max-age=300');
+          res.end(JSON.stringify(data));
+        } catch {
+          // Fixed public text: a transport, URL or runtime message would
+          // describe the server to the browser (SECURITY.md, sanitized errors).
+          res.statusCode = 502;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.end(
+            JSON.stringify({
+              status: 'UNKNOWN_ERROR',
+              results: [],
+              error: 'Google Geocoding request failed',
+            }),
+          );
+        }
+      });
+    }
+
+    installGeocodeRoute('/api/google/geocode', (searchParams) => {
+      const address = validateGeocodeAddress(searchParams);
+      if (!address.ok) return address;
+      const bounds = geocodeBounds(searchParams);
+      return {
+        ok: true,
+        params: {
+          address: address.address,
+          ...(bounds ? { bounds } : {}),
+        },
+      };
+    });
+
+    installGeocodeRoute('/api/google/reverse-geocode', (searchParams) => {
+      const coordinates = validatePlacesCoordinates(searchParams);
+      if (!coordinates.ok) return coordinates;
+      const { latitude, longitude } = coordinates;
+      return { ok: true, params: { latlng: `${latitude},${longitude}` } };
     });
   }
 

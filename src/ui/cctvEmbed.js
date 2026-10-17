@@ -56,6 +56,7 @@ export function syncCctvEmbed(
   const frame = document.createElement('iframe');
   frame.className = 'cctv-embed';
   frame.src = src;
+  // i18n-ignore: personal fork, English-only UI
   frame.title = `${activeCamera.name || 'Live stream'} on YouTube`;
   frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
   frame.allowFullscreen = true;

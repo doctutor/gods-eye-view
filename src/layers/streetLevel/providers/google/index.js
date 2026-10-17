@@ -1,173 +1,181 @@
-// Personal fork: "Google indoor views" Street Level provider.
-import { createIndoorCoverage } from './coverage.js';
-import { createGoogleIndoorViewer } from './viewer.js';
-import { passesImageryFilter } from '../../filter.js';
-import { metresBetween } from '../../view.js';
+import { FOLLOW_MAP_STACK_ID } from '../../policy.js';
+import { createMapsLoader } from './mapsLoader.js';
+import { getLocale } from '../../../../i18n/index.js';
+import { createGoogleViewer } from './viewer.js';
 import {
   COLORS,
-  GSV_INDOOR_CREDIT_HTML,
-  GSV_INDOOR_KEY_ID,
-  GSV_INDOOR_LABEL,
-  GSV_INDOOR_NAME,
-  GSV_INDOOR_PROVIDER_ID,
-  GSV_INDOOR_SOURCE_METHODS,
-  NEAREST_INDOOR_RADIUS_M,
+  GOOGLE_CREDIT_HTML,
+  GOOGLE_KEY_ID,
+  GOOGLE_LABEL,
+  GOOGLE_NAME,
+  GOOGLE_PROVIDER_ID,
+  GROUND_CLICK_HINT,
+  KEY_REJECTED_MESSAGE,
+  NEAREST_RADIUS_M,
+  NEAREST_TIMEOUT_MS,
+  NO_ANSWER_MESSAGE,
   PICK_PREFIX,
-  PROBE_BACKOFF_MS,
-  isPanoId,
-  panoDateMs,
 } from './policy.js';
 
-function createProviderState(context) {
-  return {
-    context,
-    viewer: null,
-    /** null until the first status; false when the server cannot probe. */
-    configured: null,
-    keyRequired: false,
-    usage: null,
-    coverage: {
-      hits: new Map(),
-      collection: null,
-      drawn: 0,
-      loading: false,
-      probing: false,
-      hint: '',
-      error: null,
-      holdUntil: 0,
-      lastProbe: null,
-      debounceTimer: null,
-      fetchAbort: null,
-      probeAbort: null,
-      removeCameraListener: null,
-    },
-  };
+/** `promise`, unless it times out, `signal` aborts or Google refuses the key. */
+function settleWithin(promise, { ms, signal, loader }) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => finish(reject, new Error(NO_ANSWER_MESSAGE)),
+      ms,
+    );
+    const onAbort = () => finish(reject, signal.reason);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const stopAuthWatch = loader.onAuthFailure(() =>
+      finish(reject, new Error(KEY_REJECTED_MESSAGE)),
+    );
+    promise.then(
+      (value) => finish(resolve, value),
+      (error) => finish(reject, error),
+    );
+    function finish(settle, value) {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      stopAuthWatch();
+      settle(value);
+    }
+  });
 }
 
 /**
- * Places with Google Street View indoor imagery or photospheres, found by the
- * server's metadata probes and kept in its database; opened in the Maps Embed
- * viewer. Off until switched on. `source` is ./source.js or a stand-in.
+ * Google Street View provider: Google's panorama viewer and nearest-panorama
+ * lookups. It draws no coverage; a click on a street opens the panorama.
  * @returns {import('../../registry.js').StreetLevelProvider}
  */
-export function createGoogleIndoorProvider({ source }) {
-  if (
-    !GSV_INDOOR_SOURCE_METHODS.every(
-      (method) => typeof source?.[method] === 'function',
-    )
-  )
-    throw new TypeError('A Google indoor-views source is required');
+export function createGoogleProvider({
+  getApiKey,
+  loader = createMapsLoader({ getApiKey, getLanguage: getLocale }),
+}) {
+  if (typeof getApiKey !== 'function')
+    throw new TypeError('Google Street View needs getApiKey');
 
   return Object.freeze({
-    id: GSV_INDOOR_PROVIDER_ID,
-    name: GSV_INDOOR_NAME,
-    label: GSV_INDOOR_LABEL,
-    requiresKeyId: GSV_INDOOR_KEY_ID,
+    id: GOOGLE_PROVIDER_ID,
+    name: GOOGLE_NAME,
+    label: GOOGLE_LABEL,
+    requiresKeyId: GOOGLE_KEY_ID,
     pickPrefix: PICK_PREFIX.root,
     colors: COLORS,
-    credit: Object.freeze({ html: GSV_INDOOR_CREDIT_HTML }),
+    credit: Object.freeze({ html: GOOGLE_CREDIT_HTML }),
+    groundClick: true,
+    // Google's terms forbid Street View beside non-Google maps.
+    requiresMapStack: FOLLOW_MAP_STACK_ID,
+    // Every panorama is billed to the Maps key.
     defaultOn: false,
+    // All 360°, and no coverage for a date filter to thin.
+    filters: [],
+    marker: Object.freeze({ kind: 'view-cone', color: COLORS.coverage }),
 
     create(context) {
-      const state = createProviderState(context);
-      const coverage = createIndoorCoverage({ state, source });
-      const viewer = createGoogleIndoorViewer({
-        source,
-        lookup: (panoId) => state.coverage.hits.get(panoId) || null,
+      let keyRequired = !getApiKey();
+      let active = false;
+      let service = null;
+      async function getService() {
+        const lib = await loader.importLibrary('streetView');
+        service ||= new lib.StreetViewService();
+        return service;
+      }
+      const viewer = createGoogleViewer({
+        loader,
+        getService,
+        render: context.services?.render,
+      });
+      const stopAuthWatch = loader.onAuthFailure(() => {
+        // Switched off: its chip says so.
+        if (context.isActive?.())
+          context.actions.reportError(KEY_REJECTED_MESSAGE);
+        context.notify();
       });
 
       return {
         async status() {
-          const first = state.configured === null;
-          state.keyRequired = !source.embedKey();
-          try {
-            const status = await source.getStatus();
-            state.configured = status?.configured === true;
-            state.usage = status;
-            state.coverage.error = state.configured
-              ? null
-              : status?.message || 'Indoor views are not configured';
-            if (!state.configured)
-              state.coverage.holdUntil = Date.now() + PROBE_BACKOFF_MS;
-          } catch (error) {
-            state.configured = false;
-            state.coverage.error =
-              error?.message || 'Indoor views status unavailable';
-          }
-          // Hits already in the database still draw when probing is off.
-          if (first) coverage.refresh();
+          keyRequired = !getApiKey();
           context.notify();
-          return { configured: state.configured && !state.keyRequired };
+          return { configured: !keyRequired };
         },
 
-        init(cesiumViewer) {
-          state.viewer = cesiumViewer;
-        },
+        init() {},
 
-        activate(cesiumViewer) {
-          state.viewer = cesiumViewer;
-          coverage.attach(cesiumViewer);
+        activate() {
+          active = true;
         },
 
         deactivate() {
-          coverage.detach();
-          coverage.clear();
-          coverage.resetErrors();
+          active = false;
         },
 
         destroy() {
-          coverage.detach();
-          coverage.clear();
-          state.coverage.hits.clear();
+          active = false;
+          stopAuthWatch();
         },
 
-        refreshCoverage: () => coverage.refresh(),
+        refreshCoverage() {},
 
-        setFilter() {
-          coverage.draw();
-        },
+        /** No filter applies to Street View (see `filters`). */
+        setFilter() {},
 
         coverageStats() {
-          const cov = state.coverage;
+          const keyRejected = loader.authFailed();
           return {
-            count: coverage.drawnCount(),
+            count: 0,
             zoom: null,
-            kind: 'indoor',
-            loading: cov.loading || cov.probing,
-            hint: cov.hint,
-            error: cov.error,
-            keyRequired: state.keyRequired,
+            kind: null,
+            loading: false,
+            hint:
+              !active || keyRequired || keyRejected ? '' : GROUND_CLICK_HINT,
+            error: keyRejected ? KEY_REJECTED_MESSAGE : null,
+            keyRequired,
+            keyRejected,
           };
         },
 
-        handlePick(pickId) {
-          if (!pickId.startsWith(PICK_PREFIX.pano)) return false;
-          const panoId = pickId.slice(PICK_PREFIX.pano.length);
-          if (!isPanoId(panoId)) return false;
-          context.actions.openImage(panoId);
-          return true;
-        },
+        handlePick: () => false,
 
-        /** Nearest known indoor view that passes the imagery filter, or null. */
-        async nearestImage({ lat, lon }) {
-          const filter = context.getFilter();
-          let best = null;
-          let bestD = Infinity;
-          for (const hit of state.coverage.hits.values()) {
-            if (
-              !passesImageryFilter(
-                { isPano: true, capturedAt: panoDateMs(hit.panoDate) || 0 },
-                filter,
-              )
-            )
-              continue;
-            const d = metresBetween({ lat, lon }, hit);
-            if (d < bestD) {
-              best = hit;
-              bestD = d;
+        /**
+         * Nearest Google-collected outdoor panorama, or null. The imagery
+         * filters do not apply (see `filters`).
+         */
+        async nearestImage({ lat, lon }, { signal } = {}) {
+          if (loader.authFailed()) throw new Error(KEY_REJECTED_MESSAGE);
+          signal?.throwIfAborted();
+          // Set once the caller has its answer (aborted, timed out, refused):
+          // a lookup still waiting on Google's script then asks nothing.
+          let settled = false;
+          const lookup = (async () => {
+            const lib = await loader.importLibrary('streetView');
+            await getService();
+            if (settled) return null;
+            const { GOOGLE, OUTDOOR } = lib.StreetViewSource;
+            try {
+              const { data } = await service.getPanorama({
+                location: { lat, lng: lon },
+                radius: NEAREST_RADIUS_M,
+                // Both: Google's own imagery, outdoors (sources intersect).
+                sources: [GOOGLE, OUTDOOR],
+                preference: lib.StreetViewPreference.NEAREST,
+              });
+              return data;
+            } catch (error) {
+              if (error?.code === 'ZERO_RESULTS') return null;
+              throw error;
             }
-          }
-          return best && bestD <= NEAREST_INDOOR_RADIUS_M ? best.panoId : null;
+          })();
+          const data = await settleWithin(lookup, {
+            ms: NEAREST_TIMEOUT_MS,
+            signal,
+            loader,
+          }).finally(() => {
+            settled = true;
+          });
+          const panoId = data?.location?.pano;
+          if (!panoId) return null;
+          viewer.remember(panoId, data);
+          return panoId;
         },
 
         viewer,

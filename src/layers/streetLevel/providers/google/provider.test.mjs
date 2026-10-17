@@ -1,496 +1,293 @@
-// Personal fork: the Google indoor-views Street Level provider.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import * as Cesium from 'cesium';
-import { createGoogleIndoorProvider } from './index.js';
-import { createGoogleIndoorSource } from './source.js';
-import { createGoogleIndoorViewer } from './viewer.js';
-import { fetchRadiusM, shouldProbe } from './coverage.js';
+import { createGoogleProvider } from './index.js';
 import {
-  COVERAGE_DEBOUNCE_MS,
-  PICK_PREFIX,
-  embedUrl,
-  isPanoId,
-  panoDateMs,
-  panoExternalUrl,
+  GROUND_CLICK_HINT,
+  KEY_REJECTED_MESSAGE,
+  creatorFrom,
+  imageDateMs,
+  streetViewUrl,
 } from './policy.js';
-import { createMapillaryProvider } from '../mapillary/index.js';
-import { validateProviders } from '../../registry.js';
 import { PROVIDER_COLORS } from '../../policy.js';
-import { createStreetLevelLayer } from '../../index.js';
-import { rayCamera } from '../../../../testSupport/streetLevelFakes.mjs';
+import { requiresKeyIdFor, validateProviders } from '../../registry.js';
+import { createMapillaryProvider } from '../mapillary/index.js';
+import {
+  fakeHost,
+  fakeMapsLoader,
+  fakeStreetViewLibrary,
+} from '../../../../testSupport/googleStreetViewFakes.mjs';
 
-const PANO = 'CAoSLEFGMVFpcE1abc_-123';
-const BALTIMORE = { lat: 39.2904, lon: -76.6122 };
+const PANORAMAS = {
+  fresh: { lat: 38.5816, lng: -121.4944, imageDate: '2025-06' },
+  old: { lat: 38.6, lng: -121.5, imageDate: '2009-03' },
+};
 
-function hit(overrides = {}) {
-  return {
-    panoId: PANO,
-    placeId: 'p1',
-    name: 'Peabody Library',
-    lat: BALTIMORE.lat,
-    lon: BALTIMORE.lon,
-    panoDate: '2019-05',
-    copyright: '© A Photographer',
-    checkedAt: 1,
-    ...overrides,
-  };
-}
-
-function fakeSource({
-  status = { configured: true, remainingToday: 100 },
-  near = { hits: [], unprobedCells: 0 },
-  probe = { ok: true, hits: [], newHits: [] },
-  key = 'browser-key',
-} = {}) {
-  const calls = { status: 0, near: [], probe: [] };
-  return {
-    calls,
-    embedKey: () => key,
-    getStatus: async () => {
-      calls.status++;
-      if (status instanceof Error) throw status;
-      return status;
-    },
-    hitsNear: async (query) => {
-      calls.near.push(query);
-      return typeof near === 'function' ? near(query) : near;
-    },
-    probe: async (query) => {
-      calls.probe.push(query);
-      return typeof probe === 'function' ? probe(query) : probe;
-    },
-  };
-}
-
-function fakeContext({ filter = { pano: 'all', sinceMs: null } } = {}) {
-  const opened = [];
-  let notified = 0;
-  return {
-    opened,
-    notified: () => notified,
+function setup({ key = 'browser-key', nearest = () => 'fresh' } = {}) {
+  const fake = fakeStreetViewLibrary({ panoramas: PANORAMAS, nearest });
+  const loader = fakeMapsLoader(fake.library);
+  let apiKey = key;
+  const def = createGoogleProvider({ getApiKey: () => apiKey, loader });
+  const reported = [];
+  let filter = { pano: 'all', sinceMs: null };
+  let active = false;
+  const context = {
     services: {},
     getFilter: () => filter,
-    isActive: () => true,
-    notify: () => notified++,
-    actions: {
-      openImage: (id) => opened.push(id),
-      reportError() {},
+    isActive: () => active,
+    notify() {},
+    actions: { reportError: (message) => reported.push(message) },
+  };
+  const created = def.create(context);
+  // The core switches it on and off; mirror that for isActive().
+  const instance = {
+    ...created,
+    activate() {
+      active = true;
+      created.activate();
+    },
+    deactivate() {
+      active = false;
+      created.deactivate();
     },
   };
-}
-
-function fakeViewer(altitude) {
-  const added = [];
   return {
-    added,
-    camera: Object.assign(rayCamera({ ...BALTIMORE, altitude, pitch: -90 }), {
-      moveEnd: new Cesium.Event(),
-      changed: new Cesium.Event(),
-    }),
-    scene: {
-      canvas: { clientWidth: 1600, clientHeight: 900 },
-      primitives: {
-        add: (p) => added.push(p),
-        remove: (p) => added.splice(added.indexOf(p), 1),
-      },
-    },
+    def,
+    instance,
+    fake,
+    loader,
+    reported,
+    setFilter: (next) => (filter = next),
+    setKey: (next) => (apiKey = next),
   };
 }
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
-
-test('the definition satisfies the contract next to Mapillary and starts off', () => {
-  const def = createGoogleIndoorProvider({ source: fakeSource() });
+test('the provider registers beside Mapillary, off by default, gated on the browser Maps key', () => {
+  const { def } = setup();
+  assert.equal(def.id, 'google');
+  assert.equal(def.label, 'GOOGLE STREET VIEW');
+  assert.deepEqual(def.filters, [], 'no imagery filter applies');
+  assert.deepEqual(def.marker, { kind: 'view-cone', color: '#4285f4' });
+  assert.equal(def.requiresKeyId, 'google-maps');
+  assert.equal(def.defaultOn, false, 'every panorama is billed');
+  assert.equal(def.groundClick, true);
+  assert.equal(def.colors.coverage, PROVIDER_COLORS.google);
+  assert.match(def.credit.html, /Street View imagery © .*Google/);
   const mapillary = createMapillaryProvider({
     source: {
-      hasToken: () => true,
-      getStatus: async () => ({ configured: true }),
-      getTile: async () => new Uint8Array(0),
-      getSequenceImages: async () => [],
-      nearestImages: async () => [],
+      getStatus() {},
+      getTile() {},
+      getSequenceImages() {},
+      nearestImages() {},
     },
   });
-  assert.doesNotThrow(() => validateProviders([mapillary, def]));
-  assert.equal(def.id, 'gsv-indoor');
-  assert.equal(def.name, 'Google indoor views');
-  assert.equal(def.pickPrefix, 'gsv-indoor:');
-  assert.equal(def.requiresKeyId, 'google-maps');
-  assert.equal(def.credit.html, 'Street View imagery © Google');
-  assert.equal(def.colors.coverage, PROVIDER_COLORS['gsv-indoor']);
-  assert.notEqual(def.colors.coverage, PROVIDER_COLORS.mapillary);
-  assert.equal(def.defaultOn, false);
-  assert.throws(() => createGoogleIndoorProvider({ source: {} }), /source/);
-
-  const layer = createStreetLevelLayer({ providers: [mapillary, def] });
-  const switches = Object.fromEntries(
-    layer.getUIState().providers.map((p) => [p.id, p.on]),
-  );
-  assert.deepEqual(switches, { mapillary: true, 'gsv-indoor': false });
-  layer.setParams({ providerSwitches: 'gsv-indoor-1' });
-  assert.equal(
-    layer.getUIState().providers.find((p) => p.id === 'gsv-indoor').on,
-    true,
-  );
+  const both = validateProviders([mapillary, def]);
+  assert.equal(requiresKeyIdFor(both), null, 'each chip gates on its own key');
+  assert.throws(() => createGoogleProvider({}), /getApiKey/);
 });
 
-test('the viewer frames only the Maps Embed URL for a valid panorama id', () => {
+test('status follows the browser Maps key', async () => {
+  const { instance, setKey } = setup({ key: '' });
+  assert.deepEqual(await instance.status(), { configured: false });
+  assert.equal(instance.coverageStats().keyRequired, true);
+  setKey('browser-key');
+  assert.deepEqual(await instance.status(), { configured: true });
+  assert.equal(instance.coverageStats().keyRequired, false);
+});
+
+test('the nearest lookup asks Google for its own outdoor imagery within 50 m', async () => {
+  const { instance, fake } = setup();
   assert.equal(
-    embedUrl('k ey', PANO),
-    `https://www.google.com/maps/embed/v1/streetview?key=k%20ey&pano=${PANO}`,
+    await instance.nearestImage({ lat: 38.58, lon: -121.49 }),
+    'fresh',
   );
-  for (const bad of [
-    '',
-    'short',
-    '../../../maps',
-    `${PANO}&q=x`,
-    `${PANO}#`,
-    'a'.repeat(65),
-    null,
-    42,
+  const [request] = fake.lookups;
+  assert.deepEqual(request.location, { lat: 38.58, lng: -121.49 });
+  assert.equal(request.radius, 50);
+  assert.deepEqual(request.sources, ['google', 'outdoor']);
+  assert.equal(request.preference, 'nearest');
+});
+
+test('no panorama nearby is null; the imagery filters (Mapillary\u2019s) do not apply', async () => {
+  const none = setup({ nearest: () => null });
+  assert.equal(await none.instance.nearestImage({ lat: 0, lon: 0 }), null);
+
+  const { instance, setFilter } = setup({ nearest: () => 'old' }); // 2009
+  for (const filter of [
+    { pano: 'all', sinceMs: Date.UTC(2020, 0, 1) },
+    { pano: 'flat', sinceMs: null },
+    { pano: 'pano', sinceMs: Date.UTC(2025, 0, 1) },
   ]) {
-    assert.equal(isPanoId(bad), false, String(bad));
-    assert.equal(embedUrl('key', bad), null, String(bad));
+    setFilter(filter);
+    assert.equal(await instance.nearestImage({ lat: 0, lon: 0 }), 'old');
   }
-  assert.equal(embedUrl('', PANO), null);
-  assert.equal(
-    panoExternalUrl(PANO),
-    `https://www.google.com/maps/@?api=1&map_action=pano&pano=${PANO}`,
-  );
-  assert.equal(panoExternalUrl('bad id'), 'https://www.google.com/maps');
-  assert.equal(panoDateMs('2019-05'), Date.UTC(2019, 4, 1));
-  assert.equal(panoDateMs(null), null);
+  assert.equal(instance.coverageStats().hint, '', 'off: no hint');
+  instance.activate();
+  setFilter({ pano: 'flat', sinceMs: null });
+  assert.equal(instance.coverageStats().hint, GROUND_CLICK_HINT);
 });
 
-test('status maps the server answer and the browser key', async () => {
-  const ready = createGoogleIndoorProvider({ source: fakeSource() }).create(
-    fakeContext(),
+test('an aborted lookup gives up before asking Google', async () => {
+  const { instance } = setup();
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    instance.nearestImage({ lat: 0, lon: 0 }, { signal: controller.signal }),
+    { name: 'AbortError' },
   );
-  assert.deepEqual(await ready.status(), { configured: true });
-
-  const denied = createGoogleIndoorProvider({
-    source: fakeSource({
-      status: {
-        configured: false,
-        message: 'enable "Street View Static API"',
-      },
-    }),
-  }).create(fakeContext());
-  assert.deepEqual(await denied.status(), { configured: false });
-  assert.match(denied.coverageStats().error, /Street View Static API/);
-
-  const keyless = createGoogleIndoorProvider({
-    source: fakeSource({ key: '' }),
-  }).create(fakeContext());
-  await keyless.status();
-  assert.equal(keyless.coverageStats().keyRequired, true);
-
-  const offline = createGoogleIndoorProvider({
-    source: fakeSource({ status: new Error('offline') }),
-  }).create(fakeContext());
-  assert.deepEqual(await offline.status(), { configured: false });
 });
 
-test('coverage draws database hits and probes unexplored ground when zoomed in', async () => {
-  const source = fakeSource({
-    near: { hits: [hit()], unprobedCells: 4 },
-    probe: {
-      ok: true,
-      hits: [hit(), hit({ panoId: 'second_pano_id_1234', name: 'Hall' })],
-      newHits: [hit({ panoId: 'second_pano_id_1234' })],
-      usage: { remainingToday: 90 },
-    },
+test('a key Google refuses reads KEY REJECTED, shows why, and stops lookups', async () => {
+  const { instance, loader, reported } = setup();
+  instance.activate();
+  assert.equal(instance.coverageStats().hint, GROUND_CLICK_HINT);
+  loader.refuseKey();
+  const stats = instance.coverageStats();
+  assert.equal(stats.keyRejected, true);
+  assert.equal(stats.error, KEY_REJECTED_MESSAGE);
+  assert.equal(stats.hint, '', 'no "click a street" hint over a dead key');
+  assert.deepEqual(reported, [KEY_REJECTED_MESSAGE]);
+  await assert.rejects(instance.nearestImage({ lat: 0, lon: 0 }), {
+    message: KEY_REJECTED_MESSAGE,
   });
-  const context = fakeContext();
-  const provider = createGoogleIndoorProvider({ source }).create(context);
-  const viewer = fakeViewer(1200);
-  provider.init(viewer);
-  provider.activate(viewer);
-  await provider.status();
-  await settle();
-  assert.equal(source.calls.near.length >= 1, true);
-  const query = source.calls.near.at(-1);
-  assert.ok(Math.abs(query.lat - BALTIMORE.lat) < 0.01);
-  assert.equal(query.radiusKm, fetchRadiusM(1200) / 1000);
-  assert.equal(source.calls.probe.length, 1, 'one probe for the view centre');
-  assert.equal(source.calls.probe[0].radiusKm, 0.5);
-  assert.equal(provider.coverageStats().count, 2);
-  const collection = viewer.added.at(-1);
-  assert.ok(collection instanceof Cesium.PointPrimitiveCollection);
-  const ids = Array.from(
-    { length: collection.length },
-    (_, i) => collection.get(i).id,
-  );
-  assert.deepEqual(ids.sort(), [
-    `${PICK_PREFIX.pano}${PANO}`,
-    `${PICK_PREFIX.pano}second_pano_id_1234`,
-  ]);
-
-  // Switched off: the pins go.
-  provider.deactivate();
-  assert.equal(viewer.added.length, 0);
+  instance.destroy();
+  assert.equal(loader.listenerCount(), 0, 'destroy stops listening');
 });
 
-test('coverage does not probe from high up, and never two at once', async () => {
-  const high = fakeSource({ near: { hits: [], unprobedCells: 9 } });
-  const provider = createGoogleIndoorProvider({ source: high }).create(
-    fakeContext(),
-  );
-  const viewer = fakeViewer(8000);
-  provider.activate(viewer);
-  await provider.status();
-  await settle();
-  assert.ok(high.calls.near.length >= 1);
-  assert.equal(high.calls.probe.length, 0);
+test('the hint shows only while the provider is on', () => {
+  const { instance } = setup();
+  assert.equal(instance.coverageStats().hint, '');
+  instance.activate();
+  assert.equal(instance.coverageStats().hint, GROUND_CLICK_HINT);
+  instance.deactivate();
+  assert.equal(instance.coverageStats().hint, '');
+});
 
-  let release;
-  const slow = fakeSource({
-    near: { hits: [], unprobedCells: 3 },
-    probe: () =>
-      new Promise((resolve) => {
-        release = () => resolve({ ok: true, hits: [] });
+test('image dates, photographers and deep links read the way Google writes them', () => {
+  assert.equal(imageDateMs('2024-05'), Date.UTC(2024, 4, 1));
+  assert.equal(imageDateMs('2024-13'), null);
+  assert.equal(imageDateMs(undefined), null);
+  assert.equal(creatorFrom('© 2024 Google'), 'Google');
+  assert.equal(creatorFrom('From the Owner, Photo by: Ada'), 'Ada');
+  assert.equal(creatorFrom(''), null);
+  assert.equal(
+    streetViewUrl('a b', { heading: 90.4, pitch: -9.6 }),
+    'https://www.google.com/maps/@?api=1&map_action=pano&pano=a+b&heading=90&pitch=-10',
+  );
+});
+
+test('a lookup Google never answers fails after the timeout, and a refused key fails it at once', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { NEAREST_TIMEOUT_MS, NO_ANSWER_MESSAGE } = await import('./policy.js');
+  const { instance, fake, loader } = setup();
+  fake.library.StreetViewService.prototype.getPanorama = () =>
+    new Promise(() => {});
+  const hung = instance.nearestImage({ lat: 0, lon: 0 });
+  await Promise.resolve();
+  await Promise.resolve();
+  t.mock.timers.tick(NEAREST_TIMEOUT_MS);
+  await assert.rejects(hung, { message: NO_ANSWER_MESSAGE });
+
+  const refused = instance.nearestImage({ lat: 0, lon: 0 });
+  await Promise.resolve();
+  loader.refuseKey();
+  await assert.rejects(refused, { message: KEY_REJECTED_MESSAGE });
+  assert.equal(
+    loader.listenerCount(),
+    1,
+    'only the provider’s own watch is left',
+  );
+});
+
+test('aborting a lookup in flight gives up at once', async () => {
+  const { instance, fake } = setup();
+  fake.library.StreetViewService.prototype.getPanorama = () =>
+    new Promise(() => {});
+  const controller = new AbortController();
+  const lookup = instance.nearestImage(
+    { lat: 0, lon: 0 },
+    { signal: controller.signal },
+  );
+  controller.abort();
+  await assert.rejects(lookup, { name: 'AbortError' });
+});
+
+test('a lookup cancelled while Google\u2019s script loads asks Google nothing', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { NEAREST_TIMEOUT_MS } = await import('./policy.js');
+  const fake = fakeStreetViewLibrary({
+    panoramas: PANORAMAS,
+    nearest: () => 'fresh',
+  });
+  const loader = fakeMapsLoader(fake.library, { deferred: true });
+  const instance = createGoogleProvider({
+    getApiKey: () => 'browser-key',
+    loader,
+  }).create({
+    services: {},
+    getFilter: () => ({ pano: 'all', sinceMs: null }),
+    isActive: () => true,
+    notify() {},
+    actions: { reportError() {} },
+  });
+  const flush = async () => {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  };
+  // Aborted, then timed out, while the script still loads.
+  const controller = new AbortController();
+  const aborted = instance.nearestImage(
+    { lat: 0, lon: 0 },
+    { signal: controller.signal },
+  );
+  controller.abort();
+  await assert.rejects(aborted, { name: 'AbortError' });
+  const expired = instance.nearestImage({ lat: 0, lon: 0 });
+  t.mock.timers.tick(NEAREST_TIMEOUT_MS);
+  await assert.rejects(expired, /did not answer/);
+  // The script arrives: a current lookup still gets its answer.
+  const current = instance.nearestImage({ lat: 0, lon: 0 });
+  loader.release();
+  await flush();
+  assert.equal(await current, 'fresh');
+  assert.equal(fake.lookups.length, 1, 'only the current lookup asked Google');
+});
+
+test('a Google outage is an error, not "no imagery here"', async () => {
+  const { instance, fake } = setup();
+  fake.library.StreetViewService.prototype.getPanorama = () =>
+    Promise.reject(
+      Object.assign(new Error('UNKNOWN_ERROR'), {
+        code: 'UNKNOWN_ERROR',
+        endpoint: 'STREETVIEW_GET_PANORAMA',
       }),
+    );
+  await assert.rejects(instance.nearestImage({ lat: 0, lon: 0 }), {
+    code: 'UNKNOWN_ERROR',
   });
-  const low = createGoogleIndoorProvider({ source: slow }).create(
-    fakeContext(),
-  );
-  const lowViewer = fakeViewer(800);
-  low.activate(lowViewer);
-  await low.status();
-  await settle();
-  await low.refreshCoverage();
-  await settle();
-  assert.equal(slow.calls.probe.length, 1);
-  assert.equal(low.coverageStats().loading, true);
-  release();
-  await settle();
-  assert.equal(low.coverageStats().loading, false);
-  low.deactivate();
 });
 
-test('a refused probe surfaces the reason and holds further probes', async () => {
-  const source = fakeSource({
-    near: { hits: [], unprobedCells: 3 },
-    probe: {
-      ok: false,
-      configured: false,
-      reason: 'not_enabled',
-      error: 'enable "Street View Static API"',
-      hits: [],
-    },
-  });
-  const provider = createGoogleIndoorProvider({ source }).create(fakeContext());
-  provider.activate(fakeViewer(900));
-  await provider.status();
-  await settle();
-  assert.equal(source.calls.probe.length, 1);
-  assert.match(provider.coverageStats().error, /Street View Static API/);
-  await provider.refreshCoverage();
-  await settle();
-  assert.equal(source.calls.probe.length, 1, 'held back');
-  provider.deactivate();
-});
-
-test('the probe decision and fetch radius', () => {
-  const base = {
-    heightM: 1000,
-    unprobedCells: 2,
-    probing: false,
-    holdUntil: 0,
-    now: 10,
-    remainingToday: 5,
-  };
-  assert.equal(shouldProbe(base), true);
-  assert.equal(shouldProbe({ ...base, heightM: 3500 }), false);
-  assert.equal(shouldProbe({ ...base, unprobedCells: 0 }), false);
-  assert.equal(shouldProbe({ ...base, probing: true }), false);
-  assert.equal(shouldProbe({ ...base, holdUntil: 20 }), false);
-  assert.equal(shouldProbe({ ...base, remainingToday: 0 }), false);
-  assert.equal(shouldProbe({ ...base, remainingToday: undefined }), true);
-  assert.equal(fetchRadiusM(100), 400);
-  assert.equal(fetchRadiusM(2000), 3000);
-  assert.equal(fetchRadiusM(1e6), 8000);
-  assert.ok(COVERAGE_DEBOUNCE_MS > 0);
-});
-
-test('picks open panoramas; nearestImage finds the closest hit that passes the filter', async () => {
-  const context = fakeContext();
-  const source = fakeSource({
-    near: {
-      hits: [
-        hit({ panoId: 'near_pano_id_0001', lat: BALTIMORE.lat + 0.0005 }),
-        hit({ panoId: 'far_pano_id_00002', lat: BALTIMORE.lat + 0.01 }),
-      ],
-      unprobedCells: 0,
-    },
-  });
-  const provider = createGoogleIndoorProvider({ source }).create(context);
-  provider.activate(fakeViewer(1500));
-  await provider.status();
-  await settle();
-  assert.equal(provider.handlePick(`${PICK_PREFIX.pano}${PANO}`), true);
-  assert.equal(provider.handlePick(`${PICK_PREFIX.pano}bad id`), false);
-  assert.equal(provider.handlePick('mly:img:1'), false);
-  assert.deepEqual(context.opened, [PANO]);
-  assert.equal(await provider.nearestImage(BALTIMORE), 'near_pano_id_0001');
+test('a refusal while the provider is off reports no error over another photo', () => {
+  const { instance, loader, reported } = setup();
+  loader.refuseKey();
+  assert.deepEqual(reported, []);
   assert.equal(
-    await provider.nearestImage({ ...BALTIMORE, lat: BALTIMORE.lat - 0.02 }),
-    null,
+    instance.coverageStats().keyRejected,
+    true,
+    'its chip still says so',
   );
-
-  const flat = fakeContext({ filter: { pano: 'flat', sinceMs: null } });
-  const flatProvider = createGoogleIndoorProvider({ source }).create(flat);
-  flatProvider.activate(fakeViewer(1500));
-  await flatProvider.status();
-  await settle();
-  assert.equal(await flatProvider.nearestImage(BALTIMORE), null);
-  assert.equal(flatProvider.coverageStats().count, 0);
-  const recent = fakeContext({
-    filter: { pano: 'all', sinceMs: Date.UTC(2020, 0, 1) },
-  });
-  const recentProvider = createGoogleIndoorProvider({ source }).create(recent);
-  recentProvider.activate(fakeViewer(1500));
-  await recentProvider.status();
-  await settle();
-  assert.equal(await recentProvider.nearestImage(BALTIMORE), null);
 });
 
-/** Just enough DOM for the iframe adapter: setting `src` fires `load`. */
-function fakeDom() {
-  const make = (tag) => {
-    const listeners = new Set();
-    const el = {
-      tagName: tag.toUpperCase(),
-      style: {},
-      attributes: {},
-      children: [],
-      parent: null,
-      isConnected: true,
-      setAttribute(name, value) {
-        this.attributes[name] = value;
-      },
-      appendChild(child) {
-        child.parent = this;
-        this.children.push(child);
-      },
-      remove() {
-        this.parent?.children.splice(this.parent.children.indexOf(this), 1);
-        this.parent = null;
-        this.isConnected = false;
-      },
-      addEventListener: (type, fn) => type === 'load' && listeners.add(fn),
-      removeEventListener: (type, fn) => listeners.delete(fn),
-    };
-    let src = '';
-    Object.defineProperty(el, 'src', {
-      get: () => src,
-      set(value) {
-        src = value;
-        queueMicrotask(() => [...listeners].forEach((fn) => fn()));
-      },
-    });
-    return el;
-  };
-  const doc = {
-    createElement: make,
-    defaultView: { getComputedStyle: () => ({ position: 'static' }) },
-  };
-  const host = make('div');
-  host.ownerDocument = doc;
-  return { host };
-}
-
-test('the iframe adapter opens the embed and emits a pose from the hit', async () => {
-  const { host } = fakeDom();
-  const viewer = createGoogleIndoorViewer({
-    source: { embedKey: () => 'browser-key' },
-    lookup: (id) => (id === PANO ? hit() : null),
-  });
+test('the panorama a lookup found is dated without a second lookup', async () => {
+  const { instance, fake } = setup();
+  await instance.nearestImage({ lat: 38.58, lon: -121.49 });
+  const host = fakeHost();
   const poses = [];
-  viewer.onPose((pose) => poses.push(pose));
-  await assert.rejects(viewer.open(PANO), /not mounted/);
-  await viewer.mount(host);
-  await viewer.mount(host);
-  assert.equal(host.children.length, 1, 'mount is idempotent');
-  assert.equal(host.style.position, 'relative');
-  const frame = host.children[0].children[0];
-  assert.equal(frame.tagName, 'IFRAME');
-  assert.equal(
-    frame.attributes.referrerpolicy,
-    'strict-origin-when-cross-origin',
+  instance.viewer.onPose((pose) => poses.push(pose));
+  await instance.viewer.mount(host);
+  await instance.viewer.open('fresh');
+  assert.equal(poses.at(-1).capturedAt, Date.UTC(2025, 5, 1));
+  assert.deepEqual(
+    fake.lookups.filter((request) => request.pano),
+    [],
+    'no getPanorama({pano}) for a panorama the lookup already described',
   );
-  await viewer.open(PANO);
-  assert.equal(frame.src, embedUrl('browser-key', PANO));
-  assert.equal(poses.length, 1);
-  assert.deepEqual(poses[0], {
-    providerId: 'gsv-indoor',
-    imageId: PANO,
-    position: { lon: BALTIMORE.lon, lat: BALTIMORE.lat },
-    bearing: null,
-    tilt: 0,
-    altitude: null,
-    isPano: true,
-    capturedAt: Date.UTC(2019, 4, 1),
-    creator: 'A Photographer',
-    sequenceId: null,
-    externalUrl: panoExternalUrl(PANO),
-  });
-  await assert.rejects(viewer.open('javascript:alert(1)'), /panorama id/);
-  assert.equal(frame.src, embedUrl('browser-key', PANO));
-  viewer.close();
-  assert.equal(frame.src, 'about:blank');
-  viewer.unmount();
-  assert.equal(host.children.length, 0);
-  assert.ok(!host.style.position, 'the host position is restored');
-
-  const keyless = createGoogleIndoorViewer({ source: { embedKey: () => '' } });
-  await keyless.mount(fakeDom().host);
-  await assert.rejects(keyless.open(PANO), /GOOGLE_MAPS_API_KEY/);
-});
-
-test('the source calls the local routes', async () => {
-  const requests = [];
-  const source = createGoogleIndoorSource({
-    apiKey: ' key ',
-    fetchImpl: async (url, init = {}) => {
-      requests.push([url, init.method || 'GET', init.body || null]);
-      if (url.endsWith('/probe'))
-        return { ok: false, status: 409, json: async () => ({ busy: true }) };
-      if (url.includes('fail'))
-        return {
-          ok: false,
-          status: 500,
-          json: async () => ({ error: 'boom' }),
-        };
-      return { ok: true, status: 200, json: async () => ({ hits: [] }) };
-    },
-  });
-  assert.equal(source.embedKey(), 'key');
-  await source.getStatus();
-  await source.hitsNear({ lat: 39.29041234, lon: -76.6122, radiusKm: 1.23456 });
-  assert.deepEqual(await source.probe({ lat: 1, lon: 2, radiusKm: 0.5 }), {
-    busy: true,
-  });
-  assert.deepEqual(requests, [
-    ['/api/streetview/indoor/status', 'GET', null],
-    [
-      '/api/streetview/indoor?near=39.290412%2C-76.612200&radiusKm=1.235',
-      'GET',
-      null,
-    ],
-    [
-      '/api/streetview/indoor/probe',
-      'POST',
-      '{"lat":1,"lon":2,"radiusKm":0.5}',
-    ],
-  ]);
-  const failing = createGoogleIndoorSource({
-    route: '/fail',
-    fetchImpl: async () => ({
-      ok: false,
-      status: 500,
-      json: async () => ({ error: 'boom' }),
-    }),
-  });
-  await assert.rejects(failing.getStatus(), /boom/);
 });

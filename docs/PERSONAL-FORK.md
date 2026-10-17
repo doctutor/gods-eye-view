@@ -443,7 +443,12 @@ content for at most 30 days, and Place IDs indefinitely:
 **Limits.** "Contributed" can't tell indoor 360s from outdoor ones. The viewer
 needs the Maps Embed API enabled (see the checklist).
 
-Code: `server/providers/streetview/`, `src/layers/streetLevel/providers/google/`.
+**Upstream's Google provider.** Upstream now ships its own GOOGLE STREET VIEW
+source (`src/layers/streetLevel/providers/google/`, Maps JavaScript API), and
+Street Level shows one source at a time. GOOGLE INDOOR is a separate source
+that sits beside it; the fork's code lives in `providers/googleIndoor/`.
+
+Code: `server/providers/streetview/`, `src/layers/streetLevel/providers/googleIndoor/`.
 More detail in [DATA_SOURCES.md](../DATA_SOURCES.md).
 
 ## Baltimore enforcement and CitiWatch cameras
@@ -481,15 +486,14 @@ Code: `src/layers/baltimoreCameras/`.
   server crash (`server/providers/common/http.js`).
 - **Older fork commits that upstream solved differently.** The fork's https
   Bing tiles (`5b294fa3`, PR #1104) and server-side Google geocoding
-  (`4c613f02`, PR #1105) were proposed upstream, and both PRs were closed
-  unmerged. Upstream then fixed the same two problems its own way, after the
-  fork point, so `local-fixes` carries diverged versions, not upstream's
-  changes. See [Keeping up with upstream](#keeping-up-with-upstream).
+  (`4c613f02`, PR #1105) were closed unmerged upstream, which fixed both its
+  own way (#1092, #693). The 2026-10-16 upstream sync replaced the fork's
+  versions with upstream's.
 
 ## Keeping up with upstream
 
-The fork branched from upstream at `8b8ccc9a`. On 2026-10-16, `local-fixes`
-was 588 commits behind `origin/main`.
+The fork branched from upstream at `8b8ccc9a`. It was last synced with
+`origin/main` at `79176667` on 2026-10-16 (branch `personal/upstream-sync`).
 
 ```bash
 git fetch origin
@@ -515,14 +519,22 @@ git merge origin/main
 - `src/ui/cctvPresentation.js`, `src/ui/templates/layer-panels.html` and
   `src/ui/styles/cctv.css`.
 - `src/data/dataCredits.js`, `.env.example` and `DATA_SOURCES.md`.
-- **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (lines 43
-  and 158) and `src/app/sourceComposition.test.mjs` (line 40) assert
-  `layers.length` 32. Upstream also moved its count from 30 to 32 with
-  different layers, so git may merge cleanly while the right number is
-  probably 34. Run the tests after merging **(check)**.
+- **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (two
+  places) and `src/app/sourceComposition.test.mjs` assert `layers.length`.
+  The fork's count is upstream's plus 2 (the Baltimore layers): 34 after the
+  2026-10-16 sync. An upstream layer added later changes both numbers.
+- **Translations.** Upstream checks that every UI string is marked for
+  translation (`npm run i18n`). Fork UI text is English-only: markup carries
+  `translate="no"`, code carries `// i18n-ignore: personal fork, English-only
+UI`, and the Baltimore layers are listed as untranslated in
+  `src/ui/layerNames.test.mjs`. New fork UI text needs the same, or real
+  Spanish and Russian entries in `src/i18n/locales/`.
+- **Street Level providers.** Upstream's Google provider took
+  `providers/google/`; the fork's indoor provider moved to
+  `providers/googleIndoor/`.
 
-**Two fixes that diverged from upstream.** Expect conflicts here and prefer
-upstream's version, then re-apply what only the fork needs:
+**Two fixes that diverged from upstream** (resolved in the 2026-10-16 sync by
+taking upstream's version and re-applying what only the fork needs):
 
 - **Bing tiles over https** (`src/maps/imagery.js` and
   `src/maps/sourceFactories.test.mjs`).
