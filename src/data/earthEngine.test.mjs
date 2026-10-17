@@ -1,0 +1,468 @@
+// Personal fork: the Earth Engine overlay layers' server
+// (server/providers/earthEngine.js) with fake Earth Engine answers.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import {
+  DEFAULT_DAILY_TILES,
+  EE_SCOPE,
+  MAP_TTL_MS,
+  createEarthEngineHandler,
+  createEarthEngineService,
+  createRestBackend,
+  createServiceAccountAuth,
+  earthEngineSettings,
+  mapRequestFor,
+} from '../../server/providers/earthEngine.js';
+import {
+  EARTH_ENGINE_LAYERS,
+  layerVariants,
+  variantForHeight,
+} from './earthEngineLayers.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURE = path.join(
+  __dirname,
+  'fixtures',
+  'earth-engine-expressions.json',
+);
+const byId = (id) => EARTH_ENGINE_LAYERS.find((layer) => layer.id === id);
+
+async function tempRoot(t) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-ee-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  return root;
+}
+
+test('every map request is exactly the committed fixture', async () => {
+  const { requests } = JSON.parse(await fs.readFile(FIXTURE, 'utf8'));
+  const built = {};
+  for (const layer of EARTH_ENGINE_LAYERS)
+    for (const variant of layerVariants(layer))
+      built[`${layer.id}/${variant.key}`] = mapRequestFor(layer, variant);
+  // A changed layer changes what is sent: regenerate the fixture with it.
+  assert.deepEqual(built, requests);
+  const slope = requests['ee-terrain-slope/default'];
+  assert.equal(slope.fileFormat, 'PNG');
+  assert.equal(slope.expression.result, '0');
+  const root = slope.expression.values['0'].functionInvocationValue;
+  assert.equal(root.functionName, 'Terrain.slope');
+  assert.deepEqual(slope.visualizationOptions.ranges, [{ min: 0, max: 45 }]);
+  const loss = requests['ee-forest-loss/default'].expression.values['0'];
+  assert.equal(loss.functionInvocationValue.functionName, 'Image.selfMask');
+  const level2 = requests['ee-admin-boundaries/level2'];
+  assert.equal(
+    level2.expression.values['0'].functionInvocationValue.functionName,
+    'FeatureCollection.style',
+  );
+  assert.equal(
+    level2.visualizationOptions,
+    undefined,
+    'styled features are RGB',
+  );
+  assert.match(JSON.stringify(level2), /FAO\/GAUL\/2025\/level2/);
+});
+
+test('the boundaries change level with the camera’s height', () => {
+  const layer = byId('ee-admin-boundaries');
+  assert.equal(variantForHeight(layer, 5_000_000).key, 'level1');
+  assert.equal(variantForHeight(layer, 800_000).key, 'level1');
+  assert.equal(variantForHeight(layer, 799_999).key, 'level2');
+  assert.equal(variantForHeight(layer, 2_000).key, 'level2');
+  assert.equal(variantForHeight(byId('ee-forest-loss'), 10).key, 'default');
+});
+
+test('configured only with a project and a key file that exists; the key is never read here', async (t) => {
+  const root = await tempRoot(t);
+  assert.equal(earthEngineSettings({}, root).configured, false);
+  assert.equal(
+    earthEngineSettings(
+      {
+        EARTH_ENGINE_KEY_FILE: '.gev-secrets/earth-engine.json',
+        EARTH_ENGINE_PROJECT: 'true-energy-511503-v7',
+      },
+      root,
+    ).configured,
+    false,
+    'no file yet',
+  );
+  await fs.mkdir(path.join(root, '.gev-secrets'));
+  await fs.writeFile(
+    path.join(root, '.gev-secrets', 'earth-engine.json'),
+    '{}',
+  );
+  const settings = earthEngineSettings(
+    {
+      EARTH_ENGINE_KEY_FILE: '.gev-secrets/earth-engine.json',
+      EARTH_ENGINE_PROJECT: 'true-energy-511503-v7',
+      EARTH_ENGINE_DAILY_TILES: '500',
+    },
+    root,
+  );
+  assert.equal(settings.configured, true);
+  assert.equal(settings.dailyTiles, 500);
+  assert.equal(earthEngineSettings({}, root).dailyTiles, DEFAULT_DAILY_TILES);
+  assert.equal(
+    earthEngineSettings(
+      {
+        EARTH_ENGINE_KEY_FILE: '.gev-secrets/earth-engine.json',
+        EARTH_ENGINE_PROJECT: 'Not A Project!',
+      },
+      root,
+    ).configured,
+    false,
+  );
+});
+
+test('the service account signs its own token request and keeps the token', async () => {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+  });
+  const key = JSON.stringify({
+    type: 'service_account',
+    client_email: 'gods-eye-view-earth-engine@example.iam.gserviceaccount.com',
+    private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    token_uri: 'https://oauth2.googleapis.com/token',
+  });
+  let clock = 1_700_000_000_000;
+  const asked = [];
+  const fetchImpl = async (url, init) => {
+    asked.push({ url, body: new URLSearchParams(init.body) });
+    return Response.json({
+      access_token: `token-${asked.length}`,
+      expires_in: 3600,
+    });
+  };
+  const auth = createServiceAccountAuth({
+    keyFile: 'unused',
+    readKey: () => key,
+    fetchImpl,
+    now: () => clock,
+  });
+  const [a, b] = await Promise.all([auth.token(), auth.token()]);
+  assert.equal(a, 'token-1');
+  assert.equal(b, 'token-1', 'one request at a time');
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0].url, 'https://oauth2.googleapis.com/token');
+  assert.equal(
+    asked[0].body.get('grant_type'),
+    'urn:ietf:params:oauth:grant-type:jwt-bearer',
+  );
+  const [header, claims, signature] = asked[0].body.get('assertion').split('.');
+  const decode = (part) =>
+    JSON.parse(Buffer.from(part, 'base64url').toString());
+  assert.deepEqual(decode(header), { alg: 'RS256', typ: 'JWT' });
+  assert.deepEqual(decode(claims), {
+    iss: 'gods-eye-view-earth-engine@example.iam.gserviceaccount.com',
+    scope: EE_SCOPE,
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: clock / 1000,
+    exp: clock / 1000 + 3600,
+  });
+  assert.equal(
+    crypto
+      .createVerify('RSA-SHA256')
+      .update(`${header}.${claims}`)
+      .verify(publicKey, Buffer.from(signature, 'base64url')),
+    true,
+  );
+  assert.equal(await auth.token(), 'token-1', 'kept');
+  clock += 3600 * 1000;
+  assert.equal(await auth.token(), 'token-2', 'renewed before it expires');
+  // A bad key says what is wrong without its contents.
+  const broken = createServiceAccountAuth({
+    keyFile: 'unused',
+    readKey: () => '{"private_key": "SECRET-MATERIAL"}',
+    fetchImpl,
+  });
+  await assert.rejects(broken.token(), (error) => {
+    assert.doesNotMatch(error.message, /SECRET-MATERIAL/);
+    return /not a service-account key/.test(error.message);
+  });
+});
+
+test('the REST backend makes maps with the token, retries a 401 once, and returns Earth Engine’s words', async () => {
+  const calls = [];
+  let tokens = 0;
+  const auth = {
+    token: async () => `t${++tokens}`,
+    forget: () => calls.push('forget'),
+  };
+  let mapAnswers = [
+    new Response('{}', { status: 401 }),
+    Response.json({ name: 'projects/true-energy-511503-v7/maps/abc123-def' }),
+  ];
+  const fetchImpl = async (url, init) => {
+    calls.push({
+      url,
+      auth: init.headers.Authorization,
+      method: init.method || 'GET',
+    });
+    if (url.includes('/tiles/'))
+      return url.endsWith('/9/9/9')
+        ? Response.json(
+            { error: { message: 'Map not found' } },
+            { status: 404 },
+          )
+        : new Response(Buffer.from('png-bytes'), {
+            headers: { 'content-type': 'image/png' },
+          });
+    return mapAnswers.shift();
+  };
+  const backend = createRestBackend({
+    project: 'true-energy-511503-v7',
+    auth,
+    fetchImpl,
+  });
+  const layer = byId('ee-terrain-slope');
+  const map = await backend.createMap(layer, layerVariants(layer)[0]);
+  assert.equal(map.name, 'projects/true-energy-511503-v7/maps/abc123-def');
+  assert.equal(
+    calls[0].url,
+    'https://earthengine.googleapis.com/v1/projects/true-energy-511503-v7/maps?fields=name',
+  );
+  assert.equal(calls[0].method, 'POST');
+  assert.equal(calls[0].auth, 'Bearer t1');
+  assert.equal(calls[1], 'forget');
+  assert.equal(calls[2].auth, 'Bearer t2');
+  const tile = await backend.fetchTile(map.name, 3, 2, 1);
+  assert.equal(tile.status, 200);
+  assert.equal(tile.body.toString(), 'png-bytes');
+  assert.equal(
+    calls.at(-1).url,
+    'https://earthengine.googleapis.com/v1/projects/true-energy-511503-v7/maps/abc123-def/tiles/3/2/1',
+  );
+  const missing = await backend.fetchTile(map.name, 9, 9, 9);
+  assert.equal(missing.status, 404);
+  assert.equal(missing.error, 'Earth Engine 404: Map not found');
+  mapAnswers = [
+    Response.json(
+      { error: { message: 'Image.setDefaultProjection: Unknown argument' } },
+      { status: 400 },
+    ),
+  ];
+  await assert.rejects(
+    backend.createMap(layer, layerVariants(layer)[0]),
+    /Earth Engine 400: Image\.setDefaultProjection: Unknown argument/,
+  );
+});
+
+function fakeBackend({ fail = () => false } = {}) {
+  const made = [];
+  const tiles = [];
+  let gone = new Set();
+  return {
+    made,
+    tiles,
+    expire: (name) => gone.add(name),
+    async createMap(layer, variant) {
+      made.push(`${layer.id}/${variant.key}`);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      if (fail(layer, variant))
+        throw new Error('Earth Engine 400: bad expression');
+      return {
+        name: `projects/p/maps/${layer.id}-${variant.key}-${made.length}`,
+      };
+    },
+    async fetchTile(name, z, x, y) {
+      tiles.push(`${name}/${z}/${x}/${y}`);
+      if (gone.has(name))
+        return { status: 404, error: 'Earth Engine 404: gone' };
+      return {
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(`${z}/${x}/${y}`),
+      };
+    },
+  };
+}
+
+test('maps are made once, kept until they near expiry, and an old one serves when a new one fails', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const root = await tempRoot(t);
+  let clock = 1_000_000;
+  let failing = false;
+  const backend = fakeBackend({ fail: () => failing });
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    backend,
+    now: () => clock,
+  });
+  const [first] = await Promise.all([service.layers(), service.layers()]);
+  assert.equal(backend.made.length, 6, 'one map per variant, one request each');
+  assert.equal(first.configured, true);
+  const slope = first.layers.find((layer) => layer.id === 'ee-terrain-slope');
+  assert.equal(
+    slope.tileUrl,
+    '/api/earth-engine/tile/ee-terrain-slope/{variant}/{z}/{x}/{y}',
+  );
+  assert.equal(slope.variants[0].ready, true);
+  assert.match(slope.attribution, /^Google Earth Engine · Copernicus DEM/);
+  assert.equal(slope.error, null);
+  assert.deepEqual(
+    first.layers
+      .find((layer) => layer.id === 'ee-admin-boundaries')
+      .variants.map((v) => [v.key, v.minHeightM ?? null, v.maxHeightM ?? null]),
+    [
+      ['level1', 800_000, null],
+      ['level2', null, 800_000],
+    ],
+  );
+  await service.layers();
+  assert.equal(backend.made.length, 6, 'kept');
+  clock += MAP_TTL_MS + 1;
+  failing = true;
+  const stale = await service.layers();
+  assert.equal(backend.made.length, 12, 'asked again');
+  const staleSlope = stale.layers.find(
+    (layer) => layer.id === 'ee-terrain-slope',
+  );
+  assert.equal(staleSlope.variants[0].ready, true, 'the old map still serves');
+  assert.equal(
+    staleSlope.error,
+    'Earth Engine 400: bad expression',
+    'and the error is said',
+  );
+});
+
+test('tiles come from disk first, within the day’s budget, and an expired map is made again once', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const root = await tempRoot(t);
+  let clock = Date.parse('2026-10-17T12:00:00Z');
+  const backend = fakeBackend();
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: { EARTH_ENGINE_DAILY_TILES: '3' },
+    backend,
+    now: () => clock,
+  });
+  const one = await service.tile('ee-forest-loss', 'default', 3, 2, 1);
+  assert.equal(one.status, 200);
+  assert.equal(one.body.toString(), '3/2/1');
+  const again = await service.tile('ee-forest-loss', 'default', 3, 2, 1);
+  assert.equal(again.cached, true);
+  assert.equal(backend.tiles.length, 1, 'the disk answered');
+  assert.equal(
+    (await service.tile('ee-nothing', 'default', 1, 0, 0)).status,
+    404,
+  );
+  assert.equal(
+    (await service.tile('ee-forest-loss', 'level9', 1, 0, 0)).status,
+    404,
+  );
+  assert.equal(
+    (await service.tile('ee-forest-loss', 'default', 2, 4, 0)).status,
+    400,
+  );
+  assert.equal(
+    (await service.tile('ee-forest-loss', 'default', 13, 0, 0)).status,
+    400,
+    'past its max zoom',
+  );
+  // An expired map: a 404, a new map, the tile again.
+  backend.expire(backend.tiles[0].split('/3/')[0]);
+  const renewed = await service.tile('ee-forest-loss', 'default', 4, 1, 1);
+  assert.equal(renewed.status, 200);
+  assert.equal(
+    backend.made.filter((m) => m === 'ee-forest-loss/default').length,
+    2,
+  );
+  // Three upstream tiles today (one, and the retried one twice): the budget is spent.
+  const over = await service.tile('ee-forest-loss', 'default', 5, 1, 1);
+  assert.equal(over.status, 429);
+  assert.match(over.error, /3 Earth Engine tiles/);
+  assert.equal(
+    (await service.tile('ee-forest-loss', 'default', 3, 2, 1)).status,
+    200,
+    'the disk still serves',
+  );
+  clock += 24 * 60 * 60 * 1000;
+  assert.equal(
+    (await service.tile('ee-forest-loss', 'default', 5, 1, 1)).status,
+    200,
+    'a new day',
+  );
+});
+
+test('without a key the catalog says what to set, and no tile is asked for', async (t) => {
+  const root = await tempRoot(t);
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    fetchImpl: () => assert.fail('nothing is fetched'),
+  });
+  const catalog = await service.layers();
+  assert.equal(catalog.configured, false);
+  assert.match(
+    catalog.message,
+    /^Set EARTH_ENGINE_KEY_FILE and EARTH_ENGINE_PROJECT/,
+  );
+  assert.ok(
+    catalog.layers.every((layer) => /EARTH_ENGINE_KEY_FILE/.test(layer.error)),
+  );
+  assert.equal(
+    (await service.tile('ee-forest-loss', 'default', 1, 0, 0)).status,
+    503,
+  );
+});
+
+test('the routes are same-site only and GET only', async (t) => {
+  const service = {
+    layers: async () => ({ configured: false, layers: [] }),
+    tile: async (layer, variant, z, x, y) =>
+      layer === 'ee-forest-loss'
+        ? {
+            status: 200,
+            contentType: 'image/png',
+            body: Buffer.from(`${variant}:${z}/${x}/${y}`),
+          }
+        : { status: 404, error: 'No such layer' },
+  };
+  const handler = createEarthEngineHandler({ service });
+  const call = async (url, { method = 'GET', headers = {} } = {}) => {
+    const res = {
+      statusCode: 200,
+      headers: {},
+      setHeader(name, value) {
+        this.headers[name.toLowerCase()] = value;
+      },
+      end(body) {
+        this.body = Buffer.isBuffer(body) ? body.toString() : JSON.parse(body);
+      },
+    };
+    await handler(
+      {
+        url,
+        method,
+        headers: { host: 'localhost:4176', ...headers },
+        socket: {},
+      },
+      res,
+      () => (res.nexted = true),
+    );
+    return res;
+  };
+  assert.equal(
+    (await call('/layers', { headers: { origin: 'https://evil.example' } }))
+      .statusCode,
+    403,
+  );
+  assert.equal((await call('/layers', { method: 'POST' })).statusCode, 405);
+  assert.deepEqual((await call('/layers')).body, {
+    configured: false,
+    layers: [],
+  });
+  const tile = await call('/tile/ee-forest-loss/default/3/2/1');
+  assert.equal(tile.statusCode, 200);
+  assert.equal(tile.headers['content-type'], 'image/png');
+  assert.equal(tile.body, 'default:3/2/1');
+  assert.equal((await call('/tile/ee-other/default/3/2/1')).statusCode, 404);
+  assert.equal((await call('/tile/../../etc/3/2/1')).nexted, true);
+  assert.equal((await call('/tile/ee-forest-loss/default/x/2/1')).nexted, true);
+});

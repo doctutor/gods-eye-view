@@ -357,3 +357,81 @@ test('the Weather readout receives enabled air-quality alongside weather layers'
     ],
   );
 });
+
+test('a row slider renders once, reads the live descriptor, and leaves a dragged thumb alone', async () => {
+  const { LayerPanel } = await import('./layerPanel.js');
+  const { railFixture } = await import('./railTestFixture.mjs');
+  const f = railFixture();
+  const previousDocument = globalThis.document;
+  globalThis.document = f.document;
+  const seen = [];
+  let value = 70;
+  let refresh;
+  const panel = new LayerPanel({
+    getLayers: () => [
+      {
+        id: 'ee-forest-loss',
+        name: 'Forest loss',
+        icon: '*',
+        source: 'Google Earth Engine',
+        enabled: true,
+        showInTogglePanel: true,
+        stats: {},
+      },
+    ],
+    isEnabled: () => true,
+    setEnabled: () => {},
+    setLayerParams: () => {},
+    hasRowControls: () => true,
+    subscribeRowControls: (_id, callback) => {
+      refresh = callback;
+    },
+    getRowControls: () => ({
+      legend: [{ label: '2001', color: '#ffff00' }],
+      slider: {
+        label: `Opacity ${value}%`,
+        min: 0,
+        max: 100,
+        step: 5,
+        value,
+        onInput: (next) => seen.push(['live', next]),
+      },
+    }),
+  });
+  try {
+    panel.mount(f.container);
+    const row = f.find((n) => n.dataset.layerId === 'ee-forest-loss');
+    const slider = row.querySelector('.data-toggle-slider');
+    assert.ok(slider, 'the slider renders');
+    const [label, input] = slider.children;
+    assert.equal(label.textContent, 'Opacity 70%');
+    assert.equal(input.type, 'range');
+    assert.equal(input.getAttribute('aria-label'), 'Opacity 70%');
+    assert.equal(input.value, '70');
+    input.value = '35';
+    input.dispatchEvent(new Event('input'));
+    assert.deepEqual(seen, [['live', 35]]);
+    // A refresh while the thumb is held keeps it where the pointer put it.
+    value = 35;
+    f.document.activeElement = input;
+    input.value = '40';
+    panel._syncRowControls(row.querySelector('.data-toggle-controls'), {
+      id: 'ee-forest-loss',
+      enabled: true,
+    });
+    assert.equal(input.value, '40');
+    assert.equal(label.textContent, 'Opacity 35%');
+    assert.equal(
+      row
+        .querySelector('.data-toggle-controls')
+        .children.filter((node) => node.className === 'data-toggle-slider')
+        .length,
+      1,
+      'one slider, kept across refreshes',
+    );
+    assert.equal(typeof refresh, 'function');
+  } finally {
+    panel.destroy();
+    globalThis.document = previousDocument;
+  }
+});

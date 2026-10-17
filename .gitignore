@@ -14,6 +14,8 @@ qa-shots/
 output/
 .gev-logs/
 .gev-cache/
+# Personal fork: service-account keys (Earth Engine); never committed.
+.gev-secrets/
 # Browser QA gate evidence (screenshots, console and network dumps).
 qa-artifacts/
 .DS_Store

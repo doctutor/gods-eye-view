@@ -25,6 +25,8 @@ import { mapillaryProxy } from './mapillary.js';
 import { streetViewIndoorProxy } from './streetview.js';
 // Personal fork: the Recorded Video layer.
 import { recordedVideoProxy } from './recordedVideo.js';
+// Personal fork: the Earth Engine overlay layers.
+import { earthEngineProxy } from './earthEngine.js';
 import { keySetupEndpoint } from '../standalone/key-setup.js';
 import { weatherProxy } from './weather.js';
 import { firePerimetersProxy } from './firePerimeters.js';
@@ -66,6 +68,7 @@ function localProviderPlugins({ realtime } = {}) {
     mapillaryProxy(),
     streetViewIndoorProxy(),
     recordedVideoProxy({ sourceRoot: defaultSourceRoot }),
+    earthEngineProxy({ sourceRoot: defaultSourceRoot }),
     firePerimetersProxy(),
     gnssIntegrityProxy(),
     keySetupEndpoint(),

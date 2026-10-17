@@ -46,6 +46,11 @@ export const LAYER_NAME_KEYS = Object.freeze({
   'baltimore-enforcement-cameras': msg('Enforcement Cameras (Baltimore)'),
   'baltimore-citiwatch-cameras': msg('CitiWatch Cameras (Baltimore)'),
   'recorded-video': msg('Recorded Video'),
+  'ee-terrain-slope': msg('Terrain slope'),
+  'ee-terrain-aspect': msg('Terrain aspect'),
+  'ee-terrain-hillshade': msg('Hillshade'),
+  'ee-forest-loss': msg('Forest loss'),
+  'ee-admin-boundaries': msg('Administrative boundaries'),
 });
 
 /** The layer panel's own English names, where they differ from the module's. */

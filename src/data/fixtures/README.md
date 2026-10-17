@@ -55,3 +55,9 @@
   data is CC0. Used by the misplaced-landmark check's tests (Gatchina
   Palace's coordinate error; the Windsor items over the border); never
   loaded at runtime.
+
+- `earth-engine-expressions.json` — Personal fork: the map requests the
+  Earth Engine layers send (`mapRequestFor` in
+  `server/providers/earthEngine.js`), one per layer variant, so an Earth
+  Engine rejection can be read against exactly what was sent. Generated
+  from `src/data/earthEngineLayers.js`; a test fails when they drift.

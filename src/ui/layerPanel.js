@@ -92,6 +92,17 @@ const PANEL_GROUPS = [
     label: msg('Utilities'),
     ids: ['directions', 'radio'],
   },
+  // Personal fork: Earth Engine overlays (src/data/earthEngineLayers.js).
+  {
+    label: msg('Analysis'),
+    ids: [
+      'ee-terrain-slope',
+      'ee-terrain-aspect',
+      'ee-terrain-hillshade',
+      'ee-forest-loss',
+      'ee-admin-boundaries',
+    ],
+  },
 ];
 const PANEL_ORDER = PANEL_GROUPS.flatMap(({ label, ids }) =>
   ids.map((id) => ({ id, label })),
@@ -522,8 +533,11 @@ export class LayerPanel {
     const chips = controls?.chips || [];
     const legend = controls?.legend || [];
     const infoText = controls?.info;
+    const slider = controls?.slider || null;
     this._syncRowList(listContainer, controls?.list || null);
-    container.hidden = chips.length === 0 && legend.length === 0 && !infoText;
+    container.hidden =
+      chips.length === 0 && legend.length === 0 && !infoText && !slider;
+    this._syncRowSlider(container, layer.id, slider);
 
     const info = container._rowControlsInfo || null;
     const firstLegend = container.querySelector('.data-toggle-legend-item');
@@ -574,6 +588,54 @@ export class LayerPanel {
       const hidden = !text;
       if (node.hidden !== hidden) node.hidden = hidden;
     }
+  }
+
+  /**
+   * Personal fork: one range input under a row (an overlay's opacity). The
+   * node is kept across refreshes so a drag is never interrupted, and its
+   * input handler reads the live descriptor, never a stale one.
+   * @param {HTMLElement} container
+   * @param {string} layerId
+   * @param {{label: string, min: number, max: number, step?: number,
+   *   value: number, onInput: (value: number) => void}|null} slider
+   */
+  _syncRowSlider(container, layerId, slider) {
+    let node = container._rowSlider || null;
+    if (!slider) {
+      if (node) node.hidden = true;
+      return;
+    }
+    if (!node) {
+      node = document.createElement('label');
+      node.className = 'data-toggle-slider';
+      const text = document.createElement('span');
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.className = 'gev-quantitative-slider';
+      this._bind(input, 'input', () => {
+        const live = this._rowControlsFor(layerId)?.slider;
+        if (typeof live?.onInput === 'function')
+          live.onInput(Number(input.value));
+      });
+      node.append(text, input);
+      container.appendChild(node);
+      container._rowSlider = node;
+    }
+    node.hidden = false;
+    const [text, input] = node.children;
+    const label = String(slider.label || '');
+    if (text.textContent !== label) text.textContent = label;
+    if (input.getAttribute('aria-label') !== label)
+      input.setAttribute('aria-label', label);
+    for (const name of ['min', 'max', 'step'])
+      if (slider[name] !== undefined && input[name] !== String(slider[name]))
+        input[name] = String(slider[name]);
+    // Never move the thumb under the pointer while it is being dragged.
+    if (
+      document.activeElement !== input &&
+      input.value !== String(slider.value)
+    )
+      input.value = String(slider.value);
   }
 
   /**
