@@ -37,17 +37,66 @@ export const OPENCCTV_CATEGORY_WORDS = Object.freeze({
 });
 
 /**
+ * A resolved camera's playback fields (resolve.mjs), in the shapes the
+ * server's camindex pack reads, or null to keep the directory still:
+ * - youtube  the operator's stream in YouTube's embedded player;
+ * - hls      the operator's playlist;
+ * - image    the operator's image as the still, the directory's as fallback;
+ * - mjpeg    the operator's stream, the directory's still as its snapshot;
+ * - link     nothing to play: the still stays.
+ */
+export function primaryFeedFields(primary, still) {
+  switch (primary?.kind) {
+    case 'youtube':
+      return /^[A-Za-z0-9_-]{11}$/.test(String(primary.videoId || ''))
+        ? {
+            feedType: 'youtube',
+            url: `https://www.youtube.com/watch?v=${primary.videoId}`,
+            snapshotUrl: `https://i.ytimg.com/vi/${primary.videoId}/hqdefault.jpg`,
+            embed: { provider: 'youtube', videoId: primary.videoId },
+            licenseClass: 'embed-only',
+            license:
+              'Operator stream, shown in the embedded YouTube player; found through opencctv.org',
+          }
+        : null;
+    case 'hls':
+      return primary.url
+        ? { feedType: 'hls', url: primary.url, snapshotUrl: '' }
+        : null;
+    case 'image':
+      return primary.url
+        ? {
+            feedType: 'image',
+            url: primary.url,
+            snapshotUrl: primary.url,
+            fallbackSnapshotUrl: still,
+          }
+        : null;
+    case 'mjpeg':
+      return primary.url
+        ? { feedType: 'mjpeg', url: primary.url, snapshotUrl: still }
+        : null;
+    default:
+      return null;
+  }
+}
+
+/**
  * One OpenCCTV candidate → a catalog camera. The directory publishes a still
  * per camera (its og:image); the app shows it and links the camera page. The
  * page's own player is not framed: opencctv.org refuses framing
- * (X-Frame-Options: SAMEORIGIN).
+ * (X-Frame-Options: SAMEORIGIN). A camera whose page names the operator's
+ * own feed (`resolved`, resolve.mjs) plays that feed instead, with
+ * `primaryVia: 'opencctv'` for provenance.
  */
-export function openCctvToSource(candidate, record) {
+export function openCctvToSource(candidate, record, resolved) {
   const category =
     OPENCCTV_CATEGORY_WORDS[primaryCategory(candidate.categories || [])] ||
     'webcam';
   const name = clean(candidate.name) || `OpenCCTV camera ${candidate.id}`;
   const status = record?.status;
+  const primary = resolved?.primary || candidate.primary;
+  const feed = primaryFeedFields(primary, candidate.stillUrl);
   return {
     id: `opencctv-${candidate.id}`,
     name,
@@ -71,9 +120,19 @@ export function openCctvToSource(candidate, record) {
     feedType: 'image',
     url: candidate.stillUrl,
     snapshotUrl: candidate.stillUrl,
-    liveStatus: status === 'live' ? 'live' : 'unknown',
+    liveStatus: status === 'live' && !feed ? 'live' : 'unknown',
     ...(record?.verifiedAt
       ? { verifiedAt: new Date(record.verifiedAt).toISOString() }
+      : {}),
+    ...(feed
+      ? {
+          ...feed,
+          primary,
+          primaryVia: 'opencctv',
+          ...(Number.isFinite(resolved?.resolvedAt)
+            ? { resolvedAt: new Date(resolved.resolvedAt).toISOString() }
+            : {}),
+        }
       : {}),
   };
 }
@@ -83,8 +142,9 @@ const unusable = (record) =>
   record?.status === 'dead' || record?.status === 'placeholder';
 
 /**
- * @param {Record<string, {candidates: Array<object>, records: Record<string, object>}>} inputs
- *   opencctv, openeagleeye and pocketworld.
+ * @param {Record<string, {candidates: Array<object>, records: Record<string, object>,
+ *   resolved?: Record<string, object>}>} inputs - opencctv (with its
+ *   resolve records, resolve.mjs), openeagleeye and pocketworld.
  * @param {{now?: () => number, onlyVerified?: boolean}} [options]
  */
 export function buildCatalog(
@@ -95,14 +155,24 @@ export function buildCatalog(
   const cameras = [];
   const open = inputs.opencctv;
   if (open) {
-    const usable = open.candidates.filter(
-      (candidate) =>
-        Number.isFinite(candidate.lat) &&
-        Number.isFinite(candidate.lon) &&
-        candidate.stillUrl &&
+    const resolved = open.resolved || {};
+    const playable = (candidate) =>
+      primaryFeedFields(
+        resolved[candidate.id]?.primary || candidate.primary,
+        candidate.stillUrl,
+      );
+    const usable = open.candidates.filter((candidate) => {
+      if (!Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lon))
+        return false;
+      // A camera that plays the operator's own feed does not depend on the
+      // directory's still (YouTube's liveness check judges a stream).
+      if (playable(candidate)) return true;
+      return (
+        Boolean(candidate.stillUrl) &&
         !unusable(open.records[candidate.id]) &&
-        (!onlyVerified || open.records[candidate.id]?.status === 'live'),
-    );
+        (!onlyVerified || open.records[candidate.id]?.status === 'live')
+      );
+    });
     const records = Object.values(open.records);
     sources.opencctv = {
       found: open.candidates.length,
@@ -113,8 +183,15 @@ export function buildCatalog(
       dead: records.filter((record) => unusable(record)).length,
       served: usable.length,
     };
+    sources.opencctv.resolved = usable.filter(playable).length;
     for (const candidate of usable)
-      cameras.push(openCctvToSource(candidate, open.records[candidate.id]));
+      cameras.push(
+        openCctvToSource(
+          candidate,
+          open.records[candidate.id],
+          resolved[candidate.id],
+        ),
+      );
   }
   for (const [name, adapter] of Object.entries(ADAPTER_SOURCES)) {
     const input = inputs[name];
@@ -156,6 +233,8 @@ export function foldObserved(records, observed, prefix = 'opencctv-') {
   for (const [id, seen] of Object.entries(observed || {})) {
     if (!id.startsWith(prefix)) continue;
     if (!['live', 'dead', 'placeholder'].includes(seen?.status)) continue;
+    // A YouTube liveness check is about the stream, not the still.
+    if (seen.by === 'youtube') continue;
     const key = id.slice(prefix.length);
     if ((records[key]?.verifiedAt ?? -Infinity) >= seen.at) continue;
     records[key] = {

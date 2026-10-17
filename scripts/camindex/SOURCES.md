@@ -74,8 +74,10 @@ again. It never calls the site's API and never relays the site's video.
   page lists 16 cameras in an ItemList, with each camera's name, page URL,
   coordinates and place, so one request covers 16 cameras.
 - Camera pages, only when a listing card has no coordinates, or with
-  `--page-details`. Each page's ImageObject gives name, caption (which states
-  the category), coordinates, address and the still URL.
+  `--page-details`, and during `resolve` (below). A still camera's page has an
+  ImageObject and a video camera's a VideoObject. Either one gives name,
+  caption or description (which states the category), coordinates, address
+  and, for a still camera, the still URL.
 - Sitemaps (`--via sitemap`): `/sitemap.xml` and
   `/sitemap-cameras-{1,2,3}.xml`, then each camera page.
 - Stills, during `verify`: `/still/<id>.jpg`, which is each page's og:image.
@@ -83,9 +85,9 @@ again. It never calls the site's API and never relays the site's video.
   SHA-1 are kept, not the image.
 
 **What is not read:** anything under `/api/`. That includes `/api/feed/…`,
-the image URLs that listing cards carry. camindex never fetches the
-operator's own stream either: pages don't publish it, and camindex doesn't
-look for it.
+the image URLs that listing cards carry, and `/api/hls/…`, the directory's
+own relay of a stream. camindex never fetches an operator's stream either.
+`resolve` only records the address a camera page names, and the app plays it.
 
 **Common Crawl instead** (`--via commoncrawl [--cc-index CC-MAIN-…]`): this
 reads camera pages from Common Crawl's copy rather than from opencctv.org.
@@ -164,9 +166,50 @@ A camera checked within the week, by `verify` or by a viewer, is not due. One
 whose last check was an error always is. Results go to `verify.json` and
 `observed.json`, saved every 25 checks.
 
+**Resolve** (`resolve [--limit N] [--max-minutes M] [--near "lat,lon;lat,lon"
+--radius-km 20]`, `scripts/camindex/resolve.mjs`): a camera page's own
+player names the operator's feed. camindex records it in
+`opencctv/resolve.json`, with `resolvedAt`, so the app can play that feed
+instead of the directory's rate-limited still. Where it is looked for, in
+this order:
+
+1. The `camera-feed` iframe, when it is a YouTube embed (`youtube`, the
+   video id).
+2. The `feed-container` element's configuration, when it names an absolute
+   https URL on the operator's host. That is `data-src` for `m3u8` (`hls`, a
+   `.m3u8` playlist), `data-stream` for `mjpeg`, and `data-proxy` for `image`
+   or `direct` (`image`).
+3. The JSON-LD `embedUrl`, when it is a YouTube embed.
+4. Any other iframe on an operator host (`link`: nothing to play).
+
+The directory's own relays (`/api/hls/…`, `/api/feed/…`) are not a feed.
+Neither are local names or IP addresses. Pages are read at one per 2 s and
+cached a week. A page read within the week is not read again, and one that
+failed is. The queue is cameras near the 200 most recent view centres
+(`views.log`, within 50 km, nearest first), then non-traffic cameras, then
+the rest. A run stops after `--max-minutes` (30 by default) or `--limit`
+pages, and saves every 25 pages, so the next run resumes. On 2026-10-17 a
+run over the 144 cameras within 20 km of Baltimore and Monterey resolved 9:
+8 YouTube streams and 1 link. Of the other 135, 113 were traffic cameras
+behind `/api/hls/` and 22 image cameras behind `/api/feed/`.
+
+**YouTube liveness** (`liveness [--cap UNITS]`): every catalog camera
+resolved to a YouTube stream is asked about with `videos.list`, 50 ids a
+call at 1 unit each. The units come from the shared key's quota file
+(`.gev-cache/cctv-featured/quota.json`, feature `camindex-youtube`), 200 a
+day at most. The key is `YOUTUBE_API_KEY` from the environment or `.env`.
+Answers go to `observed.json` as `{status, at, by: 'youtube'}`:
+
+- `dead`: gone, private or not embeddable. The camera leaves the index.
+- `live`, `upcoming` or `offline` (ended): shown as the camera's live status.
+
+`build` never folds these into a still's verify record.
+
 **Unattended:** `node scripts/camindex/index.mjs schedule` loops hourly. It
 runs `discover --scope default` once a week, `verify --rolling` for each
-source when the last rolling run is 20 hours old, and `build` after either.
+source when the last rolling run is 20 hours old, a `resolve` slice (30
+minutes, about 900 pages) as often, and `build` after any of them. It then
+runs `liveness`, as often, so newly resolved streams are checked too.
 Each step is logged to the console and to `runs.jsonl`. `schedule --once`
 (`npm run camindex:schedule`) does whatever is due and exits.
 
@@ -208,6 +251,27 @@ schtasks /Create /TN "God's Eye View camindex" /SC DAILY /ST 03:00 /TR "cmd /c c
   panel therefore asks opencctv.org for a still at most once every 600 s, not
   every 10 s.
 - The camera page is the operator link ("OPEN ON OPENCCTV.ORG").
+- When a still fails, the frame route does not stand in Street View, because
+  the camera's place is not its view. The panel says FRAME · UNAVAILABLE
+  beside the operator link.
+- A camera `resolve` found a feed for plays that feed instead, with
+  `primary`, `primaryVia: 'opencctv'` and `resolvedAt`. `publishSignal` stays
+  `directory-still`.
+  - `youtube`: `feedType: youtube` and `embed: {provider: 'youtube',
+    videoId}`, as featured cams have. YouTube's own player plays it in the
+    panel, and the scene shows YouTube's thumbnail. `licenseClass` is
+    `embed-only`. Where the featured list carries the same stream, the
+    OpenCCTV copy folds into it, and the featured entry's `alsoListedIn`
+    gains `opencctv`.
+  - `hls`: `feedType: hls`, the operator's playlist.
+  - `image`: the operator's image is the still, and the directory's still is
+    `fallbackSnapshotUrl`, so most frames no longer touch opencctv.org.
+  - `mjpeg`: the operator's stream, with the directory's still as its
+    snapshot.
+  - `link`: unchanged.
+- A camera that plays its operator's feed stays in the catalog even when its
+  directory still is dead. Its stream is judged by `liveness`, not by the
+  still.
 
 **What is not used:** the Embed button's iframe, which is the camera page
 itself. On 2026-10-16 every opencctv.org page, `/embed/<id>` included, was

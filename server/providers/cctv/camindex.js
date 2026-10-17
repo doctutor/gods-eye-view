@@ -19,7 +19,9 @@ import {
  * The file is re-read when its modification time or size changes, and each
  * camera is checked again on the way in (coordinates, https URLs, plain
  * words), since it was assembled from pages the crawler does not control.
- * Cameras are still images; no directory player is framed.
+ * Cameras are still images, or the operator's own feed the directory's
+ * camera page names (a YouTube stream, an HLS playlist, an MJPEG stream, an
+ * image); no directory player is framed.
  *
  * What viewers' frame fetches observed (observed.json, observed.js) applies
  * on top: a camera seen dead or showing a placeholder leaves the index (the
@@ -108,7 +110,8 @@ const word = (value, fallback = '') =>
 /**
  * Playback fields for one camera, in the shapes linked.js's feedFields()
  * produces, or null when its feed is not usable:
- * - image   url and snapshotUrl, the still (https);
+ * - image   url and snapshotUrl, the still (https), and a fallbackSnapshotUrl
+ *           when one is given (a directory's still behind an operator image);
  * - mjpeg   url (https), snapshotUrl only if one is given;
  * - hls     url, an https .m3u8; no snapshot;
  * - youtube embed {provider: 'youtube', videoId}, the watch URL and its
@@ -119,8 +122,16 @@ export function feedFieldsFor(camera, operatorUrl) {
   switch (String(camera.feedType || '')) {
     case 'image': {
       const snapshotUrl = httpsUrl(camera.snapshotUrl || camera.url);
+      const fallbackSnapshotUrl = httpsUrl(camera.fallbackSnapshotUrl);
       return snapshotUrl
-        ? { feedType: 'image', url: snapshotUrl, snapshotUrl }
+        ? {
+            feedType: 'image',
+            url: snapshotUrl,
+            snapshotUrl,
+            ...(fallbackSnapshotUrl && fallbackSnapshotUrl !== snapshotUrl
+              ? { fallbackSnapshotUrl }
+              : {}),
+          }
         : null;
     }
     case 'mjpeg': {
@@ -203,6 +214,12 @@ export function catalogCameraToSource(camera) {
     ),
     liveStatus: camera.liveStatus === 'live' ? 'live' : 'unknown',
     ...(timeZone ? { timeZone } : {}),
+    // Personal fork: a directory camera resolved to its operator's own feed
+    // (scripts/camindex/resolve.mjs) says where the feed was found.
+    ...(camera.primaryVia ? { primaryVia: word(camera.primaryVia) } : {}),
+    ...(Number.isFinite(Date.parse(camera.resolvedAt))
+      ? { resolvedAt: new Date(Date.parse(camera.resolvedAt)).toISOString() }
+      : {}),
     ...feed,
   };
 }

@@ -16,6 +16,7 @@
   "scripts/camindex/verify.mjs",
   "scripts/camindex/merge.mjs",
   "scripts/camindex/catalog.mjs",
+  "scripts/camindex/resolve.mjs",
   "scripts/camindex/adapters/opencctv.mjs",
   "src/tooling/precomputeCctvHeights.test.mjs",
   "src/tooling/fixtureRoot.mjs",

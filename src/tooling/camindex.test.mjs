@@ -48,6 +48,7 @@ import {
 } from '../../scripts/camindex/catalog.mjs';
 import {
   DISCOVER_EVERY_MS,
+  RESOLVE_EVERY_MS,
   ROLLING_EVERY_MS,
   dueJobs,
   parseArgs,
@@ -574,6 +575,7 @@ test('the catalog carries provenance and leaves out dead cameras', () => {
     live: 1,
     dead: 1,
     served: 2,
+    resolved: 0,
   });
   assert.deepEqual(
     catalog.cameras.map((camera) => [camera.id, camera.liveStatus]),
@@ -795,19 +797,26 @@ test('observations fold into verify records, newer wins, errors skipped', () => 
   });
 });
 
-test('the scheduler runs discover weekly and a rolling verify nightly', () => {
+test('the scheduler runs discover weekly and a rolling verify, a resolve slice and a liveness check nightly', () => {
   const now = Date.UTC(2026, 9, 20, 3);
   const at = (ms) => new Date(now - ms).toISOString();
-  assert.deepEqual(dueJobs([], now), { discover: true, verify: true });
+  assert.deepEqual(dueJobs([], now), {
+    discover: true,
+    verify: true,
+    resolve: true,
+    liveness: true,
+  });
   assert.deepEqual(
     dueJobs(
       [
         { command: 'discover', at: at(DAY), stoppedBy: 'complete' },
         { command: 'verify', at: at(2 * 60 * 60 * 1000), rolling: true },
+        { command: 'resolve', at: at(2 * 60 * 60 * 1000) },
+        { command: 'liveness', at: at(RESOLVE_EVERY_MS) },
       ],
       now,
     ),
-    { discover: false, verify: false },
+    { discover: false, verify: false, resolve: false, liveness: true },
   );
   assert.deepEqual(
     dueJobs(
@@ -829,7 +838,7 @@ test('the scheduler runs discover weekly and a rolling verify nightly', () => {
       ],
       now,
     ),
-    { discover: true, verify: true },
+    { discover: true, verify: true, resolve: true, liveness: true },
   );
 });
 

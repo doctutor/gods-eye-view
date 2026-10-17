@@ -29,6 +29,20 @@ import {
   readObserved,
   readViews,
 } from '../../server/providers/cctv/observed.js';
+import {
+  LIVENESS_DAILY_UNITS,
+  LIVENESS_FEATURE,
+  RESOLVE_FILE,
+  RESOLVE_GAP_MS,
+  RESOLVE_MAX_MINUTES,
+  checkYoutubeLiveness,
+  resolveCandidates,
+  resolveQueue,
+} from './resolve.mjs';
+import {
+  createYoutubeClient,
+  createYoutubeQuota,
+} from '../../server/providers/cctv/featuredChannels.js';
 
 /**
  * camindex: find public webcams in directories, check that they publish a
@@ -40,13 +54,17 @@ import {
  *        [--page-details] [--gap-ms MS]
  *   node scripts/camindex/index.mjs verify [--source S] [--rolling] [--limit N]
  *        [--gap-ms MS] [--parallel N]
+ *   node scripts/camindex/index.mjs resolve [--limit N] [--max-minutes M]
+ *        [--near "lat,lon;lat,lon" --radius-km 20]
+ *   node scripts/camindex/index.mjs liveness [--cap UNITS]
  *   node scripts/camindex/index.mjs build [--only-verified]
  *   node scripts/camindex/index.mjs status [--json] [--write-doc]
  *   node scripts/camindex/index.mjs schedule [--once] [--every-min 60]
  *
  * Everything lives in CAMINDEX_DIR (default .gev-cache/camindex in the
  * repository): http/ (every page read, on disk), <source>/candidates.json,
- * <source>/verify.json, catalog.json, runs.jsonl, and the server's
+ * <source>/verify.json, opencctv/resolve.json (the operator feed each
+ * OpenCCTV camera page names), catalog.json, runs.jsonl, and the server's
  * observed.json (what viewers' frame fetches saw) and views.log (where they
  * looked). The rules each source is read under are in SOURCES.md.
  *
@@ -265,6 +283,146 @@ async function verifyCommand(dir, flags) {
   console.log(JSON.stringify(summary, null, 2));
 }
 
+/** --near "lat,lon;lat,lon" to points. */
+export function nearOf(value) {
+  if (value === undefined || value === true) return [];
+  return String(value)
+    .split(';')
+    .map((pair) => pair.split(',').map(Number))
+    .map(([lat, lon]) => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lon))
+        throw new Error('--near takes "lat,lon;lat,lon"');
+      return { lat, lon };
+    });
+}
+
+/**
+ * Read OpenCCTV camera pages for the operator feed they name (resolve.mjs),
+ * near the places viewed first, saved every 25 pages so a stopped run
+ * resumes.
+ */
+async function resolveCommand(dir, flags) {
+  const files = sourceFiles(dir, 'opencctv');
+  const resolveFile = path.join(dir, 'opencctv', RESOLVE_FILE);
+  const records = readJson(resolveFile, {}) || {};
+  const candidates = [...loadCandidates(files.candidates).values()];
+  const started = Date.now();
+  const fetcher = createFetcher({
+    cacheDir: path.join(dir, 'http'),
+    minIntervalMs: Math.max(gapOf(flags['gap-ms']), RESOLVE_GAP_MS),
+    log,
+  });
+  const near = nearOf(flags.near);
+  const radius = Number(flags['radius-km']);
+  const queue = resolveQueue({
+    candidates,
+    records,
+    views: readViews(path.join(dir, VIEWS_FILE)),
+    now: started,
+    near,
+    radiusKm: Number.isFinite(radius) && radius > 0 ? radius : 20,
+  });
+  const minutes = Number(flags['max-minutes']);
+  let unsaved = 0;
+  const result = await resolveCandidates(fetcher, queue, records, {
+    limit: limitOf(flags.limit),
+    maxMs:
+      (Number.isFinite(minutes) && minutes > 0
+        ? minutes
+        : RESOLVE_MAX_MINUTES) *
+      60 *
+      1000,
+    log,
+    onRecord: () => {
+      if (++unsaved >= 25) {
+        writeJsonAtomic(resolveFile, records);
+        unsaved = 0;
+      }
+    },
+  });
+  writeJsonAtomic(resolveFile, records);
+  const summary = {
+    command: 'resolve',
+    source: 'opencctv',
+    at: new Date(started).toISOString(),
+    seconds: Math.round((Date.now() - started) / 1000),
+    queued: queue.length,
+    ...(near.length ? { near: near.length } : {}),
+    ...result,
+    states: countBy(Object.values(records), (record) => record.status),
+    kinds: countBy(
+      Object.values(records).filter((record) => record.primary),
+      (record) => record.primary.kind,
+    ),
+  };
+  appendRun(dir, summary);
+  console.log(JSON.stringify(summary, null, 2));
+}
+
+/** The shared YouTube key and quota file, for the liveness check. */
+async function youtubeParts(env = process.env) {
+  // The .env reader loads Vite: only the liveness check needs it.
+  const { readDotenvValue } = await import('../read-dotenv-value.mjs');
+  const key = String(
+    env.YOUTUBE_API_KEY || readDotenvValue('YOUTUBE_API_KEY', ROOT) || '',
+  ).trim();
+  const apiKey = () => key;
+  const quota = createYoutubeQuota({
+    file:
+      env.CAMINDEX_QUOTA_FILE ||
+      path.join(ROOT, '.gev-cache', 'cctv-featured', 'quota.json'),
+  });
+  return {
+    quota,
+    youtube: createYoutubeClient({
+      apiKey,
+      quota,
+      feature: LIVENESS_FEATURE,
+    }),
+  };
+}
+
+/**
+ * Whether the YouTube streams the catalog resolved are still live (50 a
+ * call, LIVENESS_DAILY_UNITS a day at most); the answers go to
+ * observed.json, which the app applies at once.
+ */
+export async function livenessCommand(dir, flags = {}, parts = null) {
+  parts ||= await youtubeParts();
+  const started = Date.now();
+  const catalog = readJson(path.join(dir, CATALOG_FILE), null);
+  const cameras = (catalog?.cameras || []).filter(
+    (camera) => camera.primaryVia === 'opencctv',
+  );
+  const cap = Number(flags.cap);
+  const result = await checkYoutubeLiveness({
+    cameras,
+    ...parts,
+    cap:
+      Number.isFinite(cap) && cap >= 0
+        ? Math.min(cap, LIVENESS_DAILY_UNITS)
+        : LIVENESS_DAILY_UNITS,
+    log,
+  });
+  if (Object.keys(result.observations).length)
+    mergeObserved(path.join(dir, OBSERVED_FILE), result.observations);
+  const summary = {
+    command: 'liveness',
+    at: new Date(started).toISOString(),
+    seconds: Math.round((Date.now() - started) / 1000),
+    checked: result.checked,
+    units: result.units,
+    stoppedBy: result.stoppedBy,
+    states: countBy(
+      Object.values(result.observations),
+      (observation) => observation.status,
+    ),
+  };
+  appendRun(dir, summary);
+  console.log(JSON.stringify(summary, null, 2));
+  return summary;
+}
+
 function buildCommand(dir, flags) {
   // What viewers' frame fetches saw since the last build, per source (catalog
   // ids are "<source>-<candidate id>").
@@ -295,6 +453,10 @@ function buildCommand(dir, flags) {
     inputs[source] = adjusted
       ? { candidates: adjusted.candidates, records: adjusted.records }
       : { candidates, records };
+    // The operator feeds OpenCCTV camera pages name (resolve).
+    if (source === 'opencctv')
+      inputs[source].resolved =
+        readJson(path.join(dir, source, RESOLVE_FILE), {}) || {};
   }
   const catalog = buildCatalog(inputs, {
     onlyVerified: flags['only-verified'] === true,
@@ -401,6 +563,17 @@ function statusCommand(dir, flags = {}) {
       };
     }
   }
+  const resolved = Object.values(
+    readJson(path.join(dir, 'opencctv', RESOLVE_FILE), {}) || {},
+  );
+  report.resolve = {
+    read: resolved.length,
+    states: countBy(resolved, (record) => record.status),
+    kinds: countBy(
+      resolved.filter((record) => record.primary),
+      (record) => record.primary.kind,
+    ),
+  };
   const catalog = readJson(path.join(dir, CATALOG_FILE), null);
   report.catalog = catalog
     ? {
@@ -419,6 +592,14 @@ function statusCommand(dir, flags = {}) {
   console.log(
     `\nCatalog: ${report.catalog ? `${report.catalog.cameras.toLocaleString('en-US')} cameras` : 'not built'}.`,
   );
+  if (report.resolve.read)
+    console.log(
+      `Resolved: ${report.resolve.read.toLocaleString('en-US')} OpenCCTV camera pages read; operator feeds ${
+        Object.entries(report.resolve.kinds)
+          .map(([kind, count]) => `${kind} ${count}`)
+          .join(', ') || 'none'
+      }.`,
+    );
   // The last run of each command, from runs.jsonl.
   const last = {};
   for (const run of readRuns(dir))
@@ -437,6 +618,8 @@ function statusCommand(dir, flags = {}) {
 export const DISCOVER_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
 /** "Nightly": a rolling verify runs when the last one is this old. */
 export const ROLLING_EVERY_MS = 20 * 60 * 60 * 1000;
+/** A resolve slice and a liveness check, as often. */
+export const RESOLVE_EVERY_MS = ROLLING_EVERY_MS;
 
 function readRuns(dir) {
   try {
@@ -459,8 +642,10 @@ function readRuns(dir) {
 
 /**
  * Which scheduled jobs are due: discover weekly (counting runs that
- * finished), a rolling verify nightly.
- * @returns {{discover: boolean, verify: boolean}}
+ * finished), a rolling verify, a resolve slice and a YouTube liveness check
+ * nightly.
+ * @returns {{discover: boolean, verify: boolean, resolve: boolean,
+ *   liveness: boolean}}
  */
 export function dueJobs(runs, now = Date.now()) {
   const last = (match) =>
@@ -480,6 +665,9 @@ export function dueJobs(runs, now = Date.now()) {
     verify:
       now - last((run) => run.command === 'verify' && run.rolling) >=
       ROLLING_EVERY_MS,
+    resolve: now - last((run) => run.command === 'resolve') >= RESOLVE_EVERY_MS,
+    liveness:
+      now - last((run) => run.command === 'liveness') >= RESOLVE_EVERY_MS,
   };
 }
 
@@ -488,7 +676,7 @@ async function scheduleCommand(dir, flags) {
   for (;;) {
     const due = dueJobs(readRuns(dir));
     log(
-      `${new Date().toISOString()} schedule: discover ${due.discover ? 'due' : 'not due'}, rolling verify ${due.verify ? 'due' : 'not due'}`,
+      `${new Date().toISOString()} schedule: discover ${due.discover ? 'due' : 'not due'}, rolling verify ${due.verify ? 'due' : 'not due'}, resolve ${due.resolve ? 'due' : 'not due'}, liveness ${due.liveness ? 'due' : 'not due'}`,
     );
     try {
       if (due.discover)
@@ -498,7 +686,12 @@ async function scheduleCommand(dir, flags) {
         for (const source of Object.keys(SOURCES))
           if (fs.existsSync(sourceFiles(dir, source).candidates))
             await verifyCommand(dir, { rolling: true, source });
-      if (due.discover || due.verify) buildCommand(dir, {});
+      // A slice of the camera pages a night, within its wall-clock cap.
+      if (due.resolve && fs.existsSync(sourceFiles(dir, 'opencctv').candidates))
+        await resolveCommand(dir, {});
+      if (due.discover || due.verify || due.resolve) buildCommand(dir, {});
+      // After the build, so newly resolved streams are checked too.
+      if (due.liveness) await livenessCommand(dir, {});
     } catch (error) {
       log(`schedule: ${error?.message || error}`);
       appendRun(dir, {
@@ -517,11 +710,13 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   const dir = camindexDir(env, flags);
   if (command === 'discover') return discoverCommand(dir, flags);
   if (command === 'verify') return verifyCommand(dir, flags);
+  if (command === 'resolve') return resolveCommand(dir, flags);
+  if (command === 'liveness') return livenessCommand(dir, flags);
   if (command === 'build') return buildCommand(dir, flags);
   if (command === 'status') return statusCommand(dir, flags);
   if (command === 'schedule') return scheduleCommand(dir, flags);
   throw new Error(
-    `unknown command ${command} (discover, verify, build, status, schedule)`,
+    `unknown command ${command} (discover, verify, resolve, liveness, build, status, schedule)`,
   );
 }
 

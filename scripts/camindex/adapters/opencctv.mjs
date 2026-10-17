@@ -244,6 +244,114 @@ export function parseListingPage(html, { category = '', region = '' } = {}) {
   return { items, pages: Number.isInteger(pages) && pages > 0 ? pages : 1 };
 }
 
+const YOUTUBE_EMBED =
+  /^https:\/\/(?:www\.)?youtube(?:-nocookie)?\.com\/embed\/([A-Za-z0-9_-]{11})(?:[?#]|$)/;
+
+/** A host the app may be pointed at: public, named, not the directory itself. */
+function isOperatorHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  if (
+    !host.includes('.') ||
+    host === 'localhost' ||
+    host.endsWith('.localhost')
+  )
+    return false;
+  if (/\.(?:local|internal|lan|home|corp|intranet)$/.test(host)) return false;
+  // The directory's own proxies (/api/hls/…) are not the operator's feed.
+  if (host === 'opencctv.org' || host.endsWith('.opencctv.org')) return false;
+  // Addresses, not names: an operator's feed has a name.
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.startsWith('['))
+    return false;
+  return true;
+}
+
+/** An absolute https URL on an operator host, else ''. */
+export function operatorFeedUrl(value) {
+  try {
+    const url = new URL(decodeEntities(String(value || '')).trim());
+    if (url.protocol !== 'https:' || url.username || url.password) return '';
+    if (!isOperatorHost(url.hostname)) return '';
+    url.hash = '';
+    return url.href;
+  } catch {
+    return '';
+  }
+}
+
+/** The value of one attribute in a tag's text, entities decoded, else ''. */
+const attribute = (tag, name) =>
+  decodeEntities(
+    new RegExp(`\\s${name}\\s*=\\s*"([^"]*)"`, 'i').exec(tag)?.[1] ??
+      new RegExp(`\\s${name}\\s*=\\s*'([^']*)'`, 'i').exec(tag)?.[1] ??
+      '',
+  );
+
+/** A feed URL → a YouTube primary, or null. */
+function youtubePrimary(value) {
+  const videoId = YOUTUBE_EMBED.exec(operatorFeedUrl(value))?.[1];
+  return videoId ? { kind: 'youtube', videoId } : null;
+}
+
+/**
+ * The camera's real feed, as the page's own player loads it: the
+ * camera-feed iframe (YouTube, or another operator's player page), the
+ * feed container's configuration (an HLS playlist, an MJPEG stream or an
+ * operator image, when the page loads it directly), and the JSON-LD
+ * embedUrl / contentUrl. The directory's own proxies and still are not a
+ * primary; nothing in the page is run.
+ * @returns {{kind: 'youtube', videoId: string}|{kind: 'hls'|'mjpeg'|'image'|'link', url: string}|null}
+ */
+export function parsePrimary(html) {
+  const page = String(html || '');
+  const iframe = /<iframe\b[^>]*\bid\s*=\s*["']camera-feed["'][^>]*>/i.exec(
+    page,
+  )?.[0];
+  if (iframe) {
+    const src = attribute(iframe, 'src');
+    const youtube = youtubePrimary(src);
+    if (youtube) return youtube;
+  }
+  const container = /<div\b[^>]*\bid\s*=\s*["']feed-container["'][^>]*>/i.exec(
+    page,
+  )?.[0];
+  if (container) {
+    const type = attribute(container, 'data-type').toLowerCase();
+    const pick = (...names) => {
+      for (const name of names) {
+        const url = operatorFeedUrl(attribute(container, name));
+        if (url) return url;
+      }
+      return '';
+    };
+    if (type === 'm3u8') {
+      const url = pick('data-src', 'data-proxy');
+      if (url && /\.m3u8$/i.test(new URL(url).pathname))
+        return { kind: 'hls', url };
+    } else if (type === 'mjpeg') {
+      const url = pick('data-stream', 'data-src', 'data-proxy');
+      if (url) return { kind: 'mjpeg', url };
+    } else if (type === 'image' || type === 'direct') {
+      const url = pick('data-proxy', 'data-src');
+      if (url) return { kind: 'image', url };
+    }
+  }
+  for (const node of extractJsonLd(page)) {
+    const youtube = youtubePrimary(node?.embedUrl);
+    if (youtube) return youtube;
+  }
+  if (iframe) {
+    const url = operatorFeedUrl(attribute(iframe, 'src'));
+    // Another operator's player page; a YouTube embed that names no video
+    // is nothing.
+    if (
+      url &&
+      !/(?:^|\.)youtube(?:-nocookie)?\.com$/.test(new URL(url).hostname)
+    )
+      return { kind: 'link', url };
+  }
+  return null;
+}
+
 /**
  * One camera page → a candidate, or null when the page has no camera with
  * coordinates.
@@ -252,8 +360,12 @@ export function parseCameraPage(html, pageUrl) {
   const page = cameraPageId(pageUrl);
   if (!page) return null;
   const nodes = extractJsonLd(html);
+  // A still camera's page describes an ImageObject; a video camera's (a
+  // YouTube or HLS feed) a VideoObject.
   const image = nodes.find(
-    (node) => typeIs(node, 'ImageObject') && geoOf(node),
+    (node) =>
+      (typeIs(node, 'ImageObject') || typeIs(node, 'VideoObject')) &&
+      geoOf(node),
   );
   if (!image) return null;
   const geo = geoOf(image);
@@ -263,20 +375,26 @@ export function parseCameraPage(html, pageUrl) {
       .find((node) => typeIs(node, 'BreadcrumbList'))
       ?.itemListElement?.map?.((entry) => clean(entry?.name, 80)) || [];
   // The still the page publishes (its og:image), when it is the usual one.
+  // (A VideoObject names it as its thumbnailUrl.)
   let still = '';
-  try {
-    const content = new URL(String(image.contentUrl || ''));
-    if (
-      content.protocol === 'https:' &&
-      content.hostname === 'opencctv.org' &&
-      STILL_PATH.exec(content.pathname)?.[1] === page.id
-    )
-      still = content.href;
-  } catch {
-    /* none published */
+  for (const value of [image.contentUrl, image.thumbnailUrl]) {
+    try {
+      const content = new URL(String(value || ''));
+      if (
+        content.protocol === 'https:' &&
+        content.hostname === 'opencctv.org' &&
+        STILL_PATH.exec(content.pathname)?.[1] === page.id
+      ) {
+        still = content.href;
+        break;
+      }
+    } catch {
+      /* none published */
+    }
   }
-  const caption = clean(image.caption, 400);
+  const caption = clean(image.caption || image.description, 400);
   const category = categoryFromText(caption);
+  const primary = parsePrimary(html);
   return {
     id: page.id,
     name: clean(image.name) || `OpenCCTV camera ${page.id}`,
@@ -289,6 +407,8 @@ export function parseCameraPage(html, pageUrl) {
     caption,
     categories: category ? [category] : [],
     stillUrl: still,
+    // The operator's own feed, when the page names one (the still stays).
+    ...(primary ? { primary } : {}),
   };
 }
 
@@ -337,7 +457,7 @@ export function mergeCandidate(known, next) {
   }
   // A camera page is more authoritative than a listing card.
   if (next.caption) {
-    for (const key of ['name', 'lat', 'lon', 'place', 'stillUrl'])
+    for (const key of ['name', 'lat', 'lon', 'place', 'stillUrl', 'primary'])
       if (next[key] !== '' && next[key] != null) merged[key] = next[key];
   }
   merged.categories = [

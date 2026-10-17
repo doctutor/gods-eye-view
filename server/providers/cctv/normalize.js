@@ -682,7 +682,27 @@ function provenanceFields(item) {
     ...(Number.isFinite(Date.parse(item.observedAt))
       ? { observedAt: new Date(Date.parse(item.observedAt)).toISOString() }
       : {}),
+    // Personal fork: a directory camera resolved to its operator's own feed
+    // (camindex.js): where that was found, and the directory's still the
+    // frame route falls back to.
+    ...(item.primaryVia ? { primaryVia: word(item.primaryVia) } : {}),
+    ...(Number.isFinite(Date.parse(item.resolvedAt))
+      ? { resolvedAt: new Date(Date.parse(item.resolvedAt)).toISOString() }
+      : {}),
+    ...(httpsHref(item.fallbackSnapshotUrl)
+      ? { fallbackSnapshotUrl: httpsHref(item.fallbackSnapshotUrl) }
+      : {}),
   };
+}
+
+/** An https URL as written, else ''. */
+function httpsHref(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return url.protocol === 'https:' ? url.href : '';
+  } catch {
+    return '';
+  }
 }
 
 /** City of Toronto bounding box (Steeles to the lake, Etobicoke to Scarborough). */

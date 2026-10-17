@@ -13,7 +13,8 @@
  *
  *   a. url    - the same feed or snapshot URL (scheme, host case and
  *               cache-busting query ignored) or the same YouTube video, within
- *               25 km;
+ *               25 km (a directory camera resolved to its operator's stream
+ *               folds into our own listing of it this way);
  *   b. operator - the same operator page within 500 m;
  *   c. name   - within 30 m and the names agree (token Jaccard >= 0.5, or
  *               every word of one is in the other); never between two
@@ -463,8 +464,10 @@ export function dedupeSources(sources, { record = false } = {}) {
     if (found) {
       const { winner } = found;
       byRule[found.rule]++;
+      // A directory camera resolved to an operator feed names the directory
+      // it was found in (OpenCCTV's copy of a featured stream: 'opencctv').
       if (entry.pack !== winner.pack)
-        (winner.also ??= new Set()).add(entry.pack);
+        (winner.also ??= new Set()).add(entry.source.primaryVia || entry.pack);
       if (
         !winner.source.operatorUrl &&
         !winner.operatorFill &&

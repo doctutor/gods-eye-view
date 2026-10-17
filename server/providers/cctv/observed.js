@@ -208,10 +208,28 @@ export function applyObservations(sources, observed) {
   const out = [];
   let changed = false;
   for (const source of sources) {
+    const feedType = String(source?.feedType || 'image').toLowerCase();
+    // Personal fork: a directory camera resolved to a YouTube stream is
+    // judged by the liveness check (scripts/camindex/resolve.mjs): gone or
+    // private leaves the index, otherwise its stream's state shows.
+    if (feedType === 'youtube') {
+      const check = observed[source?.id];
+      if (check?.by !== 'youtube') out.push(source);
+      else if (check.status === 'dead') changed = true;
+      else if (['live', 'upcoming', 'offline'].includes(check.status)) {
+        changed = true;
+        out.push({
+          ...source,
+          liveStatus: check.status,
+          observedAt: new Date(check.at).toISOString(),
+        });
+      } else out.push(source);
+      continue;
+    }
     // Only image fetches are observed; a camera since reclassified (an
     // image card that proved to be a page, now a link) is not judged by them.
     const seen =
-      String(source?.feedType || 'image').toLowerCase() === 'image'
+      feedType === 'image' && observed[source?.id]?.by !== 'youtube'
         ? observed[source?.id]
         : undefined;
     if (seen?.status === 'dead' || seen?.status === 'placeholder') {

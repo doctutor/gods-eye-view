@@ -689,12 +689,19 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
             ? source?.url
             : '');
 
-        const upstreamImage =
+        let upstreamImage =
           source?.sourceKind === 'txdot-its'
             ? await fetchTxdotSnapshot(upstreamCandidate)
             : await frameCache.get(upstreamCandidate, () =>
                 frameObserver.fetch(source, upstreamCandidate),
               );
+        // Personal fork: a directory camera resolved to its operator's image
+        // keeps the directory's still behind it (cctv/camindex.js); the last
+        // answer is the one observed.
+        if (!upstreamImage?.ok && source?.fallbackSnapshotUrl)
+          upstreamImage = await frameCache.get(source.fallbackSnapshotUrl, () =>
+            frameObserver.fetch(source, source.fallbackSnapshotUrl),
+          );
         if (upstreamImage?.ok) {
           setHealth(cameraId, {
             status: 'ok',
@@ -708,6 +715,24 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
             'X-CCTV-Source': 'upstream-image',
           });
           res.end(upstreamImage.body);
+          return;
+        }
+
+        // Personal fork: a directory camera's place is not its view, so a
+        // missing still is not stood in for by Street View: no frame, and the
+        // panel says FRAME · UNAVAILABLE beside the operator link.
+        if (String(source?.publishSignal || '').startsWith('directory')) {
+          setHealth(cameraId, {
+            status: 'degraded',
+            sourceKind: 'upstream',
+            label: source?.provider || 'Webcam directory',
+            message: 'Upstream unavailable',
+          });
+          res.writeHead(502, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
+          });
+          res.end(JSON.stringify({ error: 'Frame unavailable' }));
           return;
         }
 
