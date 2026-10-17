@@ -29,14 +29,44 @@ export const PLACEHOLDER_SHARED_BY = 3;
  * these down.
  */
 export const STILL_MIN_INTERVAL_MS = Object.freeze({ 'opencctv.org': 30_000 });
+/**
+ * Every other still host (the agency and operator hosts Open-Eagle-Eye and
+ * PocketWorld list): at least 2 s between requests to one host.
+ */
+export const STILL_DEFAULT_INTERVAL_MS = 2000;
+/** Stills checked at once, each on a different host when the queue allows. */
+export const VERIFY_PARALLEL = 4;
+export const VERIFY_MAX_PARALLEL = 8;
 
 /** Per-host pacing for a verify run whose general gap is `gapMs`. */
 export function stillPacing(gapMs) {
-  const pacing = { '*': gapMs };
+  const pacing = { '*': Math.max(STILL_DEFAULT_INTERVAL_MS, gapMs) };
   for (const [host, ms] of Object.entries(STILL_MIN_INTERVAL_MS))
     pacing[host] = Math.max(ms, gapMs);
   return pacing;
 }
+
+/**
+ * The still a candidate is checked by: its stillUrl, else (candidates saved
+ * before adapters set one) the https snapshot of an image feed.
+ */
+export function stillOf(candidate) {
+  if (candidate?.stillUrl) return candidate.stillUrl;
+  if (
+    candidate?.feedType === 'image' &&
+    /^https:\/\//.test(String(candidate.snapshotUrl || ''))
+  )
+    return candidate.snapshotUrl;
+  return '';
+}
+
+const hostOf = (url) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return '';
+  }
+};
 
 /** SHA-1s of placeholder images seen in the wild, by source (shared with the server). */
 export const PLACEHOLDERS_FILE = fileURLToPath(
@@ -103,7 +133,7 @@ export function rollingQueue({
   const groups = [[], [], []];
   for (const candidate of candidates) {
     if (
-      !candidate.stillUrl ||
+      !stillOf(candidate) ||
       !Number.isFinite(candidate.lat) ||
       !Number.isFinite(candidate.lon)
     )
@@ -241,13 +271,18 @@ export function verifyOrder(candidates, records) {
 }
 
 /**
- * Verify up to `limit` candidates that are unchecked or due.
+ * Verify up to `limit` candidates that are unchecked or due, `parallel` at a
+ * time. A worker takes the first queued candidate whose host is idle (looking
+ * a little ahead), so one slow or crowded host does not hold the others; the
+ * fetcher keeps each host's floor whatever the workers do. A host that keeps
+ * failing (HostBlockedError) or that robots.txt closes is skipped for the
+ * rest of the run, unrecorded.
  * @param {{get: Function}} fetcher
- * @param {Array<object>} candidates - each with id and stillUrl.
+ * @param {Array<object>} candidates - each with an id and a still (stillOf).
  * @param {Record<string, object>} records - existing id → record (updated in place).
  * @param {{limit?: number, now?: () => number, source?: string,
  *   log?: (line: string) => void, onRecord?: (candidate: object) => void,
- *   queue?: Array<object>, placeholders?: Array<string>}} [options]
+ *   queue?: Array<object>, placeholders?: Array<string>, parallel?: number}} [options]
  *   `queue` replaces the default choice and order (rollingQueue).
  */
 export async function verifyCandidates(
@@ -263,12 +298,16 @@ export async function verifyCandidates(
     log = () => {},
     onRecord = () => {},
   } = options;
+  const parallel = Math.min(
+    VERIFY_MAX_PARALLEL,
+    Math.max(1, Math.floor(options.parallel || 1)),
+  );
   const due =
     options.queue ||
     verifyOrder(
       candidates.filter(
         (candidate) =>
-          candidate.stillUrl &&
+          stillOf(candidate) &&
           // A camera with no place is never served, so never checked.
           Number.isFinite(candidate.lat) &&
           Number.isFinite(candidate.lon) &&
@@ -280,15 +319,35 @@ export async function verifyCandidates(
       ),
       records,
     );
-  const run = { checked: 0, fromNetwork: 0, stoppedBy: 'complete' };
+  const run = {
+    checked: 0,
+    fromNetwork: 0,
+    stoppedBy: 'complete',
+    skippedHosts: [],
+  };
   const placeholders = options.placeholders || knownPlaceholders(source);
-  for (const candidate of due) {
-    if (run.checked >= limit) {
-      run.stoppedBy = 'limit';
-      break;
+  const queue = [...due];
+  const busy = new Map();
+  const closed = new Set();
+  let started = 0;
+
+  function next() {
+    while (queue.length && closed.has(hostOf(stillOf(queue[0])))) queue.shift();
+    const lookahead = Math.min(queue.length, 64);
+    for (let i = 0; i < lookahead; i++) {
+      const host = hostOf(stillOf(queue[i]));
+      if (!closed.has(host) && !busy.get(host)) return queue.splice(i, 1)[0];
     }
+    return queue.shift();
+  }
+
+  async function check(candidate) {
+    const still = stillOf(candidate);
+    const host = hostOf(still);
+    if (closed.has(host)) return;
+    busy.set(host, (busy.get(host) || 0) + 1);
     try {
-      const answer = await fetcher.get(candidate.stillUrl, {
+      const answer = await fetcher.get(still, {
         store: false,
         maxBytes: MAX_STILL_BYTES,
         maxAgeMs: VERIFY_MAX_AGE_MS,
@@ -301,21 +360,39 @@ export async function verifyCandidates(
         error instanceof HostBlockedError ||
         error instanceof RobotsDisallowedError
       ) {
-        run.stoppedBy = error.message;
-        log(`stopped: ${error.message}`);
-        break;
+        if (!closed.has(host)) {
+          closed.add(host);
+          run.skippedHosts.push(host);
+          log(`skipping ${host}: ${error.message}`);
+        }
+        return;
       }
       records[candidate.id] = {
         status: 'error',
         reason: String(error?.message || error).slice(0, 120),
         verifiedAt: now(),
       };
+    } finally {
+      busy.set(host, busy.get(host) - 1);
     }
     run.checked += 1;
     onRecord(candidate);
     if (run.checked % 50 === 0)
       log(`verified ${run.checked}/${Math.min(due.length, limit)}`);
   }
+
+  async function worker() {
+    while (started < limit) {
+      const candidate = next();
+      if (!candidate) return;
+      started += 1;
+      await check(candidate);
+    }
+  }
+  await Promise.all(Array.from({ length: parallel }, worker));
+  if (started >= limit && queue.length) run.stoppedBy = 'limit';
+  else if (run.skippedHosts.length)
+    run.stoppedBy = `complete, skipping ${run.skippedHosts.length} host(s)`;
   run.placeholderHashes = markSharedPlaceholders(records);
   return run;
 }

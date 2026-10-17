@@ -2,6 +2,7 @@ import { readCappedResponseText, discardResponseBody } from '../common/http.js';
 import { createDailyCachedList } from './dailyCache.js';
 import { classifyWebcamUrl } from './linked.js';
 import { isPlausibleLatLon } from './normalize.js';
+import { withObservations } from './observed.js';
 
 /**
  * US National Park Service webcams, from the NPS Data API
@@ -202,6 +203,7 @@ export function createNpsLoader({
       return Object.assign([], { skipped: 'NPS_API_KEY is not set' });
     }
     currentKey = apiKey;
-    return list(sourceRoot);
+    // Personal fork: what viewers' frame fetches saw (observed.js).
+    return withObservations(await list(sourceRoot), sourceRoot);
   };
 }

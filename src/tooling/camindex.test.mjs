@@ -31,6 +31,7 @@ import {
   knownPlaceholders,
   markSharedPlaceholders,
   rollingQueue,
+  stillOf,
   stillPacing,
   verifyCandidates,
 } from '../../scripts/camindex/verify.mjs';
@@ -631,7 +632,8 @@ test('the CLI parses commands and flags', () => {
 });
 
 test('stills from opencctv.org stay under 20 uncached requests per 10 minutes', async (t) => {
-  assert.deepEqual(stillPacing(1500), { '*': 1500, 'opencctv.org': 30_000 });
+  assert.deepEqual(stillPacing(1500), { '*': 2000, 'opencctv.org': 30_000 });
+  assert.equal(stillPacing(5000)['*'], 5000);
   assert.equal(stillPacing(40_000)['opencctv.org'], 40_000);
   assert.equal(stillPacing(20_000)['opencctv.org'], 30_000, 'never faster');
   const dir = await tempDir(t);
@@ -838,4 +840,119 @@ test('verify reads the shared placeholder list', async (t) => {
   assert.deepEqual(knownPlaceholders('opencctv', file), ['c'.repeat(40)]);
   assert.deepEqual(knownPlaceholders('other', file), []);
   assert.deepEqual(knownPlaceholders('opencctv', path.join(dir, 'none')), []);
+});
+
+test("a candidate is checked by its stillUrl, else an image feed's https snapshot", () => {
+  assert.equal(stillOf({ stillUrl: 'https://a/1.jpg' }), 'https://a/1.jpg');
+  assert.equal(
+    stillOf({ feedType: 'image', snapshotUrl: 'https://b/2.jpg' }),
+    'https://b/2.jpg',
+  );
+  assert.equal(
+    stillOf({ feedType: 'image', snapshotUrl: 'http://b/2.jpg' }),
+    '',
+  );
+  assert.equal(
+    stillOf({
+      feedType: 'youtube',
+      snapshotUrl: 'https://i.ytimg.com/vi/x/hq.jpg',
+    }),
+    '',
+  );
+});
+
+test('stills on many hosts are checked in parallel, each host at its floor', async (t) => {
+  const dir = await tempDir(t);
+  // Every request takes 1 s of fake time; the clock only moves by sleeping.
+  let clock = 1_000_000;
+  const calls = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const transport = async (url) => {
+    calls.push({ url, at: clock });
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((resolve) => setImmediate(resolve));
+    inFlight -= 1;
+    if (url.endsWith('/robots.txt'))
+      return new Response('User-agent: *\nAllow: /');
+    if (url.includes('down.example')) throw new TypeError('fetch failed');
+    if (url.includes('/gone/'))
+      return new Response('no', {
+        status: 404,
+        headers: { 'content-type': 'text/plain' },
+      });
+    // A different picture per camera, so none reads as a shared placeholder.
+    return new Response(Buffer.from(url.padEnd(3000, '.')), {
+      headers: { 'content-type': 'image/jpeg' },
+    });
+  };
+  const fetcher = createFetcher({
+    cacheDir: dir,
+    transport,
+    now: () => clock,
+    sleep: async (ms) => {
+      clock += ms;
+    },
+    minIntervalMs: stillPacing(1500),
+  });
+  const hosts = [
+    'a.example',
+    'b.example',
+    'c.example',
+    'd.example',
+    'e.example',
+  ];
+  const candidates = [];
+  for (let i = 0; i < 40; i++) {
+    const host = hosts[i % hosts.length];
+    candidates.push({
+      id: `${host}-${i}`,
+      lat: 1,
+      lon: 1,
+      stillUrl: `https://${host}/${i % 10 === 3 ? 'gone/' : ''}${i}.jpg`,
+    });
+  }
+  for (let i = 0; i < 8; i++)
+    candidates.push({
+      id: `down-${i}`,
+      lat: 1,
+      lon: 1,
+      stillUrl: `https://down.example/${i}.jpg`,
+    });
+  const records = {};
+  const run = await verifyCandidates(fetcher, candidates, records, {
+    parallel: 4,
+    now: () => clock,
+  });
+  assert.ok(maxInFlight > 1 && maxInFlight <= 4, `in flight ${maxInFlight}`);
+  // Each host keeps its 2 s floor between its own requests.
+  for (const host of hosts) {
+    const times = calls
+      .filter((call) => new URL(call.url).host === host)
+      .map((call) => call.at);
+    for (let i = 1; i < times.length; i++)
+      assert.ok(times[i] - times[i - 1] >= 2000, `${host} paced`);
+  }
+  assert.equal(
+    Object.values(records).filter((r) => r.status === 'live').length,
+    36,
+  );
+  assert.equal(
+    Object.values(records).filter((r) => r.status === 'dead').length,
+    4,
+  );
+  // A host that keeps failing is left alone; its other cameras go unrecorded.
+  assert.deepEqual(run.skippedHosts, ['down.example']);
+  const downChecks = Object.keys(records).filter((id) =>
+    id.startsWith('down-'),
+  );
+  assert.ok(
+    downChecks.length < 8,
+    'not every camera on the failing host was tried',
+  );
+  assert.ok(
+    downChecks.every((id) => records[id].status === 'error'),
+    'network failures are errors, not dead',
+  );
 });

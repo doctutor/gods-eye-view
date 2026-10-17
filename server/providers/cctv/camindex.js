@@ -4,6 +4,7 @@ import { isPlausibleLatLon } from './normalize.js';
 import {
   CAMINDEX_DIR,
   OBSERVED_FILE,
+  applyObservations,
   camindexDir,
   readObserved,
 } from './observed.js';
@@ -37,30 +38,6 @@ const WORD = /^[a-z][a-z-]{0,23}$/i;
 /** The catalog file: CAMINDEX_DIR (relative to the source root) or the default. */
 export function camindexCatalogPath(sourceRoot, env = process.env) {
   return path.join(camindexDir(sourceRoot, env), CAMINDEX_CATALOG);
-}
-
-/**
- * The catalog's sources with observations applied: dead and placeholder
- * cameras out, live ones marked live with `observedAt`.
- * @param {Array<object>} sources
- * @param {Record<string, {status: string, at: number}>} observed
- */
-export function applyObserved(sources, observed) {
-  const out = [];
-  for (const source of sources) {
-    const seen = observed[source.id];
-    if (seen?.status === 'dead' || seen?.status === 'placeholder') continue;
-    out.push(
-      seen?.status === 'live'
-        ? {
-            ...source,
-            liveStatus: 'live',
-            observedAt: new Date(seen.at).toISOString(),
-          }
-        : source,
-    );
-  }
-  return out;
 }
 
 const YOUTUBE_HOSTS = new Set([
@@ -251,7 +228,7 @@ export function createCamindexLoader({ env = process.env } = {}) {
     }
     if (applied?.sources === sources && applied.key === key)
       return applied.result;
-    const result = applyObserved(sources, readObserved(file));
+    const result = applyObservations(sources, readObserved(file));
     applied = { sources, key, result };
     return result;
   }
