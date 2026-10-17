@@ -525,11 +525,11 @@ git merge origin/main
   Recorded Video): 35 after the 2026-10-16 sync. An upstream layer added later
   changes both numbers.
 - **Translations.** Upstream checks that every UI string is marked for
-  translation (`npm run i18n`). Fork UI text is English-only: markup carries
-  `translate="no"`, code carries `// i18n-ignore: personal fork, English-only
-UI`, and the Baltimore layers are listed as untranslated in
-  `src/ui/layerNames.test.mjs` (with Recorded Video). New fork UI text needs the same, or real
-  Spanish and Russian entries in `src/i18n/locales/`.
+  translation (`npm run i18n`). Fork UI text goes through `t()`, `tn()` and
+  `msg()` (or `data-i18n*` in markup) like upstream's, with Spanish and
+  Russian entries in `src/i18n/locales/`. `src/i18n/forkStrings.test.mjs`
+  fails when a fork module adds text without both translations. Brand names
+  (YOUTUBE, WINDY, STREET VIEW, WIKIDATA) stay English.
 - **Street Level providers.** Upstream's Google provider took
   `providers/google/`; the fork's indoor provider moved to
   `providers/googleIndoor/`.

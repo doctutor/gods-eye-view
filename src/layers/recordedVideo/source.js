@@ -11,15 +11,15 @@ const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
 /** Pin style per precision: site solid, area hollow, region faint. */
 export const PRECISION_STYLE = Object.freeze({
-  // i18n-ignore: personal fork, English-only UI
+  // i18n-ignore: internal code; shown through precisionLabel() in player.js
   site: Object.freeze({ fill: 1, outline: 1, pixelSize: 10, label: 'SITE' }),
-  // i18n-ignore: personal fork, English-only UI
+  // i18n-ignore: internal code; shown through precisionLabel() in player.js
   area: Object.freeze({ fill: 0, outline: 1, pixelSize: 11, label: 'AREA' }),
   region: Object.freeze({
     fill: 0.3,
     outline: 0.35,
     pixelSize: 9,
-    // i18n-ignore: personal fork, English-only UI
+    // i18n-ignore: internal code; shown through precisionLabel() in player.js
     label: 'REGION',
   }),
 });

@@ -1,4 +1,5 @@
 // Personal fork: Maps Embed API Street View viewer for indoor panoramas.
+import { msg, t } from '../../../../i18n/index.js';
 import {
   GSV_INDOOR_PROVIDER_ID,
   embedUrl,
@@ -46,8 +47,7 @@ export function createGoogleIndoorViewer({ source, lookup = () => null }) {
       background: '#000',
     });
     frame = doc.createElement('iframe');
-    // i18n-ignore: personal fork, English-only UI
-    frame.title = 'Google Street View';
+    frame.title = t('Google Street View');
     frame.setAttribute('allowfullscreen', '');
     frame.setAttribute('loading', 'eager');
     // The browser key is referrer-restricted: send the page's origin.
@@ -102,7 +102,7 @@ export function createGoogleIndoorViewer({ source, lookup = () => null }) {
       const url = embedUrl(source.embedKey(), panoId);
       if (!url)
         throw new Error(
-          'Set GOOGLE_MAPS_API_KEY to view Google indoor imagery',
+          msg('Set GOOGLE_MAPS_API_KEY to view Google indoor imagery'),
         );
       const seq = ++openSeq;
       const loaded = waitForLoad(frame, seq);

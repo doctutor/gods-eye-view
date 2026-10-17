@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import { BALTIMORE_CAMERA_SETS, fetchCameraSet } from './source.js';
+import { msg, t } from '../../i18n/index.js';
 export * from './source.js';
 
 /** Labels appear only once the view is this close, nearest cameras first. */
@@ -84,7 +85,7 @@ export function createBaltimoreCameraLayer({
         position: Cesium.Cartesian3.fromDegrees(record.lon, record.lat),
         variant: 'label',
         title: record.title,
-        details: [record.kind],
+        details: [t(record.kind)],
         accent: record.color,
         priority: Math.round(LABEL_RADIUS_M - d),
         collisionGroup: 'ambient-label',
@@ -121,7 +122,7 @@ export function createBaltimoreCameraLayer({
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
           scaleByDistance: new Cesium.NearFarScalar(500, 1.3, 60000, 0.5),
         },
-        properties: { kind: record.kind, location: record.title },
+        properties: { kind: t(record.kind), location: record.title },
       });
     }
     _dataSource.entities.resumeEvents();
@@ -197,8 +198,8 @@ export function createBaltimoreCameraLayer({
         return true;
       } catch (error) {
         if (request.signal.aborted || _request !== request) return false;
-        // i18n-ignore: personal fork, English-only UI
-        _lastError = error?.message || 'Baltimore camera service unavailable';
+        _lastError =
+          error?.message || msg('Baltimore camera service unavailable');
         console.warn(`[Data:${set.id}] Fetch error:`, error);
         return false;
       } finally {

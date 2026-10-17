@@ -6,6 +6,7 @@
  */
 // Personal fork: a SOUND tag for streams that carry (or likely carry) audio.
 import { hasSound } from '../layers/cctv/audio.js';
+import { t } from '../i18n/index.js';
 
 /** Cameras listed when nothing is typed, nearest first. */
 export const CAMERA_LIST_DEFAULT_LIMIT = 150;
@@ -26,10 +27,11 @@ export function distanceKm(aLat, aLon, bLat, bLon) {
 /** A short word for the kind of feed, from the public camera state. */
 export function cameraTag(camera) {
   if (camera?.embed?.provider === 'youtube') return 'YOUTUBE';
-  if (camera?.feedType === 'link') return 'LINK';
+  if (camera?.feedType === 'link') return t('LINK', { context: 'camera tag' });
   if (camera?.sourceKind === 'windy') return 'WINDY';
   if (camera?.sourceKind === 'opencctv') return 'OPENCCTV';
-  if (camera?.feedType === 'hls' || camera?.isVideo) return 'VIDEO';
+  if (camera?.feedType === 'hls' || camera?.isVideo)
+    return t('VIDEO', { context: 'camera tag' });
   return 'CCTV';
 }
 
@@ -43,7 +45,7 @@ export function formatDistance(km) {
 
 /** 'SOUND' for a camera with sound to hear, else ''. */
 export function audioTag(camera) {
-  return hasSound(camera) ? 'SOUND' : '';
+  return hasSound(camera) ? t('SOUND', { context: 'camera tag' }) : '';
 }
 
 /** The text a camera is searched by: place, name, tags and category. */
@@ -201,14 +203,17 @@ export function renderCameraList(host, entries, state = {}) {
   if (!entries.length) {
     const empty = doc.createElement('div');
     empty.className = 'cctv-camera-row empty';
-    // i18n-ignore: personal fork, English-only UI
-    empty.textContent = state.query ? 'No camera matches' : 'No cameras loaded';
+    empty.textContent = state.query
+      ? t('No camera matches')
+      : t('No cameras loaded');
     host.appendChild(empty);
   }
   const shown = entries.length;
   const total = Number(state.total) || 0;
   host.dataset.summary =
-    total > shown ? `${shown} of ${total} · nearest first` : `${shown}`;
+    total > shown
+      ? t('{shown} of {total} · nearest first', { shown, total })
+      : `${shown}`;
 }
 
 /**

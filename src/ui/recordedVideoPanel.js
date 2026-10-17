@@ -14,19 +14,23 @@ import {
   matchRanges,
   queryTokens,
 } from './cctvCameraList.js';
+import { t, tn } from '../i18n/index.js';
 
 /** Videos listed with nothing typed: those this close to the view centre. */
 export const NEARBY_KM = 100;
 export const LIST_LIMIT = 120;
-const PRECISION_TAG = Object.freeze({
-  site: 'SITE',
-  area: 'AREA',
-  region: 'REGION',
-});
-const SOURCE_TAG = Object.freeze({
-  wikidata: 'WIKIDATA',
-  'youtube-geotag': 'GEOTAG',
-});
+/** A video's pin precision as its row tag says it. */
+function precisionTag(quality) {
+  if (quality === 'site') return t('SITE', { context: 'pin precision' });
+  if (quality === 'area') return t('AREA', { context: 'pin precision' });
+  return t('REGION', { context: 'pin precision' });
+}
+/** Where a video's position came from, as its row tag says it. */
+function sourceTag(source) {
+  // i18n-ignore: brand name
+  if (source === 'wikidata') return 'WIKIDATA';
+  return t('GEOTAG', { context: 'pin precision' });
+}
 
 /** What a video is searched by: title, channel and place. */
 export function videoSearchText(record) {
@@ -90,8 +94,8 @@ export function videoRowModel(entry) {
     ]
       .filter(Boolean)
       .join(' · '),
-    precision: PRECISION_TAG[record.coordinatesQuality] || 'REGION',
-    source: SOURCE_TAG[record.source] || 'GEOTAG',
+    precision: precisionTag(record.coordinatesQuality),
+    source: sourceTag(record.source),
   };
 }
 
@@ -102,12 +106,11 @@ export function countsLine(records) {
   for (const record of list)
     if (record?.coordinatesQuality in counts)
       counts[record.coordinatesQuality]++;
-  return [
-    `${list.length} video${list.length === 1 ? '' : 's'}`,
-    ...['site', 'area', 'region']
-      .filter((key) => counts[key])
-      .map((key) => `${counts[key]} ${key}`),
-  ].join(' · ');
+  const parts = [tn(list.length, '{count} video', '{count} videos')];
+  if (counts.site) parts.push(t('{count} site', { count: counts.site }));
+  if (counts.area) parts.push(t('{count} area', { count: counts.area }));
+  if (counts.region) parts.push(t('{count} region', { count: counts.region }));
+  return parts.join(' · ');
 }
 
 /** "Search budget 798 / 1000 units left today", or '' before any search. */
@@ -116,17 +119,21 @@ export function budgetLine(quota) {
   const remaining = Number.isFinite(Number(quota.remaining))
     ? Number(quota.remaining)
     : Math.max(0, Number(quota.budget) - (Number(quota.used) || 0));
-  return `Search budget ${remaining} / ${Number(quota.budget)} units left today`;
+  return t('Search budget {remaining} / {budget} units left today', {
+    remaining,
+    budget: Number(quota.budget),
+  });
 }
 
 /** What the status line says after the last search, if anything. */
 export function searchStatus(lastSearch) {
   if (!lastSearch) return '';
-  if (lastSearch.configured === false) return 'No YouTube key: Wikidata only';
-  if (lastSearch.refused) return 'Search budget used up for today';
+  if (lastSearch.configured === false)
+    return t('No YouTube key: Wikidata only');
+  if (lastSearch.refused) return t('Search budget used up for today');
   return lastSearch.cached
-    ? 'This view: stored answer'
-    : 'This view: just asked';
+    ? t('This view: stored answer')
+    : t('This view: just asked');
 }
 
 /**
@@ -212,8 +219,7 @@ export function initRecordedVideoPanel(root, { layer, signal }) {
     'click',
     () => {
       if (!layer.searchAgain() && status)
-        // i18n-ignore: personal fork, English-only UI
-        status.textContent = 'Zoom in below 50 km to search this view';
+        status.textContent = t('Zoom in below 50 km to search this view');
     },
     { signal },
   );

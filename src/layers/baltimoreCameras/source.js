@@ -7,36 +7,32 @@
  * Personal-fork layer; not part of upstream God's Eye View.
  */
 
+import { msg } from '../../i18n/marker.js';
 const ATVES_ROOT =
   'https://services3.arcgis.com/ZTvQ9NuONePFYofE/arcgis/rest/services';
 
 /** Enforcement camera kinds, keyed by the service's CamType. */
 export const ENFORCEMENT_KINDS = Object.freeze({
   'Red Light Camera': Object.freeze({
-    // i18n-ignore: personal fork, English-only UI
-    label: 'Red-light camera',
+    label: msg('Red-light camera'),
     color: '#ff4d4d',
   }),
   'Speed Camera Fixed': Object.freeze({
-    // i18n-ignore: personal fork, English-only UI
-    label: 'Speed camera (fixed)',
+    label: msg('Speed camera (fixed)'),
     color: '#ff9f1a',
   }),
   'Speed Camera Portable': Object.freeze({
-    // i18n-ignore: personal fork, English-only UI
-    label: 'Speed camera (portable)',
+    label: msg('Speed camera (portable)'),
     color: '#ffd84d',
   }),
   'Commercial Vehicles Height Camera': Object.freeze({
-    // i18n-ignore: personal fork, English-only UI
-    label: 'Truck height camera',
+    label: msg('Truck height camera'),
     color: '#c77dff',
   }),
 });
 
 export const CITIWATCH_KIND = Object.freeze({
-  // i18n-ignore: personal fork, English-only UI
-  label: 'CitiWatch police camera',
+  label: msg('CitiWatch police camera'),
   color: '#4dd2ff',
 });
 
@@ -109,7 +105,7 @@ export function parseCameraCollection(collection, setKey) {
         id: `citiwatch-${number}`,
         lat,
         lon,
-        // i18n-ignore: personal fork, English-only UI
+        // i18n-ignore: brand name and camera number
         title: clean(props.CAM_LOCATION) || `CitiWatch ${number}`,
         kind: CITIWATCH_KIND.label,
         color: CITIWATCH_KIND.color,

@@ -6,16 +6,32 @@
  * server as data and is written with textContent.
  */
 
-const PRECISION_LABEL = Object.freeze({
-  site: 'SITE',
-  area: 'AREA',
-  region: 'REGION',
-  'operator-geotag': 'GEOTAG',
-});
+import { msg, t } from '../i18n/index.js';
+
+/** How precise a position is, as the card and the picker say it. */
+function precisionLabel(quality) {
+  switch (quality) {
+    case 'site':
+      return t('SITE', { context: 'pin precision' });
+    case 'area':
+      return t('AREA', { context: 'pin precision' });
+    case 'region':
+      return t('REGION', { context: 'pin precision' });
+    case 'operator-geotag':
+      return t('GEOTAG', { context: 'pin precision' });
+    default:
+      return '?';
+  }
+}
 const SUGGESTION_SOURCE = Object.freeze({
-  geotag: 'operator geotag',
-  text: 'from the title/description',
-  default: 'channel default',
+  geotag: msg('operator geotag'),
+  text: msg('from the title/description'),
+  default: msg('channel default'),
+});
+/** A stream's YouTube state as the card says it. */
+const STREAM_STATUS = Object.freeze({
+  live: msg('LIVE'),
+  upcoming: msg('UPCOMING'),
 });
 const ENDPOINT = '/api/cctv/featured';
 
@@ -28,9 +44,11 @@ export function pendingCardModel(item) {
     Number.isFinite(Number(suggestion.lon));
   return {
     videoId: String(item?.videoId || ''),
-    title: String(item?.title || 'Untitled stream'),
+    title: String(item?.title || t('Untitled stream')),
     channel: String(item?.channelTitle || item?.operator || 'YouTube'),
-    status: String(item?.status || '').toUpperCase(),
+    status: STREAM_STATUS[String(item?.status || '').toLowerCase()]
+      ? t(STREAM_STATUS[String(item.status).toLowerCase()])
+      : String(item?.status || '').toUpperCase(),
     thumbnailUrl: String(item?.thumbnailUrl || ''),
     watchUrl: String(item?.watchUrl || ''),
     position: placed
@@ -42,9 +60,12 @@ export function pendingCardModel(item) {
         }
       : null,
     placeText: placed
-      ? `${suggestion.label || 'Suggested'} · ${PRECISION_LABEL[suggestion.coordinatesQuality] || '?'}`
-      : 'No position suggested — adjust to place it',
-    sourceText: placed ? SUGGESTION_SOURCE[suggestion.kind] || '' : '',
+      ? `${suggestion.label || t('Suggested')} · ${precisionLabel(suggestion.coordinatesQuality)}`
+      : t('No position suggested — adjust to place it'),
+    sourceText:
+      placed && SUGGESTION_SOURCE[suggestion.kind]
+        ? t(SUGGESTION_SOURCE[suggestion.kind])
+        : '',
   };
 }
 
@@ -54,7 +75,7 @@ export function pendingCardModel(item) {
  */
 export function parseAdjustInput(text) {
   const value = String(text || '').trim();
-  if (!value) return { error: 'Type a place or “lat, lon”' };
+  if (!value) return { error: t('Type a place or “lat, lon”') };
   const coords = /^(-?\d{1,2}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)$/.exec(
     value,
   );
@@ -62,11 +83,11 @@ export function parseAdjustInput(text) {
     const lat = Number(coords[1]);
     const lon = Number(coords[2]);
     if (Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0))
-      return { error: 'Those coordinates are out of range' };
+      return { error: t('Those coordinates are out of range') };
     return { kind: 'coords', lat, lon };
   }
   if (value.length < 2 || value.length > 200)
-    return { error: 'Type a place or “lat, lon”' };
+    return { error: t('Type a place or “lat, lon”') };
   return { kind: 'place', query: value };
 }
 
@@ -125,8 +146,7 @@ export function initPendingCams(
       chosen.delete(payload.videoId);
       await refresh();
     } catch (error) {
-      // i18n-ignore: personal fork, English-only UI
-      showToast(`Not saved: ${error.message}`);
+      showToast(t('Not saved: {reason}', { reason: error.message }));
     }
   }
 
@@ -156,7 +176,7 @@ export function initPendingCams(
     const showPlace = () => {
       const position = chosen.get(model.videoId);
       place.textContent = position
-        ? `${position.label || 'Chosen position'} · ${PRECISION_LABEL[position.coordinatesQuality] || '?'}`
+        ? `${position.label || t('Chosen position')} · ${precisionLabel(position.coordinatesQuality)}`
         : model.placeText;
       place.title = position
         ? `${position.lat.toFixed(4)}, ${position.lon.toFixed(4)}${model.sourceText ? ` (${model.sourceText})` : ''}`
@@ -164,28 +184,25 @@ export function initPendingCams(
       accept.disabled = !position;
     };
     const actions = el('div', 'cctv-controls cctv-pending-actions');
-    const accept = el('button', 'scene-btn', 'ACCEPT');
-    const adjust = el('button', 'scene-btn', 'ADJUST');
-    const skip = el('button', 'scene-btn', 'SKIP');
+    const accept = el('button', 'scene-btn', t('ACCEPT'));
+    const adjust = el('button', 'scene-btn', t('ADJUST'));
+    const skip = el('button', 'scene-btn', t('SKIP'));
     actions.append(accept, adjust, skip);
 
     const editor = el('div', 'cctv-pending-editor');
     editor.hidden = true;
     const input = el('input', 'cctv-pending-input');
     input.type = 'text';
-    // i18n-ignore: personal fork, English-only UI
-    input.placeholder = 'Place, or lat, lon';
-    // i18n-ignore: personal fork, English-only UI
-    input.setAttribute('aria-label', 'Position for this stream');
+    input.placeholder = t('Place, or lat, lon');
+    input.setAttribute('aria-label', t('Position for this stream'));
     const precision = el('select', 'cctv-pending-precision');
-    // i18n-ignore: personal fork, English-only UI
-    precision.setAttribute('aria-label', 'How precise the position is');
+    precision.setAttribute('aria-label', t('How precise the position is'));
     for (const quality of qualities) {
-      const option = el('option', '', PRECISION_LABEL[quality] || quality);
+      const option = el('option', '', precisionLabel(quality));
       option.value = quality;
       precision.append(option);
     }
-    const find = el('button', 'scene-btn', 'SET');
+    const find = el('button', 'scene-btn', t('SET'));
     editor.append(input, precision, find);
 
     const setFromEditor = async () => {
@@ -216,8 +233,7 @@ export function initPendingCams(
           });
           precision.value = found.coordinatesQuality;
         } catch (error) {
-          // i18n-ignore: personal fork, English-only UI
-          return showToast(`Not found: ${error.message}`);
+          return showToast(t('Not found: {reason}', { reason: error.message }));
         }
       }
       showPlace();
@@ -231,7 +247,7 @@ export function initPendingCams(
           act(
             'accept',
             acceptPayload(model.videoId, position),
-            'Accepted — on the map the next time the camera layer loads',
+            t('Accepted — on the map the next time the camera layer loads'),
           );
       },
       { signal },
@@ -248,7 +264,7 @@ export function initPendingCams(
     );
     skip.addEventListener(
       'click',
-      () => act('skip', { videoId: model.videoId }, 'Skipped'),
+      () => act('skip', { videoId: model.videoId }, t('Skipped')),
       { signal },
     );
     find.addEventListener('click', setFromEditor, { signal });
