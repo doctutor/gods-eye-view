@@ -295,7 +295,11 @@ export function createEarthEngineLayer({
     }
     const variant = wantedVariant();
     const ink = wantedInk();
-    const key = `${variant}|${ink}`;
+    const version =
+      layer.variants?.find?.((entry) => entry.key === variant)?.versions?.[
+        ink
+      ] || '';
+    const key = `${variant}|${ink}|${version}`;
     if (
       _imagery &&
       _mountedKey === key &&
@@ -305,7 +309,7 @@ export function createEarthEngineLayer({
       return;
     unmount();
     const provider = new cesium.UrlTemplateImageryProvider({
-      url: tileTemplate(record.id, variant, ink),
+      url: tileTemplate(record.id, variant, ink, version),
       tilingScheme: new cesium.WebMercatorTilingScheme(),
       minimumLevel: 0,
       maximumLevel: layer.maxZoom ?? record.maxZoom ?? 12,

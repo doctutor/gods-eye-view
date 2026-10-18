@@ -509,11 +509,11 @@ has level and ink chips (below).
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | Terrain slope, Terrain aspect, Hillshade  | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`); above 3,000 km GMTED2010, `USGS/GMTED2010_FULL`, band `mea` | Copernicus DEM licence; notice required (GMTED2010: USGS, public domain) |
 | Forest loss (2001–2025, coloured by year) | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                 | CC BY 4.0                                                                |
-| Administrative boundaries                 | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from `FAO/GAUL/2015/level0`                 | CC BY 4.0 (2015: noncommercial)                                          |
+| Administrative boundaries                 | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from LSIB 2017, `USDOS/LSIB/2017`           | CC BY 4.0 (LSIB: US public domain)                                       |
 
 The ids were taken from Earth Engine's catalog records on 2026-10-17. The
 older ids, `COPERNICUS/DEM/GLO30` and `FAO/GAUL/2015/*`, are deprecated, and
-the 2015 GAUL tables were noncommercial only. Each layer credits Google Earth
+the 2015 GAUL tables were noncommercial only; none of them is used any more. Each layer credits Google Earth
 Engine and its dataset in Cesium's credit line and in the data-attribution
 popover.
 
@@ -562,8 +562,17 @@ pulls in about 110 MB (`googleapis@92`).
    hours, or when a tile says it has expired. One request is in flight per
    layer at a time. When a new map cannot be made, the old one keeps serving.
 3. The browser asks this server for tiles at
-   `/api/earth-engine/tile/<layer>/<variant>/<z>/<x>/<y>`. The server keeps
-   each tile on disk for 30 days in `.gev-cache/earth-engine/tiles/`.
+   `/api/earth-engine/tile/<layer>/<variant>/<ink>/<z>/<x>/<y>?v=<hash>`.
+   The server keeps each tile on disk for 30 days in
+   `.gev-cache/earth-engine/tiles/<layer>/<variant>/<ink>/<hash>/`, where
+   `<hash>` is the first 12 hex digits of the SHA-256 of the map's request
+   body (`mapRequestHash`). A changed expression, ink or visualization is
+   a new hash, so neither the disk nor the browser's day-long cache (the
+   client puts the hash, from `/layers`' `versions`, in the URL as `?v=`)
+   can serve the old one's tiles. Tiles under an old hash or the old
+   hashless layout are never read again and can be deleted. The server
+   builds its maps from the code it started with: after a change to a
+   layer, restart the dev server.
 4. Tiles fetched from Earth Engine count against `EARTH_ENGINE_DAILY_TILES`
    (20,000 a day by default); tiles from disk do not. Past the budget, the
    server answers 429.
@@ -642,41 +651,37 @@ that used the most:
   says the tiles arrive slowly: Earth Engine rasterises the whole level-2
   table into each coarse tile. **GAUL 2025 has no level0**: the API's
   `FAO/GAUL/2025` folder lists `level1` and `level2` only (checked
-  2026-10-18 with one authenticated request), so COUNTRIES draws
-  `FAO/GAUL/2015/level0`, which exists but is deprecated and
-  noncommercial-only (the project's registration). `USDOS/LSIB_SIMPLE/2017`
-  (public domain) is the alternative if the 2015 table goes; it is one
-  variant record away.
-- **Countries as edges, not outlines.** GAUL 2015 stores Canada and the
-  United States as several rectangular pieces cut along even parallels
-  and meridians (292 features for 276 codes), and `Collection.style`
-  outlined every piece, so the cuts showed as straight false borders. The
-  level0 variant now names its unit-code property (`code: 'ADM0_CODE'`)
-  and the map is the edges of that code: the table is painted into an image of the code over a zero
-  background (`Image.paint` on `Image.constant(0)`), and a pixel whose
-  3 × 3 neighbourhood holds a smaller code (`Image.neq` against
-  `Image.focalMin`, radius 1 pixel) is an edge, `Image.selfMask`ed and
-  visualized in the ink's colour at one pixel, on the higher-code side. A
-  seam between two chunks of Canada has the same code both sides and
-  vanishes; a border shared by two regions is drawn once; the coast counts
-  because sea is 0. The ink is the map's `visualizationOptions` (palette
-  and opacity), no longer baked into the expression, so the light and dark
-  maps share one expression. Checked on 2026-10-18: over Canada and the
-  United States only the 49th parallel, 141° W and the coasts are drawn.
-  The GAUL 2025 tables have one feature per unit (level1: 3,104 features,
-  3,103 codes; level2: 43,819 and 43,819), so REGIONS and DISTRICTS keep
-  their outlines: edges cost Earth Engine 35 to 110 s a z 1 tile of
-  level1, outlines 5 to 19 s. Edges are slow for the countries too (z 2
-  and 3 tiles took 15 s to over 200 s; outlines 2 to 3 s), so the server
-  waits up to 240 s for a tile at z 3 or coarser (30 s otherwise); there
-  are 85 such tiles per map and the disk keeps each 30 days.
+  2026-10-18 with one authenticated request), so COUNTRIES draws the
+  US Department of State's LSIB 2017 (`USDOS/LSIB/2017`, US public
+  domain; its interior boundaries follow US government policy on
+  disputes).
+- **Why LSIB 2017 for the countries.** GAUL 2015's level0 (the earlier
+  choice) stores Canada and the United States as rectangular pieces cut
+  along even parallels and meridians (292 features for 276 codes: Canada
+  in 10, the United States in 5, Australia in 3, the West Bank in 2), and
+  `Collection.style` outlined every piece, so the cuts showed as straight
+  false borders (98.18° W and 31.68° N in the United States, 116.76° W and
+  100.12° W in Canada, a box over British Columbia). `USDOS/LSIB_SIMPLE/2017`
+  and `FAO/GAUL_SIMPLIFIED_500m/2015/level0` are chunked too. LSIB 2017 has
+  one feature per country (279 for 279 names), shows only real borders and
+  coasts at z 1 to 3, and its tiles took Earth Engine 0.4 to 4.4 s (z 1:
+  1.0 to 3.7 s; measured 2026-10-18). Drawing the edges of GAUL 2015's
+  code instead (`Image.paint` the code, `Image.neq` against
+  `Image.focalMin`) also hid the seams, but its z 2 and 3 tiles took 15 s
+  to over 200 s and its z 0 and 1 tiles did not finish in 240 s, so it
+  was dropped (commit `e3cadce2` has it). The GAUL 2025 tables have one
+  feature per unit (level1: 3,104 features, 3,103 codes; level2: 43,819
+  and 43,819) and need nothing. Every features table tried here (GAUL 2015 and
+  2025, LSIB 2017) fails its z 0
+  tile ("Can't transform (…, 90.0)", Antarctica's pole in Web Mercator);
+  Cesium draws z 1 there.
 - **AUTO INK / LIGHT INK / DARK INK** choose the line colour. Earth Engine
   bakes the colour into the tiles, so white lines vanished on the white
   globe, Positron, the light Stamen styles and the light Countries maps.
   Each features layer now names its `inks` (`ffffffcc` light, `1a1a1acc`
   dark, the same width), the server makes **one map per (layer, variant,
-  ink)** and keys its disk cache by the ink
-  (`.gev-cache/earth-engine/tiles/<layer>/<variant>/<ink>/z/x/y.png`), and
+  ink)** and keys its disk cache by the ink and the map's hash
+  (`.gev-cache/earth-engine/tiles/<layer>/<variant>/<ink>/<hash>/z/x/y.png`), and
   the tile route is `/tile/<layer>/<variant>/<ink>/<z>/<x>/<y>` (`default`
   for the image layers). `/layers` advertises each layer's `inks`. On AUTO
   the client draws the ink the basemap wants: every map stack record now
@@ -704,8 +709,8 @@ optionally a terrain operation, `selfMask` and `vis` (min, max, palette);
 or, like the terrain layers, `auto` variants (a far and a near source)
 chosen by camera height, with no chips. A features layer names a table, a
 `style`, its `inks`, and variants: those marked `auto` are chosen by
-camera height, the rest only by a chip; a variant naming a `code` is drawn
-as the edges of that code (only worth it for a table stored in chunks).
+camera height, the rest only by a chip. Check a table for chunks (more
+features than units) before using it: its outlines show every cut.
 
 Every layer has a `maxZoom`, and may have a `maxHeightM`: the camera height
 above which it asks for nothing. Set one only for a quantity that means
@@ -1228,7 +1233,8 @@ drowning the view. There are four ways to do it, by the kind of data:
   Hexes mode, from resolution 0 at orbit to 7 at city scale.
 - **Boundaries: level switching.** The administrative boundaries' AUTO
   chip draws states and provinces above 800 km and districts below;
-  COUNTRIES, REGIONS and DISTRICTS force one level (GAUL level0, 1 and 2).
+  COUNTRIES, REGIONS and DISTRICTS force one level (LSIB 2017 countries,
+  GAUL 2025 level1 and level2).
   The lines are one pixel at every zoom. The Countries basemap's
   subdivisions style does the same (admin-1 below 5,000 km, countries
   above), and the Grid steps its spacing (30° at orbit to 1' at the street;
@@ -1245,6 +1251,8 @@ drowning the view. There are four ways to do it, by the kind of data:
       record says why.
 - [ ] Its coarsest tiles were timed against the live source (z 0 to 2),
       and a slow source has a far variant or a cache in front of it.
+- [ ] A boundary table has one feature per unit (compare its feature count
+      with its distinct codes); a chunked one draws its cuts as borders.
 
 ## Smaller additions
 

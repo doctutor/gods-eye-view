@@ -31,10 +31,9 @@ import {
  *
  * Each (layer, variant, ink) has its own map, made by POST
  * /v1/projects/<project>/maps with the layer's expression (the computation
- * graph Earth Engine's own clients send; a features layer is drawn in the
- * ink's colour, as the edges of its unit code when the variant names one),
- * cached until it nears its expiry, made again on demand, one request at a
- * time per map; when a new one cannot be made the old one
+ * graph Earth Engine's own clients send; a features layer's line colour is
+ * the ink's), cached until it nears its expiry, made again on demand, one
+ * request at a time per map; when a new one cannot be made the old one
  * keeps serving and the error is reported. The JSON sent for each map is
  * a committed fixture (src/data/fixtures/earth-engine-expressions.json), so
  * an Earth Engine rejection can be read against exactly what was sent.
@@ -56,11 +55,6 @@ export const DEFAULT_DAILY_TILES = 20_000;
 export const BUDGET_WARNINGS = Object.freeze([50, 90]);
 const MAX_TILE_BYTES = 2 * 1024 * 1024;
 const TILE_TIMEOUT_MS = 30_000;
-// A coarse tile can take Earth Engine minutes (z 0 to 3 of the countries'
-// edges: 15 s to over 200 s, 2026-10-18), but there are only 85 of them per
-// map and the disk keeps each 30 days, so they are waited for longer.
-const COARSE_TILE_MAX_Z = 3;
-const COARSE_TILE_TIMEOUT_MS = 240_000;
 const CACHE_DIR = path.join('.gev-cache', 'earth-engine');
 const NEEDS_KEY =
   'Set EARTH_ENGINE_KEY_FILE and EARTH_ENGINE_PROJECT in .env to draw the Earth Engine layers';
@@ -102,32 +96,7 @@ export function expressionFor(
   ink = layerInks(layer)[0],
 ) {
   let node = assetNode(variant.asset);
-  if (layer.kind === 'features' && variant.code) {
-    // Edges where the unit code changes, not feature outlines: the table is
-    // painted into an image of its code over a zero (sea) background, and a
-    // pixel whose 3 × 3 neighbourhood holds a smaller code is an edge, one
-    // pixel wide on the higher-code side. A seam between two chunks of one
-    // unit has the same code both sides and vanishes; a shared border is
-    // drawn once; the coast counts, since sea is 0. The ink is applied by
-    // the map's visualization (mapRequestFor), not baked in here.
-    const painted = invoke('Image.paint', {
-      image: invoke('Image.constant', { value: constant(0) }),
-      featureCollection: node,
-      color: constant(variant.code),
-    });
-    node = invoke('Image.selfMask', {
-      image: invoke('Image.neq', {
-        image1: painted,
-        image2: invoke('Image.focalMin', {
-          image: painted,
-          radius: constant(1),
-          kernelType: constant('square'),
-          units: constant('pixels'),
-        }),
-      }),
-    });
-  } else if (layer.kind === 'features') {
-    // A table without a code property: its feature outlines.
+  if (layer.kind === 'features') {
     const style = layer.style || {};
     node = invoke('Collection.style', {
       collection: node,
@@ -161,6 +130,19 @@ export function expressionFor(
   return { values: { 0: node }, result: '0' };
 }
 
+/**
+ * A short hash of what a map is made from (its request body): the disk
+ * cache files tiles under it, so a changed expression, ink or
+ * visualization never serves the old one's tiles.
+ */
+export function mapRequestHash(layer, variant, ink = layerInks(layer)[0]) {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(mapRequestFor(layer, variant, ink)))
+    .digest('hex')
+    .slice(0, 12);
+}
+
 /** The body of the request that makes a layer variant's map in an ink. */
 export function mapRequestFor(layer, variant, ink = layerInks(layer)[0]) {
   const body = {
@@ -172,21 +154,6 @@ export function mapRequestFor(layer, variant, ink = layerInks(layer)[0]) {
       ranges: [{ min: layer.vis.min, max: layer.vis.max }],
       paletteColors: [...(layer.vis.palette || [])],
     };
-  if (layer.kind === 'features' && variant.code) {
-    // The edge image is 1 where there is an edge (masked elsewhere): the
-    // ink's RRGGBB is the one palette colour, its AA the opacity.
-    const color = inkColor(layer, ink);
-    body.visualizationOptions = {
-      ranges: [{ min: 0, max: 1 }],
-      paletteColors: [color.slice(0, 6)],
-      ...(color.length === 8
-        ? {
-            opacity:
-              Math.round((parseInt(color.slice(6), 16) / 255) * 100) / 100,
-          }
-        : {}),
-    };
-  }
   return body;
 }
 
@@ -314,7 +281,7 @@ export function createRestBackend({
   auth,
   fetchImpl = (...args) => fetch(...args),
 }) {
-  async function authorized(url, init = {}, timeoutMs = TILE_TIMEOUT_MS) {
+  async function authorized(url, init = {}) {
     const send = async () =>
       fetchImpl(url, {
         ...init,
@@ -322,7 +289,7 @@ export function createRestBackend({
           ...(init.headers || {}),
           Authorization: `Bearer ${await auth.token()}`,
         },
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(TILE_TIMEOUT_MS),
         redirect: 'error',
       });
     let response = await send();
@@ -353,8 +320,6 @@ export function createRestBackend({
     async fetchTile(name, z, x, y) {
       const response = await authorized(
         `${EE_API}/${name}/tiles/${z}/${x}/${y}`,
-        {},
-        z <= COARSE_TILE_MAX_Z ? COARSE_TILE_TIMEOUT_MS : TILE_TIMEOUT_MS,
       );
       if (!response.ok)
         return {
@@ -510,17 +475,23 @@ export function createEarthEngineService({
     fs.renameSync(temporary, usageFile);
   }
 
-  const tileFile = (layerId, variantKey, ink, z, x, y) =>
-    path.join(
+  /** "<layer>/<variant>/<ink>" → the hash of its map request (fixed per process). */
+  const hashes = new Map();
+  const tileFile = (layer, variant, ink, z, x, y) => {
+    const key = `${layer.id}/${variant.key}/${ink}`;
+    if (!hashes.has(key)) hashes.set(key, mapRequestHash(layer, variant, ink));
+    return path.join(
       dir,
       'tiles',
-      layerId,
-      variantKey,
+      layer.id,
+      variant.key,
       ink,
+      hashes.get(key),
       String(z),
       String(x),
       `${y}.png`,
     );
+  };
 
   return {
     /** The layer catalog, every map made or refreshed as needed. */
@@ -557,6 +528,12 @@ export function createEarthEngineService({
               ? { maxHeightM: variant.maxHeightM }
               : {}),
             ready: held.every((map) => Boolean(map.name)),
+            // Per ink, the hash its tiles are kept under: the client puts it
+            // in the tile URL, so the browser's day-long cache cannot serve a
+            // changed expression's old tiles either.
+            versions: Object.fromEntries(
+              inks.map((ink) => [ink, mapRequestHash(layer, variant, ink)]),
+            ),
             ...(expiries.length
               ? { expiresAt: new Date(Math.min(...expiries)).toISOString() }
               : {}),
@@ -601,7 +578,7 @@ export function createEarthEngineService({
       const limit = 2 ** z;
       if (z > (layer.maxZoom ?? 12) || x >= limit || y >= limit)
         return { status: 400, error: 'Tile out of range' };
-      const file = tileFile(layerId, variantKey, ink, z, x, y);
+      const file = tileFile(layer, variant, ink, z, x, y);
       try {
         const stat = fs.statSync(file);
         if (now() - stat.mtimeMs < TILE_TTL_MS)

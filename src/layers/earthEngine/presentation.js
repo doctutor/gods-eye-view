@@ -51,7 +51,7 @@ export const LEVEL_CHIPS = Object.freeze([
   Object.freeze({
     key: 'level0',
     label: msg('COUNTRIES'),
-    title: msg('Country boundaries everywhere (GAUL 2015 level 0)'),
+    title: msg('Country boundaries everywhere (LSIB 2017)'),
   }),
   Object.freeze({
     key: 'level1',
