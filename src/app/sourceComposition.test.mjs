@@ -39,8 +39,9 @@ test('all acquisition sources may be absent, and enable fails before initializin
   const actual = catalog({}, t);
   // Personal fork: upstream's 32 plus the two Baltimore camera layers, the
   // Recorded Video layer, the five Earth Engine overlays
-  // (src/data/earthEngineLayers.js) and the Grid.
-  assert.equal(actual.layers.length, 41);
+  // (src/data/earthEngineLayers.js), the Grid and the Wikipedia coverage
+  // layer.
+  assert.equal(actual.layers.length, 42);
   const manager = new LayerLifecycle(
     {},
     { getSourceAvailability: actual.getSourceAvailability },

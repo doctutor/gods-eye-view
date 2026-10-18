@@ -106,6 +106,8 @@ const PANEL_GROUPS = [
       'ee-terrain-hillshade',
       'ee-forest-loss',
       'ee-admin-boundaries',
+      // Personal fork: Wikipedia coverage (src/layers/wikipediaCoverage/).
+      'wikipedia-coverage',
     ],
   },
 ];

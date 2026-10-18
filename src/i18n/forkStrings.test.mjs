@@ -22,6 +22,7 @@ const FORK_FILES = [
   'src/layers/recordedVideo/',
   'src/layers/earthEngine/',
   'src/layers/grid/',
+  'src/layers/wikipediaCoverage/',
   'src/layers/streetLevel/providers/googleIndoor/',
 ];
 
@@ -54,6 +55,7 @@ const FORK_LAYER_NAMES = [
   'Hillshade',
   'Forest loss',
   'Administrative boundaries',
+  'Wikipedia coverage',
   'Analysis',
   'Grid',
   'Reference',

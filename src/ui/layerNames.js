@@ -52,6 +52,7 @@ export const LAYER_NAME_KEYS = Object.freeze({
   'ee-forest-loss': msg('Forest loss'),
   'ee-admin-boundaries': msg('Administrative boundaries'),
   grid: msg('Grid'),
+  'wikipedia-coverage': msg('Wikipedia coverage'),
 });
 
 /** The layer panel's own English names, where they differ from the module's. */

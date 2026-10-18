@@ -27,6 +27,8 @@ import { streetViewIndoorProxy } from './streetview.js';
 import { recordedVideoProxy } from './recordedVideo.js';
 // Personal fork: the Earth Engine overlay layers.
 import { earthEngineProxy } from './earthEngine.js';
+// Personal fork: the Wikipedia coverage layer.
+import { wikipediaCoverageProxy } from './wikipediaCoverage.js';
 import { keySetupEndpoint } from '../standalone/key-setup.js';
 import { weatherProxy } from './weather.js';
 import { firePerimetersProxy } from './firePerimeters.js';
@@ -69,6 +71,7 @@ function localProviderPlugins({ realtime } = {}) {
     streetViewIndoorProxy(),
     recordedVideoProxy({ sourceRoot: defaultSourceRoot }),
     earthEngineProxy({ sourceRoot: defaultSourceRoot }),
+    wikipediaCoverageProxy({ sourceRoot: defaultSourceRoot }),
     firePerimetersProxy(),
     gnssIntegrityProxy(),
     keySetupEndpoint(),

@@ -3117,5 +3117,22 @@
   "Grid zones, 6° by 8°": "Zonas de cuadrícula de 6° por 8°",
   "{km} km": "{km} km",
   "Centre {reference}": "Centro {reference}",
-  "MGRS stops at 80°S and 84°N: the polar UPS grid is not drawn": "MGRS termina en 80°S y 84°N: no se dibuja la cuadrícula polar UPS"
+  "MGRS stops at 80°S and 84°N: the polar UPS grid is not drawn": "MGRS termina en 80°S y 84°N: no se dibuja la cuadrícula polar UPS",
+  "Articles per km²": "Artículos por km²",
+  "Primary geotagged English Wikipedia articles per square kilometre": "Artículos de la Wikipedia en inglés con coordenadas principales por kilómetro cuadrado",
+  "Text per km²": "Texto por km²",
+  "Bytes of article wikitext per square kilometre: article size, not words": "Bytes de wikitexto de los artículos por kilómetro cuadrado: tamaño del artículo, no palabras",
+  "Articles (count)": "Artículos (recuento)",
+  "Articles under each pixel, not divided by area, so it changes with the zoom": "Artículos bajo cada píxel, sin dividir por el área, así que cambia con el zoom",
+  "Wikipedia coverage unavailable: {reason}": "Cobertura de Wikipedia no disponible: {reason}",
+  "Asking the server…": "Consultando el servidor…",
+  "Run npm run wikipedia:build to build the Wikipedia coverage grid": "Ejecuta npm run wikipedia:build para construir la cuadrícula de cobertura de Wikipedia",
+  "Article sizes are not built: run npm run wikipedia:build -- --text": "Los tamaños de los artículos no están construidos: ejecuta npm run wikipedia:build -- --text",
+  "Dump of {date}": "Volcado del {date}",
+  "{count} geotagged articles": {
+    "one": "{count} artículo georreferenciado",
+    "many": "{count} de artículos georreferenciados",
+    "other": "{count} artículos georreferenciados"
+  },
+  "Wikipedia coverage": "Cobertura de Wikipedia"
 }
