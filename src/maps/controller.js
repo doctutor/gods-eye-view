@@ -115,6 +115,15 @@ export class MapSourceController {
   getActiveStack() {
     return this.getStack(this._activeId);
   }
+  /**
+   * Personal fork: whether the active basemap reads dark or light
+   * (`luminance` on every MAP_STACKS record; src/maps/ink.js), so overlays
+   * can pick an ink that shows on it. 'dark' until a stack is active.
+   * @returns {'dark' | 'light'}
+   */
+  getActiveLuminance() {
+    return this.getActiveStack()?.luminance === 'light' ? 'light' : 'dark';
+  }
   getSwitchGeneration() {
     return this._switchGen;
   }

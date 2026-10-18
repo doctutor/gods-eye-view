@@ -1,9 +1,11 @@
 import { msg, t, tn, translateKnown } from '../../i18n/index.js';
 import { NO_IMAGERY_HOST } from '../../maps/imageryHost.js';
+import { inkColor } from '../../data/earthEngineLayers.js';
 
 /**
  * Personal fork: what an Earth Engine overlay's row in the DATA LAYERS panel
- * says: its legend, an opacity slider, and a status line (the server's
+ * says: its legend (in the ink it is drawn with), an opacity slider, for a
+ * features layer the level and ink chips, and a status line (the server's
  * instructions when no key is set, Earth Engine's own error text when a map
  * could not be made, the day's tiles otherwise).
  */
@@ -32,9 +34,60 @@ function compassLetter(label) {
 }
 
 const VARIANT_LABELS = Object.freeze({
+  level0: msg('Countries'),
   level1: msg('First-level units'),
   level2: msg('Second-level units'),
 });
+
+/** The level chips: AUTO (the height rule), then each variant. */
+export const LEVEL_CHIPS = Object.freeze([
+  Object.freeze({
+    key: 'auto',
+    label: msg('AUTO'),
+    title: msg(
+      'The level follows the camera: states and provinces from far out, districts below 800 km',
+    ),
+  }),
+  Object.freeze({
+    key: 'level0',
+    label: msg('COUNTRIES'),
+    title: msg('Country boundaries everywhere (GAUL 2015 level 0)'),
+  }),
+  Object.freeze({
+    key: 'level1',
+    label: msg('REGIONS'),
+    title: msg('States and provinces everywhere'),
+  }),
+  Object.freeze({
+    key: 'level2',
+    label: msg('DISTRICTS'),
+    title: msg('Districts everywhere; from far out the tiles arrive slowly'),
+  }),
+]);
+
+/** The ink chips: AUTO follows the basemap. */
+export const INK_CHIPS = Object.freeze([
+  Object.freeze({
+    key: 'auto',
+    label: msg('AUTO INK'),
+    title: msg(
+      'The ink follows the basemap: light lines on dark maps, dark lines on light maps',
+    ),
+  }),
+  Object.freeze({
+    key: 'light',
+    label: msg('LIGHT INK'),
+    title: msg('Light ink: white lines'),
+  }),
+  Object.freeze({
+    key: 'dark',
+    label: msg('DARK INK'),
+    title: msg('Dark ink: near-black lines'),
+  }),
+]);
+
+/** Above this, forced districts are a far view: the row says the tiles are slow. */
+export const SLOW_DISTRICTS_ABOVE_M = 800_000;
 
 /** A legend label in the page language (numbers and years pass as they are). */
 export function legendLabel(label) {
@@ -43,12 +96,18 @@ export function legendLabel(label) {
   return compassLetter(label) ?? translateKnown(String(label));
 }
 
+/** `#rrggbb` of an ink's line colour (RRGGBB[AA] in the record). */
+export function inkSwatch(record, ink) {
+  return `#${inkColor(record, ink).slice(0, 6)}`;
+}
+
 /**
  * The status line.
  * @param {{catalog?: object|null, layer?: object|null, variant?: string,
  *   loading?: boolean, failure?: string|null, hostless?: boolean,
- *   ceilingM?: number|null}} state - `hostless`: the map stack can drape no
- *   imagery; `ceilingM`: the camera is above the layer's ceiling.
+ *   ceilingM?: number|null, slowDistricts?: boolean}} state - `hostless`:
+ *   the map stack can drape no imagery; `ceilingM`: the camera is above the
+ *   layer's ceiling; `slowDistricts`: districts are forced from far out.
  */
 export function statusText({
   catalog = null,
@@ -58,6 +117,7 @@ export function statusText({
   failure = null,
   hostless = false,
   ceilingM = null,
+  slowDistricts = false,
 }) {
   if (failure)
     return t('Earth Engine unavailable: {reason}', { reason: failure });
@@ -79,6 +139,8 @@ export function statusText({
       }),
     );
   else if (VARIANT_LABELS[variant]) parts.push(t(VARIANT_LABELS[variant]));
+  if (slowDistricts)
+    parts.push(t('Districts from this height: the tiles arrive slowly'));
   if (Number.isFinite(layer?.tilesToday))
     parts.push(
       tn(
@@ -101,7 +163,11 @@ export function statusText({
  * The row's controls for the layer panel (src/ui/layerPanel.js).
  * @param {{record: object, catalog?: object|null, variant?: string,
  *   opacity: number, onOpacity: (value: number) => void, loading?: boolean,
- *   failure?: string|null, hostless?: boolean, ceilingM?: number|null}} input
+ *   failure?: string|null, hostless?: boolean, ceilingM?: number|null,
+ *   level?: string, onLevel?: (key: string) => void, ink?: string,
+ *   onInk?: (key: string) => void, inkDrawn?: string,
+ *   slowDistricts?: boolean}} input - `level` and `ink` are the settings
+ *   ('auto' or a key); `inkDrawn` the ink in use.
  */
 export function rowControls({
   record,
@@ -113,12 +179,47 @@ export function rowControls({
   failure = null,
   hostless = false,
   ceilingM = null,
+  level = 'auto',
+  onLevel = () => {},
+  ink = 'auto',
+  onInk = () => {},
+  inkDrawn = 'default',
+  slowDistricts = false,
 }) {
   const layer = catalog?.layers?.get?.(record.id) || null;
+  const variantKeys = new Set((record.variants || []).map((v) => v.key));
+  const chips = [];
+  if (variantKeys.size)
+    for (const chip of LEVEL_CHIPS) {
+      if (chip.key !== 'auto' && !variantKeys.has(chip.key)) continue;
+      chips.push({
+        id: `level-${chip.key}`,
+        label: t(chip.label),
+        title: t(chip.title),
+        active: level === chip.key,
+        onClick: () => onLevel(chip.key),
+      });
+    }
+  if (record.inks)
+    for (const chip of INK_CHIPS)
+      chips.push({
+        id: `ink-${chip.key}`,
+        label: t(chip.label),
+        title: t(chip.title),
+        active: ink === chip.key,
+        onClick: () => onInk(chip.key),
+      });
+  const legend = layer?.legend?.length ? layer.legend : record.legend || [];
   return {
-    legend: (layer?.legend?.length ? layer.legend : record.legend || []).map(
-      (entry) => ({ label: legendLabel(entry.label), color: entry.color }),
-    ),
+    chips,
+    legend: legend.map((entry) => ({
+      label: legendLabel(entry.label),
+      // A features layer's swatch is the ink it is drawn in.
+      color:
+        record.inks && inkDrawn !== 'default'
+          ? inkSwatch(record, inkDrawn)
+          : entry.color,
+    })),
     slider: {
       label: t('Opacity {value}%', { value: Math.round(opacity * 100) }),
       min: 0,
@@ -135,6 +236,7 @@ export function rowControls({
       failure,
       hostless,
       ceilingM,
+      slowDistricts,
     }),
     infoTitle: layer?.attribution || '',
   };

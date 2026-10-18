@@ -9,7 +9,8 @@
 //   style   'simple' (one fill, dark outlines), 'subdivisions' (admin-1
 //           outlines below a camera height), 'hex' (a hex tessellation of
 //           land at a resolution chosen by altitude)
-//   theme   'dark' | 'light' (src/maps/countries/palette.js)
+//   theme   'dark' | 'light' (src/maps/countries/palette.js); also the
+//           descriptor's luminance
 
 import { msg } from '../../i18n/marker.js';
 
@@ -81,5 +82,7 @@ export function countriesBasemapDescriptor(record) {
     requiresIon: false,
     group: record.group,
     note: record.note,
+    // Overlays pick their ink from this (src/maps/ink.js): the theme says it.
+    luminance: record.theme,
   };
 }

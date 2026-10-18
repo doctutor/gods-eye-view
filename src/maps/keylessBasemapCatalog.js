@@ -12,6 +12,8 @@
 //   note        a short remark the picker shows when the style is active
 //   tiles       how to draw it (see the `type` values below)
 //   credit      attribution the provider carries, and the static credit line
+//   luminance   'dark' | 'light': how the style reads, so overlays pick an ink
+//               that shows on it (src/maps/ink.js)
 //
 // `tiles.type`:
 //   'blank'    no imagery; the bare globe painted `baseColor` (r, g, b, 0..1)
@@ -61,6 +63,7 @@ export const GIBS_MAX_LEVEL = 8;
 export const KEYLESS_BASEMAPS = Object.freeze([
   Object.freeze({
     id: 'blank-black',
+    luminance: 'dark',
     label: 'Blank (black)', // i18n-ignore: style name
     shortLabel: 'BLACK',
     group: 'blank',
@@ -70,6 +73,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'blank-white',
+    luminance: 'light',
     label: 'Blank (white)', // i18n-ignore: style name
     shortLabel: 'WHITE',
     group: 'blank',
@@ -79,6 +83,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'natural-earth-ii',
+    luminance: 'light',
     label: 'Natural Earth II', // i18n-ignore: product name
     shortLabel: 'NE II',
     group: 'light',
@@ -92,6 +97,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'carto-positron',
+    luminance: 'light',
     label: 'CARTO Positron', // i18n-ignore: product name
     shortLabel: 'LIGHT',
     group: 'light',
@@ -107,6 +113,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'carto-positron-nolabels',
+    luminance: 'light',
     label: 'CARTO Positron (no labels)', // i18n-ignore: product name
     shortLabel: 'LIGHT −',
     group: 'light',
@@ -122,6 +129,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'carto-dark-matter',
+    luminance: 'dark',
     label: 'CARTO Dark Matter', // i18n-ignore: product name
     shortLabel: 'DARK',
     group: 'dark',
@@ -137,6 +145,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'carto-dark-matter-nolabels',
+    luminance: 'dark',
     label: 'CARTO Dark Matter (no labels)', // i18n-ignore: product name
     shortLabel: 'DARK −',
     group: 'dark',
@@ -152,6 +161,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'opentopomap',
+    luminance: 'light',
     label: 'OpenTopoMap', // i18n-ignore: product name
     shortLabel: 'TOPO',
     group: 'terrain',
@@ -167,6 +177,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'nasa-black-marble',
+    luminance: 'dark',
     label: 'NASA Black Marble', // i18n-ignore: product name
     shortLabel: 'NIGHT',
     group: 'nasa',
@@ -181,6 +192,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'nasa-blue-marble',
+    luminance: 'dark',
     label: 'NASA Blue Marble', // i18n-ignore: product name
     shortLabel: 'BLUE',
     group: 'nasa',
@@ -195,6 +207,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'stamen-toner',
+    luminance: 'dark',
     label: 'Stamen Toner', // i18n-ignore: product name
     shortLabel: 'TONER',
     group: 'stamen',
@@ -210,6 +223,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'stamen-toner-lite',
+    luminance: 'light',
     label: 'Stamen Toner Lite', // i18n-ignore: product name
     shortLabel: 'TONER L',
     group: 'stamen',
@@ -225,6 +239,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'stamen-terrain',
+    luminance: 'light',
     label: 'Stamen Terrain', // i18n-ignore: product name
     shortLabel: 'TERRAIN',
     group: 'stamen',
@@ -240,6 +255,7 @@ export const KEYLESS_BASEMAPS = Object.freeze([
   }),
   Object.freeze({
     id: 'stamen-watercolor',
+    luminance: 'light',
     label: 'Stamen Watercolor', // i18n-ignore: product name
     shortLabel: 'WATER',
     group: 'stamen',
@@ -277,5 +293,6 @@ export function keylessBasemapDescriptor(record) {
     requiresIon: false,
     group: record.group,
     note: record.note,
+    luminance: record.luminance,
   };
 }

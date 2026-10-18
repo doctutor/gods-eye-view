@@ -501,13 +501,14 @@ Code: `src/layers/baltimoreCameras/`.
 The **ANALYSIS** group in the DATA LAYERS panel draws Google Earth Engine
 images over the globe. Each overlay is its own toggle. Its row has a legend,
 an opacity slider (kept per layer in this browser as
-`gev.earthEngine.opacity.<id>`), and a status line.
+`gev.earthEngine.opacity.<id>`), and a status line. The boundaries row also
+has level and ink chips (below).
 
 | Layer                                     | Dataset (Earth Engine id)                                                                        | Licence                                 |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------- |
 | Terrain slope, Terrain aspect, Hillshade  | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`)                              | Copernicus DEM licence; notice required |
 | Forest loss (2001–2025, coloured by year) | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear` | CC BY 4.0                               |
-| Administrative boundaries                 | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km                        | CC BY 4.0                               |
+| Administrative boundaries                 | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from `FAO/GAUL/2015/level0` | CC BY 4.0 (2015: noncommercial)         |
 
 The ids were taken from Earth Engine's catalog records on 2026-10-17. The
 older ids, `COPERNICUS/DEM/GLO30` and `FAO/GAUL/2015/*`, are deprecated, and
@@ -619,6 +620,37 @@ that used the most:
 [EarthEngine] 50% of today's tile budget used (10000 of 20000; ee-terrain-slope 6200, …)
 ```
 
+**Levels and ink** (the boundaries row). Two rows of chips:
+
+- **AUTO / COUNTRIES / REGIONS / DISTRICTS** choose the GAUL level. AUTO
+  is the height rule (states and provinces above 800 km, districts
+  below); the others force one level everywhere, kept as
+  `gev.earthEngine.level.<id>`. DISTRICTS from far out works but the row
+  says the tiles arrive slowly: Earth Engine rasterises the whole level-2
+  table into each coarse tile. **GAUL 2025 has no level0**: the API's
+  `FAO/GAUL/2025` folder lists `level1` and `level2` only (checked
+  2026-10-18 with one authenticated request), so COUNTRIES draws
+  `FAO/GAUL/2015/level0`, which exists but is deprecated and
+  noncommercial-only (the project's registration). `USDOS/LSIB_SIMPLE/2017`
+  (public domain) is the alternative if the 2015 table goes; it is one
+  variant record away.
+- **AUTO INK / LIGHT INK / DARK INK** choose the line colour. Earth Engine
+  bakes the colour into the tiles, so white lines vanished on the white
+  globe, Positron, the light Stamen styles and the light Countries maps.
+  Each features layer now names its `inks` (`ffffffcc` light, `1a1a1acc`
+  dark, the same width), the server makes **one map per (layer, variant,
+  ink)** and keys its disk cache by the ink
+  (`.gev-cache/earth-engine/tiles/<layer>/<variant>/<ink>/z/x/y.png`), and
+  the tile route is `/tile/<layer>/<variant>/<ink>/<z>/<x>/<y>` (`default`
+  for the image layers). `/layers` advertises each layer's `inks`. On AUTO
+  the client draws the ink the basemap wants: every map stack record now
+  carries `luminance: 'dark' | 'light'` (`src/maps/catalog.js`,
+  `keylessBasemapCatalog.js`, the Countries themes), the map stack
+  controller exposes `getActiveLuminance()`, and `src/maps/ink.js` turns
+  it into an ink (light on dark, dark on light); every settled map switch
+  re-picks it, and the legend swatch follows. LIGHT and DARK force one,
+  kept as `gev.earthEngine.ink.<id>`.
+
 **Adding a layer** is a record in `src/data/earthEngineLayers.js`; the file's
 header lists the fields. Then:
 
@@ -632,7 +664,8 @@ header lists the fields. Then:
 
 An image layer names an asset (a collection is mosaicked) and its band, and
 optionally a terrain operation, `selfMask` and `vis` (min, max, palette). A
-features layer names a table and a `style`, with variants by camera height.
+features layer names a table, a `style`, its `inks`, and variants: those
+marked `auto` are chosen by camera height, the rest only by a chip.
 
 Every layer has a `maxZoom`, and may have a `maxHeightM`: the camera height
 above which it asks for nothing. Set one for anything that says nothing from
@@ -686,6 +719,13 @@ lines cross the view: 30°, 10°, 5°, 2°, 1°, 30', 10', 5', 1'.
   `gev.grid.opacity`);
 - the spacing drawn (in MGRS, with the view centre's reference, such as
   `18S UJ 23 06`);
+- an ink switch, kept as `gev.grid.ink`: **AUTO INK** follows the
+  basemap's luminance through the map stack controller (the HUD's cyan and
+  amber on imagery and dark styles; a dark blue-grey `#2f4f6f` and a brown
+  `#8a5a00` on the white globe, Positron, the light Stamen and Countries
+  styles), the labels in the same ink; **LIGHT INK** and **DARK INK**
+  force one. Each settled map switch redraws the lines when the ink
+  changes;
 - a mode switch, kept as `gev.grid.mode`:
   - **LAT/LON**, the graticule.
   - **TISSOT**, Tissot's indicatrix. At each graticule crossing near the

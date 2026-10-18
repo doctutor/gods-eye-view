@@ -16,6 +16,7 @@ export const MAP_STACKS = [
     shortLabel: '3D',
     kind: 'photoreal',
     requiresIon: false,
+    luminance: 'dark', // Personal fork: overlays pick their ink from this (src/maps/ink.js)
   },
   {
     id: 'bing-aerial',
@@ -24,6 +25,7 @@ export const MAP_STACKS = [
     kind: 'ion',
     style: Cesium.IonWorldImageryStyle.AERIAL,
     requiresIon: true,
+    luminance: 'dark',
   },
   {
     id: 'bing-labels',
@@ -32,6 +34,7 @@ export const MAP_STACKS = [
     kind: 'ion',
     style: Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS,
     requiresIon: true,
+    luminance: 'dark',
   },
   {
     id: 'esri-imagery',
@@ -39,6 +42,7 @@ export const MAP_STACKS = [
     shortLabel: 'SAT',
     kind: 'esri-imagery',
     requiresIon: false,
+    luminance: 'dark',
   },
   {
     id: 'osm',
@@ -46,6 +50,7 @@ export const MAP_STACKS = [
     shortLabel: 'OSM',
     kind: 'osm',
     requiresIon: false,
+    luminance: 'light',
   },
   // Personal fork: the keyless styles, then the Countries basemap styles.
   ...KEYLESS_BASEMAPS.map(keylessBasemapDescriptor),

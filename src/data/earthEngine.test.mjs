@@ -21,6 +21,8 @@ import {
 } from '../../server/providers/earthEngine.js';
 import {
   EARTH_ENGINE_LAYERS,
+  inkColor,
+  layerInks,
   layerVariants,
   variantForHeight,
 } from './earthEngineLayers.js';
@@ -44,18 +46,24 @@ test('every map request is exactly the committed fixture', async () => {
   const built = {};
   for (const layer of EARTH_ENGINE_LAYERS)
     for (const variant of layerVariants(layer))
-      built[`${layer.id}/${variant.key}`] = mapRequestFor(layer, variant);
+      for (const ink of layerInks(layer))
+        built[`${layer.id}/${variant.key}/${ink}`] = mapRequestFor(
+          layer,
+          variant,
+          ink,
+        );
   // A changed layer changes what is sent: regenerate the fixture with it.
   assert.deepEqual(built, requests);
-  const slope = requests['ee-terrain-slope/default'];
+  const slope = requests['ee-terrain-slope/default/default'];
   assert.equal(slope.fileFormat, 'PNG');
   assert.equal(slope.expression.result, '0');
   const root = slope.expression.values['0'].functionInvocationValue;
   assert.equal(root.functionName, 'Terrain.slope');
   assert.deepEqual(slope.visualizationOptions.ranges, [{ min: 0, max: 45 }]);
-  const loss = requests['ee-forest-loss/default'].expression.values['0'];
+  const loss =
+    requests['ee-forest-loss/default/default'].expression.values['0'];
   assert.equal(loss.functionInvocationValue.functionName, 'Image.selfMask');
-  const level2 = requests['ee-admin-boundaries/level2'];
+  const level2 = requests['ee-admin-boundaries/level2/light'];
   assert.equal(
     level2.expression.values['0'].functionInvocationValue.functionName,
     'Collection.style',
@@ -66,6 +74,21 @@ test('every map request is exactly the committed fixture', async () => {
     'styled features are RGB',
   );
   assert.match(JSON.stringify(level2), /FAO\/GAUL\/2025\/level2/);
+  // One map per ink: the dark one differs only in its line colour.
+  const dark = requests['ee-admin-boundaries/level2/dark'];
+  const colorOf = (request) =>
+    request.expression.values['0'].functionInvocationValue.arguments.color
+      .constantValue;
+  assert.equal(colorOf(level2), 'ffffffcc');
+  assert.equal(colorOf(dark), '1a1a1acc');
+  assert.equal(inkColor(byId('ee-admin-boundaries'), 'dark'), '1a1a1acc');
+  assert.deepEqual(layerInks(byId('ee-admin-boundaries')), ['light', 'dark']);
+  assert.deepEqual(layerInks(byId('ee-forest-loss')), ['default']);
+  assert.match(
+    JSON.stringify(requests['ee-admin-boundaries/level0/light']),
+    /FAO\/GAUL\/2015\/level0/,
+    'GAUL 2025 has no level0',
+  );
 });
 
 test('the boundaries change level with the camera’s height', () => {
@@ -74,6 +97,10 @@ test('the boundaries change level with the camera’s height', () => {
   assert.equal(variantForHeight(layer, 800_000).key, 'level1');
   assert.equal(variantForHeight(layer, 799_999).key, 'level2');
   assert.equal(variantForHeight(layer, 2_000).key, 'level2');
+  // Countries are never chosen by height: only the COUNTRIES chip draws them.
+  assert.ok(layerVariants(layer).some((v) => v.key === 'level0'));
+  for (const height of [0, 800_000, 20_000_000])
+    assert.notEqual(variantForHeight(layer, height).key, 'level0');
   assert.equal(variantForHeight(byId('ee-forest-loss'), 10).key, 'default');
 });
 
@@ -260,13 +287,13 @@ function fakeBackend({ fail = () => false } = {}) {
     made,
     tiles,
     expire: (name) => gone.add(name),
-    async createMap(layer, variant) {
-      made.push(`${layer.id}/${variant.key}`);
+    async createMap(layer, variant, ink) {
+      made.push(`${layer.id}/${variant.key}/${ink}`);
       await new Promise((resolve) => setTimeout(resolve, 1));
       if (fail(layer, variant))
         throw new Error('Earth Engine 400: bad expression');
       return {
-        name: `projects/p/maps/${layer.id}-${variant.key}-${made.length}`,
+        name: `projects/p/maps/${layer.id}-${variant.key}-${ink}-${made.length}`,
       };
     },
     async fetchTile(name, z, x, y) {
@@ -295,31 +322,48 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
     now: () => clock,
   });
   const [first] = await Promise.all([service.layers(), service.layers()]);
-  assert.equal(backend.made.length, 6, 'one map per variant, one request each');
+  assert.equal(
+    backend.made.length,
+    10,
+    'one map per variant and ink, one request each',
+  );
+  assert.ok(backend.made.includes('ee-admin-boundaries/level0/dark'));
+  assert.ok(backend.made.includes('ee-terrain-slope/default/default'));
   assert.equal(first.configured, true);
   const slope = first.layers.find((layer) => layer.id === 'ee-terrain-slope');
   assert.equal(
     slope.tileUrl,
-    '/api/earth-engine/tile/ee-terrain-slope/{variant}/{z}/{x}/{y}',
+    '/api/earth-engine/tile/ee-terrain-slope/{variant}/{ink}/{z}/{x}/{y}',
   );
   assert.equal(slope.variants[0].ready, true);
+  assert.deepEqual(slope.inks, ['default']);
   assert.match(slope.attribution, /^Google Earth Engine · Copernicus DEM/);
   assert.equal(slope.error, null);
   assert.deepEqual(
     first.layers
       .find((layer) => layer.id === 'ee-admin-boundaries')
-      .variants.map((v) => [v.key, v.minHeightM ?? null, v.maxHeightM ?? null]),
+      .variants.map((v) => [
+        v.key,
+        v.auto ?? false,
+        v.minHeightM ?? null,
+        v.maxHeightM ?? null,
+      ]),
     [
-      ['level1', 800_000, null],
-      ['level2', null, 800_000],
+      ['level0', false, null, null],
+      ['level1', true, 800_000, null],
+      ['level2', true, null, 800_000],
     ],
   );
+  assert.deepEqual(
+    first.layers.find((layer) => layer.id === 'ee-admin-boundaries').inks,
+    ['light', 'dark'],
+  );
   await service.layers();
-  assert.equal(backend.made.length, 6, 'kept');
+  assert.equal(backend.made.length, 10, 'kept');
   clock += MAP_TTL_MS + 1;
   failing = true;
   const stale = await service.layers();
-  assert.equal(backend.made.length, 12, 'asked again');
+  assert.equal(backend.made.length, 20, 'asked again');
   const staleSlope = stale.layers.find(
     (layer) => layer.id === 'ee-terrain-slope',
   );
@@ -342,49 +386,81 @@ test('tiles come from disk first, within the day’s budget, and an expired map 
     backend,
     now: () => clock,
   });
-  const one = await service.tile('ee-forest-loss', 'default', 3, 2, 1);
+  const one = await service.tile(
+    'ee-forest-loss',
+    'default',
+    'default',
+    3,
+    2,
+    1,
+  );
   assert.equal(one.status, 200);
   assert.equal(one.body.toString(), '3/2/1');
-  const again = await service.tile('ee-forest-loss', 'default', 3, 2, 1);
+  const again = await service.tile(
+    'ee-forest-loss',
+    'default',
+    'default',
+    3,
+    2,
+    1,
+  );
   assert.equal(again.cached, true);
   assert.equal(backend.tiles.length, 1, 'the disk answered');
   assert.equal(
-    (await service.tile('ee-nothing', 'default', 1, 0, 0)).status,
+    (await service.tile('ee-nothing', 'default', 'default', 1, 0, 0)).status,
     404,
   );
   assert.equal(
-    (await service.tile('ee-forest-loss', 'level9', 1, 0, 0)).status,
+    (await service.tile('ee-forest-loss', 'level9', 'default', 1, 0, 0)).status,
     404,
   );
   assert.equal(
-    (await service.tile('ee-forest-loss', 'default', 2, 4, 0)).status,
+    (await service.tile('ee-forest-loss', 'default', 'default', 2, 4, 0))
+      .status,
     400,
   );
   assert.equal(
-    (await service.tile('ee-forest-loss', 'default', 13, 0, 0)).status,
+    (await service.tile('ee-forest-loss', 'default', 'default', 13, 0, 0))
+      .status,
     400,
     'past its max zoom',
   );
   // An expired map: a 404, a new map, the tile again.
   backend.expire(backend.tiles[0].split('/3/')[0]);
-  const renewed = await service.tile('ee-forest-loss', 'default', 4, 1, 1);
+  const renewed = await service.tile(
+    'ee-forest-loss',
+    'default',
+    'default',
+    4,
+    1,
+    1,
+  );
   assert.equal(renewed.status, 200);
   assert.equal(
-    backend.made.filter((m) => m === 'ee-forest-loss/default').length,
+    backend.made.filter((m) => m === 'ee-forest-loss/default/default').length,
     2,
   );
   // Three upstream tiles today (one, and the retried one twice): the budget is spent.
-  const over = await service.tile('ee-forest-loss', 'default', 5, 1, 1);
+  const over = await service.tile(
+    'ee-forest-loss',
+    'default',
+    'default',
+    5,
+    1,
+    1,
+  );
   assert.equal(over.status, 429);
   assert.match(over.error, /3 Earth Engine tiles/);
   assert.equal(
-    (await service.tile('ee-forest-loss', 'default', 3, 2, 1)).status,
+    (await service.tile('ee-forest-loss', 'default', 'default', 3, 2, 1))
+      .status,
     200,
     'the disk still serves',
   );
   clock += 24 * 60 * 60 * 1000;
   assert.equal(
-    (await service.tile('ee-forest-loss', 'default', 5, 1, 1)).status,
+    (await service.tile('ee-forest-loss', 'default', 'default', 5, 1, 1))
+      .status,
     200,
     'a new day',
   );
@@ -407,7 +483,8 @@ test('without a key the catalog says what to set, and no tile is asked for', asy
     catalog.layers.every((layer) => /EARTH_ENGINE_KEY_FILE/.test(layer.error)),
   );
   assert.equal(
-    (await service.tile('ee-forest-loss', 'default', 1, 0, 0)).status,
+    (await service.tile('ee-forest-loss', 'default', 'default', 1, 0, 0))
+      .status,
     503,
   );
 });
@@ -415,12 +492,12 @@ test('without a key the catalog says what to set, and no tile is asked for', asy
 test('the routes are same-site only and GET only', async (t) => {
   const service = {
     layers: async () => ({ configured: false, layers: [] }),
-    tile: async (layer, variant, z, x, y) =>
+    tile: async (layer, variant, ink, z, x, y) =>
       layer === 'ee-forest-loss'
         ? {
             status: 200,
             contentType: 'image/png',
-            body: Buffer.from(`${variant}:${z}/${x}/${y}`),
+            body: Buffer.from(`${variant}/${ink}:${z}/${x}/${y}`),
           }
         : { status: 404, error: 'No such layer' },
   };
@@ -458,13 +535,29 @@ test('the routes are same-site only and GET only', async (t) => {
     configured: false,
     layers: [],
   });
-  const tile = await call('/tile/ee-forest-loss/default/3/2/1');
+  const tile = await call('/tile/ee-forest-loss/default/default/3/2/1');
   assert.equal(tile.statusCode, 200);
   assert.equal(tile.headers['content-type'], 'image/png');
-  assert.equal(tile.body, 'default:3/2/1');
-  assert.equal((await call('/tile/ee-other/default/3/2/1')).statusCode, 404);
+  assert.equal(tile.body, 'default/default:3/2/1');
+  assert.equal(
+    (await call('/tile/ee-forest-loss/level2/dark/3/2/1')).body,
+    'level2/dark:3/2/1',
+    'the ink is a path segment',
+  );
+  assert.equal(
+    (await call('/tile/ee-other/default/default/3/2/1')).statusCode,
+    404,
+  );
+  assert.equal(
+    (await call('/tile/ee-forest-loss/default/3/2/1')).nexted,
+    true,
+    'the old shape without an ink is not a tile route',
+  );
   assert.equal((await call('/tile/../../etc/3/2/1')).nexted, true);
-  assert.equal((await call('/tile/ee-forest-loss/default/x/2/1')).nexted, true);
+  assert.equal(
+    (await call('/tile/ee-forest-loss/default/default/x/2/1')).nexted,
+    true,
+  );
 });
 
 test('tiles are counted per layer for the day, and the budget warns once at 50% and 90%', async (t) => {
@@ -480,22 +573,22 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     now: () => clock,
   });
   for (let x = 0; x < 4; x++)
-    await service.tile('ee-terrain-slope', 'default', 4, x, 1);
+    await service.tile('ee-terrain-slope', 'default', 'default', 4, x, 1);
   // A disk hit is not counted.
-  await service.tile('ee-terrain-slope', 'default', 4, 0, 1);
-  await service.tile('ee-forest-loss', 'default', 4, 0, 1);
+  await service.tile('ee-terrain-slope', 'default', 'default', 4, 0, 1);
+  await service.tile('ee-forest-loss', 'default', 'default', 4, 0, 1);
   const budgetWarnings = () => warnings.filter((w) => /tile budget/.test(w));
   assert.deepEqual(budgetWarnings(), [
     "[EarthEngine] 50% of today's tile budget used (5 of 10; ee-terrain-slope 4, ee-forest-loss 1)",
   ]);
   for (let x = 1; x < 5; x++)
-    await service.tile('ee-forest-loss', 'default', 4, x, 1);
+    await service.tile('ee-forest-loss', 'default', 'default', 4, x, 1);
   assert.equal(budgetWarnings().length, 2);
   assert.match(
     budgetWarnings()[1],
     /^\[EarthEngine\] 90% of today's tile budget used \(9 of 10; ee-forest-loss 5, ee-terrain-slope 4\)$/,
   );
-  await service.tile('ee-forest-loss', 'default', 4, 5, 1);
+  await service.tile('ee-forest-loss', 'default', 'default', 4, 5, 1);
   assert.equal(budgetWarnings().length, 2, 'once each a day');
   const catalog = await service.layers();
   const today = Object.fromEntries(

@@ -24,9 +24,12 @@ import {
 } from './model.js';
 import {
   DEFAULT_OPACITY,
+  INK_COLORS,
+  INK_STORAGE_KEY,
   MODE_STORAGE_KEY,
   OPACITY_STORAGE_KEY,
   createGridLayer,
+  lineStyle,
   readGridMode,
   readGridOpacity,
 } from './index.js';
@@ -210,9 +213,14 @@ test('the row offers the graticule, Tissot and MGRS', () => {
       ['latlon', false, false],
       ['tissot', true, false],
       ['mgrs', false, false],
+      ['ink-auto', true, false],
+      ['ink-light', false, false],
+      ['ink-dark', false, false],
     ],
   );
   assert.equal(controls.chips[2].label, 'MGRS');
+  assert.equal(controls.chips[3].label, 'AUTO INK');
+  assert.equal(controls.chips[5].label, 'DARK INK');
   controls.chips[0].onClick();
   assert.equal(chosen, 'latlon');
   controls.chips[2].onClick();
@@ -521,4 +529,114 @@ test('the real layer lifecycle enables, refreshes and disables the grid cleanly 
     assert.equal(fake.scene.groundPrimitives.items.length, 0, mode);
     assert.equal(await layer.update(), false, 'disabled: nothing to do');
   }
+});
+
+/** A map stack controller with a luminance, as src/maps/controller.js exposes it. */
+function fakeLuminanceStack(luminance = 'dark') {
+  const listeners = new Set();
+  return {
+    listeners,
+    getActiveLuminance: () => luminance,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    settle(next) {
+      luminance = next;
+      for (const listener of [...listeners]) listener({ activeId: next });
+    },
+  };
+}
+
+test('the grid’s ink follows the basemap: cyan and amber on a dark map, blue-grey and brown on a light one', () => {
+  assert.deepEqual(INK_COLORS.light, { primary: '#00ffff', accent: '#ffd166' });
+  assert.deepEqual(INK_COLORS.dark, { primary: '#2f4f6f', accent: '#8a5a00' });
+  assert.equal(lineStyle('grid').color, '#00ffff', 'light ink by default');
+  assert.equal(lineStyle('grid', 'dark').color, '#2f4f6f');
+  assert.equal(lineStyle('equator', 'dark').color, '#8a5a00');
+  assert.equal(lineStyle('gzd', 'dark').color, '#8a5a00');
+  assert.equal(lineStyle('tropic', 'dark').dashed, true);
+  assert.equal(lineStyle('tissot', 'light').color, '#00ffff');
+  assert.equal(lineStyle('grid', 'nonsense').color, '#00ffff');
+
+  const fake = fakeViewer();
+  const storage = memoryStorage();
+  const overlayHost = fakeOverlayHost();
+  const stack = fakeLuminanceStack('light');
+  const layer = createGridLayer({ cesium, storage, overlayHost });
+  layer.init(fake.viewer);
+  layer.attachMapStackController(stack);
+  layer.enable(fake.viewer);
+  const rgb = (instance) => [...instance.attributes.color.value.slice(0, 3)];
+  const expected = (css) => {
+    const color = Cesium.Color.fromCssColorString(css);
+    return [color.red, color.green, color.blue].map((c) => Math.round(c * 255));
+  };
+  const faintLine = () =>
+    instancesOf(fake.scene.groundPrimitives.items[0]).find(
+      (instance) => instance.attributes.color.value[3] < 255 * 0.6,
+    );
+  // A light basemap: dark ink on the lines and the labels.
+  assert.equal(layer._state().ink, 'dark');
+  assert.deepEqual(rgb(faintLine()), expected('#2f4f6f'));
+  const labels = overlayHost.sources.get('grid');
+  assert.ok(
+    labels.every((entry) => ['#2f4f6f', '#8a5a00'].includes(entry.accent)),
+  );
+  assert.ok(labels.some((entry) => entry.accent === '#2f4f6f'));
+  // The basemap switches to imagery: rebuilt in light ink.
+  const before = fake.scene.groundPrimitives.items[0];
+  stack.settle('dark');
+  assert.equal(layer._state().ink, 'light');
+  assert.notEqual(fake.scene.groundPrimitives.items[0], before);
+  assert.deepEqual(rgb(faintLine()), expected('#00ffff'));
+  assert.ok(
+    overlayHost.sources
+      .get('grid')
+      .every((entry) => ['#00ffff', '#ffd166'].includes(entry.accent)),
+  );
+  // The same basemap again: nothing rebuilt.
+  const kept = fake.scene.groundPrimitives.items[0];
+  stack.settle('dark');
+  assert.equal(fake.scene.groundPrimitives.items[0], kept);
+  // Forced dark ink on a dark map, kept in the browser; AUTO again follows.
+  const chip = (id) => layer.getRowControls().chips.find((c) => c.id === id);
+  chip('ink-dark').onClick();
+  assert.equal(storage.map.get(INK_STORAGE_KEY), 'dark');
+  assert.equal(layer._state().ink, 'dark');
+  assert.equal(chip('ink-dark').active, true);
+  stack.settle('light');
+  assert.equal(layer._state().ink, 'dark');
+  chip('ink-light').onClick();
+  assert.equal(layer._state().ink, 'light', 'forced light on a light map');
+  chip('ink-auto').onClick();
+  assert.equal(storage.map.get(INK_STORAGE_KEY), 'auto');
+  assert.equal(layer._state().ink, 'dark', 'auto on a light map');
+  // Destroyed: no longer listening to the stack.
+  layer.destroy();
+  assert.equal(stack.listeners.size, 0);
+  // A stored ink is read back; without a stack, light ink.
+  const again = createGridLayer({
+    cesium,
+    storage: memoryStorage({ [INK_STORAGE_KEY]: 'dark' }),
+    overlayHost: fakeOverlayHost(),
+  });
+  again.init(fake.viewer);
+  again.enable(fake.viewer);
+  assert.equal(again._state().inkSetting, 'dark');
+  assert.equal(again._state().ink, 'dark');
+  again.destroy();
+  const bare = createGridLayer({
+    cesium,
+    storage: memoryStorage(),
+    overlayHost: fakeOverlayHost(),
+  });
+  bare.init(fake.viewer);
+  bare.enable(fake.viewer);
+  assert.equal(
+    bare._state().ink,
+    'light',
+    'no stack: a dark basemap is assumed',
+  );
+  bare.destroy();
 });

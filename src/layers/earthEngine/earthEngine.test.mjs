@@ -6,9 +6,12 @@ import * as Cesium from 'cesium';
 import { EARTH_ENGINE_LAYERS } from '../../data/earthEngineLayers.js';
 import {
   DEFAULT_OPACITY,
+  INK_STORAGE_PREFIX,
+  LEVEL_STORAGE_PREFIX,
   OPACITY_STORAGE_PREFIX,
   attributionCredit,
   createEarthEngineLayer,
+  readLevel,
   readOpacity,
   viewMoved,
   viewRectangleDegrees,
@@ -74,11 +77,13 @@ const serverLayer = (id, extra = {}) => ({
   id,
   name: record(id).name,
   kind: record(id).kind,
-  tileUrl: `/api/earth-engine/tile/${id}/{variant}/{z}/{x}/{y}`,
+  tileUrl: `/api/earth-engine/tile/${id}/{variant}/{ink}/{z}/{x}/{y}`,
+  inks: record(id).inks ? Object.keys(record(id).inks) : ['default'],
   maxZoom: record(id).maxZoom,
   variants: (record(id).variants || [{ key: 'default' }]).map((v) => ({
     key: v.key,
     ready: true,
+    ...(v.auto ? { auto: true } : {}),
     ...(v.minHeightM !== undefined ? { minHeightM: v.minHeightM } : {}),
     ...(v.maxHeightM !== undefined ? { maxHeightM: v.maxHeightM } : {}),
   })),
@@ -122,13 +127,22 @@ test('the catalog is checked on the way in, shared, and kept a few minutes', asy
       attribution: '',
       maxZoom: 18,
       variants: [{ key: 'default', ready: true }],
+      inks: ['default'],
       legend: [{ label: '2001', color: '#ffff00' }],
       error: null,
     },
   );
+  assert.deepEqual(
+    toCatalogLayer({ id: 'ee-x', inks: ['light', 'dark', 'bad ink'] }).inks,
+    ['light', 'dark'],
+  );
   assert.equal(
     tileTemplate('ee-forest-loss', 'default'),
-    '/api/earth-engine/tile/ee-forest-loss/default/{z}/{x}/{y}',
+    '/api/earth-engine/tile/ee-forest-loss/default/default/{z}/{x}/{y}',
+  );
+  assert.equal(
+    tileTemplate('ee-admin-boundaries', 'level1', 'dark'),
+    '/api/earth-engine/tile/ee-admin-boundaries/level1/dark/{z}/{x}/{y}',
   );
   let clock = 0;
   const server = fakeServer({
@@ -186,7 +200,7 @@ test('an overlay drapes the proxy’s tiles at its stored opacity, and its row c
   assert.equal(imagery.imageryProvider.maximumLevel, 12);
   assert.match(
     imagery.imageryProvider.url,
-    /\/api\/earth-engine\/tile\/ee-forest-loss\/default\/\{z\}\/\{x\}\/\{y\}$/,
+    /\/api\/earth-engine\/tile\/ee-forest-loss\/default\/default\/\{z\}\/\{x\}\/\{y\}$/,
   );
   assert.match(
     imagery.imageryProvider.credit.html,
@@ -244,8 +258,10 @@ test('the boundaries change level with the camera, and a broken store falls back
   assert.equal(layer._state().variant, 'level1');
   assert.match(
     fake.layers[0].imageryProvider.url,
-    /ee-admin-boundaries\/level1\//,
+    /ee-admin-boundaries\/level1\/light\//,
+    'light ink without a map stack (a dark basemap is assumed)',
   );
+  assert.equal(layer._state().ink, 'light');
   assert.equal(layer.getRowControls().info, 'First-level units');
   fake.setHeight(200_000);
   fake.settle();
@@ -253,7 +269,7 @@ test('the boundaries change level with the camera, and a broken store falls back
   assert.equal(fake.layers.length, 1, 'one level at a time');
   assert.match(
     fake.layers[0].imageryProvider.url,
-    /ee-admin-boundaries\/level2\//,
+    /ee-admin-boundaries\/level2\/light\//,
   );
   layer.getRowControls().slider.onInput(50);
   assert.equal(
@@ -625,4 +641,223 @@ test('above its ceiling an overlay asks for nothing and says how low to go', asy
   assert.equal(record('ee-admin-boundaries').maxHeightM, undefined);
   assert.equal(record('ee-forest-loss').maxHeightM, 3_000_000);
   layer.destroy();
+});
+
+/** A map stack controller with a luminance, as src/maps/controller.js exposes it. */
+function fakeLuminanceStack(luminance = 'dark') {
+  const listeners = new Set();
+  return {
+    listeners,
+    getImageryHostTileset: () => null,
+    getActiveLuminance: () => luminance,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    /** Settle on a basemap of a luminance. */
+    settle(next) {
+      luminance = next;
+      for (const listener of [...listeners]) listener({ activeId: next });
+    },
+  };
+}
+
+test('the boundaries take their ink from the basemap, and the chips force and keep an ink', async () => {
+  const fake = fakeViewer(3_000_000);
+  fake.viewer.scene = { globe: { show: true } };
+  const server = fakeServer({
+    configured: true,
+    tiles: { used: 0, budget: 0 },
+    layers: [serverLayer('ee-admin-boundaries')],
+  });
+  const storage = memoryStorage();
+  const stack = fakeLuminanceStack('light');
+  const layer = createEarthEngineLayer({
+    record: record('ee-admin-boundaries'),
+    source: createEarthEngineSource({ fetchImpl: server.fetchImpl }),
+    storage,
+  });
+  layer.init(fake.viewer);
+  layer.attachMapStackController(stack);
+  layer.enable(fake.viewer);
+  await flush();
+  // A light basemap (the white globe, Positron): dark ink, a dark swatch.
+  assert.equal(layer._state().ink, 'dark');
+  assert.match(fake.layers[0].imageryProvider.url, /\/level1\/dark\/\{z\}/);
+  const controls = layer.getRowControls();
+  assert.deepEqual(controls.legend, [{ label: 'Boundary', color: '#1a1a1a' }]);
+  assert.deepEqual(
+    controls.chips.map((chip) => [chip.id, chip.active]),
+    [
+      ['level-auto', true],
+      ['level-level0', false],
+      ['level-level1', false],
+      ['level-level2', false],
+      ['ink-auto', true],
+      ['ink-light', false],
+      ['ink-dark', false],
+    ],
+  );
+  assert.equal(controls.chips[4].label, 'AUTO INK');
+  assert.equal(controls.chips[1].label, 'COUNTRIES');
+  // The basemap switches to imagery: light ink, re-draped, one layer.
+  const before = fake.layers[0];
+  stack.settle('dark');
+  assert.equal(layer._state().ink, 'light');
+  assert.equal(fake.layers.length, 1);
+  assert.notEqual(fake.layers[0], before);
+  assert.match(fake.layers[0].imageryProvider.url, /\/level1\/light\/\{z\}/);
+  assert.deepEqual(layer.getRowControls().legend, [
+    { label: 'Boundary', color: '#ffffff' },
+  ]);
+  // Forced dark on a dark map: kept in the browser, drawn at once.
+  layer.getRowControls().chips[6].onClick();
+  assert.equal(
+    storage.map.get(`${INK_STORAGE_PREFIX}ee-admin-boundaries`),
+    'dark',
+  );
+  assert.equal(layer._state().ink, 'dark');
+  assert.match(fake.layers[0].imageryProvider.url, /\/level1\/dark\//);
+  assert.equal(layer.getRowControls().chips[6].active, true);
+  stack.settle('light');
+  assert.equal(
+    layer._state().ink,
+    'dark',
+    'forced: the basemap no longer decides',
+  );
+  layer.getRowControls().chips[4].onClick();
+  assert.equal(
+    storage.map.get(`${INK_STORAGE_PREFIX}ee-admin-boundaries`),
+    'auto',
+  );
+  assert.equal(layer._state().ink, 'dark', 'auto on a light map');
+  layer.destroy();
+
+  // A stored ink is read back; an unknown one is AUTO.
+  const again = createEarthEngineLayer({
+    record: record('ee-admin-boundaries'),
+    source: createEarthEngineSource({ fetchImpl: server.fetchImpl }),
+    storage: memoryStorage({
+      [`${INK_STORAGE_PREFIX}ee-admin-boundaries`]: 'light',
+    }),
+  });
+  again.init(fake.viewer);
+  again.attachMapStackController(fakeLuminanceStack('light'));
+  again.enable(fake.viewer);
+  await flush();
+  assert.equal(again._state().inkSetting, 'light');
+  assert.equal(again._state().ink, 'light');
+  again.destroy();
+  assert.equal(
+    createEarthEngineLayer({
+      record: record('ee-admin-boundaries'),
+      source: createEarthEngineSource({ fetchImpl: server.fetchImpl }),
+      storage: memoryStorage({
+        [`${INK_STORAGE_PREFIX}ee-admin-boundaries`]: 'purple',
+      }),
+    })._state().inkSetting,
+    'auto',
+  );
+  // An image layer has no ink chips and a 'default' ink in its URL.
+  const slope = createEarthEngineLayer({
+    record: record('ee-terrain-slope'),
+    source: createEarthEngineSource({
+      fetchImpl: fakeServer({
+        configured: true,
+        tiles: { used: 0, budget: 0 },
+        layers: [serverLayer('ee-terrain-slope')],
+      }).fetchImpl,
+    }),
+    storage: memoryStorage(),
+  });
+  assert.deepEqual(slope.getRowControls().chips, []);
+  fake.setHeight(60_000);
+  slope.init(fake.viewer);
+  slope.enable(fake.viewer);
+  await flush();
+  assert.match(fake.layers[0].imageryProvider.url, /\/default\/default\/\{z\}/);
+  assert.equal(slope._state().ink, 'default');
+  slope.destroy();
+});
+
+test('the level chips force countries, regions or districts, kept in the browser, and districts far out say the tiles are slow', async () => {
+  const fake = fakeViewer(3_000_000);
+  const server = fakeServer({
+    configured: true,
+    tiles: { used: 0, budget: 0 },
+    layers: [serverLayer('ee-admin-boundaries')],
+  });
+  const storage = memoryStorage();
+  const layer = createEarthEngineLayer({
+    record: record('ee-admin-boundaries'),
+    source: createEarthEngineSource({ fetchImpl: server.fetchImpl }),
+    storage,
+  });
+  layer.init(fake.viewer);
+  layer.enable(fake.viewer);
+  await flush();
+  assert.equal(layer._state().variant, 'level1', 'AUTO from 3,000 km');
+  const chip = (id) => layer.getRowControls().chips.find((c) => c.id === id);
+  chip('level-level0').onClick();
+  assert.equal(
+    storage.map.get(`${LEVEL_STORAGE_PREFIX}ee-admin-boundaries`),
+    'level0',
+  );
+  assert.equal(layer._state().variant, 'level0');
+  assert.match(fake.layers[0].imageryProvider.url, /\/level0\/light\//);
+  assert.equal(layer.getRowControls().info, 'Countries');
+  assert.equal(chip('level-level0').active, true);
+  assert.equal(chip('level-auto').active, false);
+  // Forced levels do not follow the camera.
+  fake.setHeight(200_000);
+  fake.settle();
+  assert.equal(layer._state().variant, 'level0', 'still countries close in');
+  chip('level-level2').onClick();
+  assert.equal(layer._state().variant, 'level2');
+  assert.equal(layer.getRowControls().info, 'Second-level units');
+  fake.setHeight(5_000_000);
+  fake.settle();
+  assert.equal(layer._state().variant, 'level2', 'still districts from orbit');
+  assert.equal(
+    layer.getRowControls().info,
+    'Second-level units · Districts from this height: the tiles arrive slowly',
+  );
+  chip('level-level1').onClick();
+  assert.equal(layer._state().variant, 'level1');
+  assert.equal(layer.getRowControls().info, 'First-level units');
+  chip('level-auto').onClick();
+  assert.equal(
+    storage.map.get(`${LEVEL_STORAGE_PREFIX}ee-admin-boundaries`),
+    'auto',
+  );
+  fake.setHeight(200_000);
+  fake.settle();
+  assert.equal(layer._state().variant, 'level2', 'AUTO follows the camera');
+  assert.equal(
+    layer.getRowControls().info,
+    'Second-level units',
+    'not slow: AUTO chose it',
+  );
+  layer.destroy();
+  // A stored level is read back; one the layer lacks is AUTO.
+  const boundaries = record('ee-admin-boundaries');
+  assert.equal(
+    readLevel(
+      memoryStorage({
+        [`${LEVEL_STORAGE_PREFIX}ee-admin-boundaries`]: 'level2',
+      }),
+      boundaries,
+    ),
+    'level2',
+  );
+  assert.equal(
+    readLevel(
+      memoryStorage({
+        [`${LEVEL_STORAGE_PREFIX}ee-admin-boundaries`]: 'level9',
+      }),
+      boundaries,
+    ),
+    'auto',
+  );
+  assert.equal(readLevel(memoryStorage(), record('ee-forest-loss')), 'auto');
 });

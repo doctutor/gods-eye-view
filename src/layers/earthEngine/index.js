@@ -1,7 +1,12 @@
 import * as Cesium from 'cesium';
-import { variantForHeight } from '../../data/earthEngineLayers.js';
+import {
+  layerInks,
+  layerVariants,
+  variantForHeight,
+} from '../../data/earthEngineLayers.js';
 import { resolveImageryHost } from '../../maps/imageryHost.js';
-import { rowControls } from './presentation.js';
+import { activeLuminance, readInkSetting, resolveInk } from '../../maps/ink.js';
+import { SLOW_DISTRICTS_ABOVE_M, rowControls } from './presentation.js';
 import { tileTemplate } from './source.js';
 
 /**
@@ -11,7 +16,12 @@ import { tileTemplate } from './source.js';
  * Engine's token. Its row in the DATA LAYERS panel (ANALYSIS) carries the
  * legend, an opacity slider (kept per layer in this browser) and the
  * server's status. A layer with variants (administrative levels) changes
- * variant with the camera's height.
+ * variant with the camera's height on AUTO, or draws the level a chip
+ * forces (kept as gev.earthEngine.level.<id>). A features layer with inks
+ * is drawn in the ink the basemap wants (src/maps/ink.js: light lines on a
+ * dark map, dark lines on a light one) unless a chip forces one (kept as
+ * gev.earthEngine.ink.<id>); each settled map switch re-picks it, and the
+ * server has one map per (variant, ink).
  *
  * It drapes where the map stack can take imagery (maps/imageryHost.js, as
  * Recent Imagery and the weather layers do): the globe's imagery layers on
@@ -37,6 +47,8 @@ import { tileTemplate } from './source.js';
  */
 
 export const OPACITY_STORAGE_PREFIX = 'gev.earthEngine.opacity.';
+export const INK_STORAGE_PREFIX = 'gev.earthEngine.ink.';
+export const LEVEL_STORAGE_PREFIX = 'gev.earthEngine.level.';
 /** The overlay's rectangle: half its side is this many camera heights… */
 export const VIEW_HALF_FACTOR = 3;
 /** …and at least this many metres. */
@@ -106,6 +118,18 @@ export function readOpacity(storage, id) {
   }
 }
 
+/** The level stored for a layer ('auto' or one of its variant keys), else 'auto'. */
+export function readLevel(storage, record) {
+  try {
+    const value = storage?.getItem(`${LEVEL_STORAGE_PREFIX}${record.id}`);
+    return (record.variants || []).some((variant) => variant.key === value)
+      ? value
+      : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
 const escapeHtml = (value) =>
   String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -143,6 +167,10 @@ export function createEarthEngineLayer({
   let _loading = false;
   let _failure = null;
   let _opacity = readOpacity(store, record.id);
+  /** 'auto' or a variant key; 'auto' or an ink. */
+  let _level = readLevel(store, record);
+  let _inkSetting = readInkSetting(store, `${INK_STORAGE_PREFIX}${record.id}`);
+  const hasInks = layerInks(record)[0] !== 'default';
   let _removeMoveListener = null;
   let _rowListener = null;
   /** The map stack controller (src/maps/controller.js), when attached. */
@@ -196,8 +224,29 @@ export function createEarthEngineLayer({
     };
   }
 
+  /** The variant to draw: the forced level, else the height rule. */
   function wantedVariant() {
+    if (
+      _level !== 'auto' &&
+      layerVariants(record).some((variant) => variant.key === _level)
+    )
+      return _level;
     return variantForHeight(record, cameraHeight()).key;
+  }
+
+  /** The ink to draw: the forced one, else what the basemap wants. */
+  function wantedInk() {
+    if (!hasInks) return 'default';
+    return resolveInk(_inkSetting, activeLuminance(_controller));
+  }
+
+  /** Districts forced from far out: the row warns that tiles are slow. */
+  function slowDistricts() {
+    return (
+      _level === 'level2' &&
+      cameraHeight() > SLOW_DISTRICTS_ABOVE_M &&
+      _mountedKey.startsWith('level2|')
+    );
   }
 
   /** Where imagery can be draped on the current map stack. */
@@ -245,16 +294,18 @@ export function createEarthEngineLayer({
       return;
     }
     const variant = wantedVariant();
+    const ink = wantedInk();
+    const key = `${variant}|${ink}`;
     if (
       _imagery &&
-      _mountedKey === variant &&
+      _mountedKey === key &&
       _collection === host.collection &&
       !viewMoved(_madeFor, view)
     )
       return;
     unmount();
     const provider = new cesium.UrlTemplateImageryProvider({
-      url: tileTemplate(record.id, variant),
+      url: tileTemplate(record.id, variant, ink),
       tilingScheme: new cesium.WebMercatorTilingScheme(),
       minimumLevel: 0,
       maximumLevel: layer.maxZoom ?? record.maxZoom ?? 12,
@@ -277,7 +328,7 @@ export function createEarthEngineLayer({
     });
     host.collection.add(_imagery);
     _collection = host.collection;
-    _mountedKey = variant;
+    _mountedKey = key;
     _madeFor = view;
     requestRender('earth-engine-show');
     notify();
@@ -307,13 +358,45 @@ export function createEarthEngineLayer({
     if (before !== `${_mountedKey}|${_aboveCeiling}`) notify();
   }
 
-  /** A settled map switch: the host may have changed (a new tileset, the globe). */
+  /**
+   * A settled map switch: the host may have changed (a new tileset, the
+   * globe), and so may the ink the basemap wants.
+   */
   function onMapSettled() {
     if (!_enabled) return;
     const before = _collection;
     const kind = _hostKind;
+    const key = _mountedKey;
     sync();
-    if (before !== _collection || kind !== _hostKind) notify();
+    if (before !== _collection || kind !== _hostKind || key !== _mountedKey)
+      notify();
+  }
+
+  function setLevel(key) {
+    const known =
+      key === 'auto' ||
+      layerVariants(record).some((variant) => variant.key === key);
+    if (!known || key === _level) return;
+    _level = key;
+    try {
+      store?.setItem(`${LEVEL_STORAGE_PREFIX}${record.id}`, key);
+    } catch {
+      /* private mode: kept for this page only */
+    }
+    if (_enabled) sync();
+    notify();
+  }
+
+  function setInk(key) {
+    if (!['auto', 'light', 'dark'].includes(key) || key === _inkSetting) return;
+    _inkSetting = key;
+    try {
+      store?.setItem(`${INK_STORAGE_PREFIX}${record.id}`, key);
+    } catch {
+      /* private mode: kept for this page only */
+    }
+    if (_enabled) sync();
+    notify();
   }
 
   function setOpacity(value) {
@@ -388,14 +471,23 @@ export function createEarthEngineLayer({
       return rowControls({
         record,
         catalog: _catalog,
-        variant:
-          _mountedKey || (record.variants?.length ? wantedVariant() : ''),
+        variant: _mountedKey
+          ? _mountedKey.split('|')[0]
+          : record.variants?.length
+            ? wantedVariant()
+            : '',
         opacity: _opacity,
         onOpacity: setOpacity,
         loading: _loading,
         failure: _failure,
         hostless: _enabled && _hostKind === 'none',
         ceilingM: _enabled && _aboveCeiling ? record.maxHeightM : null,
+        level: _level,
+        onLevel: setLevel,
+        ink: _inkSetting,
+        onInk: setInk,
+        inkDrawn: wantedInk(),
+        slowDistricts: _enabled && slowDistricts(),
       });
     },
 
@@ -417,10 +509,13 @@ export function createEarthEngineLayer({
       _rowListener = typeof listener === 'function' ? listener : null;
     },
 
-    /** For tests and the panel: the variant drawn and the opacity. */
+    /** For tests and the panel: the variant and ink drawn, and the opacity. */
     _state: () => ({
       mounted: Boolean(_imagery),
-      variant: _mountedKey,
+      variant: _mountedKey ? _mountedKey.split('|')[0] : '',
+      ink: _mountedKey ? _mountedKey.split('|')[1] : '',
+      level: _level,
+      inkSetting: _inkSetting,
       opacity: _opacity,
       host: _imagery ? _hostKind : 'none',
       collection: _collection,

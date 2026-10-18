@@ -1,7 +1,7 @@
 {
-  "about": "Personal fork: the exact map requests server/providers/earthEngine.js sends to POST https://earthengine.googleapis.com/v1/projects/<project>/maps, one per layer variant (src/data/earthEngineLayers.js). Regenerate with the test in src/data/earthEngine.test.mjs when a layer changes.",
+  "about": "Personal fork: the exact map requests server/providers/earthEngine.js sends to POST https://earthengine.googleapis.com/v1/projects/<project>/maps, one per layer variant and ink (src/data/earthEngineLayers.js). Regenerate with the test in src/data/earthEngine.test.mjs when a layer changes.",
   "requests": {
-    "ee-terrain-slope/default": {
+    "ee-terrain-slope/default/default": {
       "expression": {
         "values": {
           "0": {
@@ -34,7 +34,9 @@
                               }
                             },
                             "bandSelectors": {
-                              "constantValue": ["DEM"]
+                              "constantValue": [
+                                "DEM"
+                              ]
                             }
                           }
                         }
@@ -69,10 +71,16 @@
             "max": 45
           }
         ],
-        "paletteColors": ["1a9850", "91cf60", "fee08b", "fc8d59", "d73027"]
+        "paletteColors": [
+          "1a9850",
+          "91cf60",
+          "fee08b",
+          "fc8d59",
+          "d73027"
+        ]
       }
     },
-    "ee-terrain-aspect/default": {
+    "ee-terrain-aspect/default/default": {
       "expression": {
         "values": {
           "0": {
@@ -105,7 +113,9 @@
                               }
                             },
                             "bandSelectors": {
-                              "constantValue": ["DEM"]
+                              "constantValue": [
+                                "DEM"
+                              ]
                             }
                           }
                         }
@@ -140,10 +150,16 @@
             "max": 360
           }
         ],
-        "paletteColors": ["3288bd", "99d594", "fee08b", "fc8d59", "3288bd"]
+        "paletteColors": [
+          "3288bd",
+          "99d594",
+          "fee08b",
+          "fc8d59",
+          "3288bd"
+        ]
       }
     },
-    "ee-terrain-hillshade/default": {
+    "ee-terrain-hillshade/default/default": {
       "expression": {
         "values": {
           "0": {
@@ -176,7 +192,9 @@
                               }
                             },
                             "bandSelectors": {
-                              "constantValue": ["DEM"]
+                              "constantValue": [
+                                "DEM"
+                              ]
                             }
                           }
                         }
@@ -217,10 +235,13 @@
             "max": 255
           }
         ],
-        "paletteColors": ["000000", "ffffff"]
+        "paletteColors": [
+          "000000",
+          "ffffff"
+        ]
       }
     },
-    "ee-forest-loss/default": {
+    "ee-forest-loss/default/default": {
       "expression": {
         "values": {
           "0": {
@@ -242,7 +263,9 @@
                         }
                       },
                       "bandSelectors": {
-                        "constantValue": ["lossyear"]
+                        "constantValue": [
+                          "lossyear"
+                        ]
                       }
                     }
                   }
@@ -261,10 +284,83 @@
             "max": 25
           }
         ],
-        "paletteColors": ["ffff00", "ff9900", "ff0000", "990000"]
+        "paletteColors": [
+          "ffff00",
+          "ff9900",
+          "ff0000",
+          "990000"
+        ]
       }
     },
-    "ee-admin-boundaries/level1": {
+    "ee-admin-boundaries/level0/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Collection.style",
+              "arguments": {
+                "collection": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.loadTable",
+                    "arguments": {
+                      "tableId": {
+                        "constantValue": "FAO/GAUL/2015/level0"
+                      }
+                    }
+                  }
+                },
+                "color": {
+                  "constantValue": "ffffffcc"
+                },
+                "fillColor": {
+                  "constantValue": "00000000"
+                },
+                "width": {
+                  "constantValue": 1
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-admin-boundaries/level0/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Collection.style",
+              "arguments": {
+                "collection": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.loadTable",
+                    "arguments": {
+                      "tableId": {
+                        "constantValue": "FAO/GAUL/2015/level0"
+                      }
+                    }
+                  }
+                },
+                "color": {
+                  "constantValue": "1a1a1acc"
+                },
+                "fillColor": {
+                  "constantValue": "00000000"
+                },
+                "width": {
+                  "constantValue": 1
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-admin-boundaries/level1/light": {
       "expression": {
         "values": {
           "0": {
@@ -298,7 +394,41 @@
       },
       "fileFormat": "PNG"
     },
-    "ee-admin-boundaries/level2": {
+    "ee-admin-boundaries/level1/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Collection.style",
+              "arguments": {
+                "collection": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.loadTable",
+                    "arguments": {
+                      "tableId": {
+                        "constantValue": "FAO/GAUL/2025/level1"
+                      }
+                    }
+                  }
+                },
+                "color": {
+                  "constantValue": "1a1a1acc"
+                },
+                "fillColor": {
+                  "constantValue": "00000000"
+                },
+                "width": {
+                  "constantValue": 1
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-admin-boundaries/level2/light": {
       "expression": {
         "values": {
           "0": {
@@ -317,6 +447,40 @@
                 },
                 "color": {
                   "constantValue": "ffffffcc"
+                },
+                "fillColor": {
+                  "constantValue": "00000000"
+                },
+                "width": {
+                  "constantValue": 1
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-admin-boundaries/level2/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Collection.style",
+              "arguments": {
+                "collection": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.loadTable",
+                    "arguments": {
+                      "tableId": {
+                        "constantValue": "FAO/GAUL/2025/level2"
+                      }
+                    }
+                  }
+                },
+                "color": {
+                  "constantValue": "1a1a1acc"
                 },
                 "fillColor": {
                   "constantValue": "00000000"

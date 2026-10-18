@@ -1,12 +1,34 @@
-import { t } from '../../i18n/index.js';
+import { msg, t } from '../../i18n/index.js';
 import { labelText } from './model.js';
 
 /**
  * Personal fork: the Grid row in the DATA LAYERS panel (REFERENCE): the
  * opacity slider (the same row control the Earth Engine rows use), a style
- * switch (latitude–longitude, Tissot's indicatrix, MGRS), and a line saying
+ * switch (latitude–longitude, Tissot's indicatrix, MGRS), an ink switch
+ * (AUTO follows the basemap; LIGHT and DARK force one), and a line saying
  * the spacing drawn (in MGRS, with the view centre's reference).
  */
+
+/** The ink chips. */
+export const INK_CHIPS = Object.freeze([
+  Object.freeze({
+    key: 'auto',
+    label: msg('AUTO INK'),
+    title: msg(
+      'The ink follows the basemap: cyan and amber on dark maps, blue-grey and brown on light maps',
+    ),
+  }),
+  Object.freeze({
+    key: 'light',
+    label: msg('LIGHT INK'),
+    title: msg('Light ink: cyan and amber lines'),
+  }),
+  Object.freeze({
+    key: 'dark',
+    label: msg('DARK INK'),
+    title: msg('Dark ink: blue-grey and brown lines'),
+  }),
+]);
 
 /** The spacing as the row says it: "Every 10°", "Every 30'". */
 export function spacingText(step) {
@@ -36,6 +58,8 @@ export function mgrsSpacingText(level) {
 export function rowControls({
   mode = 'latlon',
   onMode = () => {},
+  ink = 'auto',
+  onInk = () => {},
   opacity,
   onOpacity,
   step,
@@ -85,6 +109,13 @@ export function rowControls({
         ),
         onClick: () => onMode('mgrs'),
       },
+      ...INK_CHIPS.map((chip) => ({
+        id: `ink-${chip.key}`,
+        label: t(chip.label),
+        active: ink === chip.key,
+        title: t(chip.title),
+        onClick: () => onInk(chip.key),
+      })),
     ],
     slider: {
       label: t('Opacity {value}%', { value: Math.round(opacity * 100) }),

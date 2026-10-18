@@ -16,6 +16,7 @@ import {
 } from './mgrs.js';
 import { MGRS_NORTH, MGRS_SOUTH } from './utm.js';
 import { rowControls } from './presentation.js';
+import { activeLuminance, readInkSetting, resolveInk } from '../../maps/ink.js';
 
 /**
  * Personal fork: the Grid layer (REFERENCE in the DATA LAYERS panel), a
@@ -37,6 +38,13 @@ import { rowControls } from './presentation.js';
  * then 100 km squares, 10 km and 1 km lines traced in each zone's UTM grid,
  * in place of the graticule).
  *
+ * Ink: on a dark basemap the lines are the HUD's cyan and amber; on a light
+ * one (the white globe, Positron, the light Stamen and Countries styles)
+ * they are a dark blue-grey and a brown, and the labels follow
+ * (src/maps/ink.js). AUTO follows the active basemap's luminance through
+ * the map stack controller; LIGHT and DARK force one (kept as
+ * gev.grid.ink).
+ *
  * Draping needs depth textures (GroundPolylinePrimitive.isSupported): on a
  * display without them the lines are drawn at sea level and the row says
  * so. Ground primitives are made asynchronously, which loads Cesium's
@@ -46,11 +54,18 @@ import { rowControls } from './presentation.js';
 export const GRID_LAYER_ID = 'grid';
 export const OPACITY_STORAGE_KEY = 'gev.grid.opacity';
 export const MODE_STORAGE_KEY = 'gev.grid.mode';
+export const INK_STORAGE_KEY = 'gev.grid.ink';
 export const GRID_MODES = Object.freeze(['latlon', 'tissot', 'mgrs']);
 export const DEFAULT_OPACITY = 0.6;
-/** The HUD's colours (src/ui/styles/overlays.css: --hud-color). */
-const HUD_CYAN = '#00ffff';
-const PRIMARY_AMBER = '#ffd166';
+/**
+ * The lines' colours per ink: the HUD's cyan and amber
+ * (src/ui/styles/overlays.css: --hud-color) for a dark basemap; a dark
+ * blue-grey and a brown that read on a light one.
+ */
+export const INK_COLORS = Object.freeze({
+  light: Object.freeze({ primary: '#00ffff', accent: '#ffd166' }),
+  dark: Object.freeze({ primary: '#2f4f6f', accent: '#8a5a00' }),
+});
 
 /** The opacity stored in this browser, else the default. */
 export function readGridOpacity(storage) {
@@ -84,23 +99,24 @@ function storageOf(storage) {
   }
 }
 
-/** A line's look by kind: the equator and prime meridian stand out. */
-export function lineStyle(kind) {
+/** A line's look by kind and ink: the equator and prime meridian stand out. */
+export function lineStyle(kind, ink = 'light') {
+  const { primary, accent } = INK_COLORS[ink] || INK_COLORS.light;
   switch (kind) {
     case 'equator':
     case 'prime-meridian':
-      return { color: PRIMARY_AMBER, alpha: 0.9, width: 2.5 };
+      return { color: accent, alpha: 0.9, width: 2.5 };
     case 'tissot':
-      return { color: HUD_CYAN, alpha: 0.85, width: 1.5, circle: true };
+      return { color: primary, alpha: 0.85, width: 1.5, circle: true };
     case 'gzd':
-      return { color: PRIMARY_AMBER, alpha: 0.8, width: 2 };
+      return { color: accent, alpha: 0.8, width: 2 };
     case 'mgrs-100k':
-      return { color: HUD_CYAN, alpha: 0.75, width: 1.5 };
+      return { color: primary, alpha: 0.75, width: 1.5 };
     case 'tropic':
     case 'polar-circle':
-      return { color: PRIMARY_AMBER, alpha: 0.7, width: 1.5, dashed: true };
+      return { color: accent, alpha: 0.7, width: 1.5, dashed: true };
     default:
-      return { color: HUD_CYAN, alpha: 0.55, width: 1 };
+      return { color: primary, alpha: 0.55, width: 1 };
   }
 }
 
@@ -130,6 +146,12 @@ export function createGridLayer({
   let _enabled = false;
   let _opacity = readGridOpacity(store);
   let _mode = readGridMode(store);
+  let _inkSetting = readInkSetting(store, INK_STORAGE_KEY);
+  /** The map stack controller, for the basemap's luminance. */
+  let _controller = null;
+  let _unsubscribeMap = null;
+  /** The ink the current lines were drawn in. */
+  let _inkDrawn = 'light';
   let _circles = null;
   let _lines = null;
   let _mgrs = null;
@@ -188,8 +210,14 @@ export function createGridLayer({
     _primitives = [];
   }
 
+  /** The ink to draw: the forced one, else what the basemap wants. */
+  function wantedInk() {
+    return resolveInk(_inkSetting, activeLuminance(_controller));
+  }
+
   /** The labels, as world-overlay entries at the crossings near the view's edges. */
   function labelEntries(now) {
+    const { primary, accent } = INK_COLORS[_inkDrawn] || INK_COLORS.light;
     const placements = _mgrs
       ? mgrsLabelPlacements(_mgrs, now)
       : labelPlacements(_lines, now);
@@ -211,7 +239,7 @@ export function createGridLayer({
         variant: 'label',
         title: placement.text,
         details: [],
-        accent: quiet.has(placement.kind) ? HUD_CYAN : PRIMARY_AMBER,
+        accent: quiet.has(placement.kind) ? primary : accent,
         priority: quiet.has(placement.kind) ? 0 : 10,
         collisionGroup: 'grid-label',
         interactive: false,
@@ -269,6 +297,7 @@ export function createGridLayer({
     clear();
     const scene = _viewer?.scene;
     if (!scene) return;
+    _inkDrawn = wantedInk();
     try {
       _groundless = !cesium.GroundPolylinePrimitive.isSupported(scene);
     } catch {
@@ -287,12 +316,12 @@ export function createGridLayer({
           boundary.axis === 'parallel'
             ? instance(
                 parallelDegrees(from.lat, from.lon, to.lon),
-                lineStyle('gzd'),
+                lineStyle('gzd', _inkDrawn),
                 cesium.ArcType.RHUMB,
               )
             : instance(
                 flat(boundary.points),
-                lineStyle('gzd'),
+                lineStyle('gzd', _inkDrawn),
                 cesium.ArcType.GEODESIC,
               ),
         );
@@ -301,7 +330,7 @@ export function createGridLayer({
         solid.push(
           instance(
             flat(line.points),
-            lineStyle(line.kind),
+            lineStyle(line.kind, _inkDrawn),
             cesium.ArcType.GEODESIC,
           ),
         );
@@ -311,7 +340,7 @@ export function createGridLayer({
     }
     const window = _lines?.window;
     for (const parallel of _lines?.parallels || []) {
-      const style = lineStyle(parallel.kind);
+      const style = lineStyle(parallel.kind, _inkDrawn);
       (style.dashed ? dashed : solid).push(
         instance(
           parallelDegrees(parallel.lat, window.west, window.east),
@@ -324,7 +353,7 @@ export function createGridLayer({
       solid.push(
         instance(
           [meridian.lon, window.south, meridian.lon, window.north],
-          lineStyle(meridian.kind),
+          lineStyle(meridian.kind, _inkDrawn),
           cesium.ArcType.GEODESIC,
         ),
       );
@@ -338,7 +367,11 @@ export function createGridLayer({
       ))
         degrees.push(point.lon, point.lat);
       solid.push(
-        instance(degrees, lineStyle('tissot'), cesium.ArcType.GEODESIC),
+        instance(
+          degrees,
+          lineStyle('tissot', _inkDrawn),
+          cesium.ArcType.GEODESIC,
+        ),
       );
     }
     const collection = _groundless ? scene.primitives : scene.groundPrimitives;
@@ -349,7 +382,7 @@ export function createGridLayer({
         ),
       );
     if (dashed.length) {
-      const dash = lineStyle('tropic');
+      const dash = lineStyle('tropic', _inkDrawn);
       _primitives.push(
         collection.add(
           primitiveOf(
@@ -410,6 +443,23 @@ export function createGridLayer({
     else notify();
   }
 
+  function setInk(key) {
+    if (!['auto', 'light', 'dark'].includes(key) || key === _inkSetting) return;
+    _inkSetting = key;
+    try {
+      store?.setItem(INK_STORAGE_KEY, key);
+    } catch {
+      /* private mode: kept for this page only */
+    }
+    if (_enabled && _madeFor && wantedInk() !== _inkDrawn) build(_madeFor);
+    else notify();
+  }
+
+  /** A settled map switch: the basemap, and so the ink AUTO wants, may have changed. */
+  function onMapSettled() {
+    if (_enabled && _madeFor && wantedInk() !== _inkDrawn) build(_madeFor);
+  }
+
   return {
     id: GRID_LAYER_ID,
     name: 'Grid',
@@ -453,8 +503,25 @@ export function createGridLayer({
 
     destroy() {
       this.disable();
+      _unsubscribeMap?.();
+      _unsubscribeMap = null;
+      _controller = null;
       _viewer = null;
       _rowListener = null;
+    },
+
+    /**
+     * The map stack controller (src/app/data.js hands it to every layer):
+     * the basemap's luminance, and every settled switch.
+     * @param {object|null} controller
+     */
+    attachMapStackController(controller) {
+      _unsubscribeMap?.();
+      _unsubscribeMap = null;
+      _controller = controller || null;
+      const off = _controller?.subscribe?.(onMapSettled);
+      _unsubscribeMap = typeof off === 'function' ? off : null;
+      onMapSettled();
     },
 
     getStats() {
@@ -473,6 +540,8 @@ export function createGridLayer({
       return rowControls({
         mode: _mode,
         onMode: setMode,
+        ink: _inkSetting,
+        onInk: setInk,
         opacity: _opacity,
         onOpacity: setOpacity,
         step: _enabled
@@ -503,6 +572,8 @@ export function createGridLayer({
       primitives: [..._primitives],
       opacity: _opacity,
       groundless: _groundless,
+      ink: _inkDrawn,
+      inkSetting: _inkSetting,
     }),
   };
 }
