@@ -265,6 +265,24 @@ export function createCatalog({ state: layerState, services, parts, source }) {
               licenseClass: String(source.licenseClass || ''),
             }
           : {}),
+        // Personal fork: a cam aboard a ship, at its last position fix.
+        ...(source.moving === true && source.vessel
+          ? {
+              moving: true,
+              vessel: {
+                id: String(source.vessel.id || ''),
+                name: String(source.vessel.name || ''),
+                fixAt: String(source.vessel.fixAt || ''),
+                ...(Number.isFinite(source.vessel.courseDeg)
+                  ? { courseDeg: source.vessel.courseDeg }
+                  : {}),
+                ...(Number.isFinite(source.vessel.speedKn)
+                  ? { speedKn: source.vessel.speedKn }
+                  : {}),
+                inPort: source.vessel.inPort === true,
+              },
+            }
+          : {}),
         // Personal fork: sound, when the server knows it (cctv/audioProbe.js).
         ...(AUDIO_STATES.includes(source.audio) ? { audio: source.audio } : {}),
       };

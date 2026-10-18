@@ -3228,5 +3228,10 @@
   "map style|Countries": "Страны",
   "Hexes: resolution {res}, {count} cells": "Шестиугольники: разрешение {res}, ячеек: {count}",
   "Hexes": "Шестиугольники",
-  "Draw H3 hexes at a resolution chosen by the camera height instead of the raster": "Рисовать шестиугольники H3 с разрешением по высоте камеры вместо растра"
+  "Draw H3 hexes at a resolution chosen by the camera height instead of the raster": "Рисовать шестиугольники H3 с разрешением по высоте камеры вместо растра",
+  "the video’s own location is far from the channel’s place": "собственное местоположение видео далеко от места канала",
+  "SHIP FIX {time} UTC": "КООРДИНАТЫ СУДНА {time} UTC",
+  "SHIP FIX {time} UTC · IN PORT": "КООРДИНАТЫ СУДНА {time} UTC · В ПОРТУ",
+  "placed at the ship's last position fix": "по последним координатам судна",
+  "Placed at the ship's last position fix.": "Размещена по последним координатам судна."
 }

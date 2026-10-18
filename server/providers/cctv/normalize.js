@@ -692,6 +692,36 @@ function provenanceFields(item) {
     ...(httpsHref(item.fallbackSnapshotUrl)
       ? { fallbackSnapshotUrl: httpsHref(item.fallbackSnapshotUrl) }
       : {}),
+    // Personal fork: a cam aboard a ship, pinned at its last fix (vessels.js).
+    ...vesselFields(item),
+  };
+}
+
+/** A moving cam's ship and last fix, validated; absent on every other source. */
+function vesselFields(item) {
+  const vessel = item.vessel;
+  const fixAt = Date.parse(vessel?.fixAt);
+  if (item.moving !== true || !vessel || !Number.isFinite(fixAt)) return {};
+  const id = String(vessel.id || '')
+    .replace(/[^a-z0-9-]/g, '')
+    .slice(0, 40);
+  if (!id) return {};
+  const course = Number(vessel.courseDeg);
+  const speed = Number(vessel.speedKn);
+  return {
+    moving: true,
+    vessel: {
+      id,
+      name: String(vessel.name || '').slice(0, 80),
+      fixAt: new Date(fixAt).toISOString(),
+      ...(Number.isFinite(course) && course >= 0 && course <= 360
+        ? { courseDeg: course }
+        : {}),
+      ...(Number.isFinite(speed) && speed >= 0 && speed < 100
+        ? { speedKn: speed }
+        : {}),
+      inPort: vessel.inPort === true,
+    },
   };
 }
 

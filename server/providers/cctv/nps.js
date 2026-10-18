@@ -10,7 +10,9 @@ import { withObservations } from './observed.js';
  * (NPS_API_KEY, sent as X-Api-Key); without one the pack logs once and
  * contributes nothing. NPS content is a US Government work, public domain.
  *
- * Only webcams with status Active and plausible coordinates are kept. Links
+ * Only webcams with status Active and plausible coordinates are kept, and
+ * none whose whole title is a content-system placeholder ("Question 5",
+ * "Test": records the API lists as Active with no park and no camera). Links
  * are classified like linked.js: a direct image or HTTPS HLS stream plays in
  * the app, a YouTube link embeds, and anything else (most of them: the
  * park's webcam page) is a pin that opens the page.
@@ -74,6 +76,10 @@ function feedFields(classified) {
   }
 }
 
+/** Titles the NPS content system leaves on records that are not webcams. */
+export const NPS_PLACEHOLDER_TITLE =
+  /^\s*(?:question\s*\d+|test(?:\s*\d+)?|untitled|new webcam)\s*$/i;
+
 const coordinate = (value) =>
   value === null || value === undefined || String(value).trim() === ''
     ? NaN
@@ -91,6 +97,7 @@ export function npsToSources(webcams) {
     const id = String(cam?.id || '');
     if (!/^[\w-]{1,64}$/.test(id) || seen.has(id)) continue;
     if (String(cam.status || '').toLowerCase() !== 'active') continue;
+    if (NPS_PLACEHOLDER_TITLE.test(String(cam.title || ''))) continue;
     const lat = coordinate(cam.latitude);
     const lon = coordinate(cam.longitude);
     if (!isPlausibleLatLon(lat, lon)) continue;

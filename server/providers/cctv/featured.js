@@ -14,6 +14,7 @@ import {
   persistRestartedStream,
 } from './featuredStore.js';
 import { isPlausibleLatLon } from './normalize.js';
+import { VESSEL_TRACKERS, createVesselTracker } from './vessels.js';
 
 /**
  * Featured live cams: public-interest streams (nest cams, wildlife, nature,
@@ -63,6 +64,12 @@ export const COORDINATE_QUALITIES = Object.freeze([
   // The operator's own geotag on the stream.
   'operator-geotag',
 ]);
+/**
+ * Personal fork: where an entry's pin comes from. 'fixed' (the default) is
+ * its lat/lon; 'vessel' is a ship's current position fix (vessels.js),
+ * looked up by `vessel`, and the entry's own lat/lon is not used.
+ */
+export const PLACEMENTS = Object.freeze(['fixed', 'vessel']);
 
 /** The statuses a featured cam can carry, from the API or its absence. */
 export const LIVE_STATUSES = Object.freeze([
@@ -102,9 +109,16 @@ export function parseFeaturedCatalog(document) {
   for (const row of rows) {
     const id = String(row?.id || '');
     if (!ENTRY_ID.test(id) || seen.has(id)) continue;
-    const lat = Number(row?.lat);
-    const lon = Number(row?.lon);
-    if (!isPlausibleLatLon(lat, lon)) continue;
+    // Personal fork: a cam aboard a ship is pinned at the ship's fix.
+    const placement = PLACEMENTS.includes(row?.placement)
+      ? row.placement
+      : 'fixed';
+    const vessel = placement === 'vessel' ? String(row?.vessel || '') : '';
+    if (placement === 'vessel' && !Object.hasOwn(VESSEL_TRACKERS, vessel))
+      continue;
+    const lat = placement === 'vessel' ? NaN : Number(row?.lat);
+    const lon = placement === 'vessel' ? NaN : Number(row?.lon);
+    if (placement === 'fixed' && !isPlausibleLatLon(lat, lon)) continue;
     const videoId = String(row?.youtube?.videoId || '');
     if (!VIDEO_ID.test(videoId)) continue;
     const channelId = String(row?.youtube?.channelId || '');
@@ -129,6 +143,7 @@ export function parseFeaturedCatalog(document) {
       lat,
       lon,
       coordinatesQuality,
+      ...(placement === 'vessel' ? { placement, vessel } : {}),
       operator: clean(row?.operator, 120) || 'YouTube',
       operatorUrl: httpsUrl(row?.operatorUrl),
       mountHeightM: Number.isFinite(mountHeightM) ? mountHeightM : NaN,
@@ -311,13 +326,19 @@ export function youtubeThumbnailUrl(videoId, status) {
 /**
  * One featured entry and its resolved stream as a catalog source. An entry
  * whose video is gone (deleted, private, no longer embeddable) and was not
- * found again on its channel is left out.
+ * found again on its channel is left out, and so is a cam aboard a ship
+ * with no fresh position fix.
+ * @param {object} entry
+ * @param {object|null} resolved
+ * @param {object|null} [fix] - The ship's fix, for `placement: 'vessel'`.
  */
-export function featuredToSource(entry, resolved) {
+export function featuredToSource(entry, resolved, fix = null) {
   if (!resolved) return null;
   const { videoId, status } = resolved;
   if (!VIDEO_ID.test(videoId)) return null;
-  return {
+  const aboard = entry.placement === 'vessel';
+  if (aboard && !fix) return null;
+  const source = {
     id: `yt-${entry.id}`,
     name: entry.name,
     city: entry.place || 'Featured live cam',
@@ -345,6 +366,24 @@ export function featuredToSource(entry, resolved) {
     publishSignal: 'operator-channel',
     licenseClass: 'embed-only',
   };
+  if (!aboard) return source;
+  return {
+    ...source,
+    lat: fix.lat,
+    lon: fix.lon,
+    coordinatesQuality: 'vessel',
+    // Personal fork: the panel says when the ship was last fixed; the scene
+    // marks the cam as one that moves.
+    moving: true,
+    vessel: {
+      id: fix.vesselId,
+      name: fix.vesselName,
+      fixAt: new Date(fix.at).toISOString(),
+      ...(Number.isFinite(fix.courseDeg) ? { courseDeg: fix.courseDeg } : {}),
+      ...(Number.isFinite(fix.speedKn) ? { speedKn: fix.speedKn } : {}),
+      inPort: fix.inPort === true,
+    },
+  };
 }
 
 /**
@@ -359,6 +398,13 @@ export function featuredToSource(entry, resolved) {
 export function createFeaturedLoader(options = {}) {
   const now = options.now || (() => Date.now());
   let parts = null;
+  // Personal fork: ship positions for cams aboard (vessels.js).
+  const vessels =
+    options.vessels ||
+    createVesselTracker({
+      fetchImpl: options.fetchImpl || ((...args) => fetch(...args)),
+      now,
+    });
 
   /** Built on first use: the quota file lives under the app root. */
   function partsFor(sourceRoot) {
@@ -425,8 +471,19 @@ export function createFeaturedLoader(options = {}) {
         channels: readChannels(sourceRoot),
       });
     if (!entries.length) return [];
+    const fixes = new Map();
+    for (const vessel of new Set(
+      entries.filter((e) => e.placement === 'vessel').map((e) => e.vessel),
+    ))
+      fixes.set(vessel, await vessels.fixFor(vessel));
     const sources = entries
-      .map((entry) => featuredToSource(entry, resolved.get(entry.id)))
+      .map((entry) =>
+        featuredToSource(
+          entry,
+          resolved.get(entry.id),
+          entry.placement === 'vessel' ? fixes.get(entry.vessel) : null,
+        ),
+      )
       .filter(Boolean);
     const live = sources.filter((s) => s.liveStatus === 'live').length;
     console.log(

@@ -54,8 +54,11 @@ export const LANDMARK_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const LANDMARK_QUERY_COST = 102;
 /** Uncached cells fetched per request; the next settle asks for the rest. */
 const CELLS_PER_REQUEST = 2;
-/** Stored cells' shape: 2 added the misplaced-item check (older ones are asked again). */
-const CELL_VERSION = 2;
+/**
+ * Stored cells' shape: 2 added the misplaced-item check, 3 one item per
+ * place (older ones are asked again).
+ */
+const CELL_VERSION = 3;
 const FILMOT_HOST = 'filmot-tube-metadata-archive.p.rapidapi.com';
 export const FILMOT_DAILY_CAP = 30;
 const WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql';
@@ -224,9 +227,66 @@ export function misplacedLandmarks(items) {
   return drop;
 }
 
+/** Two items with the same label closer than this are one place… */
+export const SAME_NAME_M = 500;
+/** …and two where one label begins with the other's, this close. */
+export const SAME_PLACE_M = 250;
+
+const metresBetween = (a, b) => {
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLon = (b.lon - a.lon) * rad;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
+};
+
+/**
+ * Personal fork: Wikidata often has two items for one place (Fort McHenry
+ * Q1438634 and "Fort McHenry National Monument and Historic Shrine"
+ * Q73122275, 30 m apart; Lexington Market twice; Detroit's Huntington Place
+ * twice, 340 m apart). Items with the same label within 500 m, or within
+ * 250 m where one label begins with the other's whole label, are one
+ * landmark: the item with more sitelinks stays. Distinct things
+ * that are merely close (USS Constellation and the Historic Ships in
+ * Baltimore museum that holds it) are named differently and both stay.
+ * @returns {Map<string, string>} Merged qid → the qid kept.
+ */
+export function samePlaceLandmarks(items) {
+  const ranked = [...items].sort(
+    (a, b) =>
+      b.sitelinks - a.sitelinks ||
+      Number(a.qid.slice(1)) - Number(b.qid.slice(1)),
+  );
+  const names = new Map(
+    ranked.map((item) => [item.qid, normalizeText(item.label)]),
+  );
+  const merged = new Map();
+  for (let i = 0; i < ranked.length; i++) {
+    const kept = ranked[i];
+    if (merged.has(kept.qid)) continue;
+    const a = names.get(kept.qid);
+    for (let j = i + 1; j < ranked.length; j++) {
+      const other = ranked[j];
+      if (merged.has(other.qid)) continue;
+      const b = names.get(other.qid);
+      const apart = metresBetween(kept, other);
+      const prefixed = a.startsWith(`${b} `) || b.startsWith(`${a} `);
+      if (
+        (a === b && apart <= SAME_NAME_M) ||
+        (prefixed && apart <= SAME_PLACE_M)
+      )
+        merged.set(other.qid, kept.qid);
+    }
+  }
+  return merged;
+}
+
 /**
  * SPARQL rows → the cell's landmarks (one per item, misplaced items out,
- * most sitelinks first, capped) and what the check dropped.
+ * one item per place, most sitelinks first, capped), what the check
+ * dropped, and the items merged into another for the same place.
  */
 export function parseLandmarkCell(bindings, { cap = LANDMARKS_PER_CELL } = {}) {
   const byQid = new Map();
@@ -262,12 +322,14 @@ export function parseLandmarkCell(bindings, { cap = LANDMARKS_PER_CELL } = {}) {
       adminKm,
     });
   }
+  const drop = misplacedLandmarks([...byQid.values()]);
+  const placed = [...byQid.values()].filter((item) => !drop.has(item.qid));
+  const merged = samePlaceLandmarks(placed);
   const items = [...byQid.values()];
-  const drop = misplacedLandmarks(items);
   const record = ({ countries, adminKm, ...landmark }) => landmark;
   return {
-    landmarks: items
-      .filter((item) => !drop.has(item.qid))
+    landmarks: placed
+      .filter((item) => !merged.has(item.qid))
       .sort(
         (a, b) => b.sitelinks - a.sitelinks || a.label.localeCompare(b.label),
       )
@@ -279,6 +341,13 @@ export function parseLandmarkCell(bindings, { cap = LANDMARKS_PER_CELL } = {}) {
         qid: item.qid,
         label: item.label,
         countries: item.countries,
+      })),
+    merged: placed
+      .filter((item) => merged.has(item.qid))
+      .map((item) => ({
+        qid: item.qid,
+        label: item.label,
+        into: merged.get(item.qid),
       })),
   };
 }

@@ -111,6 +111,19 @@ export function embedBadgeText(activeCamera) {
   });
 }
 
+/**
+ * Personal fork: when a ship-borne cam's ship was last fixed, in UTC
+ * ("SHIP FIX 2026-10-18 08:54 UTC"), else null.
+ */
+export function vesselFixText(activeCamera) {
+  const at = Date.parse(activeCamera?.vessel?.fixAt);
+  if (activeCamera?.moving !== true || !Number.isFinite(at)) return null;
+  const time = new Date(at).toISOString().slice(0, 16).replace('T', ' ');
+  return activeCamera.vessel.inPort
+    ? t('SHIP FIX {time} UTC · IN PORT', { time })
+    : t('SHIP FIX {time} UTC', { time });
+}
+
 /** Meta line for an embedded stream: place, how precise the pin is, operator. */
 export function embedMetaText(activeCamera) {
   const quality = {
@@ -122,7 +135,7 @@ export function embedMetaText(activeCamera) {
   return [
     activeCamera?.city,
     String(activeCamera?.category || '').toUpperCase(),
-    quality ? t(quality) : null,
+    quality ? t(quality) : vesselFixText(activeCamera),
     activeCamera?.provider,
   ]
     .filter(Boolean)

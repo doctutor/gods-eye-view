@@ -1,41 +1,71 @@
 {
   "version": 1,
-  "about": "Operator channels the featured-cam watcher scans for live streams (personal fork; server/providers/cctv/featuredChannels.js). A stream found here is queued for review, never shown on the map until a person accepts its position. defaultPlace is offered only when every stream on the channel is at that place, at that precision. Channel ids resolved with channels.list forHandle on 2026-10-16 and checked against the operator's own site where it links one. autoTriage (server/providers/cctv/featuredTriage.js) is the owner's placement rule per channel: a stream is accepted without review only at a site-precision place, or an area one marked campus: true (a bounded campus under about 1 km); accept: 'never' skips the channel's streams (NASA: events at studios); maxPerDay caps the automatic accepts a day (6 by default); locations place streams by titleMatch on a channel whose streams are at several places. Not added: Africam (its site links no channel; @africam does not exist), Smithsonian's National Zoo (its webcams stream on nationalzoo.si.edu, not YouTube), Virtual Telescope Project (@virtualtelescope last uploaded in 2013 and its site links no channel).",
+  "about": "Operator channels the featured-cam watcher scans for live streams (personal fork; server/providers/cctv/featuredChannels.js). A stream found here is queued for review, never shown on the map until a person accepts its position. defaultPlace is offered only when every stream on the channel is at that place, at that precision. Channel ids resolved with channels.list forHandle on 2026-10-16 and checked against the operator's own site where it links one. autoTriage (server/providers/cctv/featuredTriage.js) is the owner's placement rule per channel: a stream is accepted without review only at a site-precision place, or an area one marked campus: true (a bounded campus under about 1 km); accept: 'never' skips the channel's streams (NASA: events at studios); maxPerDay caps the automatic accepts a day (6 by default); locations place streams by titleMatch on a channel whose streams are at several places. Not added: Africam (its site links no channel; @africam does not exist), Smithsonian's National Zoo (its webcams stream on nationalzoo.si.edu, not YouTube), Virtual Telescope Project (@virtualtelescope last uploaded in 2013 and its site links no channel). subjects (explore.org): words a title names its place by. A site word (a nest, an exhibit) accepts a stream whose title's place geocodes to site precision; an area word (a park, a reserve) accepts one as an area only when the geocoder's viewport is under about 1 km; anything else waits for a person.",
   "channels": [
     {
       "channelId": "UC-2KSeUU5SMCX6XLRD-AEvw",
       "handle": "@explorelivenaturecams",
       "operator": "explore.org",
       "operatorUrl": "https://explore.org/livecams",
-      "defaultCategory": "nature"
+      "defaultCategory": "nature",
+      "autoTriage": {
+        "subjects": {
+          "site": ["nest", "exhibit", "den", "burrow", "feeder", "falls", "reef", "dock", "pier", "pond", "colony", "rookery"],
+          "area": ["park", "reserve", "refuge", "sanctuary", "preserve", "national monument", "island"]
+        }
+      }
     },
     {
       "channelId": "UC8NnosPOvXnm0O1u5YnLQiw",
       "handle": "@explorebirds",
       "operator": "explore.org",
       "operatorUrl": "https://explore.org/livecams",
-      "defaultCategory": "birds"
+      "defaultCategory": "birds",
+      "autoTriage": {
+        "subjects": {
+          "site": ["nest", "exhibit", "den", "burrow", "feeder", "falls", "reef", "dock", "pier", "pond", "colony", "rookery"],
+          "area": ["park", "reserve", "refuge", "sanctuary", "preserve", "national monument", "island"]
+        }
+      }
     },
     {
       "channelId": "UCv0In2Sw_YabIhMHHOoTSkA",
       "handle": "@exploreospreyandfalcons",
       "operator": "explore.org",
       "operatorUrl": "https://explore.org/livecams",
-      "defaultCategory": "birds"
+      "defaultCategory": "birds",
+      "autoTriage": {
+        "subjects": {
+          "site": ["nest", "exhibit", "den", "burrow", "feeder", "falls", "reef", "dock", "pier", "pond", "colony", "rookery"],
+          "area": ["park", "reserve", "refuge", "sanctuary", "preserve", "national monument", "island"]
+        }
+      }
     },
     {
       "channelId": "UC2Sk0aXLq3ADkH_USGPKT_Q",
       "handle": "@explorebears",
       "operator": "explore.org",
       "operatorUrl": "https://explore.org/livecams",
-      "defaultCategory": "bears"
+      "defaultCategory": "bears",
+      "autoTriage": {
+        "subjects": {
+          "site": ["nest", "exhibit", "den", "burrow", "feeder", "falls", "reef", "dock", "pier", "pond", "colony", "rookery"],
+          "area": ["park", "reserve", "refuge", "sanctuary", "preserve", "national monument", "island"]
+        }
+      }
     },
     {
       "channelId": "UCSyg9cb3Iq-NtlbxqNB9wGw",
       "handle": "@exploreoceans",
       "operator": "explore.org",
       "operatorUrl": "https://explore.org/livecams",
-      "defaultCategory": "marine"
+      "defaultCategory": "marine",
+      "autoTriage": {
+        "subjects": {
+          "site": ["nest", "exhibit", "den", "burrow", "feeder", "falls", "reef", "dock", "pier", "pond", "colony", "rookery"],
+          "area": ["park", "reserve", "refuge", "sanctuary", "preserve", "national monument", "island"]
+        }
+      }
     },
     {
       "channelId": "UCnM5iMGiKsZg-iOlIO2ZkdQ",

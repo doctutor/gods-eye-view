@@ -24,6 +24,7 @@ import {
   misplacedLandmarks,
   parseFilmotHits,
   parseLandmarkCell,
+  samePlaceLandmarks,
   parseLandmarkDetail,
   parseLandmarks,
   rankLandmarkVideos,
@@ -730,7 +731,8 @@ test('a cell stored before the check is asked again, and what was dropped is kep
   const stored = JSON.parse(await fs.readFile(file, 'utf8'));
   const [entry] = Object.values(stored.entries || stored);
   const value = entry.value || entry;
-  assert.equal(value.v, 2);
+  assert.equal(value.v, 3);
+  assert.deepEqual(value.merged, []);
   assert.deepEqual(value.dropped, []);
   // The same answer without the version, as stored before the check.
   const old = JSON.parse(JSON.stringify(stored));
@@ -746,4 +748,75 @@ test('a cell stored before the check is asked again, and what was dropped is kep
   assert.equal(api.sparql(), 2, 'asked again');
   await again.near(39.25, -76.65, 0.5);
   assert.equal(api.sparql(), 2, 'then stored');
+});
+
+// Personal fork: one landmark per place when Wikidata has two items for it.
+test('two Wikidata items for one place become one landmark; close distinct things stay', async () => {
+  const { cells } = JSON.parse(
+    await fs.readFile(
+      new URL('./fixtures/wikidata-landmark-cells.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const baltimore = parseLandmarkCell(cells.baltimore.rows, { cap: 80 });
+  const detroit = parseLandmarkCell(cells.detroit.rows, { cap: 80 });
+  const merges = [...baltimore.merged, ...detroit.merged].map((m) => [
+    m.label,
+    m.qid,
+    m.into,
+  ]);
+  for (const [label, qid, into] of [
+    ['Lexington Market', 'Q6537835', 'Q6537838'],
+    ['Renaissance Center', 'Q7312409', 'Q1541365'],
+    ['Huntington Place', 'Q5138942', 'Q1104711'],
+  ])
+    assert.ok(
+      merges.some((m) => m[0] === label && m[1] === qid && m[2] === into),
+      `${label}: ${qid} merged into ${into}`,
+    );
+  const kept = (cell) => new Set(cell.landmarks.map((l) => l.qid));
+  assert.ok(
+    kept(baltimore).has('Q6537838') && !kept(baltimore).has('Q6537835'),
+  );
+  // USS Constellation and the museum holding it: 120 m apart, two things.
+  assert.ok(kept(baltimore).has('Q1571122'), 'USS Constellation stays');
+  assert.ok(
+    kept(baltimore).has('Q5773664'),
+    'Historic Ships in Baltimore stays',
+  );
+  // Alike names farther apart, or names that only share words, stay apart.
+  assert.ok(kept(detroit).has('Q5472134') && kept(detroit).has('Q5472135'));
+  // Fort McHenry's cell (392_-766), as Wikidata answered it on 2026-10-16.
+  const row = (qid, label, lat, lon, sitelinks) => ({
+    item: { value: `http://www.wikidata.org/entity/${qid}` },
+    itemLabel: { value: label },
+    lat: { value: String(lat) },
+    lon: { value: String(lon) },
+    sitelinks: { value: String(sitelinks) },
+    countries: { value: 'Q30' },
+  });
+  const fort = parseLandmarkCell([
+    row(
+      'Q73122275',
+      'Fort McHenry National Monument and Historic Shrine',
+      39.263055555,
+      -76.579722222,
+      4,
+    ),
+    row('Q1438634', 'Fort McHenry', 39.263333333, -76.58, 17),
+    row('Q1', 'Fort McHenry Tunnel', 39.2649, -76.5741, 6),
+  ]);
+  assert.deepEqual(
+    fort.landmarks.map((l) => l.qid),
+    ['Q1438634', 'Q1'],
+    'the shrine item folds into Fort McHenry; the tunnel, 520 m off, stays',
+  );
+  assert.deepEqual(fort.merged, [
+    {
+      qid: 'Q73122275',
+      label: 'Fort McHenry National Monument and Historic Shrine',
+      into: 'Q1438634',
+    },
+  ]);
+  assert.equal(samePlaceLandmarks([]).size, 0);
 });

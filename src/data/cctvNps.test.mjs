@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
   NPS_MAX_PAGES,
   NPS_PAGE_SIZE,
+  NPS_PLACEHOLDER_TITLE,
   NPS_WEBCAMS_URL,
   createNpsLoader,
   npsCategory,
@@ -245,4 +246,29 @@ test('paging stops at the page cap and on an empty page; bad pages fail the refr
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test('content-system placeholders ("Question 5", "Test") are not webcams', () => {
+  // As the API lists them: Active, placed, no park, a webcam page link.
+  const placeholder = (id, title) =>
+    webcam(id, {
+      title,
+      relatedParks: [],
+      latitude: 37.8383903503418,
+      longitude: -80.9935302734375,
+    });
+  const sources = npsToSources([
+    placeholder('CF8669EB-9852-5AAD-705D2BE551AA032E', 'Question 5'),
+    placeholder('CEFC65FC-0BDC-6689-27F5F886BE7065F9', 'Question 4'),
+    placeholder('4D3B21FF-0018-C37A-B6C8D836DBE7D4EB', 'Test'),
+    placeholder('q-spaced', '  question 12 '),
+    webcam('real-1', { title: 'Questions Answered at the Visitor Center' }),
+    webcam('real-2', { title: 'Test Site Overlook' }),
+  ]);
+  assert.deepEqual(
+    sources.map((s) => s.name),
+    ['Questions Answered at the Visitor Center', 'Test Site Overlook'],
+  );
+  assert.ok(NPS_PLACEHOLDER_TITLE.test('Question 5'));
+  assert.ok(!NPS_PLACEHOLDER_TITLE.test('Old Faithful'));
 });

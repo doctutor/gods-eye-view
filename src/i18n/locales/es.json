@@ -3157,5 +3157,10 @@
   "map style|Countries": "Países",
   "Hexes: resolution {res}, {count} cells": "Hexágonos: resolución {res}, {count} celdas",
   "Hexes": "Hexágonos",
-  "Draw H3 hexes at a resolution chosen by the camera height instead of the raster": "Dibujar hexágonos H3 con una resolución según la altura de la cámara, en lugar del ráster"
+  "Draw H3 hexes at a resolution chosen by the camera height instead of the raster": "Dibujar hexágonos H3 con una resolución según la altura de la cámara, en lugar del ráster",
+  "the video’s own location is far from the channel’s place": "la ubicación propia del vídeo está lejos del lugar del canal",
+  "SHIP FIX {time} UTC": "POSICIÓN DEL BUQUE {time} UTC",
+  "SHIP FIX {time} UTC · IN PORT": "POSICIÓN DEL BUQUE {time} UTC · EN PUERTO",
+  "placed at the ship's last position fix": "situada en la última posición conocida del buque",
+  "Placed at the ship's last position fix.": "Situada en la última posición conocida del buque."
 }

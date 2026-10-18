@@ -18,6 +18,7 @@ import {
   roundForPrecision,
   skippedFile,
   suggestPosition,
+  createGoogleGeocoder,
   textPrecision,
 } from '../../server/providers/cctv/featuredChannels.js';
 import {
@@ -957,4 +958,45 @@ test('a rescan asks again only about streams the resolver could use', async (t) 
     streams.map((s) => s.videoId),
     ['NEWLIVE0000', 'RESTART0000'],
   );
+});
+
+// Personal fork: a geocoded place's size, for the explore.org campus rule.
+test('a geocoded place carries its viewport size, and its suggestion does too', async () => {
+  const answer = {
+    status: 'OK',
+    results: [
+      {
+        geometry: {
+          location: { lat: 39.2638, lng: -76.5796 },
+          location_type: 'GEOMETRIC_CENTER',
+          viewport: {
+            northeast: { lat: 39.2672, lng: -76.5751 },
+            southwest: { lat: 39.2605, lng: -76.5839 },
+          },
+        },
+        types: ['park', 'point_of_interest'],
+        formatted_address: 'Fort McHenry, Baltimore, MD, USA',
+      },
+    ],
+  };
+  const geocode = createGoogleGeocoder({
+    apiKey: () => 'test-key',
+    fetchImpl: async () => Response.json(answer),
+  });
+  const found = await geocode('Fort McHenry Park');
+  assert.ok(found.spanM > 1000 && found.spanM < 1100, `${found.spanM} m`);
+  const suggestion = await suggestPosition(
+    { title: 'Flag Cam – Fort McHenry, Baltimore, Maryland' },
+    null,
+    { geocode: async () => ({ ...found, spanM: 640 }) },
+  );
+  assert.equal(suggestion.kind, 'text');
+  assert.equal(suggestion.spanM, 640);
+  // No viewport: no size, and no campus.
+  delete answer.results[0].geometry.viewport;
+  const sizeless = await createGoogleGeocoder({
+    apiKey: () => 'test-key',
+    fetchImpl: async () => Response.json(answer),
+  })('Fort McHenry Park');
+  assert.equal(sizeless.spanM, undefined);
 });

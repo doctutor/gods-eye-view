@@ -199,6 +199,7 @@
       "server/providers/cctv/featuredQueue.js",
       "server/providers/cctv/featuredTriage.js",
       "server/providers/cctv/featuredStore.js",
+      "server/providers/cctv/vessels.js",
       "server/providers/cctv/nps.js",
       "server/providers/cctv/usgs.js",
       "server/providers/cctv/dailyCache.js",

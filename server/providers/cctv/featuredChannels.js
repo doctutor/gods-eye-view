@@ -8,6 +8,7 @@ import {
   updateJsonFile,
   writeJsonAtomic,
 } from './featuredStore.js';
+import { haversineKm } from '../common/geo.js';
 import { isPlausibleLatLon } from './normalize.js';
 
 /**
@@ -267,6 +268,19 @@ function parseAutoTriage(value) {
   const accept = ['site', 'area', 'never'].includes(value.accept)
     ? value.accept
     : undefined;
+  // Personal fork: false ignores the location tagged on each video.
+  const videoLocation = value.videoLocation === false ? false : undefined;
+  // Personal fork: words that say what a title's place is (a nest is a
+  // site; a park, an area), for streams placed from their title.
+  const words = (list) =>
+    (Array.isArray(list) ? list : [])
+      .map((word) => clean(word, 40).toLowerCase())
+      .filter((word) => /^[a-z][a-z -]*$/.test(word))
+      .slice(0, 40);
+  const subjects = {
+    site: words(value.subjects?.site),
+    area: words(value.subjects?.area),
+  };
   const maxPerDay = Number(value.maxPerDay);
   const locations = (Array.isArray(value.locations) ? value.locations : [])
     .map((row) => {
@@ -283,6 +297,8 @@ function parseAutoTriage(value) {
       ? { maxPerDay }
       : {}),
     ...(locations.length ? { locations } : {}),
+    ...(videoLocation === false ? { videoLocation } : {}),
+    ...(subjects.site.length || subjects.area.length ? { subjects } : {}),
   };
 }
 
@@ -532,6 +548,19 @@ export function roundForPrecision(value, precision) {
   return Math.round(Number(value) * factor) / factor;
 }
 
+/** A geocoder viewport's diagonal in metres, as {spanM}, or nothing. */
+function viewportSpan(viewport) {
+  const ne = viewport?.northeast;
+  const sw = viewport?.southwest;
+  const coords = [ne?.lat, ne?.lng, sw?.lat, sw?.lng].map(Number);
+  if (!coords.every(Number.isFinite)) return {};
+  return {
+    spanM: Math.round(
+      haversineKm(coords[0], coords[1], coords[2], coords[3]) * 1000,
+    ),
+  };
+}
+
 /**
  * Google geocoding with the server key (the same key and endpoint the
  * /api/google/geocode proxy uses), remembered per phrase.
@@ -569,6 +598,8 @@ export function createGoogleGeocoder({
           locationType: String(first.geometry.location_type || ''),
           types: Array.isArray(first.types) ? first.types.map(String) : [],
           partialMatch: first.partial_match === true,
+          // Personal fork: how big the place is (its viewport's diagonal).
+          ...viewportSpan(first.geometry.viewport),
           formatted: clean(first.formatted_address, 160),
         };
     } catch {
@@ -610,6 +641,7 @@ export async function suggestPosition(stream, channel, { geocode } = {}) {
         coordinatesQuality: precision,
         label: phrase,
         geocoded: result.formatted,
+        ...(Number.isFinite(result.spanM) ? { spanM: result.spanM } : {}),
       };
     }
   }

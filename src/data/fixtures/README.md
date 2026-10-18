@@ -44,9 +44,16 @@
 
 - `filmot-fort-mchenry-subtitles.json` — Personal fork: two videos of one
   Filmot caption search (`getsearchsubtitles?query="Fort McHenry"&title=Fort
-  McHenry&lang=en&hitFormat=1`, via RapidAPI), retrieved 2026-10-16, trimmed
+McHenry&lang=en&hitFormat=1`, via RapidAPI), retrieved 2026-10-16, trimmed
   to the fields the landmark "mentioned at" parser reads and three hits each.
   Caption lines are the uploaders'; test-only, never loaded at runtime.
+- `noaa-okeanos-explorer-position.json` — Personal fork: NOAA Ship Okeanos
+  Explorer's current position, one answer of the public ArcGIS feature
+  service "Current Position for Okeanos Explorer (OMAO data stream)"
+  (`Okeanos_Explorer_Position/FeatureServer/0/query`, owned by NCEI for NOAA
+  Ocean Exploration), retrieved 2026-10-18 (fix 08:54 UTC, cruise EX2607),
+  trimmed to the fields `server/providers/cctv/vessels.js` reads. NOAA data,
+  public domain; test-only, never loaded at runtime.
 - `wikidata-landmark-cells.json` — Personal fork: the Wikidata Query Service
   answers to the landmark cell query (`landmarksQuery` in
   `server/providers/recordedVideo/landmarks.js`) for the 0.1° cells over

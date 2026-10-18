@@ -5,6 +5,7 @@ import { GIZMO_ID_PREFIX } from '../../data/cctvGizmo.js';
 import {
   GROUND_PRIOR_INIT_WAIT_MS,
   CAMERA_ICON,
+  MOVING_CAMERA_ICON,
   IDLE_CAMERA_COLOR,
   CALIBRATION_RANGE_FLOOR_M,
 } from './policy.js';
@@ -100,7 +101,8 @@ export function createLifecycle({
     );
     const billboard = layerState._billboards.add({
       id: camera.id,
-      image: CAMERA_ICON,
+      // Personal fork: a ship's cam moves; its icon says so.
+      image: camera.moving ? MOVING_CAMERA_ICON : CAMERA_ICON,
       position,
       color: IDLE_CAMERA_COLOR,
       width: 24,

@@ -140,12 +140,15 @@ const PRECISION_PHRASE = {
   area: msg('pinned to the area'),
   region: msg('pinned only to the region'),
   'operator-geotag': msg("pinned at the operator's geotag"),
+  // Personal fork: a cam aboard a ship (server cctv/vessels.js).
+  vessel: msg("placed at the ship's last position fix"),
 };
 const PRECISION_SENTENCE = {
   site: msg('Pinned at the site.'),
   area: msg('Pinned to the area.'),
   region: msg('Pinned only to the region.'),
   'operator-geotag': msg("Pinned at the operator's geotag."),
+  vessel: msg("Placed at the ship's last position fix."),
 };
 
 /** The local-time sentence of the summary, solar or civil, with or without the replay hint. */

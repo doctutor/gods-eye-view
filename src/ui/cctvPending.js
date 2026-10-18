@@ -33,6 +33,9 @@ const SUGGESTION_SOURCE = Object.freeze({
  * cctv/featuredTriage.js); the card's WHY line.
  */
 const TRIAGE_WHY = Object.freeze({
+  'video-location-disagrees': msg(
+    'the video’s own location is far from the channel’s place',
+  ),
   'area-not-campus': msg('channel has only area precision'),
   'site-only': msg('channel accepts only site precision'),
   geotag: msg(
