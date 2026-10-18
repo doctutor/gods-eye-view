@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import {
   VESSEL_MAX_FIX_AGE_MS,
   VESSEL_POLL_MS,
+  VESSEL_RETRY_MS,
   VESSEL_TRACKERS,
   createVesselTracker,
   parseVesselFix,
@@ -97,6 +98,32 @@ test('the tracker asks once per 10 minutes, keeps the last fix through a failure
   assert.equal(await tracker.fixFor('okeanos-explorer'), null);
   assert.equal(await tracker.fixFor('no-such-ship'), null);
   assert.equal(urls.length, 3);
+});
+
+test('a failed first ask is retried after a minute, not ten', async () => {
+  let clock = FIX_AT + 60_000;
+  let fail = true;
+  let asks = 0;
+  const tracker = createVesselTracker({
+    now: () => clock,
+    fetchImpl: async () => {
+      asks++;
+      if (fail) throw new Error('offline');
+      return Response.json(FIXTURE);
+    },
+  });
+  assert.equal(await tracker.fixFor('okeanos-explorer'), null);
+  clock += VESSEL_RETRY_MS - 1;
+  assert.equal(await tracker.fixFor('okeanos-explorer'), null);
+  assert.equal(asks, 1, 'inside the retry window nothing is asked');
+  clock += 2;
+  fail = false;
+  assert.equal((await tracker.fixFor('okeanos-explorer')).at, FIX_AT);
+  assert.equal(asks, 2);
+  // With a fix held, the full poll window applies again.
+  clock += VESSEL_RETRY_MS + 1;
+  await tracker.fixFor('okeanos-explorer');
+  assert.equal(asks, 2);
 });
 
 const shipEntry = (fields = {}) =>

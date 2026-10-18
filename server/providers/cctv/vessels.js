@@ -28,6 +28,8 @@ export const VESSEL_TRACKERS = Object.freeze({
   }),
 });
 export const VESSEL_POLL_MS = 10 * 60 * 1000;
+/** After a failed ask with nothing held, ask again this soon (a cold start). */
+export const VESSEL_RETRY_MS = 60 * 1000;
 export const VESSEL_MAX_FIX_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_BYTES = 64 * 1024;
 
@@ -77,6 +79,7 @@ export function createVesselTracker({
   fetchImpl = (...args) => fetch(...args),
   now = () => Date.now(),
   pollMs = VESSEL_POLL_MS,
+  retryMs = VESSEL_RETRY_MS,
   maxFixAgeMs = VESSEL_MAX_FIX_AGE_MS,
 } = {}) {
   const asked = new Map(); // vesselId → {at, fix, pending}
@@ -109,7 +112,10 @@ export function createVesselTracker({
       const tracker = VESSEL_TRACKERS[vesselId];
       if (!tracker) return null;
       let state = asked.get(vesselId);
-      if (!state || now() - state.at >= pollMs) {
+      // A failed ask that left nothing to show is retried sooner than the
+      // poll window: at start-up the feeds all compete for the network.
+      const waitMs = state && !state.fix && !state.pending ? retryMs : pollMs;
+      if (!state || now() - state.at >= waitMs) {
         const pending = state?.pending || fetchFix(tracker);
         state = { at: now(), fix: state?.fix || null, pending };
         asked.set(vesselId, state);
