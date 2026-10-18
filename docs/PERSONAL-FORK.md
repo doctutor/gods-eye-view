@@ -29,6 +29,7 @@ unless its switch is set to `0`.
 - [Google indoor views (Street Level)](#google-indoor-views-street-level)
 - [Baltimore enforcement and CitiWatch cameras](#baltimore-enforcement-and-citiwatch-cameras)
 - [Earth Engine layers (ANALYSIS)](#earth-engine-layers-analysis)
+- [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
 - [Smaller additions](#smaller-additions)
 - [Keeping up with upstream](#keeping-up-with-upstream)
 - [What you need to do](#what-you-need-to-do)
@@ -634,6 +635,123 @@ far away. Without it, the layer draws (and spends tiles) from orbit.
 
 Anything else Earth Engine can compute needs a small addition to
 `expressionFor`. Use the REST names from the project's `algorithms` list.
+
+## Wikipedia coverage (ANALYSIS)
+
+**Wikipedia coverage**, the last row of the **ANALYSIS** group, drapes a
+heat raster of where English Wikipedia has written about the Earth, in the
+spirit of the Oxford Internet Institute's maps of the uneven geographies of
+Wikipedia and of Earth Engine's catalog rasters. Every article with a
+primary coordinate (Wikimedia's GeoData extension, `geo_tags`) is counted
+into a 0.05° cell (about 5.5 km at the equator, 7200 × 3600 cells), and the
+cells are coloured on a logarithmic inferno-like ramp: transparent where
+there is nothing, a dark half-seen plum at the ramp's floor, pale yellow at
+its ceiling. The floor and ceiling are the 5th and 99.5th percentiles of the
+non-empty cells, so the ramp spans what is there rather than the few
+densest blocks of Manhattan.
+
+The row's chips switch between three variants:
+
+| Chip | What a pixel shows |
+| --- | --- |
+| **Articles per km²** (default) | primary geotagged articles under the pixel, divided by the cells' area (per km², with each row's spherical cell area, so a 60° N cell counts half an equatorial one) |
+| **Text per km²** | bytes of the articles' wikitext per km²: article _size_, not words, and only when the build included the page table (below); otherwise the chip is greyed and choosing it says what to run |
+| **Articles (count)** | the raw number of articles under the pixel, not divided by area, so it grows as you zoom out |
+
+The legend is the ramp in five swatches, labelled with the variant's floor
+and ceiling (the last marked `+`); the opacity slider is kept in this
+browser as `gev.wikipediaCoverage.opacity`; the status line names the dump
+date and the article count. The layer is off by default, is not in share
+links, and voice cannot control it. Tiles go no deeper than z 9, where a
+cell is an 18-pixel square; Cesium upsamples below that. Like the Earth
+Engine overlays it drapes through `maps/imageryHost.js` (the globe, or a
+photoreal tileset's own imagery layers), and covers only a view-sized
+rectangle on a tileset (the Earth Engine layer's rectangle and rebuild
+rule, imported from it).
+
+Attribution: "Wikipedia, CC BY-SA 4.0 — Wikimedia GeoData", in the credit
+line and the data-attribution popover. The counts are facts about
+Wikipedia, not its text; the dump's licence is Wikipedia's.
+
+**Building the grid** (`scripts/wikipedia/`). Nothing is fetched at request
+time: the server reads a grid you build.
+
+```
+npm run wikipedia:build            # articles per km² and counts (about a minute)
+npm run wikipedia:build -- --text  # also article sizes: streams the 2 GB page table once
+npm run wikipedia:status           # what is built, from which dump, how old
+```
+
+1. It downloads Wikimedia's GeoData dump,
+   `https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-geo_tags.sql.gz`
+   (54 MB), with the User-Agent
+   `gods-eye-view-personal-fork/0.1 wikipedia-coverage (+https://github.com/doctutor/gods-eye-view)`
+   as Wikimedia's policy asks, one connection at a time, and keeps the
+   answer's ETag and Last-Modified in `geo_tags.meta.json`. A re-run sends
+   them back; an unchanged dump is a 304 and a few seconds.
+2. It streams the file through gunzip and a MySQL-dump parser
+   (`scripts/wikipedia/dump.mjs`: the `CREATE TABLE` gives the column order,
+   each `INSERT … VALUES` statement its rows, in chunks of any size), keeps
+   `gt_globe = 'earth'` and `gt_primary = 1`, and bins by `gt_lat`,
+   `gt_lon`. The poles and 180° fall in the last row and column; anything
+   outside ±90° / ±180° or with a NULL coordinate is dropped and counted as
+   invalid. The 2026 dumps write one tuple per line after `VALUES`; older
+   ones put them on one line; both parse.
+3. With `--text` it streams `enwiki-latest-page.sql.gz` (about 2 GB
+   compressed, some 63 million rows) once, after a 2 s pause, adding
+   `page_len` to the cell of every page the geo pass kept (redirects are
+   skipped). It is never written to disk. The Action API (`prop=info`,
+   50 ids a request) would be some 27,000 requests and was not used.
+4. It sums the base into four coarser levels (0.1°, 0.2°, 0.4°, 0.8°,
+   the last 450 × 225) and writes `grid.bin`: `'WGRD'`, a JSON header
+   (built-at, the dump's ETag and date, row counts, the top types and
+   countries, the ramp domains) and the arrays, Uint32 counts and Float32
+   bytes, each level at its own offset so the server reads only the levels
+   a view needs. 132 MB without text, 264 MB with.
+
+Everything lives in `.gev-cache/wikipedia/` (or `WIKIPEDIA_COVERAGE_DIR`):
+the dump, `geo_tags.meta.json`, `grid.bin` and `runs.jsonl`, one line a run.
+None of it is committed; the tests use a 301-row synthetic fixture in
+`scripts/wikipedia/fixtures/` in the shape of both dumps.
+
+**Refresh.** The GeoData dump is published about twice a month, so the
+schedule is monthly, not nightly: run `npm run wikipedia:build` (with
+`--text` if you want sizes) from a monthly Task Scheduler or cron entry, or
+by hand when `wikipedia:status` says the grid is older than a month. The
+ETag makes a month without a new dump cost nothing but the request.
+
+**First real run** (2026-10-18, dump of 2026-10-08): 2,814,713 rows,
+1,259,442 primary Earth coordinates kept, 14,021 on other globes,
+1,541,250 secondary tags, 0 invalid; 486,898 non-empty cells; 28 s to bin.
+The articles ramp runs 0.033 to 1.35 per km² (median cell 0.052), the count
+ramp 1 to 30. The commonest `gt_type` values were none (712,054), landmark
+(196,351), city (148,684), edu (40,418) and railwaystation (38,588). The
+`--text` pass then streamed the page table in 11 minutes and sized
+1,256,943 of those articles (the rest are missing from the page table or
+are redirects): 9.28 GB of wikitext, a text ramp of 58 B to 15 kB per km²
+(median cell 258 B/km²), a 263 MB grid.
+
+**Serving** (`server/providers/wikipediaCoverage.js`, same-site, GET only):
+
+- `GET /api/wikipedia-coverage/layers`: whether a grid is built (else
+  "Run npm run wikipedia:build to build the Wikipedia coverage grid"),
+  built-at, the dump's date, the article count, each variant with its ramp
+  domain, the tile template and the attribution.
+- `GET /api/wikipedia-coverage/tile/<variant>/<z>/<x>/<y>`: the 256 × 256
+  values under a Web Mercator tile, resampled from the pyramid level whose
+  cells still fit a pixel (0.8° at z 0, down to the base from z 4): each
+  pixel sums the cells whose centres fall under it, or reads the one cell
+  it lies in when it is smaller than a cell, and divides by their area for
+  the density variants. The bytes are `'WCT1'`, width, height, dtype (1 =
+  Float32) as uint32, then the values; gzip when the browser accepts it
+  (a sparse tile packs to a few kB). Cached a day by the browser.
+
+The grid file is stat'ed at most every 5 s and opened again when it
+changes, so a rebuild lands without a restart. The client
+(`src/layers/wikipediaCoverage/`) paints each tile itself: a custom Cesium
+imagery provider (`provider.js`, implementing what `ImageryLayer` reads in
+1.138) fetches the values through Cesium's `Resource`, so its scheduler
+can throttle, and colours them on a 256 × 256 canvas with `ramp.js`.
 
 ## Smaller additions
 

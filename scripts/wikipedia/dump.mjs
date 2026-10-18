@@ -66,7 +66,9 @@ export function parseColumns(body) {
  */
 export function createDumpParser({ table, onRow, onColumns = () => {} }) {
   if (!/^\w+$/.test(table)) throw new Error('table must be a bare name');
-  const insertPrefix = `INSERT INTO \`${table}\` VALUES `;
+  // The 2026 dumps put a newline after VALUES and one tuple per line;
+  // older ones a space and the tuples on one line. Both are whitespace.
+  const insertPrefix = `INSERT INTO \`${table}\` VALUES`;
   const createPrefix = `CREATE TABLE \`${table}\` (`;
   let tail = '';
   let columns = null;
@@ -110,7 +112,10 @@ export function createDumpParser({ table, onRow, onColumns = () => {} }) {
           inserts += 1;
         }
         // The separator after the previous tuple, when it has arrived.
-        while (at < tail.length && (tail[at] === ' ' || tail[at] === '\n'))
+        while (
+          at < tail.length &&
+          (tail[at] === ' ' || tail[at] === '\n' || tail[at] === '\r')
+        )
           at++;
         if (at >= tail.length) return;
         if (tail[at] === ',') {

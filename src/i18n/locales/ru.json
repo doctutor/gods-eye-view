@@ -3172,5 +3172,23 @@
     "few": "{count} тайла сегодня, этот слой",
     "many": "{count} тайлов сегодня, этот слой",
     "other": "{count} тайла сегодня, этот слой"
-  }
+  },
+  "Articles per km²": "Статей на км²",
+  "Primary geotagged English Wikipedia articles per square kilometre": "Статьи английской Википедии с основными координатами на квадратный километр",
+  "Text per km²": "Текста на км²",
+  "Bytes of article wikitext per square kilometre: article size, not words": "Байты вики-текста статей на квадратный километр: размер статьи, а не слова",
+  "Articles (count)": "Статьи (число)",
+  "Articles under each pixel, not divided by area, so it changes with the zoom": "Статьи под каждым пикселем, без деления на площадь, поэтому меняется с масштабом",
+  "Wikipedia coverage unavailable: {reason}": "Покрытие Википедии недоступно: {reason}",
+  "Asking the server…": "Запрос к серверу…",
+  "Run npm run wikipedia:build to build the Wikipedia coverage grid": "Выполните npm run wikipedia:build, чтобы построить сетку покрытия Википедии",
+  "Article sizes are not built: run npm run wikipedia:build -- --text": "Размеры статей не построены: выполните npm run wikipedia:build -- --text",
+  "Dump of {date}": "Дамп от {date}",
+  "{count} geotagged articles": {
+    "one": "{count} статья с координатами",
+    "few": "{count} статьи с координатами",
+    "many": "{count} статей с координатами",
+    "other": "{count} статьи с координатами"
+  },
+  "Wikipedia coverage": "Покрытие Википедии"
 }

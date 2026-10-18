@@ -418,6 +418,7 @@ export const VOICE_OFF_LAYERS = Object.freeze({
   'ee-terrain-hillshade': 'personal fork layer',
   'ee-forest-loss': 'personal fork layer',
   'ee-admin-boundaries': 'personal fork layer',
+  'wikipedia-coverage': 'personal fork layer',
 });
 
 const TYPE_NAMES = Object.freeze({

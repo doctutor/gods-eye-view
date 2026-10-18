@@ -38,9 +38,9 @@ test('every acquisition source can be omitted without losing catalog membership'
 test('all acquisition sources may be absent, and enable fails before initializing or fetching', async (t) => {
   const actual = catalog({}, t);
   // Personal fork: upstream's 32 plus the two Baltimore camera layers, the
-  // Recorded Video layer and the five Earth Engine overlays
-  // (src/data/earthEngineLayers.js).
-  assert.equal(actual.layers.length, 40);
+  // Recorded Video layer, the five Earth Engine overlays
+  // (src/data/earthEngineLayers.js) and the Wikipedia coverage layer.
+  assert.equal(actual.layers.length, 41);
   const manager = new LayerLifecycle(
     {},
     { getSourceAvailability: actual.getSourceAvailability },
