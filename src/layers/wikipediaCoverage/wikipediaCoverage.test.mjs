@@ -453,6 +453,8 @@ test('the layer drapes the chosen variant at its stored opacity; chips switch it
       ['articles', true, undefined],
       ['text', false, 'error'],
       ['count', false, undefined],
+      // The Hexes mode's toggle (hexes.test.mjs covers it).
+      ['hexes', false, undefined],
     ],
   );
   assert.equal(controls.chips[0].label, 'Articles per km²');

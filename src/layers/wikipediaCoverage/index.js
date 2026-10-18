@@ -3,6 +3,10 @@ import { resolveImageryHost } from '../../maps/imageryHost.js';
 import { viewMoved, viewRectangleDegrees } from '../earthEngine/index.js';
 import { DEFAULT_VARIANT, VARIANTS, rowControls } from './presentation.js';
 import { createCoverageImageryProvider } from './provider.js';
+// The Hexes mode: H3 cells at the camera's resolution instead of the raster.
+import { createHexSurface, fallbackResolution } from './hexes.js';
+import { h3ResolutionForHeight } from '../../maps/h3Resolution.js';
+import { viewMoved as hexViewMoved, viewWindow } from '../../maps/h3Cells.js';
 
 /**
  * Personal fork: the Wikipedia coverage layer (ANALYSIS in the DATA LAYERS
@@ -103,6 +107,14 @@ export function createWikipediaCoverageLayer({
   let _collection = null;
   let _hostKind = 'globe';
   let _madeFor = null;
+  /** The Hexes mode: on or off, the drawn surface, its data and its state. */
+  let _hexes = false;
+  let _hexSurface = null;
+  let _hexData = null;
+  let _hexState = { res: null, count: 0, domain: null, failure: null };
+  let _hexMadeFor = null;
+  let _hexAbort = null;
+  let _hexGen = 0;
   const notify = () => {
     try {
       _rowListener?.();
@@ -170,8 +182,141 @@ export function createWikipediaCoverageLayer({
     requestRender('wikipedia-coverage-hide');
   }
 
+  /** Take the hex surface off the scene. */
+  function unmountHexes() {
+    _hexAbort?.abort();
+    _hexAbort = null;
+    _hexGen += 1;
+    if (_hexSurface?.primitive) {
+      try {
+        _viewer?.scene?.primitives?.remove(_hexSurface.primitive);
+      } catch {
+        /* already gone with the scene */
+      }
+    }
+    if (_hexSurface) requestRender('wikipedia-coverage-hexes-hide');
+    _hexSurface = null;
+    _hexMadeFor = null;
+    _hexState = { ..._hexState, count: 0 };
+  }
+
+  /** Draw the data held for the view at the current opacity. */
+  function mountHexes(data, madeFor) {
+    if (_hexSurface?.primitive) {
+      try {
+        _viewer?.scene?.primitives?.remove(_hexSurface.primitive);
+      } catch {
+        /* already gone */
+      }
+    }
+    _hexSurface = createHexSurface({
+      cells: data.cells,
+      domain: data.domain || { min: 1, max: 2 },
+      opacity: _opacity,
+      cesium,
+    });
+    if (_hexSurface.primitive)
+      _viewer?.scene?.primitives?.add(_hexSurface.primitive);
+    _hexData = data;
+    _hexMadeFor = madeFor;
+    _hexState = {
+      res: data.res,
+      count: _hexSurface.count,
+      domain: data.domain,
+      failure: null,
+    };
+    requestRender('wikipedia-coverage-hexes-show');
+  }
+
+  /** Ask the server for the view's cells; a 413 steps the resolution down once. */
+  async function loadHexes(view) {
+    const wanted = h3ResolutionForHeight(view.heightM);
+    const window = viewWindow(view.lat, view.lon, view.heightM);
+    const box = window || { west: -180, south: -85, east: 180, north: 85 };
+    _hexAbort?.abort();
+    const abort = new AbortController();
+    _hexAbort = abort;
+    const gen = ++_hexGen;
+    const madeFor = { ...view, res: wanted, variant: _variant };
+    _hexMadeFor = madeFor;
+    _loading = true;
+    notify();
+    let res = wanted;
+    let retried = false;
+    try {
+      for (;;) {
+        try {
+          const data = await source.hexCells({
+            res,
+            variant: _variant,
+            box,
+            signal: abort.signal,
+          });
+          if (gen !== _hexGen || !_enabled || !_hexes) return;
+          mountHexes(data, madeFor);
+          return;
+        } catch (error) {
+          if (abort.signal.aborted || gen !== _hexGen) return;
+          const next = error?.status === 413 ? fallbackResolution(res) : null;
+          if (next !== null && !retried) {
+            retried = true;
+            res = next;
+            continue;
+          }
+          // 503: the H3 grid is not built; 404: this variant is not in it
+          // (text without --text). Either greys the variant's chip with
+          // the server's message.
+          _hexState = {
+            ..._hexState,
+            count: 0,
+            domain: null,
+            failure: String(error?.message || error).slice(0, 200),
+            status: Number.isInteger(error?.status) ? error.status : null,
+            variant: _variant,
+          };
+          if (_hexSurface?.primitive) {
+            _viewer?.scene?.primitives?.remove(_hexSurface.primitive);
+            _hexSurface = null;
+          }
+          return;
+        }
+      }
+    } finally {
+      if (gen === _hexGen) {
+        _loading = false;
+        if (_hexAbort === abort) _hexAbort = null;
+      }
+      notify();
+    }
+  }
+
+  /** Keep the hex surface in step with the view, the variant and the mode. */
+  function syncHexes() {
+    if (!_enabled || !_hexes || !_viewer?.scene?.primitives) {
+      unmountHexes();
+      return;
+    }
+    const now = viewNow();
+    const view = { lat: now.lat, lon: now.lon, heightM: now.height };
+    const res = h3ResolutionForHeight(view.heightM);
+    if (
+      _hexMadeFor &&
+      _hexMadeFor.res === res &&
+      _hexMadeFor.variant === _variant &&
+      !hexViewMoved(_hexMadeFor, view)
+    )
+      return;
+    void loadHexes(view);
+  }
+
   /** Drape the chosen variant on the stack's host, when the server has it. */
   function sync() {
+    if (_hexes) {
+      unmount();
+      syncHexes();
+      return;
+    }
+    unmountHexes();
     const variant = _catalog?.variants?.get?.(_variant) || null;
     const host = imageryHost();
     _hostKind = host.kind;
@@ -264,6 +409,22 @@ export function createWikipediaCoverageLayer({
       _imagery.alpha = _opacity;
       requestRender('wikipedia-coverage-opacity');
     }
+    if (_hexSurface) {
+      // Repainted in place once the primitive is ready; before that, drawn
+      // again from the data held.
+      if (_hexSurface.setOpacity(_opacity))
+        requestRender('wikipedia-coverage-opacity');
+      else if (_hexData) mountHexes(_hexData, _hexMadeFor);
+    }
+    notify();
+  }
+
+  /** Switch between the raster and the H3 hexes. */
+  function setHexes(on) {
+    const next = Boolean(on);
+    if (next === _hexes) return;
+    _hexes = next;
+    if (_enabled) sync();
     notify();
   }
 
@@ -307,6 +468,7 @@ export function createWikipediaCoverageLayer({
       _removeMoveListener?.();
       _removeMoveListener = null;
       unmount();
+      unmountHexes();
       notify();
     },
 
@@ -326,10 +488,11 @@ export function createWikipediaCoverageLayer({
     },
 
     getStats() {
+      const drawn = _hexes ? _hexState.count > 0 : Boolean(_imagery);
       return {
-        count: _imagery ? 1 : 0,
-        countLabel: _imagery ? `${Math.round(_opacity * 100)}%` : '—',
-        error: _failure || null,
+        count: _hexes ? _hexState.count : _imagery ? 1 : 0,
+        countLabel: drawn ? `${Math.round(_opacity * 100)}%` : '—',
+        error: (_hexes && _hexState.failure) || _failure || null,
       };
     },
 
@@ -343,8 +506,14 @@ export function createWikipediaCoverageLayer({
         loading: _loading,
         failure: _failure,
         hostless: _enabled && _hostKind === 'none',
+        hexes: _hexes,
+        onHexes: setHexes,
+        hexState: _hexState,
       });
     },
+
+    /** The Hexes mode, for the owner and tests. */
+    setHexes,
 
     /**
      * The map stack controller (src/app/data.js hands it to every layer):
@@ -372,6 +541,12 @@ export function createWikipediaCoverageLayer({
       collection: _collection,
       rectangle: _imagery?.rectangle || null,
       provider: _imagery?.imageryProvider || null,
+      hexes: {
+        on: _hexes,
+        ..._hexState,
+        primitive: _hexSurface?.primitive || null,
+        madeFor: _hexMadeFor,
+      },
     }),
   };
 }

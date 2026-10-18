@@ -1624,11 +1624,12 @@
       "src/maps/countries/index.js",
       "src/maps/countries/renderer.js",
       "src/maps/countries/geometry.js",
-      "src/maps/countries/hexGrid.js",
       "src/maps/countries/palette.js",
-      "src/data/bundledJson.js"
+      "src/data/bundledJson.js",
+      "src/maps/h3Resolution.js",
+      "src/maps/h3Cells.js"
     ],
-    "external": ["cesium"]
+    "external": ["cesium", "h3-js"]
   },
   "voice-connection": {
     "exports": [
@@ -2597,8 +2598,10 @@
       "src/maps/countries/index.js",
       "src/maps/countries/renderer.js",
       "src/maps/countries/geometry.js",
-      "src/maps/countries/hexGrid.js",
-      "src/maps/countries/palette.js"
+      "src/maps/countries/palette.js",
+      "src/maps/h3Resolution.js",
+      "src/maps/h3Cells.js",
+      "src/layers/wikipediaCoverage/hexes.js"
     ],
     "external": [
       "hls.js",
@@ -2609,7 +2612,8 @@
       "pbf",
       "satellite.js",
       "mapillary-js",
-      "@jtarrio/webrtlsdr"
+      "@jtarrio/webrtlsdr",
+      "h3-js"
     ]
   },
   "application-catalog": {
@@ -3204,7 +3208,10 @@
       "src/layers/airQuality/model.js",
       "src/layers/airQuality/source.js",
       "src/ui/statusText.js",
-      "src/ui/layerNames.js"
+      "src/ui/layerNames.js",
+      "src/maps/h3Resolution.js",
+      "src/maps/h3Cells.js",
+      "src/layers/wikipediaCoverage/hexes.js"
     ],
     "external": [
       "hls.js",
@@ -3215,7 +3222,8 @@
       "pbf",
       "mgrs",
       "mapillary-js",
-      "@jtarrio/webrtlsdr"
+      "@jtarrio/webrtlsdr",
+      "h3-js"
     ]
   },
   "application-operations": {

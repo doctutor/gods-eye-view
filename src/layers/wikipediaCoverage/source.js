@@ -77,6 +77,59 @@ export function tileUrl(variant, z, x, y) {
 }
 
 /**
+ * The Hexes mode's URL: H3 cells of a resolution for a variant in a box
+ * (degrees; west > east crosses the antimeridian).
+ */
+export function hexUrl(res, variant, box) {
+  const degrees = (value) => String(Math.round(value * 1e4) / 1e4);
+  const query = new URLSearchParams({
+    west: degrees(box.west),
+    south: degrees(box.south),
+    east: degrees(box.east),
+    north: degrees(box.north),
+  });
+  return `${WIKIPEDIA_COVERAGE_ENDPOINT}/h3/${res}/${variant}?${query}`;
+}
+
+/** An error from the hex endpoint, carrying the status. */
+export class HexRequestError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.name = 'HexRequestError';
+    this.status = status;
+  }
+}
+
+/**
+ * The hex endpoint's body, checked on the way in: cells as [index, value]
+ * pairs with finite values, the domain, the resolution answered.
+ */
+export function toHexCells(body, { res, variant } = {}) {
+  const min = finite(body?.domain?.min);
+  const max = finite(body?.domain?.max);
+  const cells = (Array.isArray(body?.cells) ? body.cells : [])
+    .filter(
+      (row) =>
+        Array.isArray(row) &&
+        /^[0-9a-f]{15}$/i.test(String(row[0] || '')) &&
+        Number.isFinite(row[1]),
+    )
+    .map(([cell, value]) => [String(cell).toLowerCase(), value]);
+  return {
+    res: Number.isInteger(body?.res) ? body.res : (res ?? 0),
+    variant: VARIANT_KEYS.includes(body?.variant) ? body.variant : variant,
+    dumpDate: /^\d{4}-\d{2}-\d{2}$/.test(String(body?.dump?.date || ''))
+      ? body.dump.date
+      : '',
+    domain:
+      min !== null && max !== null && max > min && min > 0
+        ? { min, max, median: finite(body.domain.median) ?? min }
+        : null,
+    cells,
+  };
+}
+
+/**
  * A tile's bytes as its values: 'WCT1', width, height, dtype (uint32 LE
  * each), then Float32 values, row 0 at the north edge.
  * @param {ArrayBuffer} buffer
@@ -140,5 +193,24 @@ export function createWikipediaCoverageSource({
     },
     /** The last catalog seen, if any. */
     last: () => held,
+    /**
+     * The Hexes mode's cells for a window. Throws a HexRequestError with
+     * the server's status: 413 when the window holds too many cells at
+     * the resolution, 503 when the H3 grid is not built.
+     * @param {{res: number, variant: string, box: object, signal?: AbortSignal}} request
+     */
+    async hexCells({ res, variant, box, signal }) {
+      const response = await fetchImpl(hexUrl(res, variant, box), {
+        credentials: 'same-origin',
+        signal,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok)
+        throw new HexRequestError(
+          response.status,
+          text(body?.message || body?.error || `HTTP ${response.status}`),
+        );
+      return toHexCells(body, { res, variant });
+    },
   };
 }

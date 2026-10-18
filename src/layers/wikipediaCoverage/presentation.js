@@ -97,26 +97,70 @@ export function rowControls({
   failure = null,
   hostless = false,
   attribution = '',
+  // The Hexes mode (hexes.js): on or off, its toggle, and what it drew.
+  hexes = false,
+  onHexes = null,
+  hexState = null,
 }) {
   const chosen = catalog?.variants?.get?.(variant) || null;
+  // In Hexes mode the legend follows the resolution's own domain.
+  const legendDomain = hexes ? hexState?.domain || null : chosen?.domain;
+  const hexInfo =
+    hexes && hexState?.res !== undefined && hexState?.res !== null
+      ? t('Hexes: resolution {res}, {count} cells', {
+          res: hexState.res,
+          count: hexState.count ?? 0,
+        })
+      : '';
+  const status = statusText({
+    catalog,
+    variant,
+    loading,
+    failure: hexes ? hexState?.failure || failure : failure,
+    hostless: hexes ? false : hostless,
+  });
   return {
-    chips: VARIANTS.map((record) => {
-      const available =
-        catalog?.variants?.get?.(record.key)?.available === true;
-      return {
-        id: record.key,
-        label: t(record.label),
-        title: t(record.title),
-        active: record.key === variant,
-        // Chips stay clickable while the catalog loads; an unbuilt variant
-        // is shown greyed, and choosing it says what to run.
-        state: catalog?.configured && !available ? 'error' : undefined,
-        onClick: () => onVariant(record.key),
-      };
-    }),
-    legend: chosen?.available
-      ? legendStops(chosen.domain, { bytes: variant === 'text' })
-      : [],
+    chips: [
+      ...VARIANTS.map((record) => {
+        const available =
+          catalog?.variants?.get?.(record.key)?.available === true;
+        return {
+          id: record.key,
+          label: t(record.label),
+          title: t(record.title),
+          active: record.key === variant,
+          // Chips stay clickable while the catalog loads; an unbuilt variant
+          // is shown greyed, and choosing it says what to run.
+          state:
+            (catalog?.configured && !available) ||
+            // In Hexes mode a variant the hex grid lacks (404) or an unbuilt
+            // grid (503) greys the chip that asked, with the message below.
+            (hexes &&
+              hexState?.variant === record.key &&
+              [404, 503].includes(hexState?.status))
+              ? 'error'
+              : undefined,
+          onClick: () => onVariant(record.key),
+        };
+      }),
+      ...(onHexes
+        ? [
+            {
+              id: 'hexes',
+              label: t('Hexes'),
+              title: t(
+                'Draw H3 hexes at a resolution chosen by the camera height instead of the raster',
+              ),
+              active: hexes,
+              onClick: () => onHexes(!hexes),
+            },
+          ]
+        : []),
+    ],
+    legend:
+      legendDomain && (hexes || chosen?.available)
+        ? legendStops(legendDomain, { bytes: variant === 'text' })
+        : [],
     slider: {
       label: t('Opacity {value}%', { value: Math.round(opacity * 100) }),
       min: 0,
@@ -125,7 +169,7 @@ export function rowControls({
       value: Math.round(opacity * 100),
       onInput: (value) => onOpacity(value / 100),
     },
-    info: statusText({ catalog, variant, loading, failure, hostless }),
+    info: [hexInfo, status].filter(Boolean).join(' · '),
     infoTitle: catalog?.attribution || attribution || '',
   };
 }
