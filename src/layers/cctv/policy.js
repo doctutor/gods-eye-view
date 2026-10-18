@@ -169,6 +169,24 @@ export const CAMERA_ICON = (() => {
 })();
 
 /**
+ * Personal fork: the icon of a cam that moves (a ship's: server
+ * cctv/vessels.js), the camera above a hull and a wake, so it reads apart
+ * from a fixed pin.
+ */
+export const MOVING_CAMERA_ICON = (() => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+    <g transform="translate(5 3)">
+      <rect x="2" y="4" width="16" height="8" rx="2.2" fill="#0e1720" stroke="#75e7ff" stroke-width="1.2"/>
+      <rect x="15" y="6" width="8" height="4" rx="1.3" fill="#132433" stroke="#75e7ff" stroke-width="1"/>
+      <circle cx="20.5" cy="8" r="2.6" fill="#6fd9ff" stroke="#dbfbff" stroke-width="0.8"/>
+      <path d="M0 17 H26 L22 23 H4 Z" fill="#10212d" stroke="#75e7ff" stroke-width="1.2" stroke-linejoin="round"/>
+      <path d="M-2 27 Q2 25 6 27 T14 27 T22 27 T30 27" fill="none" stroke="#4ecde7" stroke-width="1.3" stroke-linecap="round"/>
+    </g>
+  </svg>`;
+  return 'data:image/svg+xml;base64,' + btoa(svg);
+})();
+
+/**
  * Seed camera definitions used when no live sources are available.
  * Each seed references a city from CITY_POIS and a POI index within that city,
  * plus offsets to place the camera near the POI.

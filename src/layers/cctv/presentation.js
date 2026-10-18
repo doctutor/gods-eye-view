@@ -198,6 +198,10 @@ export function createPresentation({
             licenseClass: camera.licenseClass,
           }
         : {}),
+      // Personal fork: a cam aboard a ship and its last fix (catalog.js).
+      ...(camera.moving && camera.vessel
+        ? { moving: true, vessel: { ...camera.vessel } }
+        : {}),
     };
   }
 

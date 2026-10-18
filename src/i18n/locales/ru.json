@@ -3226,5 +3226,9 @@
   "States and provinces appear below 5,000 km": "Штаты и провинции появляются ниже 5 000 км",
   "Land as hexes; finer as you zoom in": "Суша шестиугольниками; мельче при приближении",
   "map style|Countries": "Страны",
-  "the video’s own location is far from the channel’s place": "собственное местоположение видео далеко от места канала"
+  "the video’s own location is far from the channel’s place": "собственное местоположение видео далеко от места канала",
+  "SHIP FIX {time} UTC": "КООРДИНАТЫ СУДНА {time} UTC",
+  "SHIP FIX {time} UTC · IN PORT": "КООРДИНАТЫ СУДНА {time} UTC · В ПОРТУ",
+  "placed at the ship's last position fix": "по последним координатам судна",
+  "Placed at the ship's last position fix.": "Размещена по последним координатам судна."
 }

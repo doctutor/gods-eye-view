@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Featured live cams for the Cameras layer (personal fork). Hand-checked public-interest streams that their operators publish on YouTube. Place each cam at the precision its operator publishes and never finer: coordinatesQuality is site (the operator names the spot), area (a town, park or island), region, or operator-geotag. titleMatch tokens find a restarted stream again on the same channel. Checked 2026-10-14.",
+  "about": "Featured live cams for the Cameras layer (personal fork). Hand-checked public-interest streams that their operators publish on YouTube. Place each cam at the precision its operator publishes and never finer: coordinatesQuality is site (the operator names the spot), area (a town, park or island), region, or operator-geotag. titleMatch tokens find a restarted stream again on the same channel. Checked 2026-10-14. A cam aboard a ship has placement 'vessel' and a vessel tracker id instead of lat/lon: it is pinned at the ship's latest position fix (server/providers/cctv/vessels.js) and left out while no fix of the last day is known.",
   "cams": [
     {
       "id": "baltimore-peregrine-falcons",
@@ -905,6 +905,44 @@
         "titleMatch": [
           "safarilive",
           "sunrise"
+        ]
+      }
+    },
+    {
+      "id": "okeanos-explorer-camera-1",
+      "name": "NOAA Ship Okeanos Explorer, camera 1",
+      "place": "NOAA Ship Okeanos Explorer (at sea)",
+      "category": "marine",
+      "placement": "vessel",
+      "vessel": "okeanos-explorer",
+      "coordinatesQuality": "site",
+      "operator": "NOAA Ocean Exploration",
+      "operatorUrl": "https://oceanexplorer.noaa.gov/",
+      "youtube": {
+        "videoId": "EZZDZtCitH8",
+        "channelId": "UCe_3CoEeinvPMze2u_aENBg",
+        "titleMatch": [
+          "camera 1:",
+          "(ex"
+        ]
+      }
+    },
+    {
+      "id": "okeanos-explorer-camera-3",
+      "name": "NOAA Ship Okeanos Explorer, camera 3",
+      "place": "NOAA Ship Okeanos Explorer (at sea)",
+      "category": "marine",
+      "placement": "vessel",
+      "vessel": "okeanos-explorer",
+      "coordinatesQuality": "site",
+      "operator": "NOAA Ocean Exploration",
+      "operatorUrl": "https://oceanexplorer.noaa.gov/",
+      "youtube": {
+        "videoId": "VoIO56Hep40",
+        "channelId": "UCe_3CoEeinvPMze2u_aENBg",
+        "titleMatch": [
+          "camera 3:",
+          "(ex"
         ]
       }
     }
