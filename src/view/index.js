@@ -37,6 +37,21 @@ export const VIEW_MAPS = Object.freeze([
   'bing-labels',
   'esri-imagery',
   'osm',
+  // Personal fork: the keyless styles (src/maps/keylessBasemapCatalog.js).
+  'blank-black',
+  'blank-white',
+  'natural-earth-ii',
+  'carto-positron',
+  'carto-positron-nolabels',
+  'carto-dark-matter',
+  'carto-dark-matter-nolabels',
+  'opentopomap',
+  'nasa-black-marble',
+  'nasa-blue-marble',
+  'stamen-toner',
+  'stamen-toner-lite',
+  'stamen-terrain',
+  'stamen-watercolor',
 ]);
 
 /**

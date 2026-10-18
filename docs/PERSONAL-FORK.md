@@ -29,6 +29,7 @@ unless its switch is set to `0`.
 - [Google indoor views (Street Level)](#google-indoor-views-street-level)
 - [Baltimore enforcement and CitiWatch cameras](#baltimore-enforcement-and-citiwatch-cameras)
 - [Earth Engine layers (ANALYSIS)](#earth-engine-layers-analysis)
+- [Keyless basemaps (MAP SOURCE)](#keyless-basemaps-map-source)
 - [Smaller additions](#smaller-additions)
 - [Keeping up with upstream](#keeping-up-with-upstream)
 - [What you need to do](#what-you-need-to-do)
@@ -634,6 +635,75 @@ far away. Without it, the layer draws (and spends tiles) from orbit.
 
 Anything else Earth Engine can compute needs a small addition to
 `expressionFor`. Use the REST names from the project's `algorithms` list.
+
+## Keyless basemaps (MAP SOURCE)
+
+Fourteen more map sources that need no key, under the five upstream chips in
+the MAP SOURCE tray. The chips stay as upstream renders them; everything
+else is in one grouped **More styles…** picker below them
+(`src/mapStackMore.js`). The picker shows the active style lit, with a short
+note when the style has a limit, and the placeholder while a chip is active.
+A style that cannot be built (no network, a refused request) and a style
+whose tiles fail twice both fall back to OSM, as Esri does upstream.
+
+| Group   | Style                                       | Source                                                                                                         | Levels | Attribution                                                                   |
+| ------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------- |
+| Blank   | Blank (black), Blank (white)                | No imagery at all: the bare globe painted with `globe.baseColor`                                               | —      | none                                                                          |
+| Light   | Natural Earth II                            | CesiumJS's bundled tile set (`Assets/Textures/NaturalEarthII`)                                                 | 0–2    | Natural Earth (public domain)                                                 |
+| Light   | CARTO Positron, Positron (no labels)        | `basemaps.cartocdn.com` (`light_all`, `light_nolabels`)                                                        | 0–20   | © OpenStreetMap contributors © CARTO                                          |
+| Dark    | CARTO Dark Matter, Dark Matter (no labels)  | `basemaps.cartocdn.com` (`dark_all`, `dark_nolabels`)                                                          | 0–20   | © OpenStreetMap contributors © CARTO                                          |
+| Terrain | OpenTopoMap                                 | `tile.opentopomap.org`                                                                                         | 0–17   | Map data © OpenStreetMap contributors, SRTM; map style © OpenTopoMap (CC-BY-SA) |
+| NASA    | NASA Black Marble                           | GIBS WMTS, `VIIRS_Black_Marble` (2016 night lights), EPSG:3857, `GoogleMapsCompatible_Level8`                  | 0–8    | NASA GIBS (ESDIS)                                                             |
+| NASA    | NASA Blue Marble                            | GIBS WMTS, `BlueMarble_NextGeneration`, EPSG:3857, `GoogleMapsCompatible_Level8`                               | 0–8    | NASA GIBS (ESDIS)                                                             |
+| Stamen  | Stamen Toner, Toner Lite, Terrain, Watercolor | `tiles.stadiamaps.com` (`stamen_toner` 0–20, `stamen_toner_lite` 0–20, `stamen_terrain` 0–18, `stamen_watercolor` 0–16) | see source | © Stadia Maps © Stamen Design © OpenMapTiles © OpenStreetMap contributors |
+
+Each style's attribution is carried by its imagery provider and shown in
+Cesium's credit line while it is on screen. The URL shapes were checked
+against the live services on 2026-10-17 (a z=9 GIBS tile is a 400; a z=17
+watercolor tile is an empty 204).
+
+**Fair use.** OpenTopoMap is a volunteer-run service for interactive use:
+the style stays within 17 levels, and nothing bulk-loads it. GIBS is NASA's
+public service and keyless. CARTO's raster basemaps are free for
+non-commercial use with attribution. Stadia Maps serves the Stamen styles to
+`localhost` without a key; from any other origin set `STADIA_MAPS_API_KEY`
+in `.env` (free at client.stadiamaps.com). The key is appended to tile URLs
+the browser loads, so like `MAPILLARY_CLIENT_TOKEN` it is client-exposed by
+design (`build/vite.js` injects it; restrict it to your domain at Stadia).
+It is never logged. The key is registered as a hidden POWER UP row
+(`stadia-maps`), so it never counts as a missing key.
+
+**How it works.**
+
+- `src/maps/keylessBasemapCatalog.js` holds the records (id, labels, group,
+  note, how to draw, credit). Pure data: the tray, the share-link codec and
+  the voice vocabulary read it without Cesium. `MAP_STACKS` (catalog.js)
+  appends one descriptor per record, kind `keyless-basemap`.
+- `src/maps/keylessBasemaps.js` builds the provider for a record
+  (`UrlTemplateImageryProvider` for CARTO, OpenTopoMap, GIBS and Stadia;
+  Cesium's `TileMapServiceImageryProvider` for Natural Earth II; `null` for
+  a blank globe) and the registry entry `defaultSources.js` hands the map
+  controller: the same terrain as the other 2D stacks, the credit, and the
+  OSM fallbacks.
+- A blank style resolves to no provider. The controller (`controller.js`,
+  two "Personal fork" lines) then adds no imagery layer and paints
+  `globe.baseColor` (`src/maps/globeBaseColor.js` remembers Cesium's own
+  colour and restores it under the next imagery). Earth Engine and the
+  other draped overlays still find the shown globe to drape on
+  (`imageryHost.js`).
+- Share links accept every id as `map=` (`src/view/index.js`), the voice
+  tool `set_map_stack` lists them with spoken aliases ("dark matter",
+  "black marble", "night lights", "toner", "watercolour", "topo", "blank",
+  "white globe"…; `src/voice/gevActions.js`), the submarine cables classify
+  them against terrain (`CABLE_GLOBE_STACK_IDS`), and the first Google key
+  strips them from the restart hash like OSM and Esri
+  (`stripKeylessBasemapFromHash`).
+
+**Adding a style** is one record in `keylessBasemapCatalog.js`, then the
+same id in the five literal lists above (the tests in
+`src/maps/keylessBasemaps.test.mjs` and `src/voice/gevActions.test.mjs` fail
+until every list agrees), its translations in `es.json` and `ru.json` for
+any note, and a row here.
 
 ## Smaller additions
 

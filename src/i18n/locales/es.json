@@ -3102,5 +3102,21 @@
     "one": "{count} tesela hoy, esta capa",
     "many": "{count} de teselas hoy, esta capa",
     "other": "{count} teselas hoy, esta capa"
-  }
+  },
+  "map style|Blank": "Vacío",
+  "map style|Light": "Claro",
+  "map style|Dark": "Oscuro",
+  "map style|Terrain": "Relieve",
+  "More map styles": "Más estilos de mapa",
+  "More styles…": "Más estilos…",
+  "No imagery: a black globe for overlays": "Sin imágenes: un globo negro para las capas",
+  "No imagery: a white globe for overlays": "Sin imágenes: un globo blanco para las capas",
+  "Far-out views only: three zoom levels, bundled with Cesium": "Solo vistas lejanas: tres niveles de zoom, incluido en Cesium",
+  "A volunteer-run service: fair use, no bulk loading": "Un servicio de voluntarios: uso razonable, sin cargas masivas",
+  "VIIRS night lights, 2016; eight zoom levels": "Luces nocturnas VIIRS, 2016; ocho niveles de zoom",
+  "Blue Marble: Next Generation; eight zoom levels": "Blue Marble: Next Generation; ocho niveles de zoom",
+  "Sixteen zoom levels": "Dieciséis niveles de zoom",
+  "{label} is unavailable; using OSM": "{label} no está disponible; se usa OSM",
+  "{label} tile requests failed; using OSM": "Fallaron las teselas de {label}; se usa OSM",
+  "Stamen map styles from any origin (localhost works without)": "Estilos de mapa Stamen desde cualquier origen (localhost funciona sin clave)"
 }

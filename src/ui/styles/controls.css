@@ -954,6 +954,67 @@ html:not([lang='en']) .pp-slider-row > .pp-slider-mini-label {
   color: rgba(232, 234, 237, 0.28);
 }
 
+/* Personal fork: the "More styles" picker under the five chips. One compact
+   select keeps the keyless styles out of the chip grid; its note line names
+   a limit of the active style (zoom levels, fair use). */
+.map-stack-more-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+  min-width: 0;
+}
+
+.map-stack-more-row[hidden] {
+  display: none;
+}
+
+.map-stack-more-select {
+  width: 100%;
+  height: 22px;
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.map-stack-more-select:hover,
+.map-stack-more-select:focus-visible {
+  border-color: var(--glass-border-hover);
+  color: var(--text-primary);
+}
+
+.map-stack-more-select.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.map-stack-more-select option,
+.map-stack-more-select optgroup {
+  text-transform: none;
+  color: var(--text-primary);
+  background: #10161c;
+}
+
+.map-stack-more-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.3px;
+  color: rgba(190, 221, 230, 0.62);
+}
+
+.map-stack-more-note[hidden] {
+  display: none;
+}
+
 .pp-stack-status {
   min-width: 42px;
   max-width: 54px;

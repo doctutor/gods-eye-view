@@ -22,6 +22,9 @@ const FORK_FILES = [
   'src/layers/recordedVideo/',
   'src/layers/earthEngine/',
   'src/layers/streetLevel/providers/googleIndoor/',
+  'src/maps/keylessBasemapCatalog.js',
+  'src/maps/keylessBasemaps.js',
+  'src/mapStackMore.js',
 ];
 
 /** The fork's markup in the CCTV panel (layer-panels.html). */

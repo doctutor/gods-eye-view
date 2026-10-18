@@ -3172,5 +3172,21 @@
     "few": "{count} тайла сегодня, этот слой",
     "many": "{count} тайлов сегодня, этот слой",
     "other": "{count} тайла сегодня, этот слой"
-  }
+  },
+  "map style|Blank": "Пустой",
+  "map style|Light": "Светлый",
+  "map style|Dark": "Тёмный",
+  "map style|Terrain": "Рельеф",
+  "More map styles": "Другие стили карты",
+  "More styles…": "Другие стили…",
+  "No imagery: a black globe for overlays": "Без снимков: чёрный глобус для наложений",
+  "No imagery: a white globe for overlays": "Без снимков: белый глобус для наложений",
+  "Far-out views only: three zoom levels, bundled with Cesium": "Только дальние виды: три уровня масштаба, входит в Cesium",
+  "A volunteer-run service: fair use, no bulk loading": "Волонтёрский сервис: умеренное использование, без массовой загрузки",
+  "VIIRS night lights, 2016; eight zoom levels": "Ночные огни VIIRS, 2016; восемь уровней масштаба",
+  "Blue Marble: Next Generation; eight zoom levels": "Blue Marble: Next Generation; восемь уровней масштаба",
+  "Sixteen zoom levels": "Шестнадцать уровней масштаба",
+  "{label} is unavailable; using OSM": "{label} недоступен; используется OSM",
+  "{label} tile requests failed; using OSM": "Тайлы {label} не загрузились; используется OSM",
+  "Stamen map styles from any origin (localhost works without)": "Стили карт Stamen с любого источника (localhost работает без ключа)"
 }

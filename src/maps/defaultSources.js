@@ -9,6 +9,8 @@ import {
   ESRI_ATTRIBUTION_HTML,
 } from './imagery.js';
 import { createWorldTerrain, createKeylessTerrain } from './terrain.js';
+// Personal fork: keyless raster basemaps share the globe terrain below.
+import { keylessBasemapSource } from './keylessBasemaps.js';
 
 /** Select sources and setup guidance without putting provider branches in the controller. */
 export function createDefaultMapSources({
@@ -47,6 +49,9 @@ export function createDefaultMapSources({
           unavailableReason: photorealUnavailableReason(hasIon || hasGoogle),
           tileset: googleTileset,
         };
+      // Personal fork: data-driven keyless styles, with their own OSM fallbacks.
+      if (descriptor.kind === 'keyless-basemap')
+        return keylessBasemapSource(descriptor, { terrain });
       const imagery =
         descriptor.kind === 'ion'
           ? () => createIonImagery(descriptor.style, ionToken)

@@ -481,7 +481,9 @@
       "src/i18n/index.js",
       "src/i18n/locale.js",
       "src/i18n/locales/es.json",
-      "src/i18n/locales/ru.json"
+      "src/i18n/locales/ru.json",
+      "src/mapStackMore.js",
+      "src/maps/keylessBasemapCatalog.js"
     ],
     "external": []
   },
@@ -803,7 +805,9 @@
       "src/ui/unitLabels.js",
       "src/ui/keyGuidance.js",
       "src/ui/layerNames.js",
-      "src/ui/statusText.js"
+      "src/ui/statusText.js",
+      "src/mapStackMore.js",
+      "src/maps/keylessBasemapCatalog.js"
     ],
     "external": ["cesium"]
   },
@@ -917,7 +921,8 @@
       "src/i18n/locale.js",
       "src/i18n/locales/es.json",
       "src/i18n/locales/ru.json",
-      "src/ui/unitLabels.js"
+      "src/ui/unitLabels.js",
+      "src/maps/keylessBasemapCatalog.js"
     ],
     "external": ["cesium"]
   },
@@ -1610,7 +1615,10 @@
       "src/i18n/index.js",
       "src/i18n/locale.js",
       "src/i18n/locales/es.json",
-      "src/i18n/locales/ru.json"
+      "src/i18n/locales/ru.json",
+      "src/maps/keylessBasemapCatalog.js",
+      "src/maps/globeBaseColor.js",
+      "src/maps/keylessBasemaps.js"
     ],
     "external": ["cesium"]
   },
@@ -2558,7 +2566,11 @@
       "src/layers/airQuality/index.js",
       "src/layers/airQuality/model.js",
       "src/layers/airQuality/source.js",
-      "src/ui/statusText.js"
+      "src/ui/statusText.js",
+      "src/maps/keylessBasemapCatalog.js",
+      "src/maps/globeBaseColor.js",
+      "src/maps/keylessBasemaps.js",
+      "src/mapStackMore.js"
     ],
     "external": [
       "hls.js",

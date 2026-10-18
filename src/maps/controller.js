@@ -2,6 +2,8 @@ import { indexMapSources } from './registry.js';
 import * as Cesium from 'cesium';
 import { createMapCredits } from './credits.js';
 import { acquireImageryComparison } from './imageryComparison.js';
+// Personal fork: blank basemaps paint the bare globe instead of draping imagery.
+import { applyGlobeBaseColor } from './globeBaseColor.js';
 
 /**
  * Private `setStack` option marking a switch the controller issues itself
@@ -293,9 +295,13 @@ export class MapSourceController {
       this._activeImageryProvider !== resolution.provider
     ) {
       this._removeImageryLayer();
-      this._imageryLayer = this._createImageryLayer(resolution.provider);
-      this._activeImageryProvider = resolution.provider;
-      this.viewer.imageryLayers.add(this._imageryLayer, 0);
+      // Personal fork: a source whose imagery resolves to null is a blank
+      // globe; it gets no imagery layer at all.
+      if (resolution.provider) {
+        this._imageryLayer = this._createImageryLayer(resolution.provider);
+        this._activeImageryProvider = resolution.provider;
+        this.viewer.imageryLayers.add(this._imageryLayer, 0);
+      }
     }
     const source = this._sources.get(resolution.effectiveStackId);
     this._credits.show(source?.credit || null);
@@ -306,6 +312,8 @@ export class MapSourceController {
     this._watchProvider(resolution, gen);
     this._showTileset(null);
     this.viewer.scene.globe.show = true;
+    // Personal fork: paint the globe for a blank source; restore it otherwise.
+    applyGlobeBaseColor(this.viewer, source?.globeBaseColor);
     this._activeId = resolution.effectiveStackId;
     this._activeResolution = resolution;
     if (source?.terrain && source.terrain.id !== this._terrainMode) {

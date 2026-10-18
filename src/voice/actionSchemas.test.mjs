@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { GEV_ACTION_SCHEMAS, createActionTools } from './actionSchemas.js';
 import { GEV_REALTIME_TOOLS } from '../../server/providers/openai/tools.js';
+// Personal fork: the keyless basemaps are a deliberate enum addition.
+import { KEYLESS_BASEMAP_IDS } from '../maps/keylessBasemapCatalog.js';
 import {
   validateArgs,
   validateCall,
@@ -38,7 +40,8 @@ test('the complete Realtime tool payload pins the manifest-generated layer relea
     // requested radius and center authority in descriptions only.
     // Street Level and GNSS extend the manifest; tracked and analyst aircraft describe broadcasts.
     // Air quality (ECCC AQHI) extends the manifest.
-    '775ba323384b4c1b62fb8415bac52aecc3fc668e20bedcfa57e426dcd1da3969',
+    // Personal fork: the keyless basemaps extend set_map_stack's enum.
+    '6f3187f77fe3983c02d0dcfbac9d6816cde3d4e9c4039f51f6d5bae8ccf63327',
   );
 });
 
@@ -138,6 +141,9 @@ test('all legacy action arguments are byte-identical after removing the delibera
   // Cyber adds one HUD layout.
   const hud = property('set_hud').layout;
   hud.enum = hud.enum.filter((layout) => layout !== 'cyber');
+  // Personal fork: the keyless basemaps extend set_map_stack's enum.
+  const stack = property('set_map_stack').stack;
+  stack.enum = stack.enum.filter((id) => !KEYLESS_BASEMAP_IDS.includes(id));
   // Derived by applying the same removals to the 4b56d0e9 actionSchemas.
   assert.equal(
     createHash('sha256').update(JSON.stringify(legacy)).digest('hex'),

@@ -55,6 +55,7 @@ export function createBrowserViteConfig({
   googleApiKey,
   cesiumToken,
   mapillaryToken,
+  stadiaMapsKey, // Personal fork: optional Stadia Maps key for the Stamen styles
   host = 'localhost',
   port = 4173,
   allowedHosts = DEFAULT_ALLOWED_HOSTS,
@@ -112,6 +113,11 @@ export function createBrowserViteConfig({
       // Mapillary client tokens are public by design (see SECURITY.md).
       'import.meta.env.MAPILLARY_CLIENT_TOKEN': JSON.stringify(
         mapillaryToken ?? '',
+      ),
+      // Personal fork: a Stadia Maps key is a client key by design (the tiles
+      // load in the browser); Stadia serves localhost without one.
+      'import.meta.env.STADIA_MAPS_API_KEY': JSON.stringify(
+        stadiaMapsKey ?? '',
       ),
     },
     build: { chunkSizeWarningLimit: 1500 },
