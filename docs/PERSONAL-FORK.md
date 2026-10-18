@@ -875,4 +875,7 @@ These keys go in `.env`; the in-app POWER UP panel doesn't list them.
       before sharing screenshots.
 - [ ] Run camindex (`discover`, then `build`) when you want its cameras, or
       install the nightly task (camindex section) so it keeps itself current.
+- [ ] Run `npm run wikipedia:build` (add `--text` for article sizes) for the
+      Wikipedia coverage layer, and again monthly; a month without a new
+      dump costs one request.
 - [ ] Optional: `STREETVIEW_INDOOR_GRID=1`, `CCTV_AUDIO_SWEEP=1`.
