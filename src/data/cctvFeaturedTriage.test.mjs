@@ -18,6 +18,7 @@ import {
   DEFAULT_DAILY_CAP,
   TRIAGE_CODES,
   createFeaturedTriage,
+  subjectOf,
   triageDecision,
   triageLogFile,
 } from '../../server/providers/cctv/featuredTriage.js';
@@ -760,4 +761,115 @@ test('in a review, a stream placed by its own video location is written as an op
     ],
   );
   assert.equal((await readJson(catalog)).cams.length, 1);
+});
+
+// Personal fork: explore.org's rules for streams placed from their title.
+const EXPLORE_RULES = parseChannels({
+  channels: [
+    {
+      channelId: EXPLORE,
+      operator: 'explore.org',
+      autoTriage: {
+        subjects: {
+          site: ['nest', 'exhibit'],
+          area: ['park', 'reserve'],
+        },
+      },
+    },
+  ],
+})[0];
+const fromTitle = (coordinatesQuality, spanM) => ({
+  suggestion: {
+    kind: 'text',
+    lat: 46.87741,
+    lon: -113.98922,
+    coordinatesQuality,
+    label: 'the place in the title',
+    ...(spanM === undefined ? {} : { spanM }),
+  },
+});
+
+test('explore.org: a named nest or exhibit is a site; a park or reserve only a small one; else a person decides', () => {
+  assert.deepEqual(EXPLORE_RULES.autoTriage.subjects, {
+    site: ['nest', 'exhibit'],
+    area: ['park', 'reserve'],
+  });
+  const decide = (title, extra) =>
+    triageDecision(item('subject0001', EXPLORE, title, extra), EXPLORE_RULES);
+  const nest = decide('Osprey Nest – Hellgate Canyon', fromTitle('site', 40));
+  assert.deepEqual(
+    [nest.action, nest.code, nest.position.coordinatesQuality],
+    ['accept', 'subject-site', 'site'],
+  );
+  assert.equal(
+    decide('Penguin Exhibit Cam', fromTitle('site')).code,
+    'subject-site',
+  );
+  // A nest whose place is only a town waits.
+  assert.equal(
+    decide('Osprey Nest – Charlo', fromTitle('area', 3000)).code,
+    'text-place',
+  );
+  // A small reserve is a campus; a national park is not.
+  const small = decide('Hummingbird Reserve Feeder', fromTitle('area', 800));
+  assert.deepEqual(
+    [small.code, small.position.coordinatesQuality],
+    ['subject-campus', 'area'],
+  );
+  assert.equal(
+    decide('Brown Bears – Katmai National Park', fromTitle('area', 120_000))
+      .code,
+    'text-place',
+  );
+  assert.equal(
+    decide('Wolf Park Cam', fromTitle('area')).code,
+    'text-place',
+    'no size known: no campus',
+  );
+  // Neither word, or a channel without the rule: as before.
+  assert.equal(decide('Underwater Cam', fromTitle('site')).code, 'text-place');
+  assert.equal(
+    triageDecision(
+      item('subject0002', EXPLORE, 'Osprey Nest – Hellgate', fromTitle('site')),
+      channel(EXPLORE),
+    ).code,
+    'text-place',
+  );
+  // Whole words only: a garden is no den.
+  assert.equal(subjectOf('Rose Garden', { site: ['den'] }), null);
+  assert.equal(subjectOf('Two Eagle Nests', { site: ['nest'] }), 'site');
+  // The daily cap holds them too.
+  assert.equal(
+    triageDecision(
+      item('subject0003', EXPLORE, 'Osprey Nest – Hellgate', fromTitle('site')),
+      EXPLORE_RULES,
+      { acceptedToday: DEFAULT_DAILY_CAP },
+    ).code,
+    'cap',
+  );
+});
+
+test('the shipped explore.org channels carry the subject rules', async () => {
+  const shipped = parseChannels(
+    JSON.parse(
+      await fs.readFile(
+        new URL(
+          '../data/local_data/cctv_featured/channels.json',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    ),
+  );
+  const explore = shipped.filter((c) => c.operator === 'explore.org');
+  assert.equal(explore.length, 5);
+  for (const c of explore) {
+    assert.ok(c.autoTriage.subjects.site.includes('nest'));
+    assert.ok(c.autoTriage.subjects.area.includes('reserve'));
+  }
+  assert.ok(
+    !shipped.some(
+      (c) => c.operator !== 'explore.org' && c.autoTriage?.subjects,
+    ),
+  );
 });

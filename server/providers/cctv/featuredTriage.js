@@ -41,6 +41,12 @@ import {
  *   lies outside the channel's place (by its precision: 1 km for a site,
  *   1.5 km for a campus, 10 km for an area, 150 km for a region) is held.
  *   `autoTriage.videoLocation: false` turns this off for a channel.
+ * - A channel's `autoTriage.subjects` (explore.org's) place streams from
+ *   their title by what the title names: a nest or an exhibit is a site,
+ *   accepted when the title's place geocodes to site precision; a park or a
+ *   reserve is an area, accepted only when the geocoder's viewport for it is
+ *   under about a kilometre across (CAMPUS_SPAN_M). Otherwise the stream
+ *   waits for a person, as before.
  *
  * Every automatic accept and skip, and every new hold, is a line in
  * .gev-cache/cctv-featured/triage.log, so the owner can audit them.
@@ -60,7 +66,14 @@ const MAX_SKIPPED = 5000;
  * holds are shown on the card (src/ui/cctvPending.js).
  */
 export const TRIAGE_CODES = Object.freeze({
-  accept: ['site-default', 'campus-default', 'location-rule', 'video-location'],
+  accept: [
+    'site-default',
+    'campus-default',
+    'location-rule',
+    'video-location',
+    'subject-site',
+    'subject-campus',
+  ],
   skip: [
     'never',
     'event',
@@ -93,6 +106,21 @@ export const AGREEMENT_RADIUS_M = Object.freeze({
   area: 10_000,
   region: 150_000,
 });
+/** A park or reserve named in a title is a campus when it is no wider than this. */
+export const CAMPUS_SPAN_M = 1_000;
+
+/** What a title's place is by the channel's words: 'site', 'area' or null. */
+export function subjectOf(title, subjects) {
+  const text = String(title || '').toLowerCase();
+  const names = (list) =>
+    (list || []).some((word) =>
+      new RegExp(`\\b${word.replace(/[^a-z -]/g, '')}(?:e?s)?\\b`).test(text),
+    );
+  if (names(subjects?.site)) return 'site';
+  if (names(subjects?.area)) return 'area';
+  return null;
+}
+
 /** Another channel's pin this close to a video's location means a shared centroid. */
 export const STACK_RADIUS_M = 30;
 
@@ -284,6 +312,30 @@ export function triageDecision(
     return { action: 'skip', code: 'no-location' };
   if (suggestion.coordinatesQuality === 'region')
     return { action: 'skip', code: 'region-only' };
+  // The channel's words for what its titles name (explore.org's rules).
+  const subject =
+    suggestion.kind === 'text' ? subjectOf(title, auto.subjects) : null;
+  const bySubject = (code, coordinatesQuality) =>
+    capped
+      ? { action: 'hold', code: 'cap' }
+      : {
+          action: 'accept',
+          code,
+          position: {
+            lat: Number(suggestion.lat),
+            lon: Number(suggestion.lon),
+            coordinatesQuality,
+            label: suggestion.label || channel?.operator || '',
+          },
+        };
+  if (subject === 'site' && suggestion.coordinatesQuality === 'site')
+    return bySubject('subject-site', 'site');
+  if (
+    subject === 'area' &&
+    ['site', 'area'].includes(suggestion.coordinatesQuality) &&
+    Number(suggestion.spanM) <= CAMPUS_SPAN_M
+  )
+    return bySubject('subject-campus', 'area');
   return {
     action: 'hold',
     code: suggestion.kind === 'geotag' ? 'geotag' : 'text-place',
