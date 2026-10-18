@@ -9,6 +9,8 @@ import { defaultSourceRoot } from './common/source-root.js';
 import {
   EARTH_ENGINE_ATTRIBUTION,
   EARTH_ENGINE_LAYERS,
+  inkColor,
+  layerInks,
   layerVariants,
 } from '../../src/data/earthEngineLayers.js';
 
@@ -21,16 +23,18 @@ import {
  *   GET /api/earth-engine/layers
  *       the overlay layers (src/data/earthEngineLayers.js) with their tile
  *       URL template, legend, attribution, map expiry and any error
- *   GET /api/earth-engine/tile/<layer>/<variant>/<z>/<x>/<y>
+ *   GET /api/earth-engine/tile/<layer>/<variant>/<ink>/<z>/<x>/<y>
  *       one tile, kept on disk, within EARTH_ENGINE_DAILY_TILES a day
  *       (counted per layer for the day; a warning is logged at 50% and
- *       90% of the budget)
+ *       90% of the budget); the ink is 'light' or 'dark' for a features
+ *       layer with inks, 'default' otherwise
  *
- * Each layer's map is made by POST /v1/projects/<project>/maps with the
- * layer's expression (the computation graph Earth Engine's own clients
- * send), cached until it nears its expiry, made again on demand, one
- * request at a time per layer; when a new one cannot be made the old one
- * keeps serving and the error is reported. The JSON sent for each layer is
+ * Each (layer, variant, ink) has its own map, made by POST
+ * /v1/projects/<project>/maps with the layer's expression (the computation
+ * graph Earth Engine's own clients send; a features layer's line colour is
+ * the ink's), cached until it nears its expiry, made again on demand, one
+ * request at a time per map; when a new one cannot be made the old one
+ * keeps serving and the error is reported. The JSON sent for each map is
  * a committed fixture (src/data/fixtures/earth-engine-expressions.json), so
  * an Earth Engine rejection can be read against exactly what was sent.
  *
@@ -82,16 +86,20 @@ function assetNode(asset) {
 }
 
 /**
- * A layer variant's expression, as the REST API takes it:
+ * A layer variant's expression in an ink, as the REST API takes it:
  * {values: {0: <value node>}, result: '0'}.
  */
-export function expressionFor(layer, variant = layerVariants(layer)[0]) {
+export function expressionFor(
+  layer,
+  variant = layerVariants(layer)[0],
+  ink = layerInks(layer)[0],
+) {
   let node = assetNode(variant.asset);
   if (layer.kind === 'features') {
     const style = layer.style || {};
     node = invoke('Collection.style', {
       collection: node,
-      color: constant(style.color || 'ffffff'),
+      color: constant(inkColor(layer, ink)),
       fillColor: constant(style.fillColor || '00000000'),
       width: constant(style.width ?? 1),
     });
@@ -120,9 +128,12 @@ export function expressionFor(layer, variant = layerVariants(layer)[0]) {
   return { values: { 0: node }, result: '0' };
 }
 
-/** The body of the request that makes a layer variant's map. */
-export function mapRequestFor(layer, variant) {
-  const body = { expression: expressionFor(layer, variant), fileFormat: 'PNG' };
+/** The body of the request that makes a layer variant's map in an ink. */
+export function mapRequestFor(layer, variant, ink = layerInks(layer)[0]) {
+  const body = {
+    expression: expressionFor(layer, variant, ink),
+    fileFormat: 'PNG',
+  };
   if (layer.kind !== 'features' && layer.vis)
     body.visualizationOptions = {
       ranges: [{ min: layer.vis.min, max: layer.vis.max }],
@@ -275,13 +286,13 @@ export function createRestBackend({
   }
   return {
     /** @returns {Promise<{name: string}>} */
-    async createMap(layer, variant) {
+    async createMap(layer, variant, ink = layerInks(layer)[0]) {
       const response = await authorized(
         `${EE_API}/projects/${encodeURIComponent(project)}/maps?fields=name`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(mapRequestFor(layer, variant)),
+          body: JSON.stringify(mapRequestFor(layer, variant, ink)),
         },
       );
       if (!response.ok) throw new Error(await errorText(response));
@@ -330,7 +341,7 @@ export function createRestBackend({
 // --- the service ---------------------------------------------------------------
 
 const TILE_PATH =
-  /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z0-9-]{1,20})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
+  /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
 
 /**
  * @param {{sourceRoot?: string, env?: object, layers?: Array<object>,
@@ -348,7 +359,7 @@ export function createEarthEngineService({
   const byId = new Map(layers.map((layer) => [layer.id, layer]));
   const dir = path.join(sourceRoot, CACHE_DIR);
   const usageFile = path.join(dir, 'usage.json');
-  /** "<layer>/<variant>" → {name, madeAt, expiresAt, error, inflight}. */
+  /** "<layer>/<variant>/<ink>" → {name, madeAt, expiresAt, error, inflight}. */
   const maps = new Map();
   let made = null;
 
@@ -376,9 +387,9 @@ export function createEarthEngineService({
     return made.backend;
   }
 
-  /** A variant's map, made again once old; the old one serves if that fails. */
-  async function mapFor(layer, variant, { force = false } = {}) {
-    const key = `${layer.id}/${variant.key}`;
+  /** A (variant, ink)'s map, made again once old; the old one serves if that fails. */
+  async function mapFor(layer, variant, ink, { force = false } = {}) {
+    const key = `${layer.id}/${variant.key}/${ink}`;
     const held = maps.get(key) || {};
     maps.set(key, held);
     if (!force && held.name && now() < held.expiresAt) return held;
@@ -386,7 +397,7 @@ export function createEarthEngineService({
       try {
         const engine = backendNow();
         if (!engine) throw new Error(NEEDS_KEY);
-        const { name } = await engine.createMap(layer, variant);
+        const { name } = await engine.createMap(layer, variant, ink);
         Object.assign(held, {
           name,
           madeAt: now(),
@@ -449,12 +460,13 @@ export function createEarthEngineService({
     fs.renameSync(temporary, usageFile);
   }
 
-  const tileFile = (layerId, variantKey, z, x, y) =>
+  const tileFile = (layerId, variantKey, ink, z, x, y) =>
     path.join(
       dir,
       'tiles',
       layerId,
       variantKey,
+      ink,
       String(z),
       String(x),
       `${y}.png`,
@@ -469,22 +481,34 @@ export function createEarthEngineService({
       const out = [];
       for (const layer of layers) {
         const variants = [];
+        const inks = layerInks(layer);
         let error = current.configured || backend ? null : NEEDS_KEY;
         for (const variant of layerVariants(layer)) {
-          const held =
-            current.configured || backend ? await mapFor(layer, variant) : {};
-          if (held.error && !error) error = held.error;
+          // One map per ink; the variant is ready when every ink's map is.
+          const held = [];
+          for (const ink of inks)
+            held.push(
+              current.configured || backend
+                ? await mapFor(layer, variant, ink)
+                : {},
+            );
+          const failed = held.find((map) => map.error);
+          if (failed && !error) error = failed.error;
+          const expiries = held
+            .map((map) => map.expiresAt)
+            .filter(Number.isFinite);
           variants.push({
             key: variant.key,
+            ...(variant.auto ? { auto: true } : {}),
             ...(variant.minHeightM !== undefined
               ? { minHeightM: variant.minHeightM }
               : {}),
             ...(variant.maxHeightM !== undefined
               ? { maxHeightM: variant.maxHeightM }
               : {}),
-            ready: Boolean(held.name),
-            ...(held.expiresAt
-              ? { expiresAt: new Date(held.expiresAt).toISOString() }
+            ready: held.every((map) => Boolean(map.name)),
+            ...(expiries.length
+              ? { expiresAt: new Date(Math.min(...expiries)).toISOString() }
               : {}),
           });
         }
@@ -492,9 +516,10 @@ export function createEarthEngineService({
           id: layer.id,
           name: layer.name,
           kind: layer.kind,
-          tileUrl: `${EARTH_ENGINE_ROUTE}/tile/${layer.id}/{variant}/{z}/{x}/{y}`,
+          tileUrl: `${EARTH_ENGINE_ROUTE}/tile/${layer.id}/{variant}/{ink}/{z}/{x}/{y}`,
           maxZoom: layer.maxZoom ?? 12,
           variants,
+          inks,
           legend: layer.legend || [],
           attribution:
             `${EARTH_ENGINE_ATTRIBUTION} · ${layer.attribution || ''}`.trim(),
@@ -515,16 +540,18 @@ export function createEarthEngineService({
      * One tile: from disk, else from Earth Engine within the day's budget.
      * @returns {Promise<{status: number, contentType?: string, body?: Buffer, error?: string, cached?: boolean}>}
      */
-    async tile(layerId, variantKey, z, x, y) {
+    async tile(layerId, variantKey, ink, z, x, y) {
       const layer = byId.get(layerId);
       const variant = layer
         ? layerVariants(layer).find((entry) => entry.key === variantKey)
         : null;
       if (!variant) return { status: 404, error: 'No such layer' };
+      if (!layerInks(layer).includes(ink))
+        return { status: 404, error: 'No such ink' };
       const limit = 2 ** z;
       if (z > (layer.maxZoom ?? 12) || x >= limit || y >= limit)
         return { status: 400, error: 'Tile out of range' };
-      const file = tileFile(layerId, variantKey, z, x, y);
+      const file = tileFile(layerId, variantKey, ink, z, x, y);
       try {
         const stat = fs.statSync(file);
         if (now() - stat.mtimeMs < TILE_TTL_MS)
@@ -545,14 +572,14 @@ export function createEarthEngineService({
           status: 429,
           error: `The day's ${current.dailyTiles} Earth Engine tiles are used`,
         };
-      let held = await mapFor(layer, variant);
+      let held = await mapFor(layer, variant, ink);
       if (!held.name) return { status: 502, error: held.error || 'No map' };
       const engine = backendNow();
       countTile(layerId);
       let answer = await engine.fetchTile(held.name, z, x, y);
       // An expired map is made again, once.
       if ([400, 404].includes(answer.status)) {
-        held = await mapFor(layer, variant, { force: true });
+        held = await mapFor(layer, variant, ink, { force: true });
         if (held.name) {
           countTile(layerId);
           answer = await engine.fetchTile(held.name, z, x, y);
@@ -601,10 +628,11 @@ export function createEarthEngineHandler({ service }) {
         return sendJson(res, 200, await service.layers());
       const match = TILE_PATH.exec(route);
       if (match) {
-        const [, layer, variant, z, x, y] = match;
+        const [, layer, variant, ink, z, x, y] = match;
         const answer = await service.tile(
           layer,
           variant,
+          ink,
           Number(z),
           Number(x),
           Number(y),

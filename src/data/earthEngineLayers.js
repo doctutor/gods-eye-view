@@ -11,7 +11,11 @@
  * - UMD/hansen/global_forest_change_2025_v1_13 (image, band lossyear:
  *   0 = no loss, 1–25 = loss in 2001–2025), the latest version;
  * - FAO/GAUL/2025/level1 and level2 (tables, CC-BY-4.0), the successors of
- *   the deprecated, noncommercial-only 2015 tables.
+ *   the deprecated, noncommercial-only 2015 tables. GAUL 2025 has no
+ *   level0 (checked with the API on 2026-10-18: the folder lists level1
+ *   and level2 only), so the countries variant is FAO/GAUL/2015/level0,
+ *   which exists (deprecated, noncommercial; the project is registered
+ *   noncommercial). USDOS/LSIB_SIMPLE/2017 is the public-domain alternative.
  *
  * A record:
  *   id          layer id ('ee-' prefix), also the tile route's name
@@ -23,8 +27,12 @@
  *   selfMask    true to leave zero pixels transparent
  *   vis         {min, max, palette} (palette colours as RRGGBB)
  *   style       {color, fillColor, width} for features (RRGGBBAA allowed)
- *   variants    for features: [{key, asset, minHeightM?, maxHeightM?}], one
- *               map per variant, picked by camera height
+ *   inks        for features: {light: RRGGBBAA, dark: RRGGBBAA}, the line
+ *               colour per ink; one map per (variant, ink), and the client
+ *               picks the ink from the basemap's luminance (src/maps/ink.js)
+ *   variants    for features: [{key, asset, auto?, minHeightM?, maxHeightM?}],
+ *               one map per variant; on AUTO the camera height picks among
+ *               the `auto` variants, and a chip can force any variant
  *   legend      [{label, color}] (labels are English UI text)
  *   attribution the notice the dataset's terms require
  *   maxZoom     the deepest tile level asked for
@@ -149,15 +157,23 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     name: 'Administrative boundaries',
     kind: 'features',
     variants: Object.freeze([
-      // States and provinces from far out; districts closer in.
+      // Countries only when asked for (the COUNTRIES chip): GAUL 2025 has
+      // no level0 table, so this is the 2015 one.
+      Object.freeze({
+        key: 'level0',
+        asset: Object.freeze({ table: 'FAO/GAUL/2015/level0' }),
+      }),
+      // On AUTO: states and provinces from far out; districts closer in.
       Object.freeze({
         key: 'level1',
         asset: Object.freeze({ table: 'FAO/GAUL/2025/level1' }),
+        auto: true,
         minHeightM: 800_000,
       }),
       Object.freeze({
         key: 'level2',
         asset: Object.freeze({ table: 'FAO/GAUL/2025/level2' }),
+        auto: true,
         maxHeightM: 800_000,
       }),
     ]),
@@ -166,12 +182,15 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
       fillColor: '00000000',
       width: 1,
     }),
+    // White on imagery and dark styles; near-black on the white globe,
+    // Positron, the light Stamen styles and the light Countries maps.
+    inks: Object.freeze({ light: 'ffffffcc', dark: '1a1a1acc' }),
     legend: Object.freeze([
       // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
       Object.freeze({ label: 'Boundary', color: '#ffffff' }),
     ]),
     attribution:
-      'FAO GAUL 2025, Global Administrative Unit Layers (CC BY 4.0); boundaries do not imply any opinion of FAO',
+      'FAO GAUL 2025 (countries: GAUL 2015), Global Administrative Unit Layers (CC BY 4.0); boundaries do not imply any opinion of FAO',
     maxZoom: 12,
   }),
 ]);
@@ -183,9 +202,15 @@ export function layerVariants(layer) {
     : [{ key: 'default', asset: layer?.asset }];
 }
 
-/** The variant a camera height wants (the first that fits, else the last). */
+/**
+ * The variant a camera height wants on AUTO: the first `auto` variant
+ * that fits, else the last of them. A layer without `auto` variants
+ * chooses among all of its variants.
+ */
 export function variantForHeight(layer, heightM) {
-  const variants = layerVariants(layer);
+  const all = layerVariants(layer);
+  const eligible = all.filter((variant) => variant.auto);
+  const variants = eligible.length ? eligible : all;
   return (
     variants.find(
       (variant) =>
@@ -193,4 +218,16 @@ export function variantForHeight(layer, heightM) {
         !(Number(heightM) >= (variant.maxHeightM ?? Infinity)),
     ) || variants[variants.length - 1]
   );
+}
+
+/** A layer's inks: features layers with `inks` name theirs; anything else has one. */
+export function layerInks(layer) {
+  return layer?.inks && Object.keys(layer.inks).length
+    ? Object.keys(layer.inks)
+    : ['default'];
+}
+
+/** The line colour (RRGGBB[AA]) a features layer draws in an ink. */
+export function inkColor(layer, ink) {
+  return layer?.inks?.[ink] || layer?.style?.color || 'ffffff';
 }

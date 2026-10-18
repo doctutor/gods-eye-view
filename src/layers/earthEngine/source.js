@@ -24,6 +24,7 @@ export function toCatalogLayer(row) {
     .map((variant) => ({
       key: variant.key,
       ready: variant.ready === true,
+      ...(variant.auto === true ? { auto: true } : {}),
       ...(Number.isFinite(variant.minHeightM)
         ? { minHeightM: variant.minHeightM }
         : {}),
@@ -31,11 +32,17 @@ export function toCatalogLayer(row) {
         ? { maxHeightM: variant.maxHeightM }
         : {}),
     }));
+  const inks = (Array.isArray(row.inks) ? row.inks : []).filter((ink) =>
+    /^[a-z]{1,10}$/.test(String(ink)),
+  );
   return {
     id,
     attribution: text(row.attribution, 300),
     maxZoom: Number.isInteger(row.maxZoom) ? Math.min(18, row.maxZoom) : 12,
     variants,
+    // The inks the server has maps for: 'light' and 'dark' for a features
+    // layer, 'default' otherwise.
+    inks: inks.length ? inks : ['default'],
     legend: (Array.isArray(row.legend) ? row.legend : [])
       .filter((entry) => /^#[0-9a-f]{6}$/i.test(String(entry?.color || '')))
       .map((entry) => ({ label: text(entry.label, 40), color: entry.color })),
@@ -47,9 +54,9 @@ export function toCatalogLayer(row) {
   };
 }
 
-/** The tile URL template for a layer variant (the server's proxy). */
-export function tileTemplate(layerId, variantKey) {
-  return `${EARTH_ENGINE_ENDPOINT}/tile/${layerId}/${variantKey}/{z}/{x}/{y}`;
+/** The tile URL template for a layer variant in an ink (the server's proxy). */
+export function tileTemplate(layerId, variantKey, ink = 'default') {
+  return `${EARTH_ENGINE_ENDPOINT}/tile/${layerId}/${variantKey}/${ink}/{z}/{x}/{y}`;
 }
 
 /**
