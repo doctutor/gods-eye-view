@@ -492,3 +492,33 @@ test('without depth textures the grid is drawn at sea level and says so', () => 
   );
   layer.destroy();
 });
+
+test('the real layer lifecycle enables, refreshes and disables the grid cleanly in every mode', async () => {
+  // update() has nothing to fetch, but a false from it reads as a rejected
+  // enable: the row showed LOAD FAILED while the lines drew.
+  const { LayerLifecycle } = await import('../../data/lifecycle.js');
+  for (const mode of ['latlon', 'tissot', 'mgrs']) {
+    const fake = fakeViewer();
+    const manager = new LayerLifecycle(fake.viewer);
+    const layer = createGridLayer({
+      cesium,
+      storage: memoryStorage({ [MODE_STORAGE_KEY]: mode }),
+      overlayHost: fakeOverlayHost(),
+    });
+    manager.register(layer);
+    await manager.setEnabled('grid', true);
+    const state = manager.getLayerLifecycleState('grid');
+    assert.equal(state.enabled, true, mode);
+    assert.equal(state.lifecycleState, 'enabled', mode);
+    assert.equal(await layer.update(), true, 'enabled: a truthy update');
+    await manager.refreshLayer('grid');
+    const row = manager.getAll().find((entry) => entry.id === 'grid');
+    assert.equal(row.enabled, true);
+    assert.ok(!row.stats.error, `no refresh error (${mode})`);
+    assert.ok(fake.scene.groundPrimitives.items.length > 0, mode);
+    await manager.setEnabled('grid', false);
+    assert.equal(manager.isEnabled('grid'), false);
+    assert.equal(fake.scene.groundPrimitives.items.length, 0, mode);
+    assert.equal(await layer.update(), false, 'disabled: nothing to do');
+  }
+});
