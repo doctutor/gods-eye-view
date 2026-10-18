@@ -485,6 +485,38 @@ test('north-up preserves target pitch and range', () => {
   assert.equal(lookAt.offset.range, before.range);
 });
 
+test('successive resets alternate north up and south up', () => {
+  const { viewer } = createViewer();
+  const northButton = new FakeButton();
+  const toasts = [];
+  const controls = bindCameraOrientationControls({
+    viewer,
+    elements: { northButton },
+    runNavigation: (noun, navigate) => navigate(),
+    showToast: (message) => toasts.push(message),
+  });
+  // The needle reads the camera once the eased turn has landed it.
+  const land = (heading) => {
+    viewer.camera.heading = heading;
+    controls.sync();
+  };
+  northButton.click();
+  land(0);
+  assert.equal(northButton.getAttribute('--camera-heading'), '0deg');
+  assert.match(northButton.getAttribute('aria-label'), /south up/);
+  northButton.click();
+  land(Math.PI);
+  assert.equal(northButton.getAttribute('--camera-heading'), '180deg');
+  assert.equal(northButton.getAttribute('data-south-up'), 'true');
+  assert.equal(northButton.getAttribute('data-north-up'), 'false');
+  assert.match(northButton.getAttribute('aria-label'), /north up/);
+  northButton.click();
+  land(0);
+  assert.equal(northButton.getAttribute('--camera-heading'), '0deg');
+  assert.deepEqual(toasts, ['North up', 'South up', 'North up']);
+  controls.destroy();
+});
+
 test('bindings route both controls and release every listener on destroy', () => {
   const { viewer } = createViewer();
   const tiltButton = new FakeButton();

@@ -1697,7 +1697,6 @@
   "Turn Street Level on or off": "Включить или выключить «Уличные снимки»",
   "Toggle straight-down and tilted map views": "Переключить вид карты: сверху или с наклоном",
   "Reset map to north up": "Повернуть карту севером вверх",
-  "Reset map bearing to north": "Сбросить азимут карты на север",
   "Rain radar": "Радар осадков",
   "Lightning density": "Плотность молний",
   "LATEST · newest per product": "ПОСЛЕДНИЕ · самые свежие по каждому продукту",
@@ -3251,5 +3250,8 @@
   "Districts from this height: the tiles arrive slowly": "Районы с этой высоты: тайлы приходят медленно",
   "The ink follows the basemap: cyan and amber on dark maps, blue-grey and brown on light maps": "Цвет следует за подложкой: голубой и янтарный на тёмных картах, серо-синий и коричневый на светлых",
   "Light ink: cyan and amber lines": "Светлый цвет: голубые и янтарные линии",
-  "Dark ink: blue-grey and brown lines": "Тёмный цвет: серо-синие и коричневые линии"
+  "Dark ink: blue-grey and brown lines": "Тёмный цвет: серо-синие и коричневые линии",
+  "Reset map to south up. Current heading {heading} degrees": "Повернуть карту югом вверх. Текущий курс: {heading} градусов",
+  "South up": "Юг вверху",
+  "Reset map bearing to north, then south": "Повернуть карту на север, затем на юг"
 }

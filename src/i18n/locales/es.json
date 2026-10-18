@@ -1671,7 +1671,6 @@
   "Turn Street Level on or off": "Activar o desactivar A pie de calle",
   "Toggle straight-down and tilted map views": "Alternar entre la vista cenital y la vista inclinada del mapa",
   "Reset map to north up": "Orientar el mapa al norte",
-  "Reset map bearing to north": "Restablecer la orientación del mapa al norte",
   "Rain radar": "Radar de lluvia",
   "Lightning density": "Densidad de rayos",
   "LATEST · newest per product": "ÚLTIMO · más reciente por producto",
@@ -3180,5 +3179,8 @@
   "Districts from this height: the tiles arrive slowly": "Distritos desde esta altura: las teselas llegan despacio",
   "The ink follows the basemap: cyan and amber on dark maps, blue-grey and brown on light maps": "La tinta sigue al mapa base: cian y ámbar sobre mapas oscuros, gris azulado y marrón sobre mapas claros",
   "Light ink: cyan and amber lines": "Tinta clara: líneas cian y ámbar",
-  "Dark ink: blue-grey and brown lines": "Tinta oscura: líneas gris azulado y marrón"
+  "Dark ink: blue-grey and brown lines": "Tinta oscura: líneas gris azulado y marrón",
+  "Reset map to south up. Current heading {heading} degrees": "Orientar el mapa al sur. Rumbo actual: {heading} grados",
+  "South up": "Sur arriba",
+  "Reset map bearing to north, then south": "Orientar el mapa al norte, luego al sur"
 }

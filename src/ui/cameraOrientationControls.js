@@ -255,6 +255,9 @@ export function bindCameraOrientationControls({
   // of the screen: 4 ms median and up to 12 ms, measured on this machine. It is
   // therefore held between refreshes rather than recomputed per frame.
   let tilted = false;
+  // Personal fork: the reset alternates between north up and south up, so
+  // the map is not always returned to the same hemisphere's convention.
+  let nextUp = 'north';
   const animator = createCameraOrientationAnimator(viewer);
 
   /** Recompute the tilt state exactly, paying for one pick. */
@@ -295,12 +298,18 @@ export function bindCameraOrientationControls({
     }
     if (!applied || applied.heading !== next.heading) {
       northButton?.setAttribute('data-north-up', String(next.heading === 0));
+      // Personal fork: south up is a state of its own for the needle.
+      northButton?.setAttribute('data-south-up', String(next.heading === 180));
       northButton?.style?.setProperty('--camera-heading', `${next.heading}deg`);
       northButton?.setAttribute(
         'aria-label',
-        t('Reset map to north up. Current heading {heading} degrees', {
-          heading: next.heading,
-        }),
+        nextUp === 'south'
+          ? t('Reset map to south up. Current heading {heading} degrees', {
+              heading: next.heading,
+            })
+          : t('Reset map to north up. Current heading {heading} degrees', {
+              heading: next.heading,
+            }),
       );
     }
     applied = next;
@@ -335,17 +344,23 @@ export function bindCameraOrientationControls({
   });
   listen(northButton, () => {
     const pending = animator.destination;
+    // Personal fork: successive presses alternate north up and south up.
+    const south = nextUp === 'south';
     const result = runNavigation('camera', () => {
       const frame = readCameraTargetFrame(viewer);
       return (
         frame &&
         animator.animate(frame, {
-          heading: 0,
+          heading: south ? Math.PI : 0,
           pitch: pending?.pitch ?? frame.pitch,
         })
       );
     });
-    if (result) showToast?.(t('North up'));
+    if (result) {
+      showToast?.(south ? t('South up') : t('North up'));
+      nextUp = south ? 'north' : 'south';
+      applied = null; // the label names the next press
+    }
     sync();
   });
 

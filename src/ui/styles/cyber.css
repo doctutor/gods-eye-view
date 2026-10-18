@@ -1430,6 +1430,9 @@
 
 :root[data-ui-theme='cyber']
   #north-up-view[data-north-up='true']
+  .camera-compass-n,
+:root[data-ui-theme='cyber']
+  #north-up-view[data-south-up='true']
   .camera-compass-n {
   color: var(--cyber-red-bright);
   text-shadow: 0 0 6px var(--cyber-red);
