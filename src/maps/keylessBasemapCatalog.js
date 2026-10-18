@@ -47,6 +47,7 @@ export const KEYLESS_BASEMAP_GROUPS = Object.freeze([
   Object.freeze({ id: 'terrain' }),
   Object.freeze({ id: 'nasa', label: 'NASA' }), // i18n-ignore: agency name
   Object.freeze({ id: 'stamen', label: 'Stamen' }), // i18n-ignore: product name
+  Object.freeze({ id: 'countries' }), // the Countries basemap (countries/catalog.js)
 ]);
 
 const CARTO_MAX_LEVEL = 20;

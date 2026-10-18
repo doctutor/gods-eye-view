@@ -24,6 +24,7 @@ const FORK_FILES = [
   'src/layers/streetLevel/providers/googleIndoor/',
   'src/maps/keylessBasemapCatalog.js',
   'src/maps/keylessBasemaps.js',
+  'src/maps/countries/',
   'src/mapStackMore.js',
 ];
 

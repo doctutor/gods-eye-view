@@ -88,8 +88,9 @@ test('the records follow the five upstream sources in MAP_STACKS, unchanged', ()
   );
   assert.deepEqual(KEYLESS_BASEMAP_IDS, EXPECTED_IDS);
   assert.deepEqual(
-    MAP_STACKS.slice(5).map((stack) => stack.id),
+    MAP_STACKS.slice(5, 5 + EXPECTED_IDS.length).map((stack) => stack.id),
     EXPECTED_IDS,
+    'the keyless styles follow the five, before the Countries basemap',
   );
   const groupIds = new Set(KEYLESS_BASEMAP_GROUPS.map((group) => group.id));
   for (const record of KEYLESS_BASEMAPS) {

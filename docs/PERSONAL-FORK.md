@@ -30,6 +30,7 @@ unless its switch is set to `0`.
 - [Baltimore enforcement and CitiWatch cameras](#baltimore-enforcement-and-citiwatch-cameras)
 - [Earth Engine layers (ANALYSIS)](#earth-engine-layers-analysis)
 - [Keyless basemaps (MAP SOURCE)](#keyless-basemaps-map-source)
+- [The Countries basemap (MAP SOURCE)](#the-countries-basemap-map-source)
 - [Smaller additions](#smaller-additions)
 - [Keeping up with upstream](#keeping-up-with-upstream)
 - [What you need to do](#what-you-need-to-do)
@@ -704,6 +705,81 @@ same id in the five literal lists above (the tests in
 `src/maps/keylessBasemaps.test.mjs` and `src/voice/gevActions.test.mjs` fail
 until every list agrees), its translations in `es.json` and `ru.json` for
 any note, and a row here.
+
+## The Countries basemap (MAP SOURCE)
+
+MapChart-style world maps, drawn as Cesium geometry on a blank globe: six
+entries in the picker's **Countries** group, three styles in a dark and a
+light theme. They are map sources, not data layers, so a countries style
+is the ground everything else sits on.
+
+| Style        | What it draws                                                                                                                                                                                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Simple       | Every country as one fill with a dark (light theme) or light (dark theme) outline, like MapChart's Simple map.                                                                                                                                                           |
+| Subdivisions | The simple map, plus the first-level units (states, provinces, regions) as thinner outlines once the camera is below 5,000 km. Only the units around the view are built, in a square six times the camera height across (at most 10,000 km), rebuilt when the view moves half way to its edge. |
+| Hex          | Land as a hexagonal tessellation, each hex coloured by the country under its centre from a ten-colour palette: the "war games" look. From orbit (above 6,000 km) one planet-wide lattice of 150 km cells; nearer, a local lattice around the view, 60 km cells down to 1,500 km and 25 km below that, coarsened when a lattice would pass 20,000 cells. |
+
+**Geometry.** The bundled Natural Earth packs
+(`src/data/local_data/natural_earth/countries.json`, 260 countries, and
+`states_provinces.json`, 4,587 units; public domain, provenance in that
+folder's README), loaded on first use with `loadBundledJson`. Nothing is
+fetched from the network and no server route is involved: the packs were
+already in the tree for the voice annotation resolver, simplified at
+0.005–0.02° with holes kept (Lesotho is a hole in South Africa). The task
+asked for a download script and a `.gev-cache/natural-earth/` cache; the
+packs make both unnecessary.
+
+**Rendering** (`src/maps/countries/renderer.js`). Fills are
+`PolygonGeometry` instances with a per-instance colour in one `Primitive`
+(`PerInstanceColorAppearance`, flat), outlines `PolylineGeometry` instances
+in another. A countries style installs flat terrain
+(`EllipsoidTerrainProvider`), so the polygons at the ellipsoid are the
+ground; the next imagery stack restores its own terrain. The globe is
+painted the theme's ocean colour, like the blank basemaps, and the
+controller adds no imagery layer. The planet-wide group is rebuilt only
+when the style, theme, opacity or a country colour changes; the view-bound
+group (units, hexes) on `camera.moveEnd` when the view has moved far
+enough. A late pack load or build after the stack has moved on draws
+nothing.
+
+**Draped overlays.** The Earth Engine imagery drapes on the shown globe as
+before (the imagery host is the globe), but Cesium draws primitives over
+the globe's imagery, so an opaque countries fill covers an overlay. Lower
+the fill opacity to see both:
+
+```js
+const { countriesBasemap } = window.__godsEyeView.styleManager.mapStackController;
+countriesBasemap.setOpacity(0.5); // kept in this browser as gev.countries.opacity
+```
+
+**Colouring countries** by hand or from data, by ISO 3166-1 alpha-2:
+
+```js
+countriesBasemap.setCountryFill('UA', '#d94f4f'); // null removes it
+countriesBasemap.setCountryFills({ FR: '#3b6', DE: '#36b' }); // replaces all
+```
+
+Overrides apply in every style and theme (`src/maps/countries/palette.js`;
+the themes' colours are there too). The hex grid
+(`src/maps/countries/hexGrid.js`) is dependency-free: a pointy-top lattice
+laid out in kilometres on an equal-area projection and inverse-projected
+to the sphere, Lambert cylindrical for the planet-wide grid and Lambert
+azimuthal centred under the view for the local ones, so every cell covers
+the same ground area. The planet-wide cylindrical lattice stretches
+towards the poles and its rows are about 4° apart at 65°N, so small
+high-latitude land (Iceland) can fall between cell centres from orbit;
+the local lattices are regular. H3 would give one consistent cell
+hierarchy over the whole globe (parent/child cells between resolutions,
+no polar stretching) at the cost of a dependency with large index tables;
+it is the better choice if the hex view is ever joined to data by cell.
+
+**Tests** (`src/maps/countries/countries.test.mjs`) run on a fake viewer
+and a fake Cesium against the committed fixture
+`src/data/fixtures/countries-basemap.json`: Iceland, Lesotho, South Africa
+and Switzerland with the first-level units of the first two, cut from the
+packs. The wiring (share links, voice enum and aliases such as "hex map",
+"countries", "subdivisions"; cable classification; the first-key hash
+strip) follows the keyless basemaps' lists.
 
 ## Smaller additions
 

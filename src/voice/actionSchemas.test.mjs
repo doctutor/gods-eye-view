@@ -5,6 +5,7 @@ import { GEV_ACTION_SCHEMAS, createActionTools } from './actionSchemas.js';
 import { GEV_REALTIME_TOOLS } from '../../server/providers/openai/tools.js';
 // Personal fork: the keyless basemaps are a deliberate enum addition.
 import { KEYLESS_BASEMAP_IDS } from '../maps/keylessBasemapCatalog.js';
+import { COUNTRIES_BASEMAP_IDS } from '../maps/countries/catalog.js';
 import {
   validateArgs,
   validateCall,
@@ -40,8 +41,9 @@ test('the complete Realtime tool payload pins the manifest-generated layer relea
     // requested radius and center authority in descriptions only.
     // Street Level and GNSS extend the manifest; tracked and analyst aircraft describe broadcasts.
     // Air quality (ECCC AQHI) extends the manifest.
-    // Personal fork: the keyless basemaps extend set_map_stack's enum.
-    '6f3187f77fe3983c02d0dcfbac9d6816cde3d4e9c4039f51f6d5bae8ccf63327',
+    // Personal fork: the keyless basemaps and the Countries basemap extend
+    // set_map_stack's enum.
+    '5ec8a876e7a58e9e9f972601aad924636adf57d152e0d98325804e5109abe9e2',
   );
 });
 
@@ -143,7 +145,10 @@ test('all legacy action arguments are byte-identical after removing the delibera
   hud.enum = hud.enum.filter((layout) => layout !== 'cyber');
   // Personal fork: the keyless basemaps extend set_map_stack's enum.
   const stack = property('set_map_stack').stack;
-  stack.enum = stack.enum.filter((id) => !KEYLESS_BASEMAP_IDS.includes(id));
+  stack.enum = stack.enum.filter(
+    (id) =>
+      !KEYLESS_BASEMAP_IDS.includes(id) && !COUNTRIES_BASEMAP_IDS.includes(id),
+  );
   // Derived by applying the same removals to the 4b56d0e9 actionSchemas.
   assert.equal(
     createHash('sha256').update(JSON.stringify(legacy)).digest('hex'),

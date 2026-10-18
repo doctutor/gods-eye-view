@@ -22,6 +22,7 @@ const GROUP_LABELS = {
   light: () => t('Light', { context: 'map style' }),
   dark: () => t('Dark', { context: 'map style' }),
   terrain: () => t('Terrain', { context: 'map style' }),
+  countries: () => t('Countries', { context: 'map style' }),
 };
 
 function groupLabel(group) {

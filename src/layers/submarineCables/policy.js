@@ -99,6 +99,13 @@ export const CABLE_GLOBE_STACK_IDS = Object.freeze(
     'stamen-toner-lite',
     'stamen-terrain',
     'stamen-watercolor',
+    // Personal fork: the Countries basemap (src/maps/countries/catalog.js).
+    'countries-simple-dark',
+    'countries-simple-light',
+    'countries-subdivisions-dark',
+    'countries-subdivisions-light',
+    'countries-hex-dark',
+    'countries-hex-light',
   ]),
 );
 

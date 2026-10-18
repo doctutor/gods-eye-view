@@ -10,6 +10,7 @@ import { expandApplicationHtml } from '../build/application-html.js';
 import { readStylesheet } from './testSupport/readStylesheet.mjs';
 import { MAP_STACKS } from './maps/catalog.js';
 import { KEYLESS_BASEMAP_IDS } from './maps/keylessBasemapCatalog.js';
+import { COUNTRIES_BASEMAP_IDS } from './maps/countries/catalog.js';
 import {
   PRESENTED_MAP_STACK_IDS,
   renderMapStackChips,
@@ -128,7 +129,16 @@ test("the chip row stays upstream's five; the picker holds every other stack, gr
 
   assert.deepEqual(
     optgroups(more).map((group) => group.label),
-    ['Blank', 'Light', 'Dark', 'Terrain', 'NASA', 'Stamen', 'Other'],
+    [
+      'Blank',
+      'Light',
+      'Dark',
+      'Terrain',
+      'NASA',
+      'Stamen',
+      'Countries',
+      'Other',
+    ],
   );
   assert.deepEqual(
     optgroups(more).map((group) => group.children.map((o) => o.value)),
@@ -144,11 +154,15 @@ test("the chip row stays upstream's five; the picker holds every other stack, gr
         'stamen-terrain',
         'stamen-watercolor',
       ],
+      [...COUNTRIES_BASEMAP_IDS],
       ['hybrid'],
     ],
   );
   const ids = options(more).map((o) => o.value);
-  assert.deepEqual(ids.slice(0, -1), [...KEYLESS_BASEMAP_IDS]);
+  assert.deepEqual(ids.slice(0, -1), [
+    ...KEYLESS_BASEMAP_IDS,
+    ...COUNTRIES_BASEMAP_IDS,
+  ]);
   for (const id of PRESENTED_MAP_STACK_IDS)
     assert.ok(!ids.includes(id), `${id} stays a chip, not an option`);
   assert.deepEqual(
@@ -156,10 +170,19 @@ test("the chip row stays upstream's five; the picker holds every other stack, gr
     stacks.filter((s) => ids.includes(s.id)).map((s) => s.label),
     'options show the product names',
   );
-  assert.equal(handle.groups.length, 7);
+  assert.equal(handle.groups.length, 8);
   assert.deepEqual(
     mapStackMoreGroups(stacks, 'osm').map((group) => group.id),
-    ['blank', 'light', 'dark', 'terrain', 'nasa', 'stamen', 'other'],
+    [
+      'blank',
+      'light',
+      'dark',
+      'terrain',
+      'nasa',
+      'stamen',
+      'countries',
+      'other',
+    ],
   );
 });
 

@@ -11,6 +11,7 @@ import {
 import { createWorldTerrain, createKeylessTerrain } from './terrain.js';
 // Personal fork: keyless raster basemaps share the globe terrain below.
 import { keylessBasemapSource } from './keylessBasemaps.js';
+import { countriesBasemapSource } from './countries/index.js';
 
 /** Select sources and setup guidance without putting provider branches in the controller. */
 export function createDefaultMapSources({
@@ -52,6 +53,8 @@ export function createDefaultMapSources({
       // Personal fork: data-driven keyless styles, with their own OSM fallbacks.
       if (descriptor.kind === 'keyless-basemap')
         return keylessBasemapSource(descriptor, { terrain });
+      if (descriptor.kind === 'countries-basemap')
+        return countriesBasemapSource(descriptor);
       const imagery =
         descriptor.kind === 'ion'
           ? () => createIonImagery(descriptor.style, ionToken)

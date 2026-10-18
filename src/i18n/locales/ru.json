@@ -3188,5 +3188,9 @@
   "Sixteen zoom levels": "Шестнадцать уровней масштаба",
   "{label} is unavailable; using OSM": "{label} недоступен; используется OSM",
   "{label} tile requests failed; using OSM": "Тайлы {label} не загрузились; используется OSM",
-  "Stamen map styles from any origin (localhost works without)": "Стили карт Stamen с любого источника (localhost работает без ключа)"
+  "Stamen map styles from any origin (localhost works without)": "Стили карт Stamen с любого источника (localhost работает без ключа)",
+  "One fill per country, dark outlines": "Одна заливка на страну, тёмные контуры",
+  "States and provinces appear below 5,000 km": "Штаты и провинции появляются ниже 5 000 км",
+  "Land as hexes; finer as you zoom in": "Суша шестиугольниками; мельче при приближении",
+  "map style|Countries": "Страны"
 }

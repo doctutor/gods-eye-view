@@ -227,6 +227,12 @@ export function stripKeylessBasemapFromHash(hash) {
         'stamen-toner-lite',
         'stamen-terrain',
         'stamen-watercolor',
+        'countries-simple-dark',
+        'countries-simple-light',
+        'countries-subdivisions-dark',
+        'countries-subdivisions-light',
+        'countries-hex-dark',
+        'countries-hex-light',
       ].includes(params.get('map'))
     )
       return null;
