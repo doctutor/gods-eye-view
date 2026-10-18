@@ -379,7 +379,9 @@ export function createGridLayer({
     },
 
     async update() {
-      return false;
+      // Nothing to fetch: the lines follow the camera, not the clock. A
+      // `false` here would read as a rejected enable to the lifecycle.
+      return _enabled;
     },
 
     destroy() {
