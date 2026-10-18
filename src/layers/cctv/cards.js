@@ -73,6 +73,8 @@ export function createCards({ state: layerState, services, parts, source }) {
   function refreshAmbientCards() {
     if (
       !layerState._enabled ||
+      // Personal fork: no cards while the hex rollup hides the pins.
+      layerState._rollupHidesPins ||
       !layerState._viewer ||
       layerState._viewer.isDestroyed() ||
       !layerState._records.length
@@ -82,6 +84,8 @@ export function createCards({ state: layerState, services, parts, source }) {
         [],
         CCTV_OVERLAY_SOURCE_OPTIONS,
       );
+      // Personal fork: and a hover or a frame does not bring them back.
+      if (layerState._rollupHidesPins) layerState._cardIds = new Set();
       return;
     }
     const scene = layerState._viewer.scene;

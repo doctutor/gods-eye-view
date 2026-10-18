@@ -514,6 +514,8 @@ export function createLifecycle({
       parts.cards.refreshAmbientCards();
       // Personal fork: add cameras near wherever the view settles.
       parts.proximity?.start();
+      // Personal fork: the hex rollup stands in for the pins from far out.
+      parts.rollup?.start();
       parts.presentation.notifyListeners();
       restoreSpriteOrder(layerState._viewer);
     },
@@ -523,6 +525,7 @@ export function createLifecycle({
       services.credits?.hideOsmCredit?.(layerState._viewer, 'cctv');
       layerState._enabled = false;
       parts.proximity?.stop();
+      parts.rollup?.stop(); // Personal fork: the hex rollup goes with the pins
       unregisterPickOwner('cctv');
       // ADJUST mode does not survive a layer toggle — predictable re-entry.
       layerState._calibrationMode = false;
@@ -548,6 +551,7 @@ export function createLifecycle({
       services.credits?.hideOsmCredit?.(layerState._viewer, 'cctv');
       layerState._sourceAbort?.abort();
       parts.proximity?.stop();
+      parts.rollup?.stop(); // Personal fork: the hex rollup goes with the pins
       if (typeof document !== 'undefined')
         document.removeEventListener(
           'visibilitychange',

@@ -3251,5 +3251,9 @@
   "Districts from this height: the tiles arrive slowly": "Районы с этой высоты: тайлы приходят медленно",
   "The ink follows the basemap: cyan and amber on dark maps, blue-grey and brown on light maps": "Цвет следует за подложкой: голубой и янтарный на тёмных картах, серо-синий и коричневый на светлых",
   "Light ink: cyan and amber lines": "Светлый цвет: голубые и янтарные линии",
-  "Dark ink: blue-grey and brown lines": "Тёмный цвет: серо-синие и коричневые линии"
+  "Dark ink: blue-grey and brown lines": "Тёмный цвет: серо-синие и коричневые линии",
+  "ROLLUP AUTO": "ГРУППИРОВКА АВТО",
+  "Group the pins into hexes with counts from above {height} km, or when the view holds more than {count} cameras": "Группировать значки в шестиугольники со счётчиками выше {height} км или когда в виде больше {count} камер",
+  "Always draw every camera pin": "Всегда рисовать каждый значок камеры",
+  "{count} cameras in {cells} hexes at resolution {res}": "Камер: {count} в {cells} шестиугольниках, разрешение {res}"
 }

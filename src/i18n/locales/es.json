@@ -3180,5 +3180,9 @@
   "Districts from this height: the tiles arrive slowly": "Distritos desde esta altura: las teselas llegan despacio",
   "The ink follows the basemap: cyan and amber on dark maps, blue-grey and brown on light maps": "La tinta sigue al mapa base: cian y ámbar sobre mapas oscuros, gris azulado y marrón sobre mapas claros",
   "Light ink: cyan and amber lines": "Tinta clara: líneas cian y ámbar",
-  "Dark ink: blue-grey and brown lines": "Tinta oscura: líneas gris azulado y marrón"
+  "Dark ink: blue-grey and brown lines": "Tinta oscura: líneas gris azulado y marrón",
+  "ROLLUP AUTO": "AGRUPAR AUTO",
+  "Group the pins into hexes with counts from above {height} km, or when the view holds more than {count} cameras": "Agrupar los pines en hexágonos con recuentos desde más de {height} km de altura, o cuando la vista contiene más de {count} cámaras",
+  "Always draw every camera pin": "Dibujar siempre cada pin de cámara",
+  "{count} cameras in {cells} hexes at resolution {res}": "{count} cámaras en {cells} hexágonos con resolución {res}"
 }

@@ -17,6 +17,8 @@ export function createState({ services }) {
   layerState._viewer = null;
 
   layerState._billboards = null;
+  // Personal fork: true while the hex rollup stands in for the pins.
+  layerState._rollupHidesPins = false;
 
   layerState._records = [];
 

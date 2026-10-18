@@ -35,6 +35,7 @@ unless its switch is set to `0`.
 - [Keyless basemaps (MAP SOURCE)](#keyless-basemaps-map-source)
 - [The Countries basemap (MAP SOURCE)](#the-countries-basemap-map-source)
 - [H3 hexes (resolution by perspective)](#h3-hexes-resolution-by-perspective)
+- [Point rollups: camera counts per hex](#point-rollups-camera-counts-per-hex)
 - [Smaller additions](#smaller-additions)
 - [Keeping up with upstream](#keeping-up-with-upstream)
 - [What you need to do](#what-you-need-to-do)
@@ -504,10 +505,10 @@ an opacity slider (kept per layer in this browser as
 `gev.earthEngine.opacity.<id>`), and a status line. The boundaries row also
 has level and ink chips (below).
 
-| Layer                                     | Dataset (Earth Engine id)                                                                        | Licence                                 |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------- |
-| Terrain slope, Terrain aspect, Hillshade  | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`)                              | Copernicus DEM licence; notice required |
-| Forest loss (2001–2025, coloured by year) | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear` | CC BY 4.0                               |
+| Layer                                     | Dataset (Earth Engine id)                                                                                        | Licence                                 |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Terrain slope, Terrain aspect, Hillshade  | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`)                                              | Copernicus DEM licence; notice required |
+| Forest loss (2001–2025, coloured by year) | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                 | CC BY 4.0                               |
 | Administrative boundaries                 | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from `FAO/GAUL/2015/level0` | CC BY 4.0 (2015: noncommercial)         |
 
 The ids were taken from Earth Engine's catalog records on 2026-10-17. The
@@ -771,11 +772,11 @@ densest blocks of Manhattan.
 
 The row's chips switch between three variants:
 
-| Chip | What a pixel shows |
-| --- | --- |
-| **Articles per km²** (default) | primary geotagged articles under the pixel, divided by the cells' area (per km², with each row's spherical cell area, so a 60° N cell counts half an equatorial one) |
-| **Text per km²** | bytes of the articles' wikitext per km²: article _size_, not words, and only when the build included the page table (below); otherwise the chip is greyed and choosing it says what to run |
-| **Articles (count)** | the raw number of articles under the pixel, not divided by area, so it grows as you zoom out |
+| Chip                           | What a pixel shows                                                                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Articles per km²** (default) | primary geotagged articles under the pixel, divided by the cells' area (per km², with each row's spherical cell area, so a 60° N cell counts half an equatorial one)                       |
+| **Text per km²**               | bytes of the articles' wikitext per km²: article _size_, not words, and only when the build included the page table (below); otherwise the chip is greyed and choosing it says what to run |
+| **Articles (count)**           | the raw number of articles under the pixel, not divided by area, so it grows as you zoom out                                                                                               |
 
 The legend is the ramp in five swatches, labelled with the variant's floor
 and ceiling (the last marked `+`); the opacity slider is kept in this
@@ -898,14 +899,14 @@ resolution) are the same for the whole table.
   (res 0–7; variant `articles`, `text` or `count`; the box in degrees,
   `west > east` crossing the antimeridian) answers
   `{res, variant, dump: {date}, domain: {min, max, median}, cells: [[h3Index,
-  value], …]}` for the cells whose **centre** lies in the box: articles and
+value], …]}` for the cells whose **centre** lies in the box: articles and
   text per km², count raw. More than 20,000 cells is a 413 `{message}`
   (ask at a coarser resolution or for a smaller box); no `h3.bin` a 503;
   a bad resolution, variant or box a 400; the text variant without sizes
   a 404. Same cache headers as the tiles (`private, max-age=86400`, gzip
   when accepted).
 - `/layers` carries `h3: {built, resolutions, cells: {res: count}, text,
-  maxCells}` (or `{built: false}`).
+maxCells}` (or `{built: false}`).
 
 The cells are chosen by scanning the resolution's centre arrays, not by
 `polygonToCells` of the box: the scan is typed-array arithmetic over the
@@ -940,7 +941,7 @@ they drape on terrain and on the photoreal tileset alike
 - `GET /api/wikipedia-coverage/h3/<res>/<variant>?west=&south=&east=&north=`
   (resolution 0–7, variant `articles` | `text` | `count`, the box in
   degrees, `west > east` across the antimeridian): `{ res, variant, dump:
-  { date }, domain: { min, max, median }, cells: [[h3Index, value], …] }`,
+{ date }, domain: { min, max, median }, cells: [[h3Index, value], …] }`,
   the density variants per km² of the cell's area, `count` raw, the domain
   the resolution's own quantiles of non-empty cells. `413 { message }` when
   the box holds more than 20,000 cells at that resolution, `503 { message }`
@@ -971,16 +972,16 @@ note when the style has a limit, and the placeholder while a chip is active.
 A style that cannot be built (no network, a refused request) and a style
 whose tiles fail twice both fall back to OSM, as Esri does upstream.
 
-| Group   | Style                                       | Source                                                                                                         | Levels | Attribution                                                                   |
-| ------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------- |
-| Blank   | Blank (black), Blank (white)                | No imagery at all: the bare globe painted with `globe.baseColor`                                               | —      | none                                                                          |
-| Light   | Natural Earth II                            | CesiumJS's bundled tile set (`Assets/Textures/NaturalEarthII`)                                                 | 0–2    | Natural Earth (public domain)                                                 |
-| Light   | CARTO Positron, Positron (no labels)        | `basemaps.cartocdn.com` (`light_all`, `light_nolabels`)                                                        | 0–20   | © OpenStreetMap contributors © CARTO                                          |
-| Dark    | CARTO Dark Matter, Dark Matter (no labels)  | `basemaps.cartocdn.com` (`dark_all`, `dark_nolabels`)                                                          | 0–20   | © OpenStreetMap contributors © CARTO                                          |
-| Terrain | OpenTopoMap                                 | `tile.opentopomap.org`                                                                                         | 0–17   | Map data © OpenStreetMap contributors, SRTM; map style © OpenTopoMap (CC-BY-SA) |
-| NASA    | NASA Black Marble                           | GIBS WMTS, `VIIRS_Black_Marble` (2016 night lights), EPSG:3857, `GoogleMapsCompatible_Level8`                  | 0–8    | NASA GIBS (ESDIS)                                                             |
-| NASA    | NASA Blue Marble                            | GIBS WMTS, `BlueMarble_NextGeneration`, EPSG:3857, `GoogleMapsCompatible_Level8`                               | 0–8    | NASA GIBS (ESDIS)                                                             |
-| Stamen  | Stamen Toner, Toner Lite, Terrain, Watercolor | `tiles.stadiamaps.com` (`stamen_toner` 0–20, `stamen_toner_lite` 0–20, `stamen_terrain` 0–18, `stamen_watercolor` 0–16) | see source | © Stadia Maps © Stamen Design © OpenMapTiles © OpenStreetMap contributors |
+| Group   | Style                                         | Source                                                                                                                  | Levels     | Attribution                                                                     |
+| ------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------- |
+| Blank   | Blank (black), Blank (white)                  | No imagery at all: the bare globe painted with `globe.baseColor`                                                        | —          | none                                                                            |
+| Light   | Natural Earth II                              | CesiumJS's bundled tile set (`Assets/Textures/NaturalEarthII`)                                                          | 0–2        | Natural Earth (public domain)                                                   |
+| Light   | CARTO Positron, Positron (no labels)          | `basemaps.cartocdn.com` (`light_all`, `light_nolabels`)                                                                 | 0–20       | © OpenStreetMap contributors © CARTO                                            |
+| Dark    | CARTO Dark Matter, Dark Matter (no labels)    | `basemaps.cartocdn.com` (`dark_all`, `dark_nolabels`)                                                                   | 0–20       | © OpenStreetMap contributors © CARTO                                            |
+| Terrain | OpenTopoMap                                   | `tile.opentopomap.org`                                                                                                  | 0–17       | Map data © OpenStreetMap contributors, SRTM; map style © OpenTopoMap (CC-BY-SA) |
+| NASA    | NASA Black Marble                             | GIBS WMTS, `VIIRS_Black_Marble` (2016 night lights), EPSG:3857, `GoogleMapsCompatible_Level8`                           | 0–8        | NASA GIBS (ESDIS)                                                               |
+| NASA    | NASA Blue Marble                              | GIBS WMTS, `BlueMarble_NextGeneration`, EPSG:3857, `GoogleMapsCompatible_Level8`                                        | 0–8        | NASA GIBS (ESDIS)                                                               |
+| Stamen  | Stamen Toner, Toner Lite, Terrain, Watercolor | `tiles.stadiamaps.com` (`stamen_toner` 0–20, `stamen_toner_lite` 0–20, `stamen_terrain` 0–18, `stamen_watercolor` 0–16) | see source | © Stadia Maps © Stamen Design © OpenMapTiles © OpenStreetMap contributors       |
 
 Each style's attribution is carried by its imagery provider and shown in
 Cesium's credit line while it is on screen. The URL shapes were checked
@@ -1037,10 +1038,10 @@ entries in the picker's **Countries** group, three styles in a dark and a
 light theme. They are map sources, not data layers, so a countries style
 is the ground everything else sits on.
 
-| Style        | What it draws                                                                                                                                                                                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Simple       | Every country as one fill with a dark (light theme) or light (dark theme) outline, like MapChart's Simple map.                                                                                                                                                           |
-| Subdivisions | The simple map, plus the first-level units (states, provinces, regions) as thinner outlines once the camera is below 5,000 km. Only the units around the view are built, in a square six times the camera height across (at most 10,000 km), rebuilt when the view moves half way to its edge. |
+| Style        | What it draws                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Simple       | Every country as one fill with a dark (light theme) or light (dark theme) outline, like MapChart's Simple map.                                                                                                                                                                                                                                                                                                                         |
+| Subdivisions | The simple map, plus the first-level units (states, provinces, regions) as thinner outlines once the camera is below 5,000 km. Only the units around the view are built, in a square six times the camera height across (at most 10,000 km), rebuilt when the view moves half way to its edge.                                                                                                                                         |
 | Hex          | Land as H3 cells at the resolution the camera height picks (see [H3 hexes](#h3-hexes-resolution-by-perspective)), each coloured by the country under its centre from a ten-colour palette: the "war games" look. Every cell of the resolution from orbit (resolutions 0 to 2), the disk of cells around the view nearer; a country with no cell centre on it still gets the cell of a point inside it, so Iceland is there from orbit. |
 
 **Geometry.** The bundled Natural Earth packs
@@ -1072,7 +1073,8 @@ the globe's imagery, so an opaque countries fill covers an overlay. Lower
 the fill opacity to see both:
 
 ```js
-const { countriesBasemap } = window.__godsEyeView.styleManager.mapStackController;
+const { countriesBasemap } =
+  window.__godsEyeView.styleManager.mapStackController;
 countriesBasemap.setOpacity(0.5); // kept in this browser as gev.countries.opacity
 ```
 
@@ -1149,6 +1151,91 @@ window's edge (or the height doubled or halved).
 
 Tests: `src/maps/h3.test.mjs` (the table's bands and pixel sizes, windows
 across the antimeridian and over the poles, cell sets and rings).
+
+## Point rollups: camera counts per hex
+
+From orbit the Cameras layer drew thousands of pins that crowd and stack.
+Now, while the camera is above 300 km or the view window holds more than
+400 cameras, the pins hide and one hex per H3 cell shows how many are
+under it, at the resolution the
+camera height implies (the table above); as the view comes in the count
+falls and the pins return. The Cameras row carries **ROLLUP AUTO / OFF**,
+kept in this browser as `gev.cctv.rollup`.
+
+**The rule.** Height or density, each with hysteresis: the rollup
+switches on when the camera is above `ROLLUP_ENTER_HEIGHT_M` (300 km) or
+more than `ROLLUP_ENTER_COUNT` (400) of the layer's pins fall in the view
+window (the H3 window rule: six camera heights across, the planet past a
+5,000 km half-side), and off again only when the camera is below
+`ROLLUP_EXIT_HEIGHT_M` (250 km) and fewer than `ROLLUP_EXIT_COUNT` (250)
+pins are in the window, so neither edge flickers; below
+`ROLLUP_MIN_HEIGHT_M` (30 km) the pins always show. A dense city at 100 km
+can therefore still roll up (435 synthetic pins in the window did), while
+a sparser 100 km view shows pins (189 did). The decision is made again on
+`moveEnd` and whenever the pins are re-culled (a catalog or proximity
+load). A layer's `threshold` can pass `enterHeightM: Infinity` to decide
+on the count alone. While the hexes show, the Cameras layer paints no
+ambient thumbnail cards (they annotate pins).
+
+**The module** (`src/layers/pointRollup/`): `rollup.js` holds the pure
+parts (binning with `latLngToCell`, the window test, the hysteresis rule,
+the log alpha ramp from 0.25 to 0.85 of the accent colour, the short
+count, the label entry); `index.js` attaches to a layer. The hexes are
+ground-clamped polygons through the shared drawer `src/maps/h3Surface.js`
+(classification BOTH, so they drape on terrain and on the photoreal
+tileset; the Wikipedia Hexes mode draws with the same drawer). The count at
+each cell centre is a `label` entry published through the world-overlay
+host (`src/noCesiumLabels.test.mjs` forbids Cesium labels), which also
+activates like a click; a click on the hex itself (the rollup owns the
+`rollup:<layer>:<cell>` pick ids in the pick registry) flies the camera to
+the cell's bounds. The Cameras layer's part is `src/layers/cctv/rollup.js`:
+it starts and stops with the layer, hides the pins through
+`layerState._rollupHidesPins` (read by horizon culling and the coverage
+styles), and offers the row's chips.
+
+**Adopting it in another point layer** is a few lines:
+
+```js
+import { attachPointRollup } from '../pointRollup/index.js';
+
+const rollup = attachPointRollup(
+  { id: 'my-layer', viewer, overlays, cesium, picking, requestRender },
+  {
+    getPoints: () => records.map((r) => ({ id: r.id, lat: r.lat, lon: r.lon })),
+    accent: '#39d5ff', // the layer's colour
+    // optional; these are the defaults
+    threshold: {
+      enter: 400,
+      exit: 250,
+      enterHeightM: 300_000,
+      exitHeightM: 250_000,
+      minHeightM: 30_000,
+    },
+    onModeChange: (active) => {
+      pins.show = !active; // hide the layer's own pins while the hexes show
+    },
+    onUpdate: () => repaintRow(), // optional: after each redraw or clear
+  },
+);
+rollup.refresh(); // again when the points change; moveEnd is listened to
+rollup.setEnabled(false); // the layer's own OFF
+rollup.detach(); // on disable or destroy
+```
+
+`overlays` is the world-overlay host (`setEntries`, `setVisible`,
+`clearSource`, as `src/overlays/worldOverlay.js` exports them or a layer's
+wrapper); `picking` is `src/data/pickRegistry.js`. The featured and vessel
+placement logic is untouched: the rollup only reads the points a layer
+already has.
+
+Tests: `src/layers/pointRollup/pointRollup.test.mjs` (binning, the window
+across the antimeridian, hysteresis, labels through
+`normalizeOverlayEntry`, the lifecycle on a fake viewer across the
+threshold and with the rollup off) and `src/layers/cctv/rollup.test.mjs`
+(the saved mode, the chips, pins hidden and shown). Drawn with real Cesium
+and the real world-overlay host in headless Chrome over a synthetic
+3,000-pin catalog: hexes with painted counts from orbit and at 2,500 km,
+pins at 100 km.
 
 ## Smaller additions
 
