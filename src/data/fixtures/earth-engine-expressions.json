@@ -34,9 +34,7 @@
                               }
                             },
                             "bandSelectors": {
-                              "constantValue": [
-                                "DEM"
-                              ]
+                              "constantValue": ["DEM"]
                             }
                           }
                         }
@@ -71,13 +69,7 @@
             "max": 45
           }
         ],
-        "paletteColors": [
-          "1a9850",
-          "91cf60",
-          "fee08b",
-          "fc8d59",
-          "d73027"
-        ]
+        "paletteColors": ["1a9850", "91cf60", "fee08b", "fc8d59", "d73027"]
       }
     },
     "ee-terrain-aspect/default": {
@@ -113,9 +105,7 @@
                               }
                             },
                             "bandSelectors": {
-                              "constantValue": [
-                                "DEM"
-                              ]
+                              "constantValue": ["DEM"]
                             }
                           }
                         }
@@ -150,13 +140,7 @@
             "max": 360
           }
         ],
-        "paletteColors": [
-          "3288bd",
-          "99d594",
-          "fee08b",
-          "fc8d59",
-          "3288bd"
-        ]
+        "paletteColors": ["3288bd", "99d594", "fee08b", "fc8d59", "3288bd"]
       }
     },
     "ee-terrain-hillshade/default": {
@@ -192,9 +176,7 @@
                               }
                             },
                             "bandSelectors": {
-                              "constantValue": [
-                                "DEM"
-                              ]
+                              "constantValue": ["DEM"]
                             }
                           }
                         }
@@ -235,10 +217,7 @@
             "max": 255
           }
         ],
-        "paletteColors": [
-          "000000",
-          "ffffff"
-        ]
+        "paletteColors": ["000000", "ffffff"]
       }
     },
     "ee-forest-loss/default": {
@@ -263,9 +242,7 @@
                         }
                       },
                       "bandSelectors": {
-                        "constantValue": [
-                          "lossyear"
-                        ]
+                        "constantValue": ["lossyear"]
                       }
                     }
                   }
@@ -284,12 +261,7 @@
             "max": 25
           }
         ],
-        "paletteColors": [
-          "ffff00",
-          "ff9900",
-          "ff0000",
-          "990000"
-        ]
+        "paletteColors": ["ffff00", "ff9900", "ff0000", "990000"]
       }
     },
     "ee-admin-boundaries/level1": {
@@ -297,7 +269,7 @@
         "values": {
           "0": {
             "functionInvocationValue": {
-              "functionName": "FeatureCollection.style",
+              "functionName": "Collection.style",
               "arguments": {
                 "collection": {
                   "functionInvocationValue": {
@@ -331,7 +303,7 @@
         "values": {
           "0": {
             "functionInvocationValue": {
-              "functionName": "FeatureCollection.style",
+              "functionName": "Collection.style",
               "arguments": {
                 "collection": {
                   "functionInvocationValue": {

@@ -85,7 +85,7 @@ export function expressionFor(layer, variant = layerVariants(layer)[0]) {
   let node = assetNode(variant.asset);
   if (layer.kind === 'features') {
     const style = layer.style || {};
-    node = invoke('FeatureCollection.style', {
+    node = invoke('Collection.style', {
       collection: node,
       color: constant(style.color || 'ffffff'),
       fillColor: constant(style.fillColor || '00000000'),

@@ -58,7 +58,7 @@ test('every map request is exactly the committed fixture', async () => {
   const level2 = requests['ee-admin-boundaries/level2'];
   assert.equal(
     level2.expression.values['0'].functionInvocationValue.functionName,
-    'FeatureCollection.style',
+    'Collection.style',
   );
   assert.equal(
     level2.visualizationOptions,
