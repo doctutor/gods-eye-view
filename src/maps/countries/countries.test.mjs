@@ -24,16 +24,8 @@ import {
   featuresInRectangle,
   partsInRectangle,
 } from './geometry.js';
-import {
-  EARTH_RADIUS_KM,
-  azimuthalEqualArea,
-  cylindricalEqualArea,
-  hexAreaKm2,
-  hexCells,
-  hexCellsForView,
-  hexTierForHeight,
-  localGridStale,
-} from './hexGrid.js';
+import { latLngToCell } from 'h3-js';
+import { cellCentre } from '../h3Cells.js';
 import {
   COUNTRY_FILL_OVERRIDES,
   COUNTRY_THEMES,
@@ -131,156 +123,6 @@ test('the fixture decodes: four countries, the Lesotho hole, nineteen first-leve
     2,
     'Lesotho and South Africa fall in the eastern half',
   );
-});
-
-/** Spherical ring area, km² (the packs' own formula). */
-function ringAreaKm2(ring) {
-  const toRad = (d) => (d * Math.PI) / 180;
-  let sum = 0;
-  for (let i = 0; i < ring.length; i++) {
-    const [lon1, lat1] = ring[i];
-    const [lon2, lat2] = ring[(i + 1) % ring.length];
-    sum +=
-      toRad(lon2 - lon1) * (2 + Math.sin(toRad(lat1)) + Math.sin(toRad(lat2)));
-  }
-  return Math.abs((sum * EARTH_RADIUS_KM * EARTH_RADIUS_KM) / 2);
-}
-
-test('the hex lattice is equal-area on both projections and tiles its bounds', () => {
-  const cylindrical = cylindricalEqualArea();
-  for (const [lon, lat] of [
-    [0, 0],
-    [100, 45],
-    [-170, -60],
-    [30, 80],
-  ]) {
-    const [x, y] = cylindrical.forward(lon, lat);
-    const back = cylindrical.inverse(x, y);
-    assert.ok(Math.abs(back[0] - lon) < 1e-9 && Math.abs(back[1] - lat) < 1e-9);
-  }
-  const azimuthal = azimuthalEqualArea(-20, 64);
-  for (const [lon, lat] of [
-    [-20, 64],
-    [-15, 60],
-    [-30, 70],
-    [10, 50],
-  ]) {
-    const [x, y] = azimuthal.forward(lon, lat);
-    const back = azimuthal.inverse(x, y);
-    assert.ok(
-      Math.abs(back[0] - lon) < 1e-7 && Math.abs(back[1] - lat) < 1e-7,
-      `round trip ${lon},${lat}`,
-    );
-  }
-  assert.deepEqual(azimuthal.inverse(0, 0), [-20, 64]);
-
-  // Cells tile the bounds: about area / cell area of them, six corners each.
-  const bounds = { xmin: -1000, xmax: 1000, ymin: -800, ymax: 800 };
-  const cells = hexCells({ projection: azimuthal, bounds, sizeKm: 50 });
-  const expected = (2000 * 1600) / hexAreaKm2(50);
-  assert.ok(
-    Math.abs(cells.length - expected) / expected < 0.15,
-    `${cells.length} cells for ${expected.toFixed(0)} expected`,
-  );
-  assert.ok(cells.every((cell) => cell.ring.length === 6));
-  assert.equal(new Set(cells.map((cell) => cell.key)).size, cells.length);
-  // Each cell's ground area is the lattice's: equal area, within 2%.
-  for (const cell of cells.slice(0, 50)) {
-    const area = ringAreaKm2(cell.ring);
-    assert.ok(
-      Math.abs(area - hexAreaKm2(50)) / hexAreaKm2(50) < 0.02,
-      `cell ${cell.key} covers ${area.toFixed(0)} km²`,
-    );
-  }
-  // The planet-wide lattice, stretched towards the poles, stays equal-area.
-  const global = hexCells({
-    projection: cylindrical,
-    bounds: { xmin: -500, xmax: 500, ymin: 5500, ymax: 6000 },
-    sizeKm: 100,
-  });
-  assert.ok(global.length > 10);
-  for (const cell of global) {
-    const area = ringAreaKm2(cell.ring);
-    assert.ok(
-      Math.abs(area - hexAreaKm2(100)) / hexAreaKm2(100) < 0.05,
-      `polar cell ${cell.key} covers ${area.toFixed(0)} km²`,
-    );
-  }
-  // The lattice cannot run away: cells are capped.
-  assert.equal(
-    hexCells({ projection: azimuthal, bounds, sizeKm: 5, maxCells: 100 })
-      .length,
-    100,
-  );
-
-  assert.equal(hexTierForHeight(1e7).scope, 'global');
-  assert.equal(hexTierForHeight(Infinity).sizeKm, 150);
-  assert.deepEqual(hexTierForHeight(3e6), {
-    minHeightM: 1_500_000,
-    sizeKm: 60,
-    scope: 'local',
-  });
-  assert.equal(hexTierForHeight(1e5).sizeKm, 25);
-});
-
-test('the view grid keeps only land cells, carries their country, and coarsens past the budget', () => {
-  const countries = decodePack(fixture.countries);
-  const landAt = (lon, lat) => featureAt(countries, lon, lat);
-  const overIceland = { lon: -19, lat: 65, heightM: 3e6 };
-  const local = hexCellsForView(overIceland, landAt);
-  assert.equal(local.scope, 'local');
-  assert.equal(local.sizeKm, 60);
-  assert.ok(local.cells.length > 5, `${local.cells.length} land cells`);
-  // The 10,000 km square around Iceland reaches Switzerland, not Lesotho.
-  assert.ok(
-    local.cells.every((cell) =>
-      ['Iceland', 'Switzerland'].includes(cell.feature.name),
-    ),
-  );
-  assert.ok(local.cells.some((cell) => cell.feature.name === 'Iceland'));
-  assert.ok(
-    local.cells.every((cell) => featureContains(cell.feature, ...cell.centre)),
-  );
-  assert.deepEqual(local.made, {
-    lon: -19,
-    lat: 65,
-    heightM: 3e6,
-    halfSideKm: 5000,
-  });
-  // The same grid serves a small move; a far move or a tier change does not.
-  assert.equal(
-    localGridStale(local.made, { lon: -18, lat: 64, heightM: 3e6 }),
-    false,
-  );
-  assert.equal(
-    localGridStale(local.made, { lon: 28, lat: -29, heightM: 3e6 }),
-    true,
-  );
-  assert.equal(
-    localGridStale(local.made, { lon: -19, lat: 65, heightM: 1e5 }),
-    true,
-  );
-  assert.equal(localGridStale(null, overIceland), true);
-
-  const global = hexCellsForView({ lon: 0, lat: 0, heightM: 1e7 }, landAt);
-  assert.equal(global.scope, 'global');
-  assert.equal(global.sizeKm, 150, 'the planet fits the default budget');
-  assert.equal(global.made.halfSideKm, null);
-  const names = new Set(global.cells.map((cell) => cell.feature.name));
-  // Iceland is missed: at 65°N the planet-wide lattice's rows are 4° apart.
-  assert.ok(names.has('South Africa'), [...names].join(','));
-  assert.ok(global.cells.every((cell) => cell.feature));
-  const fourNames = ['Iceland', 'Lesotho', 'South Africa', 'Switzerland'];
-  assert.ok(
-    global.cells.every((cell) => fourNames.includes(cell.feature.name)),
-  );
-
-  const capped = hexCellsForView({ lon: 0, lat: 0, heightM: 1e7 }, landAt, {
-    maxCells: 500,
-  });
-  assert.ok(capped.sizeKm > 150, 'coarsened to fit a small budget');
-  assert.ok(capped.cells.length < global.cells.length);
-  assert.ok(capped.cells.length <= 500);
 });
 
 test('the palette: one fill for simple maps, a stable varied fill for hexes, and overrides that win', () => {
@@ -724,8 +566,9 @@ test('subdivisions draw first-level units only below the ceiling and only around
   basemap.destroy();
 });
 
-test('the hex style draws land cells, from a planet-wide lattice far out to a local one nearer, rebuilt on far moves', async () => {
-  const env = attach({ lon: 0, lat: 0, heightM: 1e7 });
+test("the hex style draws H3 land cells at the camera's resolution: every country from orbit, a window nearer, rebuilt on far moves", async () => {
+  const countries = decodePack(fixture.countries);
+  const env = attach({ lon: 0, lat: 0, heightM: 2.2e7 });
   const { controller, basemap, primitives } = env;
   controller.emit('countries-hex-light');
   await basemap.settled();
@@ -736,11 +579,24 @@ test('the hex style draws land cells, from a planet-wide lattice far out to a lo
   );
   let state = basemap.getState();
   assert.deepEqual(state.world, { fills: false, outlines: false });
-  assert.equal(state.hex.scope, 'global');
-  assert.equal(state.hex.sizeKm, 150);
-  assert.ok(state.hex.cells > 10, `${state.hex.cells} land hexes`);
-  assert.equal(fills(primitives[0]).length, state.hex.cells);
-  assert.equal(lines(primitives[1]).length, state.hex.cells);
+  assert.deepEqual(
+    { res: state.hex.res, scope: state.hex.scope },
+    { res: 0, scope: 'global' },
+    'orbit: resolution 0, planet-wide',
+  );
+  // Resolution 0 cells are 2,200 km across: no centre lands on any of the
+  // four countries, yet each gets the cell of a point inside it (Lesotho
+  // and South Africa share one), so Iceland is there from orbit.
+  assert.equal(state.hex.cells, 3, 'Iceland, Switzerland, southern Africa');
+  assert.equal(fills(primitives[0]).length, 3);
+  assert.equal(lines(primitives[1]).length, 3);
+  const ids = fills(primitives[0]).map((i) => i.id);
+  assert.ok(
+    ids.every((id) => /^[0-9a-f]{15}$/.test(id)),
+    'H3 indexes',
+  );
+  assert.ok(ids.includes(latLngToCell(64.9, -18.5, 0)), "Iceland's cell");
+  assert.ok(ids.includes(latLngToCell(46.8, 8.2, 0)), "Switzerland's cell");
   assert.ok(
     fills(primitives[0]).every((i) =>
       COUNTRY_THEMES.light.varied.includes(i.attributes.color.css),
@@ -751,35 +607,98 @@ test('the hex style draws land cells, from a planet-wide lattice far out to a lo
       (i) => i.attributes.color.css === COUNTRY_THEMES.light.hexOutline,
     ),
   );
-  const globalFills = primitives[0];
+  assert.ok(
+    fills(primitives[0]).every(
+      (i) =>
+        i.geometry.polygonHierarchy.positions.length === 12 ||
+        i.geometry.polygonHierarchy.positions.length === 10,
+    ),
+    "six (or a pentagon's five) corners, flattened",
+  );
 
-  // Moving across the planet far out keeps the planet-wide lattice.
-  env.moveTo({ lon: 100, lat: 30, heightM: 1.2e7 });
+  // Closer, still planet-wide: resolution 2 has centres on land too.
+  env.moveTo({ lon: 10, lat: 30, heightM: 8e6 });
   await basemap.settled();
-  assert.equal(primitives[0], globalFills);
+  state = basemap.getState();
+  assert.deepEqual(
+    { res: state.hex.res, scope: state.hex.scope },
+    { res: 2, scope: 'global' },
+  );
+  assert.ok(state.hex.cells > 10, `${state.hex.cells} land cells`);
+  const southAfrica = countries[2];
+  const centred = fills(primitives[0]).filter((i) => {
+    const [lon, lat] = cellCentre(i.id);
+    return featureContains(southAfrica, lon, lat);
+  });
+  assert.ok(
+    centred.length >= 8,
+    `${centred.length} cells centred in South Africa`,
+  );
+  const globalFills = primitives[0];
+  env.moveTo({ lon: 100, lat: 30, heightM: 6e6 });
+  await basemap.settled();
+  assert.equal(primitives[0], globalFills, 'the same resolution keeps the set');
 
-  // Closer: a local lattice around the view, finer cells.
+  // Nearer: a window around the view at resolution 3.
   env.moveTo({ lon: -19, lat: 65, heightM: 3e6 });
   await basemap.settled();
   state = basemap.getState();
-  assert.equal(state.hex.scope, 'local');
-  assert.equal(state.hex.sizeKm, 60);
+  assert.deepEqual(
+    { res: state.hex.res, scope: state.hex.scope },
+    { res: 3, scope: 'window' },
+  );
   assert.notEqual(primitives[0], globalFills);
   assert.ok(state.hex.cells > 5);
   assert.deepEqual(state.madeFor, {
     lon: -19,
     lat: 65,
     heightM: 3e6,
-    halfSideKm: 5000,
+    res: 3,
+    scope: 'window',
   });
+  // The 10,000 km window reaches Switzerland too; every cell is centred on
+  // land except a representative cell or two.
+  const onLand = fills(primitives[0]).filter((i) => {
+    const [lon, lat] = cellCentre(i.id);
+    return featureAt(countries, lon, lat) !== null;
+  });
+  assert.ok(onLand.length >= fills(primitives[0]).length - 4);
+  const iceland = countries[0];
+  assert.ok(
+    onLand.some((i) => featureContains(iceland, ...cellCentre(i.id))),
+    'Iceland has centred cells at resolution 3',
+  );
   const localFills = primitives[0];
   env.moveTo({ lon: -18, lat: 64, heightM: 3e6 });
   await basemap.settled();
-  assert.equal(primitives[0], localFills, 'a small move keeps the lattice');
+  assert.equal(primitives[0], localFills, 'a small move keeps the set');
   env.moveTo({ lon: 27, lat: -29, heightM: 3e6 });
   await basemap.settled();
   assert.notEqual(primitives[0], localFills, 'a far move remakes it');
   assert.equal(primitives.length, 2);
+
+  // Per-cell fills: the data hook colours named cells over the palette.
+  const target = fills(primitives[0])[0].id;
+  basemap.setCellFills(new Map([[target.toUpperCase(), '#abcdef']]));
+  await basemap.settled();
+  assert.equal(
+    fills(primitives[0]).find((i) => i.id === target).attributes.color.css,
+    '#abcdef',
+  );
+  assert.ok(
+    fills(primitives[0])
+      .filter((i) => i.id !== target)
+      .every((i) =>
+        COUNTRY_THEMES.light.varied.includes(i.attributes.color.css),
+      ),
+  );
+  basemap.setCellFills(null);
+  await basemap.settled();
+  assert.ok(
+    fills(primitives[0]).every((i) =>
+      COUNTRY_THEMES.light.varied.includes(i.attributes.color.css),
+    ),
+  );
 
   // The dark theme redraws with its palette; nothing from the light one stays.
   controller.emit('countries-hex-dark');
@@ -868,8 +787,8 @@ test('a camera move that supersedes a style switch still clears the old style (s
   assert.deepEqual(state.local, { fills: true, outlines: true, admin1: false });
   assert.equal(primitives.length, 2, 'hex fills and outlines only');
   assert.ok(
-    fills(primitives[0]).every((i) => i.id.includes(',')),
-    'hex keys',
+    fills(primitives[0]).every((i) => /^[0-9a-f]{15}$/.test(i.id)),
+    'H3 cell ids',
   );
 
   controller.emit('countries-subdivisions-light');

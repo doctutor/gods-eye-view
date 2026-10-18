@@ -2,22 +2,33 @@
 // globe. Country fills are PolygonGeometry instances in one Primitive with a
 // per-instance colour; outlines are PolylineGeometry instances in another.
 // The subdivisions style adds first-level units around the view below a
-// camera height, and the hex style replaces the polygons with a hex
-// tessellation of land (hexGrid.js). Both view-dependent groups are rebuilt
-// when the view moves far enough, the planet-wide groups only when the
-// style, theme or opacity changes. No tiles, no server: the geometry comes
-// from the bundled Natural Earth packs, loaded on first use.
+// camera height, and the hex style replaces the polygons with H3 cells of
+// the resolution the camera height picks (maps/h3Resolution.js): the cells
+// of the view window (maps/h3Cells.js) whose centre is on land, plus one
+// cell for every country too small to own a centre, so Iceland is there
+// from orbit. Both view-dependent groups are rebuilt when the view moves
+// far enough, the planet-wide groups only when the style, theme or opacity
+// changes. No tiles, no server: the geometry comes from the bundled Natural
+// Earth packs, loaded on first use.
 
 import * as Cesium from 'cesium';
+import { latLngToCell } from 'h3-js';
 import { loadBundledJson } from '../../data/bundledJson.js';
-import { SUBDIVISIONS_MAX_HEIGHT_M } from './catalog.js';
-import { decodePack, featureAt, partsInRectangle } from './geometry.js';
 import {
-  hexCellsForView,
-  hexTierForHeight,
-  localGridStale,
-  localHalfSideKm,
-} from './hexGrid.js';
+  cellCentre,
+  cellRing,
+  cellsForView,
+  viewHalfM,
+  viewMoved,
+} from '../h3Cells.js';
+import { h3ResolutionForHeight } from '../h3Resolution.js';
+import { SUBDIVISIONS_MAX_HEIGHT_M } from './catalog.js';
+import {
+  decodePack,
+  featureAt,
+  featureContains,
+  partsInRectangle,
+} from './geometry.js';
 import { COUNTRY_THEMES, fillFor, onCountryFillChange } from './palette.js';
 
 /** The fill opacity kept in this browser. */
@@ -62,7 +73,7 @@ export function readOpacity(storage) {
 
 /** The lon/lat rectangle around a view that the local groups cover. */
 export function viewRectangleDegrees(lat, lon, heightM) {
-  const halfKm = localHalfSideKm(heightM);
+  const halfKm = Math.min(5000, viewHalfM(heightM) / 1000);
   const dLat = halfKm / 111.32;
   const dLon =
     halfKm / (111.32 * Math.max(0.2, Math.cos((lat * Math.PI) / 180)));
@@ -98,10 +109,12 @@ export function createCountriesRenderer({
   /** Planet-wide and view-bound primitives, kept apart so moves are cheap. */
   const _world = { fills: null, outlines: null };
   const _local = { fills: null, outlines: null, admin1: null };
-  /** What the local group was made for, and the hex grid it holds. */
+  /** What the local group was made for, and the hex set it holds. */
   let _madeFor = null;
   let _hex = null;
   let _worldKey = '';
+  /** Per-cell fills (H3 index → CSS colour): the data hook. */
+  let _cellFills = new Map();
 
   const offFill = onCountryFillChange(() => {
     _worldKey = ''; // the colours changed under the same key
@@ -289,42 +302,89 @@ export function createCountriesRenderer({
       if (instance) outlines.push(instance);
     }
     _local.admin1 = add(linePrimitive(outlines));
-    _madeFor = {
-      lon: view.lon,
-      lat: view.lat,
-      heightM: view.heightM,
-      halfSideKm: localHalfSideKm(view.heightM),
-    };
+    _madeFor = { lon: view.lon, lat: view.lat, heightM: view.heightM };
   }
 
-  /** The hex tessellation of land for the view (hex style). */
+  /**
+   * A point inside a feature for the cell every country gets even when no
+   * cell centre lands on it: the largest part's centroid when that is
+   * inside, else its first vertex (on the coast, so its cell overlaps).
+   */
+  function representativePoint(feature) {
+    if (feature.rep) return feature.rep;
+    const outer = feature.polygons[0]?.outer || [];
+    let lon = 0;
+    let lat = 0;
+    for (const [x, y] of outer) {
+      lon += x;
+      lat += y;
+    }
+    const centroid = outer.length
+      ? [lon / outer.length, lat / outer.length]
+      : null;
+    feature.rep =
+      centroid && featureContains(feature, centroid[0], centroid[1])
+        ? centroid
+        : outer[0] || null;
+    return feature.rep;
+  }
+
+  /**
+   * The land cells for a view at a resolution: the window's cells whose
+   * centre is on land, then one cell per country that got none (its
+   * representative point's cell), when that cell is in the window.
+   * @returns {Map<string, object>} cell → feature
+   */
+  function landCells(features, view, res) {
+    const set = cellsForView(view, res);
+    const cells = new Map();
+    const inWindow = new Set(set.cells);
+    for (const cell of set.cells) {
+      const [lon, lat] = cellCentre(cell);
+      const feature = featureAt(features, lon, lat);
+      if (feature) cells.set(cell, feature);
+    }
+    const seen = new Set(cells.values());
+    for (const feature of features) {
+      if (seen.has(feature)) continue;
+      const point = representativePoint(feature);
+      if (!point) continue;
+      const cell = latLngToCell(point[1], point[0], set.res);
+      if (!cells.has(cell) && (set.scope === 'global' || inWindow.has(cell)))
+        cells.set(cell, feature);
+    }
+    return { set, cells };
+  }
+
+  /** The H3 cells of land for the view (hex style). */
   function buildHex(features, view) {
     clear(_local);
     const theme = COUNTRY_THEMES[_record.theme];
     const options = { theme: _record.theme, style: 'hex' };
-    const grid = hexCellsForView(view, (lon, lat) =>
-      featureAt(features, lon, lat),
-    );
+    const res = h3ResolutionForHeight(view.heightM);
+    const { set, cells } = landCells(features, view, res);
     const outline = colour(theme.hexOutline);
     const fills = [];
     const outlines = [];
-    for (const cell of grid.cells) {
-      const fill = colour(fillFor(cell.feature, options), _opacity);
-      const polygon = { outer: cell.ring, holes: [] };
-      const instance = fillInstance(polygon, fill, cell.key);
+    for (const [cell, feature] of cells) {
+      const css = _cellFills.get(cell) || fillFor(feature, options);
+      const fill = colour(css, _opacity);
+      const ring = cellRing(cell);
+      const instance = fillInstance({ outer: ring, holes: [] }, fill, cell);
       if (instance) fills.push(instance);
-      const line = outlineInstance(
-        cell.ring,
-        outline,
-        theme.hexOutlineWidth,
-        cell.key,
-      );
+      const line = outlineInstance(ring, outline, theme.hexOutlineWidth, cell);
       if (line) outlines.push(line);
     }
     _local.fills = add(fillPrimitive(fills));
     _local.outlines = add(linePrimitive(outlines));
-    _hex = { sizeKm: grid.sizeKm, scope: grid.scope, cells: grid.cells.length };
-    _madeFor = grid.made;
+    _hex = { res: set.res, scope: set.scope, cells: cells.size };
+    _madeFor = {
+      lon: view.lon,
+      lat: view.lat,
+      heightM: view.heightM,
+      res: set.res,
+      scope: set.scope,
+    };
   }
 
   /** Whether the view-bound group must be made again for this view. */
@@ -332,14 +392,13 @@ export function createCountriesRenderer({
     if (!_record) return false;
     if (_record.style === 'hex') {
       if (!_madeFor) return true;
-      if (_madeFor.halfSideKm === null)
-        return hexTierForHeight(view.heightM).scope !== 'global';
-      return localGridStale(_madeFor, view);
+      if (_madeFor.res !== h3ResolutionForHeight(view.heightM)) return true;
+      return _madeFor.scope === 'window' && viewMoved(_madeFor, view);
     }
     if (_record.style === 'subdivisions') {
       const wanted = view.heightM < SUBDIVISIONS_MAX_HEIGHT_M;
       if (!wanted) return Boolean(_local.admin1);
-      return !_local.admin1 || localGridStale(_madeFor, view);
+      return !_local.admin1 || viewMoved(_madeFor, view);
     }
     return false;
   }
@@ -418,6 +477,22 @@ export function createCountriesRenderer({
       if (_record) void build({ world: true, local: true });
     },
     getOpacity: () => _opacity,
+    /**
+     * Colour individual hexes (H3 index → CSS colour), over the country
+     * fills: the hook for data on the basemap. An empty map clears them.
+     * @param {Map<string, string> | Record<string, string> | null} fills
+     */
+    setCellFills(fills) {
+      const entries =
+        fills instanceof Map ? [...fills] : Object.entries(fills || {});
+      _cellFills = new Map(
+        entries
+          .filter(([cell, css]) => cell && css)
+          .map(([cell, css]) => [String(cell).toLowerCase(), String(css)]),
+      );
+      if (_record?.style === 'hex') void build({ world: false, local: true });
+    },
+    getCellFills: () => new Map(_cellFills),
     /** For tests and the owner: what is drawn. */
     getState() {
       return {

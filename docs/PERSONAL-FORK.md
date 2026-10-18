@@ -34,6 +34,7 @@ unless its switch is set to `0`.
 
 - [Keyless basemaps (MAP SOURCE)](#keyless-basemaps-map-source)
 - [The Countries basemap (MAP SOURCE)](#the-countries-basemap-map-source)
+- [H3 hexes (resolution by perspective)](#h3-hexes-resolution-by-perspective)
 - [Smaller additions](#smaller-additions)
 - [Keeping up with upstream](#keeping-up-with-upstream)
 - [What you need to do](#what-you-need-to-do)
@@ -831,6 +832,39 @@ imagery provider (`provider.js`, implementing what `ImageryLayer` reads in
 1.138) fetches the values through Cesium's `Resource`, so its scheduler
 can throttle, and colours them on a 256 × 256 canvas with `ramp.js`.
 
+**Hexes mode.** The row's fourth chip, **Hexes**, draws H3 cells instead of
+the raster: the cells of the view window at the resolution the camera
+height picks (see [H3 hexes](#h3-hexes-resolution-by-perspective)),
+coloured by the current variant on the same inferno ramp, with the legend
+following the resolution's own domain and the row's opacity slider. They
+are ground-clamped polygons (`GroundPrimitive`, classification BOTH), so
+they drape on terrain and on the photoreal tileset alike
+(`src/layers/wikipediaCoverage/hexes.js`). The cells come from
+
+- `GET /api/wikipedia-coverage/h3/<res>/<variant>?west=&south=&east=&north=`
+  (resolution 0–7, variant `articles` | `text` | `count`, the box in
+  degrees, `west > east` across the antimeridian): `{ res, variant, dump:
+  { date }, domain: { min, max, median }, cells: [[h3Index, value], …] }`,
+  the density variants per km² of the cell's area, `count` raw, the domain
+  the resolution's own quantiles of non-empty cells. `413 { message }` when
+  the box holds more than 20,000 cells at that resolution, `503 { message }`
+  while the H3 grid is not built.
+
+The window is the Earth Engine rectangle rule (the whole planet past a
+5,000 km half-side) and the surface is rebuilt on `moveEnd` when the
+resolution or the window changes; a 413 asks once more one resolution
+down, a second refusal shows the server's message in the status line. A
+503 (no H3 grid) or a 404 (the `text` variant when the hex grid was built
+without `--text`) greys the chip that asked, with the message below.
+Values are per-resolution rollups along the H3 parent chain: a coarse
+hexagon holds its child hexagons' articles, which is not strictly the
+articles inside its drawn outline, since H3 nesting is approximate. The
+client was written to the endpoint's contract against the committed
+fixture `src/data/fixtures/wikipedia-coverage-h3-europe.json` (resolution
+2 over Europe, synthetic densities) and drawn with real Cesium in headless
+Chrome from that fixture; the live route (server/providers/
+wikipediaCoverage.js, from local-fixes `181f947a`) answers the same shape.
+
 ## Keyless basemaps (MAP SOURCE)
 
 Fourteen more map sources that need no key, under the five upstream chips in
@@ -911,7 +945,7 @@ is the ground everything else sits on.
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Simple       | Every country as one fill with a dark (light theme) or light (dark theme) outline, like MapChart's Simple map.                                                                                                                                                           |
 | Subdivisions | The simple map, plus the first-level units (states, provinces, regions) as thinner outlines once the camera is below 5,000 km. Only the units around the view are built, in a square six times the camera height across (at most 10,000 km), rebuilt when the view moves half way to its edge. |
-| Hex          | Land as a hexagonal tessellation, each hex coloured by the country under its centre from a ten-colour palette: the "war games" look. From orbit (above 6,000 km) one planet-wide lattice of 150 km cells; nearer, a local lattice around the view, 60 km cells down to 1,500 km and 25 km below that, coarsened when a lattice would pass 20,000 cells. |
+| Hex          | Land as H3 cells at the resolution the camera height picks (see [H3 hexes](#h3-hexes-resolution-by-perspective)), each coloured by the country under its centre from a ten-colour palette: the "war games" look. Every cell of the resolution from orbit (resolutions 0 to 2), the disk of cells around the view nearer; a country with no cell centre on it still gets the cell of a point inside it, so Iceland is there from orbit. |
 
 **Geometry.** The bundled Natural Earth packs
 (`src/data/local_data/natural_earth/countries.json`, 260 countries, and
@@ -954,18 +988,19 @@ countriesBasemap.setCountryFills({ FR: '#3b6', DE: '#36b' }); // replaces all
 ```
 
 Overrides apply in every style and theme (`src/maps/countries/palette.js`;
-the themes' colours are there too). The hex grid
-(`src/maps/countries/hexGrid.js`) is dependency-free: a pointy-top lattice
-laid out in kilometres on an equal-area projection and inverse-projected
-to the sphere, Lambert cylindrical for the planet-wide grid and Lambert
-azimuthal centred under the view for the local ones, so every cell covers
-the same ground area. The planet-wide cylindrical lattice stretches
-towards the poles and its rows are about 4° apart at 65°N, so small
-high-latitude land (Iceland) can fall between cell centres from orbit;
-the local lattices are regular. H3 would give one consistent cell
-hierarchy over the whole globe (parent/child cells between resolutions,
-no polar stretching) at the cost of a dependency with large index tables;
-it is the better choice if the hex view is ever joined to data by cell.
+the themes' colours are there too). Individual hexes of the hex style can
+be coloured by H3 index, over the country fills, so any data can colour
+the basemap:
+
+```js
+countriesBasemap.setCellFills(new Map([['82075ffffffffff', '#ffd400']]));
+countriesBasemap.setCellFills(null); // clears them
+```
+
+The hexes are H3 cells (`h3-js`, see [H3 hexes](#h3-hexes-resolution-by-perspective)),
+which replaced the fork's first home-made equal-area lattice: one
+consistent cell hierarchy over the whole globe, no polar stretching, and
+cells any data can be joined to by index.
 
 **Tests** (`src/maps/countries/countries.test.mjs`) run on a fake viewer
 and a fake Cesium against the committed fixture
@@ -974,6 +1009,50 @@ and Switzerland with the first-level units of the first two, cut from the
 packs. The wiring (share links, voice enum and aliases such as "hex map",
 "countries", "subdivisions"; cable classification; the first-key hash
 strip) follows the keyless basemaps' lists.
+
+## H3 hexes (resolution by perspective)
+
+Every hex surface in the fork (the Countries basemap's hex style, the
+Wikipedia coverage layer's Hexes mode) uses [H3](https://h3geo.org/)
+cells (`h3-js` 4.5) at a resolution the camera height picks, the way
+Cesium's tiles pick their level from the camera. One helper,
+`src/maps/h3Resolution.js`, holds the table; `src/maps/h3Cells.js` turns a
+view into its cells.
+
+**The table.** Looking down with Cesium's 60° field of view, a canvas
+about 800 px tall shows 1.15 camera heights of ground, so a pixel is about
+height / 700 metres. Each band starts where its resolution's hexes
+(√3 × the average H3 edge across) would be about 58 px on screen and ends
+one H3 step later (cells grow √7 ≈ 2.65× per resolution) at about 22 px.
+Orbit is the exception: the whole planet is on screen there, so resolution
+0's 122 cells (about 100 px across at 20,000 km) are the right surface.
+
+| Camera height (at least) | Resolution | Hex across |
+| ------------------------ | ---------- | ---------- |
+| 18,000 km (orbit)        | 0          | 2,219 km   |
+| 11,200 km                | 1          | 837 km     |
+| 4,240 km                 | 2          | 316 km     |
+| 1,600 km                 | 3          | 120 km     |
+| 603 km                   | 4          | 45 km      |
+| 228 km                   | 5          | 17 km      |
+| 86 km                    | 6          | 6.4 km     |
+| below (city scale)       | 7          | 2.4 km     |
+
+**The cells for a view.** The view window is the Earth Engine rectangle
+rule (a square six camera heights across, at least 40 km) with longitudes
+that wrap, so a window across the antimeridian is one window with
+`west > east`, a window reaching round a pole spans every longitude, and
+past a 5,000 km half-side the window is the planet. For a planet-wide
+window at resolutions 0 to 2 the cells are every cell of the resolution
+(122, 842, 5,882); otherwise they are the H3 disk around the cell under
+the view that covers the window's half-side, its radius capped so the
+disk stays within 20,000 cells. Cell rings are made continuous across
+±180° before they reach Cesium. The surfaces are rebuilt on `moveEnd`
+when the resolution changes or the view has moved half way to the
+window's edge (or the height doubled or halved).
+
+Tests: `src/maps/h3.test.mjs` (the table's bands and pixel sizes, windows
+across the antimeridian and over the poles, cell sets and rings).
 
 ## Smaller additions
 

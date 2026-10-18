@@ -61,6 +61,8 @@ export function attachCountriesBasemap(controller, viewer, options = {}) {
     setCountryFill,
     /** Replace every per-country colour at once, e.g. from data. */
     setCountryFills,
+    /** Colour individual H3 hexes of the hex style (index → CSS colour). */
+    setCellFills: (fills) => renderer.setCellFills(fills),
     getState: () => renderer.getState(),
     settled: () => renderer.settled(),
     destroy() {
