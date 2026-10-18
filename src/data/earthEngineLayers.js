@@ -28,6 +28,8 @@
  *   legend      [{label, color}] (labels are English UI text)
  *   attribution the notice the dataset's terms require
  *   maxZoom     the deepest tile level asked for
+ *   maxHeightM  no tiles are asked for while the camera is higher than this
+ *               (optional; terrain says nothing from orbit)
  */
 
 export const EARTH_ENGINE_ATTRIBUTION = 'Google Earth Engine';
@@ -66,6 +68,7 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     ]),
     attribution: COPERNICUS_DEM_NOTICE,
     maxZoom: 14,
+    maxHeightM: 500_000,
   }),
   Object.freeze({
     id: 'ee-terrain-aspect',
@@ -93,6 +96,7 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     ]),
     attribution: COPERNICUS_DEM_NOTICE,
     maxZoom: 14,
+    maxHeightM: 500_000,
   }),
   Object.freeze({
     id: 'ee-terrain-hillshade',
@@ -113,6 +117,7 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     ]),
     attribution: COPERNICUS_DEM_NOTICE,
     maxZoom: 14,
+    maxHeightM: 500_000,
   }),
   Object.freeze({
     id: 'ee-forest-loss',
@@ -137,6 +142,7 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     attribution:
       'Hansen/UMD/Google/USGS/NASA, Global Forest Change 2000–2025 v1.13 (CC BY 4.0)',
     maxZoom: 12,
+    maxHeightM: 3_000_000,
   }),
   Object.freeze({
     id: 'ee-admin-boundaries',

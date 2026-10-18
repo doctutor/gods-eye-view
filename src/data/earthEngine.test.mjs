@@ -466,3 +466,54 @@ test('the routes are same-site only and GET only', async (t) => {
   assert.equal((await call('/tile/../../etc/3/2/1')).nexted, true);
   assert.equal((await call('/tile/ee-forest-loss/default/x/2/1')).nexted, true);
 });
+
+test('tiles are counted per layer for the day, and the budget warns once at 50% and 90%', async (t) => {
+  const warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args.join(' ')));
+  const root = await tempRoot(t);
+  let clock = Date.parse('2026-10-17T12:00:00Z');
+  const backend = fakeBackend();
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: { EARTH_ENGINE_DAILY_TILES: '10' },
+    backend,
+    now: () => clock,
+  });
+  for (let x = 0; x < 4; x++)
+    await service.tile('ee-terrain-slope', 'default', 4, x, 1);
+  // A disk hit is not counted.
+  await service.tile('ee-terrain-slope', 'default', 4, 0, 1);
+  await service.tile('ee-forest-loss', 'default', 4, 0, 1);
+  const budgetWarnings = () => warnings.filter((w) => /tile budget/.test(w));
+  assert.deepEqual(budgetWarnings(), [
+    "[EarthEngine] 50% of today's tile budget used (5 of 10; ee-terrain-slope 4, ee-forest-loss 1)",
+  ]);
+  for (let x = 1; x < 5; x++)
+    await service.tile('ee-forest-loss', 'default', 4, x, 1);
+  assert.equal(budgetWarnings().length, 2);
+  assert.match(
+    budgetWarnings()[1],
+    /^\[EarthEngine\] 90% of today's tile budget used \(9 of 10; ee-forest-loss 5, ee-terrain-slope 4\)$/,
+  );
+  await service.tile('ee-forest-loss', 'default', 4, 5, 1);
+  assert.equal(budgetWarnings().length, 2, 'once each a day');
+  const catalog = await service.layers();
+  const today = Object.fromEntries(
+    catalog.layers.map((layer) => [layer.id, layer.tilesToday]),
+  );
+  assert.deepEqual(today, {
+    'ee-terrain-slope': 4,
+    'ee-terrain-aspect': 0,
+    'ee-terrain-hillshade': 0,
+    'ee-forest-loss': 6,
+    'ee-admin-boundaries': 0,
+  });
+  assert.deepEqual(catalog.tiles, { used: 10, budget: 10 });
+  // A new day starts from nothing, with its own warnings.
+  clock += 24 * 60 * 60 * 1000;
+  assert.equal(
+    (await service.layers()).layers.find((l) => l.id === 'ee-forest-loss')
+      .tilesToday,
+    0,
+  );
+});

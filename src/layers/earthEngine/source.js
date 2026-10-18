@@ -40,6 +40,10 @@ export function toCatalogLayer(row) {
       .filter((entry) => /^#[0-9a-f]{6}$/i.test(String(entry?.color || '')))
       .map((entry) => ({ label: text(entry.label, 40), color: entry.color })),
     error: row.error ? text(row.error) : null,
+    // Earth Engine tiles this layer took today (the server counts them).
+    ...(Number.isInteger(row.tilesToday) && row.tilesToday >= 0
+      ? { tilesToday: row.tilesToday }
+      : {}),
   };
 }
 

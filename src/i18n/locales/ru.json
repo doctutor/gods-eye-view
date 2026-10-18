@@ -3165,5 +3165,12 @@
   "Hillshade": "Отмывка рельефа",
   "Forest loss": "Потеря лесов",
   "Administrative boundaries": "Административные границы",
-  "Analysis": "Анализ"
+  "Analysis": "Анализ",
+  "Zoom in below {height} km to draw it": "Приблизьтесь ниже {height} км, чтобы показать слой",
+  "{count} tiles today, this layer": {
+    "one": "{count} тайл сегодня, этот слой",
+    "few": "{count} тайла сегодня, этот слой",
+    "many": "{count} тайлов сегодня, этот слой",
+    "other": "{count} тайла сегодня, этот слой"
+  }
 }

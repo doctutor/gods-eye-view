@@ -3096,5 +3096,11 @@
   "Hillshade": "Sombreado del relieve",
   "Forest loss": "Pérdida de bosque",
   "Administrative boundaries": "Límites administrativos",
-  "Analysis": "Análisis"
+  "Analysis": "Análisis",
+  "Zoom in below {height} km to draw it": "Acércate por debajo de {height} km para dibujarla",
+  "{count} tiles today, this layer": {
+    "one": "{count} tesela hoy, esta capa",
+    "many": "{count} de teselas hoy, esta capa",
+    "other": "{count} teselas hoy, esta capa"
+  }
 }

@@ -18,9 +18,68 @@ import { tileTemplate } from './source.js';
  * a globe map, the photoreal tileset's own imagery layers (Cesium 1.131+)
  * when the globe is hidden. Each settled map switch re-drapes it on the new
  * host; a stack with neither says so in the row.
+ *
+ * Tile budget. On a 3D tileset Cesium drapes about one imagery tile (up to
+ * nine) on every loaded primitive, at the level that spans it, and the
+ * tileset loads every ancestor from the planet-wide root down: unbounded, a
+ * 60 km view over Baltimore asked for about 1,200 tiles, mostly coarse ones
+ * far from the view, where the globe asks for under 150. So each overlay:
+ * - covers only the view's neighbourhood (an ImageryLayer rectangle, a
+ *   square of 6 × the camera height around the point under the view,
+ *   rebuilt when the view leaves it or the height doubles or halves; the
+ *   browser and the server's disk keep the tiles, so a rebuild costs no
+ *   Earth Engine tiles);
+ * - draws nothing above its record's maxHeightM (terrain says nothing from
+ *   orbit);
+ * - asks no deeper than its maxZoom. Its minimumLevel stays 0: Cesium
+ *   clamps a primitive's level up to it, so a raised minimum would make a
+ *   planet-sized primitive ask for every tile of that level.
  */
 
 export const OPACITY_STORAGE_PREFIX = 'gev.earthEngine.opacity.';
+/** The overlay's rectangle: half its side is this many camera heights… */
+export const VIEW_HALF_FACTOR = 3;
+/** …and at least this many metres. */
+export const MIN_VIEW_HALF_M = 20_000;
+/** Past this half-side, the whole world (the view is the planet). */
+const WORLD_HALF_M = 5_000_000;
+const EARTH_RADIUS_M = 6_378_137;
+
+/**
+ * The view's neighbourhood: a square of 2 × VIEW_HALF_FACTOR camera heights
+ * around a point, in degrees, or null for the whole world.
+ */
+export function viewRectangleDegrees(lat, lon, heightM) {
+  const half = Math.max(MIN_VIEW_HALF_M, VIEW_HALF_FACTOR * heightM);
+  if (!Number.isFinite(half) || half >= WORLD_HALF_M) return null;
+  const dLat = (half / EARTH_RADIUS_M) * (180 / Math.PI);
+  const dLon = dLat / Math.max(0.05, Math.cos((lat * Math.PI) / 180));
+  return {
+    west: Math.max(-180, lon - dLon),
+    south: Math.max(-85, lat - dLat),
+    east: Math.min(180, lon + dLon),
+    north: Math.min(85, lat + dLat),
+  };
+}
+
+/** Whether a view has left the one an overlay's rectangle was made for. */
+export function viewMoved(made, now) {
+  if (!made) return true;
+  if (!Number.isFinite(now.height) || !Number.isFinite(made.height))
+    return true;
+  const ratio = now.height / made.height;
+  if (ratio > 2 || ratio < 0.5) return true;
+  const half = Math.max(MIN_VIEW_HALF_M, VIEW_HALF_FACTOR * made.height);
+  const dy = ((now.lat - made.lat) * Math.PI * EARTH_RADIUS_M) / 180;
+  const dx =
+    ((now.lon - made.lon) *
+      Math.PI *
+      EARTH_RADIUS_M *
+      Math.cos((made.lat * Math.PI) / 180)) /
+    180;
+  // Half the way to the edge: rebuilt before the view reaches it.
+  return Math.max(Math.abs(dx), Math.abs(dy)) > half / 2;
+}
 export const DEFAULT_OPACITY = 0.7;
 /** The catalog (map expiry, tiles used) is read again this often while on. */
 export const CATALOG_REFRESH_MS = 10 * 60 * 1000;
@@ -92,6 +151,9 @@ export function createEarthEngineLayer({
   /** The collection the overlay is draped on, and what kind of host it is. */
   let _collection = null;
   let _hostKind = 'globe';
+  /** The view the mounted rectangle was made for. */
+  let _madeFor = null;
+  let _aboveCeiling = false;
   const notify = () => {
     try {
       _rowListener?.();
@@ -103,6 +165,35 @@ export function createEarthEngineLayer({
   function cameraHeight() {
     const height = _viewer?.camera?.positionCartographic?.height;
     return Number.isFinite(height) ? height : Infinity;
+  }
+
+  /** The point under the middle of the view (else under the camera), and the height. */
+  function viewNow() {
+    const camera = _viewer?.camera;
+    const canvas = _viewer?.scene?.canvas;
+    let point = null;
+    try {
+      const centre =
+        canvas && camera?.pickEllipsoid
+          ? camera.pickEllipsoid(
+              new cesium.Cartesian2(
+                canvas.clientWidth / 2,
+                canvas.clientHeight / 2,
+              ),
+            )
+          : null;
+      if (centre) point = cesium.Cartographic.fromCartesian(centre);
+    } catch {
+      /* no pick: under the camera */
+    }
+    point ||= camera?.positionCartographic || null;
+    const degrees = (radians) =>
+      Number.isFinite(radians) ? cesium.Math.toDegrees(radians) : 0;
+    return {
+      lat: degrees(point?.latitude),
+      lon: degrees(point?.longitude),
+      height: cameraHeight(),
+    };
   }
 
   function wantedVariant() {
@@ -132,6 +223,7 @@ export function createEarthEngineLayer({
     _imagery = null;
     _collection = null;
     _mountedKey = '';
+    _madeFor = null;
     requestRender('earth-engine-hide');
   }
 
@@ -140,14 +232,25 @@ export function createEarthEngineLayer({
     const layer = _catalog?.layers?.get?.(record.id);
     const host = imageryHost();
     _hostKind = host.kind;
+    const view = viewNow();
+    _aboveCeiling = view.height > (record.maxHeightM ?? Infinity);
     const drawable =
-      _enabled && host.collection && _catalog?.configured && layer;
+      _enabled &&
+      host.collection &&
+      _catalog?.configured &&
+      layer &&
+      !_aboveCeiling;
     if (!drawable) {
       unmount();
       return;
     }
     const variant = wantedVariant();
-    if (_imagery && _mountedKey === variant && _collection === host.collection)
+    if (
+      _imagery &&
+      _mountedKey === variant &&
+      _collection === host.collection &&
+      !viewMoved(_madeFor, view)
+    )
       return;
     unmount();
     const provider = new cesium.UrlTemplateImageryProvider({
@@ -158,10 +261,24 @@ export function createEarthEngineLayer({
       credit: layer.attribution || record.attribution,
       hasAlphaChannel: true,
     });
-    _imagery = host.collection.addImageryProvider(provider);
-    _imagery.alpha = _opacity;
+    const box = viewRectangleDegrees(view.lat, view.lon, view.height);
+    _imagery = new cesium.ImageryLayer(provider, {
+      alpha: _opacity,
+      ...(box
+        ? {
+            rectangle: cesium.Rectangle.fromDegrees(
+              box.west,
+              box.south,
+              box.east,
+              box.north,
+            ),
+          }
+        : {}),
+    });
+    host.collection.add(_imagery);
     _collection = host.collection;
     _mountedKey = variant;
+    _madeFor = view;
     requestRender('earth-engine-show');
     notify();
   }
@@ -182,12 +299,12 @@ export function createEarthEngineLayer({
     return Boolean(_catalog);
   }
 
+  /** A settled camera: a new level, a new neighbourhood, or past the ceiling. */
   function onMoved() {
-    if (_enabled && record.variants?.length) {
-      const before = _mountedKey;
-      sync();
-      if (before !== _mountedKey) notify();
-    }
+    if (!_enabled) return;
+    const before = `${_mountedKey}|${_aboveCeiling}`;
+    sync();
+    if (before !== `${_mountedKey}|${_aboveCeiling}`) notify();
   }
 
   /** A settled map switch: the host may have changed (a new tileset, the globe). */
@@ -278,6 +395,7 @@ export function createEarthEngineLayer({
         loading: _loading,
         failure: _failure,
         hostless: _enabled && _hostKind === 'none',
+        ceilingM: _enabled && _aboveCeiling ? record.maxHeightM : null,
       });
     },
 
@@ -306,6 +424,8 @@ export function createEarthEngineLayer({
       opacity: _opacity,
       host: _imagery ? _hostKind : 'none',
       collection: _collection,
+      rectangle: _imagery?.rectangle || null,
+      aboveCeiling: _aboveCeiling,
     }),
   };
 }

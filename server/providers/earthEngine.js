@@ -23,6 +23,8 @@ import {
  *       URL template, legend, attribution, map expiry and any error
  *   GET /api/earth-engine/tile/<layer>/<variant>/<z>/<x>/<y>
  *       one tile, kept on disk, within EARTH_ENGINE_DAILY_TILES a day
+ *       (counted per layer for the day; a warning is logged at 50% and
+ *       90% of the budget)
  *
  * Each layer's map is made by POST /v1/projects/<project>/maps with the
  * layer's expression (the computation graph Earth Engine's own clients
@@ -45,6 +47,8 @@ export const MAP_TTL_MS = 2 * 60 * 60 * 1000;
 /** Tiles are kept on disk this long: the datasets are static. */
 export const TILE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const DEFAULT_DAILY_TILES = 20_000;
+/** A warning is logged once a day as the tiles reach each of these shares. */
+export const BUDGET_WARNINGS = Object.freeze([50, 90]);
 const MAX_TILE_BYTES = 2 * 1024 * 1024;
 const TILE_TIMEOUT_MS = 30_000;
 const CACHE_DIR = path.join('.gev-cache', 'earth-engine');
@@ -400,24 +404,48 @@ export function createEarthEngineService({
     return held.inflight;
   }
 
+  /** Today's Earth Engine tiles: in all, per layer, and the warnings given. */
   function usage() {
     const day = new Date(now()).toISOString().slice(0, 10);
     try {
       const stored = JSON.parse(fs.readFileSync(usageFile, 'utf8'));
-      if (stored?.day === day) return { day, tiles: Number(stored.tiles) || 0 };
+      if (stored?.day === day)
+        return {
+          day,
+          tiles: Number(stored.tiles) || 0,
+          byLayer:
+            stored.byLayer && typeof stored.byLayer === 'object'
+              ? { ...stored.byLayer }
+              : {},
+          warned: Array.isArray(stored.warned) ? stored.warned : [],
+        };
     } catch {
       /* none yet today */
     }
-    return { day, tiles: 0 };
+    return { day, tiles: 0, byLayer: {}, warned: [] };
   }
-  function countTile() {
+  /** Count one tile fetched from Earth Engine; say so once at 50% and 90%. */
+  function countTile(layerId) {
     const current = usage();
+    current.tiles += 1;
+    current.byLayer[layerId] = (Number(current.byLayer[layerId]) || 0) + 1;
+    const budget = settings().dailyTiles;
+    for (const share of BUDGET_WARNINGS) {
+      if (current.warned.includes(share) || !budget) continue;
+      if (current.tiles < (budget * share) / 100) continue;
+      current.warned.push(share);
+      const top = Object.entries(current.byLayer)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([id, count]) => `${id} ${count}`)
+        .join(', ');
+      console.warn(
+        `[EarthEngine] ${share}% of today's tile budget used (${current.tiles} of ${budget}; ${top})`,
+      );
+    }
     fs.mkdirSync(dir, { recursive: true });
     const temporary = `${usageFile}.${process.pid}.tmp`;
-    fs.writeFileSync(
-      temporary,
-      JSON.stringify({ day: current.day, tiles: current.tiles + 1 }),
-    );
+    fs.writeFileSync(temporary, JSON.stringify(current));
     fs.renameSync(temporary, usageFile);
   }
 
@@ -436,7 +464,8 @@ export function createEarthEngineService({
     /** The layer catalog, every map made or refreshed as needed. */
     async layers() {
       const current = settings();
-      const tiles = { used: usage().tiles, budget: current.dailyTiles };
+      const today = usage();
+      const tiles = { used: today.tiles, budget: current.dailyTiles };
       const out = [];
       for (const layer of layers) {
         const variants = [];
@@ -469,6 +498,8 @@ export function createEarthEngineService({
           legend: layer.legend || [],
           attribution:
             `${EARTH_ENGINE_ATTRIBUTION} · ${layer.attribution || ''}`.trim(),
+          // Tiles this layer took from Earth Engine today (disk hits are free).
+          tilesToday: Number(today.byLayer[layer.id]) || 0,
           error,
         });
       }
@@ -517,13 +548,13 @@ export function createEarthEngineService({
       let held = await mapFor(layer, variant);
       if (!held.name) return { status: 502, error: held.error || 'No map' };
       const engine = backendNow();
-      countTile();
+      countTile(layerId);
       let answer = await engine.fetchTile(held.name, z, x, y);
       // An expired map is made again, once.
       if ([400, 404].includes(answer.status)) {
         held = await mapFor(layer, variant, { force: true });
         if (held.name) {
-          countTile();
+          countTile(layerId);
           answer = await engine.fetchTile(held.name, z, x, y);
         }
       }

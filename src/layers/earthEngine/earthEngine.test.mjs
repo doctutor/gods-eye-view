@@ -10,6 +10,8 @@ import {
   attributionCredit,
   createEarthEngineLayer,
   readOpacity,
+  viewMoved,
+  viewRectangleDegrees,
 } from './index.js';
 import {
   CATALOG_TTL_MS,
@@ -24,15 +26,17 @@ const record = (id) => EARTH_ENGINE_LAYERS.find((layer) => layer.id === id);
 function fakeViewer(height = 5_000_000) {
   const layers = [];
   const listeners = [];
+  let lat = 39.29;
+  let lon = -76.61;
   return {
     layers,
     listeners,
     setHeight: (h) => (height = h),
+    setCentre: (nextLat, nextLon) => ((lat = nextLat), (lon = nextLon)),
     settle: () => listeners.forEach((fn) => fn()),
     viewer: {
       imageryLayers: {
-        addImageryProvider(provider) {
-          const layer = { provider, alpha: 1 };
+        add(layer) {
           layers.push(layer);
           return layer;
         },
@@ -44,7 +48,7 @@ function fakeViewer(height = 5_000_000) {
       },
       camera: {
         get positionCartographic() {
-          return { height };
+          return Cesium.Cartographic.fromDegrees(lon, lat, height);
         },
         moveEnd: {
           addEventListener(fn) {
@@ -175,15 +179,17 @@ test('an overlay drapes the proxy’s tiles at its stored opacity, and its row c
   await flush();
   assert.equal(fake.layers.length, 1);
   const [imagery] = fake.layers;
-  assert.ok(imagery.provider instanceof Cesium.UrlTemplateImageryProvider);
+  assert.ok(
+    imagery.imageryProvider instanceof Cesium.UrlTemplateImageryProvider,
+  );
   assert.equal(imagery.alpha, 0.4, 'the stored opacity');
-  assert.equal(imagery.provider.maximumLevel, 12);
+  assert.equal(imagery.imageryProvider.maximumLevel, 12);
   assert.match(
-    imagery.provider.url,
+    imagery.imageryProvider.url,
     /\/api\/earth-engine\/tile\/ee-forest-loss\/default\/\{z\}\/\{x\}\/\{y\}$/,
   );
   assert.match(
-    imagery.provider.credit.html,
+    imagery.imageryProvider.credit.html,
     /Google Earth Engine · Hansen\/UMD/,
   );
   assert.ok(renders.includes('earth-engine-show'));
@@ -236,13 +242,19 @@ test('the boundaries change level with the camera, and a broken store falls back
   layer.enable(fake.viewer);
   await flush();
   assert.equal(layer._state().variant, 'level1');
-  assert.match(fake.layers[0].provider.url, /ee-admin-boundaries\/level1\//);
+  assert.match(
+    fake.layers[0].imageryProvider.url,
+    /ee-admin-boundaries\/level1\//,
+  );
   assert.equal(layer.getRowControls().info, 'First-level units');
   fake.setHeight(200_000);
   fake.settle();
   assert.equal(layer._state().variant, 'level2');
   assert.equal(fake.layers.length, 1, 'one level at a time');
-  assert.match(fake.layers[0].provider.url, /ee-admin-boundaries\/level2\//);
+  assert.match(
+    fake.layers[0].imageryProvider.url,
+    /ee-admin-boundaries\/level2\//,
+  );
   layer.getRowControls().slider.onInput(50);
   assert.equal(
     fake.layers[0].alpha,
@@ -347,6 +359,11 @@ function fakeCollection() {
   return {
     layers,
     destroy: () => (destroyed = true),
+    add(layer) {
+      if (destroyed) throw new Error('destroyed');
+      layers.push(layer);
+      return layer;
+    },
     addImageryProvider(provider) {
       if (destroyed) throw new Error('destroyed');
       const layer = { provider, alpha: 1 };
@@ -383,7 +400,7 @@ function fakeMapStack(viewer) {
 }
 
 test('in photoreal the overlay drapes on the Google tileset, follows map switches, and keeps its opacity', async () => {
-  const fake = fakeViewer(3_000_000);
+  const fake = fakeViewer(60_000);
   fake.viewer.scene = { globe: { show: false } };
   const globe = fakeCollection();
   fake.viewer.imageryLayers = globe;
@@ -482,5 +499,130 @@ test('a map that can drape nothing says so in the row', async () => {
   stack.settle({ id: 'esri-imagery', globe: true });
   assert.equal(fake.viewer.imageryLayers.layers.length, 1);
   assert.equal(layer.getRowControls().info, '0 of 20000 tiles today');
+  layer.destroy();
+});
+
+test('an overlay covers only the view’s neighbourhood, rebuilt as the view moves', async () => {
+  // A square of 6 × the camera height (at least 40 km), the world past 5,000 km.
+  const box = viewRectangleDegrees(39.29, -76.61, 60_000);
+  assert.ok(
+    Math.abs(
+      box.north - box.south - 2 * (180_000 / 6_378_137) * (180 / Math.PI),
+    ) < 1e-9,
+  );
+  assert.ok(
+    box.east - box.west > box.north - box.south,
+    'wider in longitude at 39°N',
+  );
+  const close = viewRectangleDegrees(39.29, -76.61, 500);
+  assert.ok(close.north - close.south > 0.35, 'never under 40 km');
+  assert.equal(
+    viewRectangleDegrees(39.29, -76.61, 2_000_000),
+    null,
+    'the planet',
+  );
+  const made = { lat: 39.29, lon: -76.61, height: 60_000 };
+  assert.equal(viewMoved(null, made), true);
+  assert.equal(
+    viewMoved(made, { ...made, lon: -76.0 }),
+    false,
+    '50 km: inside',
+  );
+  assert.equal(
+    viewMoved(made, { ...made, lon: -75.3 }),
+    true,
+    '110 km: past half',
+  );
+  assert.equal(
+    viewMoved(made, { ...made, height: 130_000 }),
+    true,
+    'twice as high',
+  );
+  assert.equal(
+    viewMoved(made, { ...made, height: 25_000 }),
+    true,
+    'under half',
+  );
+
+  const fake = fakeViewer(60_000);
+  const server = fakeServer({
+    configured: true,
+    tiles: { used: 0, budget: 20000 },
+    layers: [serverLayer('ee-terrain-slope')],
+  });
+  const layer = createEarthEngineLayer({
+    record: record('ee-terrain-slope'),
+    source: createEarthEngineSource({ fetchImpl: server.fetchImpl }),
+    storage: memoryStorage(),
+  });
+  layer.init(fake.viewer);
+  layer.enable(fake.viewer);
+  await flush();
+  const [first] = fake.layers;
+  assert.ok(first instanceof Cesium.ImageryLayer);
+  assert.equal(
+    first.imageryProvider.minimumLevel,
+    0,
+    'a raised minimum would fan out on tilesets',
+  );
+  assert.equal(first.imageryProvider.maximumLevel, 14);
+  const rect = first.rectangle;
+  const deg = (r) => Cesium.Math.toDegrees(r);
+  assert.ok(deg(rect.south) < 39.29 && deg(rect.north) > 39.29);
+  assert.ok(
+    deg(rect.north) - deg(rect.south) < 3.5,
+    'about 360 km, not the planet',
+  );
+  // A small move keeps it; a long one rebuilds it around the new view.
+  fake.setCentre(39.3, -76.5);
+  fake.settle();
+  assert.equal(fake.layers[0], first);
+  // 135 km north: past half the way to the edge (90 km at 60 km up).
+  fake.setCentre(40.5, -76.61);
+  fake.settle();
+  assert.equal(fake.layers.length, 1);
+  assert.notEqual(fake.layers[0], first);
+  assert.ok(deg(fake.layers[0].rectangle.north) > 40.5);
+  const moved = fake.layers[0].rectangle;
+  assert.ok(
+    Math.abs((deg(moved.north) + deg(moved.south)) / 2 - 40.5) < 1e-6,
+    'centred on the new view',
+  );
+  layer.destroy();
+});
+
+test('above its ceiling an overlay asks for nothing and says how low to go', async () => {
+  const fake = fakeViewer(800_000);
+  const server = fakeServer({
+    configured: true,
+    tiles: { used: 1200, budget: 20000 },
+    layers: [serverLayer('ee-terrain-slope', { tilesToday: 1158 })],
+  });
+  const layer = createEarthEngineLayer({
+    record: record('ee-terrain-slope'),
+    source: createEarthEngineSource({ fetchImpl: server.fetchImpl }),
+    storage: memoryStorage(),
+  });
+  layer.init(fake.viewer);
+  layer.enable(fake.viewer);
+  await flush();
+  assert.equal(fake.layers.length, 0, 'terrain from 800 km: nothing');
+  assert.equal(
+    layer.getRowControls().info,
+    'Zoom in below 500 km to draw it · 1158 tiles today, this layer · 1200 of 20000 tiles today',
+  );
+  fake.setHeight(60_000);
+  fake.settle();
+  assert.equal(fake.layers.length, 1, 'below it: drawn');
+  assert.equal(
+    layer.getRowControls().info,
+    '1158 tiles today, this layer · 1200 of 20000 tiles today',
+  );
+  fake.setHeight(900_000);
+  fake.settle();
+  assert.equal(fake.layers.length, 0, 'and taken off again above it');
+  // The boundaries have no ceiling: their first level is for far views.
+  assert.equal(record('ee-admin-boundaries').maxHeightM, undefined);
+  assert.equal(record('ee-forest-loss').maxHeightM, 3_000_000);
   layer.destroy();
 });

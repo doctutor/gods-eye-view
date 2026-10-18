@@ -1,4 +1,4 @@
-import { msg, t, translateKnown } from '../../i18n/index.js';
+import { msg, t, tn, translateKnown } from '../../i18n/index.js';
 import { NO_IMAGERY_HOST } from '../../maps/imageryHost.js';
 
 /**
@@ -46,8 +46,9 @@ export function legendLabel(label) {
 /**
  * The status line.
  * @param {{catalog?: object|null, layer?: object|null, variant?: string,
- *   loading?: boolean, failure?: string|null, hostless?: boolean}} state
- *   `hostless`: the map stack can drape no imagery.
+ *   loading?: boolean, failure?: string|null, hostless?: boolean,
+ *   ceilingM?: number|null}} state - `hostless`: the map stack can drape no
+ *   imagery; `ceilingM`: the camera is above the layer's ceiling.
  */
 export function statusText({
   catalog = null,
@@ -56,6 +57,7 @@ export function statusText({
   loading = false,
   failure = null,
   hostless = false,
+  ceilingM = null,
 }) {
   if (failure)
     return t('Earth Engine unavailable: {reason}', { reason: failure });
@@ -70,7 +72,21 @@ export function statusText({
   // Earth Engine's own words: the first run is the only validation there is.
   if (layer?.error) return t('Earth Engine: {error}', { error: layer.error });
   const parts = [];
-  if (VARIANT_LABELS[variant]) parts.push(t(VARIANT_LABELS[variant]));
+  if (Number.isFinite(ceilingM))
+    parts.push(
+      t('Zoom in below {height} km to draw it', {
+        height: Math.round(ceilingM / 1000),
+      }),
+    );
+  else if (VARIANT_LABELS[variant]) parts.push(t(VARIANT_LABELS[variant]));
+  if (Number.isFinite(layer?.tilesToday))
+    parts.push(
+      tn(
+        layer.tilesToday,
+        '{count} tile today, this layer',
+        '{count} tiles today, this layer',
+      ),
+    );
   if (catalog.tiles?.budget)
     parts.push(
       t('{used} of {budget} tiles today', {
@@ -85,7 +101,7 @@ export function statusText({
  * The row's controls for the layer panel (src/ui/layerPanel.js).
  * @param {{record: object, catalog?: object|null, variant?: string,
  *   opacity: number, onOpacity: (value: number) => void, loading?: boolean,
- *   failure?: string|null, hostless?: boolean}} input
+ *   failure?: string|null, hostless?: boolean, ceilingM?: number|null}} input
  */
 export function rowControls({
   record,
@@ -96,6 +112,7 @@ export function rowControls({
   loading = false,
   failure = null,
   hostless = false,
+  ceilingM = null,
 }) {
   const layer = catalog?.layers?.get?.(record.id) || null;
   return {
@@ -117,6 +134,7 @@ export function rowControls({
       loading,
       failure,
       hostless,
+      ceilingM,
     }),
     infoTitle: layer?.attribution || '',
   };
