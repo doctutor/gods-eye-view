@@ -512,9 +512,22 @@ popover.
 **Registration.** The Cloud project "gods-eye-view"
 (`true-energy-511503-v7`) is registered for **noncommercial** Earth Engine
 use. That is the Community tier: 150 EECU-hours a month. The server signs in
-as the service account `gods-eye-view-earth-engine` (roles Earth Engine
-Resource Viewer and Service Usage Consumer) with the scope
-`https://www.googleapis.com/auth/earthengine`.
+as the service account `gods-eye-view-earth-engine` with the scope
+`https://www.googleapis.com/auth/earthengine`, which was enough on its own.
+The account needs these roles:
+
+- **Earth Engine Resource Writer**, not only Viewer. Making a map
+  (`earthengine.maps.create`) is a write, and Viewer was refused on the
+  first live run.
+- **Service Usage Consumer.**
+
+**Algorithm names.** The REST API's algorithm names are not always the JS
+client's method names. The project's own list is the authority: `GET
+https://earthengine.googleapis.com/v1/projects/<project>/algorithms`, asked
+with the server's auth. For example, the JS `FeatureCollection.style` is
+`Collection.style` in REST, and Earth Engine answered `Unknown function:
+'FeatureCollection.style'` until the boundaries used it. Check that list
+before writing a new kind of expression.
 
 **Setup.** Put the account's JSON key at `.gev-secrets/earth-engine.json`.
 That folder is gitignored, and the key never leaves the server. Then set, in
@@ -556,6 +569,50 @@ committed as `src/data/fixtures/earth-engine-expressions.json`, so a
 rejection can be read against what was sent. A test fails when a layer's
 request and the fixture drift apart.
 
+**Tile guards** (`src/layers/earthEngine/index.js`). Draped on the photoreal
+tileset, an unguarded overlay asked for 1,158 slope tiles for one 60 km view
+over Baltimore, at levels 2 to 8 across the planet. That is 6% of a day's
+budget, for one layer in one view.
+
+The cause is in Cesium 1.138: `ModelPrimitiveImagery` drapes about one
+imagery tile (up to nine) on every loaded primitive, at the level whose tile
+spans it. The tileset loads every ancestor from the planet-wide root down,
+so its coarse ancestors ask for coarse tiles across their whole footprint.
+The globe asks for 77 to 143 tiles for the same view.
+
+Each overlay now:
+
+- **Covers only the view's neighbourhood.** It is an `ImageryLayer` with a
+  `rectangle`: a square six times the camera height across, at least
+  40 km, around the point under the middle of the view. Past a 5,000 km
+  half-side, it covers the whole world. The square is rebuilt when the view
+  moves half way to its edge, or when the height doubles or halves. A
+  rebuild costs no Earth Engine tiles, because the browser (`max-age` a
+  day) and the server's disk (30 days) keep them. In a model of the
+  tileset at that 60 km view, Cesium's own coverage code asked for 1,482
+  tiles without the square and 225 with it.
+- **Stays dark above its ceiling.** Above the record's `maxHeightM` nothing
+  is asked for, and the row says "Zoom in below 500 km to draw it". The
+  ceilings are 500 km for slope, aspect and hillshade, 3,000 km for forest
+  loss, and none for the boundaries (their first level is for far views).
+- **Goes no deeper than its `maxZoom`:** 14 for terrain, 12 otherwise.
+- **Keeps `minimumLevel` at 0, on purpose.** Cesium clamps a primitive's
+  level _up_ to the provider's minimum. A raised minimum would therefore
+  make a planet-sized primitive ask for every tile of that level: far more
+  tiles, not fewer.
+
+**Counting.** `.gev-cache/earth-engine/usage.json` holds the day's Earth
+Engine tiles, in all and per layer (`{day, tiles, byLayer, warned}`); tiles
+served from disk are not counted. `GET /api/earth-engine/layers` returns
+each layer's `tilesToday`, and its row shows "N tiles today, this layer"
+beside "used of budget tiles today". The server logs one line, once a day
+each, at 50% and at 90% of `EARTH_ENGINE_DAILY_TILES`, naming the layers
+that used the most:
+
+```
+[EarthEngine] 50% of today's tile budget used (10000 of 20000; ee-terrain-slope 6200, …)
+```
+
 **Adding a layer** is a record in `src/data/earthEngineLayers.js`; the file's
 header lists the fields. Then:
 
@@ -570,8 +627,13 @@ header lists the fields. Then:
 An image layer names an asset (a collection is mosaicked) and its band, and
 optionally a terrain operation, `selfMask` and `vis` (min, max, palette). A
 features layer names a table and a `style`, with variants by camera height.
+
+Every layer has a `maxZoom`, and may have a `maxHeightM`: the camera height
+above which it asks for nothing. Set one for anything that says nothing from
+far away. Without it, the layer draws (and spends tiles) from orbit.
+
 Anything else Earth Engine can compute needs a small addition to
-`expressionFor`.
+`expressionFor`. Use the REST names from the project's `algorithms` list.
 
 ## Smaller additions
 
