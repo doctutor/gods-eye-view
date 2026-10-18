@@ -3225,5 +3225,6 @@
   "One fill per country, dark outlines": "Одна заливка на страну, тёмные контуры",
   "States and provinces appear below 5,000 km": "Штаты и провинции появляются ниже 5 000 км",
   "Land as hexes; finer as you zoom in": "Суша шестиугольниками; мельче при приближении",
-  "map style|Countries": "Страны"
+  "map style|Countries": "Страны",
+  "the video’s own location is far from the channel’s place": "собственное местоположение видео далеко от места канала"
 }

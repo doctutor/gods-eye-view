@@ -580,3 +580,184 @@ test('in the watcher: accepts, skips and holds are written, journaled, capped an
     ),
   );
 });
+
+// Personal fork: the location the channel tagged on each video.
+const geotag = (lat, lon, label = '') => ({
+  suggestion: {
+    kind: 'geotag',
+    lat,
+    lon,
+    coordinatesQuality: 'operator-geotag',
+    label,
+  },
+});
+
+test('a video carrying its own precise location is accepted there; a place pick waits', () => {
+  const own = triageDecision(
+    item('vidloc00001', EXPLORE, 'Hellgate Osprey Nest', {
+      ...geotag(46.87741, -113.98922, 'Hellgate Canyon nest pole'),
+    }),
+    channel(EXPLORE),
+  );
+  assert.deepEqual([own.action, own.code], ['accept', 'video-location']);
+  assert.deepEqual(own.position, {
+    lat: 46.87741,
+    lon: -113.98922,
+    coordinatesQuality: 'operator-geotag',
+    label: 'Hellgate Canyon nest pole',
+  });
+  // Four decimals, or labelled only with a place the title names: the
+  // place picker's centroid, which stacks pins.
+  for (const [lat, lon, label] of [
+    [46.8774, -113.9892, 'nest pole'],
+    [47.43812, -114.17344, 'Charlo'],
+  ])
+    assert.deepEqual(
+      triageDecision(
+        item('vidloc00002', EXPLORE, 'Osprey Nest – Charlo, Montana', {
+          ...geotag(lat, lon, label),
+        }),
+        channel(EXPLORE),
+      ).code,
+      'geotag',
+    );
+  // Another channel's cam 10 m away: a shared spot, not this camera's own.
+  assert.equal(
+    triageDecision(
+      item('vidloc00003', EXPLORE, 'Hellgate Osprey Nest', {
+        ...geotag(46.87741, -113.98922),
+      }),
+      channel(EXPLORE),
+      {
+        entries: [
+          {
+            lat: 46.87749,
+            lon: -113.98925,
+            youtube: { channelId: MONTEREY, titleMatch: ['other'] },
+          },
+        ],
+      },
+    ).code,
+    'geotag',
+  );
+  // A channel that opts out keeps its geotags for a person.
+  const optOut = parseChannels({
+    channels: [
+      {
+        channelId: EXPLORE,
+        operator: 'explore.org',
+        autoTriage: { videoLocation: false },
+      },
+    ],
+  })[0];
+  assert.equal(optOut.autoTriage.videoLocation, false);
+  assert.equal(
+    triageDecision(
+      item('vidloc00004', EXPLORE, 'Hellgate Osprey Nest', {
+        ...geotag(46.87741, -113.98922),
+      }),
+      optOut,
+    ).code,
+    'geotag',
+  );
+});
+
+test('a video located away from the channel’s place waits; a nearby one keeps the place', () => {
+  const far = triageDecision(
+    item('vidloc00005', MONTEREY, 'Kelp Forest Cam', {
+      ...geotag(36.6633, -121.80123),
+    }),
+    channel(MONTEREY),
+  );
+  assert.deepEqual(
+    [far.action, far.code],
+    ['hold', 'video-location-disagrees'],
+  );
+  const near = triageDecision(
+    item('vidloc00006', MONTEREY, 'Kelp Forest Cam', {
+      ...geotag(36.61861, -121.90147),
+    }),
+    channel(MONTEREY),
+  );
+  assert.deepEqual([near.code, near.position.lat], ['site-default', 36.61826]);
+  // A town-area channel: a precise video spot inside the area is accepted
+  // where the area alone waits; one outside it waits with its reason.
+  const inArea = triageDecision(
+    item('vidloc00007', TOWN, 'Main Street', {
+      ...geotag(44.53211, -110.47019),
+    }),
+    channel(TOWN),
+  );
+  assert.deepEqual([inArea.action, inArea.code], ['accept', 'video-location']);
+  assert.equal(
+    triageDecision(
+      item('vidloc00008', TOWN, 'Main Street', {
+        ...geotag(45.53211, -110.47019),
+      }),
+      channel(TOWN),
+    ).code,
+    'video-location-disagrees',
+  );
+  assert.equal(
+    triageDecision(
+      item('vidloc00009', TOWN, 'Main Street', {
+        ...geotag(44.5321, -110.4702),
+      }),
+      channel(TOWN),
+    ).code,
+    'area-not-campus',
+  );
+  // The daily cap holds video-located streams too.
+  assert.equal(
+    triageDecision(
+      item('vidloc00010', EXPLORE, 'Hellgate Osprey Nest', {
+        ...geotag(46.87741, -113.98922),
+      }),
+      channel(EXPLORE),
+      { acceptedToday: DEFAULT_DAILY_CAP },
+    ).code,
+    'cap',
+  );
+  assert.ok(TRIAGE_CODES.accept.includes('video-location'));
+  assert.ok(TRIAGE_CODES.hold.includes('video-location-disagrees'));
+});
+
+test('in a review, a stream placed by its own video location is written as an operator geotag', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const { root, catalog } = await tempRoot(t);
+  const triage = createFeaturedTriage();
+  const result = await triage.review({
+    sourceRoot: root,
+    channels: CHANNELS,
+    entries: [],
+    additions: [
+      item('VIDLOCREV01', EXPLORE, 'Hellgate Osprey Nest', {
+        // The scan's full-precision copy, as streamFromItem keeps it.
+        location: {
+          latitude: 46.877412,
+          longitude: -113.989217,
+          description: 'Hellgate Canyon nest pole',
+        },
+      }),
+    ],
+  });
+  assert.deepEqual(
+    result.accepted.map((entry) => [
+      entry.youtube.videoId,
+      entry.lat,
+      entry.lon,
+      entry.coordinatesQuality,
+      entry.place,
+    ]),
+    [
+      [
+        'VIDLOCREV01',
+        46.87741,
+        -113.98922,
+        'operator-geotag',
+        'Hellgate Canyon nest pole',
+      ],
+    ],
+  );
+  assert.equal((await readJson(catalog)).cams.length, 1);
+});

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { haversineKm } from '../common/geo.js';
 import { titleMatches } from './featured.js';
 import { pendingFile, quotaDay, skippedFile } from './featuredChannels.js';
 import { appendCatalogEntry, deriveTitleMatch } from './featuredQueue.js';
@@ -29,6 +30,17 @@ import {
  * - Held for a person, with the reason on its card: a channel whose place is
  *   only an area, and positions read from an operator geotag or from the
  *   title (automated geotags are what stacks pins at city centres).
+ * - The video's own location (the place the channel tagged on that video,
+ *   YouTube's recordingDetails, which the scan already reads) decides
+ *   when it is precise: given to the fifth decimal (about a metre), not
+ *   labelled only with a place the title names (YouTube's place picker
+ *   labels its centroid with the place's name: "Charlo"), and no other
+ *   channel's cam or stream within 30 m of it (a centroid is shared; a
+ *   camera's own spot is not). A precise one is accepted on
+ *   its own where the channel has no place or only a coarser one; one that
+ *   lies outside the channel's place (by its precision: 1 km for a site,
+ *   1.5 km for a campus, 10 km for an area, 150 km for a region) is held.
+ *   `autoTriage.videoLocation: false` turns this off for a channel.
  *
  * Every automatic accept and skip, and every new hold, is a line in
  * .gev-cache/cctv-featured/triage.log, so the owner can audit them.
@@ -48,7 +60,7 @@ const MAX_SKIPPED = 5000;
  * holds are shown on the card (src/ui/cctvPending.js).
  */
 export const TRIAGE_CODES = Object.freeze({
-  accept: ['site-default', 'campus-default', 'location-rule'],
+  accept: ['site-default', 'campus-default', 'location-rule', 'video-location'],
   skip: [
     'never',
     'event',
@@ -59,6 +71,7 @@ export const TRIAGE_CODES = Object.freeze({
     'region-only',
   ],
   hold: [
+    'video-location-disagrees',
     'area-not-campus',
     'site-only',
     'geotag',
@@ -73,6 +86,16 @@ export const triageLogFile = (sourceRoot) =>
 const stateFile = (sourceRoot) =>
   path.join(sourceRoot, FEATURED_CACHE_DIR, 'triage.json');
 
+/** How far a video's location may lie from the channel's place, by its precision. */
+export const AGREEMENT_RADIUS_M = Object.freeze({
+  site: 1_000,
+  campus: 1_500,
+  area: 10_000,
+  region: 150_000,
+});
+/** Another channel's pin this close to a video's location means a shared centroid. */
+export const STACK_RADIUS_M = 30;
+
 const sameTokens = (a, b) =>
   a.length > 0 && a.length === b.length && a.every((t) => b.includes(t));
 
@@ -85,6 +108,74 @@ export function placeFor(item, channel) {
   if (channel?.defaultPlace)
     return { ...channel.defaultPlace, source: 'default' };
   return null;
+}
+
+/**
+ * The location the channel tagged on this video, if any: the scan's own
+ * copy (full precision), else the geotag suggestion (rounded to 5 places).
+ */
+export function videoLocationOf(item) {
+  const own = item?.location;
+  const lat = Number(own?.latitude);
+  const lon = Number(own?.longitude);
+  if (own && Number.isFinite(lat) && Number.isFinite(lon))
+    return { lat, lon, label: own.description || '' };
+  const suggestion = item?.suggestion;
+  if (
+    suggestion?.kind === 'geotag' &&
+    Number.isFinite(Number(suggestion.lat)) &&
+    Number.isFinite(Number(suggestion.lon))
+  )
+    return {
+      lat: Number(suggestion.lat),
+      lon: Number(suggestion.lon),
+      label: suggestion.label || '',
+    };
+  return null;
+}
+
+const metres = (a, b) => haversineKm(a.lat, a.lon, b.lat, b.lon) * 1000;
+const toFifthDecimal = (value) =>
+  Math.abs(value * 1e4 - Math.round(value * 1e4)) > 1e-6;
+const words = (text) =>
+  String(text || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+
+/**
+ * Whether a video's location is a camera's own spot: given to the fifth
+ * decimal, not labelled only with a place its title names, and not shared
+ * by another channel's listed cam or queued stream.
+ */
+export function isPreciseVideoLocation(location, item, { entries, earlier }) {
+  if (!location) return false;
+  if (!toFifthDecimal(location.lat) && !toFifthDecimal(location.lon))
+    return false;
+  const label = words(location.label);
+  const title = new Set(words(item?.title));
+  if (label.length && label.every((word) => title.has(word))) return false;
+  const channelId = item?.channelId;
+  const pins = [
+    ...entries
+      .filter((entry) => entry?.youtube?.channelId !== channelId)
+      .map((entry) => ({ lat: Number(entry.lat), lon: Number(entry.lon) })),
+    ...earlier
+      .filter((other) => other.channelId !== channelId)
+      .map(videoLocationOf)
+      .filter(Boolean),
+  ].filter((pin) => Number.isFinite(pin.lat) && Number.isFinite(pin.lon));
+  return !pins.some((pin) => metres(pin, location) <= STACK_RADIUS_M);
+}
+
+function agreementRadius(place) {
+  if (place.coordinatesQuality === 'area' && place.campus)
+    return AGREEMENT_RADIUS_M.campus;
+  return (
+    AGREEMENT_RADIUS_M[place.coordinatesQuality] ?? AGREEMENT_RADIUS_M.area
+  );
 }
 
 /**
@@ -136,15 +227,39 @@ export function triageDecision(
     return { action: 'skip', code: 'recurring-pending' };
 
   const place = placeFor(item, channel);
+  const video = auto.videoLocation === false ? null : videoLocationOf(item);
+  if (place && video && metres(place, video) > agreementRadius(place))
+    return { action: 'hold', code: 'video-location-disagrees' };
+  const capped = acceptedToday >= (auto.maxPerDay ?? DEFAULT_DAILY_CAP);
+  // The video's own precise spot, where the channel's place says less.
+  const byVideo = () => {
+    if (capped) return { action: 'hold', code: 'cap' };
+    return {
+      action: 'accept',
+      code: 'video-location',
+      position: {
+        lat: video.lat,
+        lon: video.lon,
+        coordinatesQuality: 'operator-geotag',
+        label: video.label || place?.label || channel?.operator || '',
+      },
+    };
+  };
+  const precise =
+    video && isPreciseVideoLocation(video, item, { entries, earlier });
   if (place) {
+    const coarse =
+      place.coordinatesQuality === 'region' ||
+      (place.coordinatesQuality === 'area' &&
+        (!place.campus || auto.accept === 'site'));
+    if (coarse && precise) return byVideo();
     if (place.coordinatesQuality === 'region')
       return { action: 'skip', code: 'region-only' };
     if (place.coordinatesQuality === 'area' && !place.campus)
       return { action: 'hold', code: 'area-not-campus' };
     if (place.coordinatesQuality === 'area' && auto.accept === 'site')
       return { action: 'hold', code: 'site-only' };
-    if (acceptedToday >= (auto.maxPerDay ?? DEFAULT_DAILY_CAP))
-      return { action: 'hold', code: 'cap' };
+    if (capped) return { action: 'hold', code: 'cap' };
     const position = {
       lat: place.lat,
       lon: place.lon,
@@ -162,6 +277,7 @@ export function triageDecision(
       position,
     };
   }
+  if (precise) return byVideo();
   // No place the channel vouches for: what the scan suggested.
   const suggestion = item?.suggestion || { kind: 'none' };
   if (suggestion.kind === 'none' || !Number.isFinite(Number(suggestion.lat)))
@@ -253,7 +369,19 @@ export function createFeaturedTriage({
         acceptedToday: state.accepts[item.channelId] || 0,
       });
       if (decision.action === 'accept') {
-        const outcome = await appendCatalogEntry(sourceRoot, item, {
+        // operator-geotag is checked against the item's own location: for a
+        // video-located stream, the location that placed it.
+        const source =
+          decision.code === 'video-location' && !item.location
+            ? {
+                ...item,
+                location: {
+                  latitude: decision.position.lat,
+                  longitude: decision.position.lon,
+                },
+              }
+            : item;
+        const outcome = await appendCatalogEntry(sourceRoot, source, {
           lat: decision.position.lat,
           lon: decision.position.lon,
           coordinatesQuality: decision.position.coordinatesQuality,

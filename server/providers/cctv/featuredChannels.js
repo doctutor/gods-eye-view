@@ -267,6 +267,8 @@ function parseAutoTriage(value) {
   const accept = ['site', 'area', 'never'].includes(value.accept)
     ? value.accept
     : undefined;
+  // Personal fork: false ignores the location tagged on each video.
+  const videoLocation = value.videoLocation === false ? false : undefined;
   const maxPerDay = Number(value.maxPerDay);
   const locations = (Array.isArray(value.locations) ? value.locations : [])
     .map((row) => {
@@ -283,6 +285,7 @@ function parseAutoTriage(value) {
       ? { maxPerDay }
       : {}),
     ...(locations.length ? { locations } : {}),
+    ...(videoLocation === false ? { videoLocation } : {}),
   };
 }
 
