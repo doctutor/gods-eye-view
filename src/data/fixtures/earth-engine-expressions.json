@@ -1,7 +1,58 @@
 {
   "about": "Personal fork: the exact map requests server/providers/earthEngine.js sends to POST https://earthengine.googleapis.com/v1/projects/<project>/maps, one per layer variant and ink (src/data/earthEngineLayers.js). Regenerate with the test in src/data/earthEngine.test.mjs when a layer changes.",
   "requests": {
-    "ee-terrain-slope/default/default": {
+    "ee-terrain-slope/far/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Terrain.slope",
+              "arguments": {
+                "input": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.selfMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.load",
+                                "arguments": {
+                                  "id": {
+                                    "constantValue": "USGS/GMTED2010_FULL"
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": ["mea"]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 45
+          }
+        ],
+        "paletteColors": ["1a9850", "91cf60", "fee08b", "fc8d59", "d73027"]
+      }
+    },
+    "ee-terrain-slope/near/default": {
       "expression": {
         "values": {
           "0": {
@@ -34,9 +85,7 @@
                               }
                             },
                             "bandSelectors": {
-                              "constantValue": [
-                                "DEM"
-                              ]
+                              "constantValue": ["DEM"]
                             }
                           }
                         }
@@ -71,16 +120,61 @@
             "max": 45
           }
         ],
-        "paletteColors": [
-          "1a9850",
-          "91cf60",
-          "fee08b",
-          "fc8d59",
-          "d73027"
-        ]
+        "paletteColors": ["1a9850", "91cf60", "fee08b", "fc8d59", "d73027"]
       }
     },
-    "ee-terrain-aspect/default/default": {
+    "ee-terrain-aspect/far/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Terrain.aspect",
+              "arguments": {
+                "input": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.selfMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.load",
+                                "arguments": {
+                                  "id": {
+                                    "constantValue": "USGS/GMTED2010_FULL"
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": ["mea"]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 360
+          }
+        ],
+        "paletteColors": ["3288bd", "99d594", "fee08b", "fc8d59", "3288bd"]
+      }
+    },
+    "ee-terrain-aspect/near/default": {
       "expression": {
         "values": {
           "0": {
@@ -113,9 +207,7 @@
                               }
                             },
                             "bandSelectors": {
-                              "constantValue": [
-                                "DEM"
-                              ]
+                              "constantValue": ["DEM"]
                             }
                           }
                         }
@@ -150,16 +242,67 @@
             "max": 360
           }
         ],
-        "paletteColors": [
-          "3288bd",
-          "99d594",
-          "fee08b",
-          "fc8d59",
-          "3288bd"
-        ]
+        "paletteColors": ["3288bd", "99d594", "fee08b", "fc8d59", "3288bd"]
       }
     },
-    "ee-terrain-hillshade/default/default": {
+    "ee-terrain-hillshade/far/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Terrain.hillshade",
+              "arguments": {
+                "input": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.selfMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.load",
+                                "arguments": {
+                                  "id": {
+                                    "constantValue": "USGS/GMTED2010_FULL"
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": ["mea"]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "azimuth": {
+                  "constantValue": 315
+                },
+                "elevation": {
+                  "constantValue": 45
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 255
+          }
+        ],
+        "paletteColors": ["000000", "ffffff"]
+      }
+    },
+    "ee-terrain-hillshade/near/default": {
       "expression": {
         "values": {
           "0": {
@@ -192,9 +335,7 @@
                               }
                             },
                             "bandSelectors": {
-                              "constantValue": [
-                                "DEM"
-                              ]
+                              "constantValue": ["DEM"]
                             }
                           }
                         }
@@ -235,10 +376,7 @@
             "max": 255
           }
         ],
-        "paletteColors": [
-          "000000",
-          "ffffff"
-        ]
+        "paletteColors": ["000000", "ffffff"]
       }
     },
     "ee-forest-loss/default/default": {
@@ -263,9 +401,7 @@
                         }
                       },
                       "bandSelectors": {
-                        "constantValue": [
-                          "lossyear"
-                        ]
+                        "constantValue": ["lossyear"]
                       }
                     }
                   }
@@ -284,12 +420,7 @@
             "max": 25
           }
         ],
-        "paletteColors": [
-          "ffff00",
-          "ff9900",
-          "ff0000",
-          "990000"
-        ]
+        "paletteColors": ["ffff00", "ff9900", "ff0000", "990000"]
       }
     },
     "ee-admin-boundaries/level0/light": {
@@ -297,26 +428,90 @@
         "values": {
           "0": {
             "functionInvocationValue": {
-              "functionName": "Collection.style",
+              "functionName": "Image.selfMask",
               "arguments": {
-                "collection": {
+                "image": {
                   "functionInvocationValue": {
-                    "functionName": "Collection.loadTable",
+                    "functionName": "Image.neq",
                     "arguments": {
-                      "tableId": {
-                        "constantValue": "FAO/GAUL/2015/level0"
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.paint",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 0
+                                  }
+                                }
+                              }
+                            },
+                            "featureCollection": {
+                              "functionInvocationValue": {
+                                "functionName": "Collection.loadTable",
+                                "arguments": {
+                                  "tableId": {
+                                    "constantValue": "FAO/GAUL/2015/level0"
+                                  }
+                                }
+                              }
+                            },
+                            "color": {
+                              "constantValue": "ADM0_CODE"
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.focalMin",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.paint",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 0
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "featureCollection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Collection.loadTable",
+                                      "arguments": {
+                                        "tableId": {
+                                          "constantValue": "FAO/GAUL/2015/level0"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "color": {
+                                    "constantValue": "ADM0_CODE"
+                                  }
+                                }
+                              }
+                            },
+                            "radius": {
+                              "constantValue": 1
+                            },
+                            "kernelType": {
+                              "constantValue": "square"
+                            },
+                            "units": {
+                              "constantValue": "pixels"
+                            }
+                          }
+                        }
                       }
                     }
                   }
-                },
-                "color": {
-                  "constantValue": "ffffffcc"
-                },
-                "fillColor": {
-                  "constantValue": "00000000"
-                },
-                "width": {
-                  "constantValue": 1
                 }
               }
             }
@@ -324,33 +519,107 @@
         },
         "result": "0"
       },
-      "fileFormat": "PNG"
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 1
+          }
+        ],
+        "paletteColors": ["ffffff"],
+        "opacity": 0.8
+      }
     },
     "ee-admin-boundaries/level0/dark": {
       "expression": {
         "values": {
           "0": {
             "functionInvocationValue": {
-              "functionName": "Collection.style",
+              "functionName": "Image.selfMask",
               "arguments": {
-                "collection": {
+                "image": {
                   "functionInvocationValue": {
-                    "functionName": "Collection.loadTable",
+                    "functionName": "Image.neq",
                     "arguments": {
-                      "tableId": {
-                        "constantValue": "FAO/GAUL/2015/level0"
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.paint",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 0
+                                  }
+                                }
+                              }
+                            },
+                            "featureCollection": {
+                              "functionInvocationValue": {
+                                "functionName": "Collection.loadTable",
+                                "arguments": {
+                                  "tableId": {
+                                    "constantValue": "FAO/GAUL/2015/level0"
+                                  }
+                                }
+                              }
+                            },
+                            "color": {
+                              "constantValue": "ADM0_CODE"
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.focalMin",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.paint",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 0
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "featureCollection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Collection.loadTable",
+                                      "arguments": {
+                                        "tableId": {
+                                          "constantValue": "FAO/GAUL/2015/level0"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "color": {
+                                    "constantValue": "ADM0_CODE"
+                                  }
+                                }
+                              }
+                            },
+                            "radius": {
+                              "constantValue": 1
+                            },
+                            "kernelType": {
+                              "constantValue": "square"
+                            },
+                            "units": {
+                              "constantValue": "pixels"
+                            }
+                          }
+                        }
                       }
                     }
                   }
-                },
-                "color": {
-                  "constantValue": "1a1a1acc"
-                },
-                "fillColor": {
-                  "constantValue": "00000000"
-                },
-                "width": {
-                  "constantValue": 1
                 }
               }
             }
@@ -358,7 +627,17 @@
         },
         "result": "0"
       },
-      "fileFormat": "PNG"
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 1
+          }
+        ],
+        "paletteColors": ["1a1a1a"],
+        "opacity": 0.8
+      }
     },
     "ee-admin-boundaries/level1/light": {
       "expression": {

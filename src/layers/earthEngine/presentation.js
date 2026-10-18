@@ -189,7 +189,12 @@ export function rowControls({
   const layer = catalog?.layers?.get?.(record.id) || null;
   const variantKeys = new Set((record.variants || []).map((v) => v.key));
   const chips = [];
-  if (variantKeys.size)
+  // Level chips only for a layer with administrative levels; a layer whose
+  // variants are far/near sources has nothing to choose.
+  const hasLevels = LEVEL_CHIPS.some(
+    (chip) => chip.key !== 'auto' && variantKeys.has(chip.key),
+  );
+  if (hasLevels)
     for (const chip of LEVEL_CHIPS) {
       if (chip.key !== 'auto' && !variantKeys.has(chip.key)) continue;
       chips.push({
