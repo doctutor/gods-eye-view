@@ -3102,5 +3102,16 @@
     "one": "{count} tesela hoy, esta capa",
     "many": "{count} de teselas hoy, esta capa",
     "other": "{count} teselas hoy, esta capa"
-  }
+  },
+  "Lines every {spacing}": "Líneas cada {spacing}",
+  "Equal circles on the ground: their shapes show the view’s distortion": "Círculos iguales sobre el terreno: su forma muestra la distorsión de la vista",
+  "Drawn at sea level: this display cannot drape lines": "Dibujada al nivel del mar: esta pantalla no puede ajustar líneas al relieve",
+  "LAT/LON": "LAT/LON",
+  "Latitude and longitude, every few degrees or minutes": "Latitud y longitud, cada pocos grados o minutos",
+  "TISSOT": "TISSOT",
+  "Tissot's indicatrix: circles of one real size at the grid's crossings": "Indicatriz de Tissot: círculos de un mismo tamaño real en los cruces de la cuadrícula",
+  "MGRS · SOON": "MGRS · PRONTO",
+  "The Military Grid Reference System, coming in a later version": "El Sistema de Referencia de Cuadrícula Militar, en una versión futura",
+  "Grid": "Cuadrícula",
+  "Reference": "Referencia"
 }

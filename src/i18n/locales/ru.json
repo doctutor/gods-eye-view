@@ -3172,5 +3172,16 @@
     "few": "{count} тайла сегодня, этот слой",
     "many": "{count} тайлов сегодня, этот слой",
     "other": "{count} тайла сегодня, этот слой"
-  }
+  },
+  "Lines every {spacing}": "Линии через {spacing}",
+  "Equal circles on the ground: their shapes show the view’s distortion": "Равные круги на местности: их форма показывает искажения вида",
+  "Drawn at sea level: this display cannot drape lines": "Нарисована на уровне моря: этот экран не умеет прижимать линии к рельефу",
+  "LAT/LON": "ШИР/ДОЛ",
+  "Latitude and longitude, every few degrees or minutes": "Широта и долгота через несколько градусов или минут",
+  "TISSOT": "ТИССО",
+  "Tissot's indicatrix: circles of one real size at the grid's crossings": "Индикатриса Тиссо: круги одного реального размера в узлах сетки",
+  "MGRS · SOON": "MGRS · СКОРО",
+  "The Military Grid Reference System, coming in a later version": "Военная система координатной сетки (MGRS) появится в следующей версии",
+  "Grid": "Сетка",
+  "Reference": "Справка"
 }

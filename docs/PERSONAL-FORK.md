@@ -29,6 +29,7 @@ unless its switch is set to `0`.
 - [Google indoor views (Street Level)](#google-indoor-views-street-level)
 - [Baltimore enforcement and CitiWatch cameras](#baltimore-enforcement-and-citiwatch-cameras)
 - [Earth Engine layers (ANALYSIS)](#earth-engine-layers-analysis)
+- [Grid (REFERENCE)](#grid-reference)
 - [Smaller additions](#smaller-additions)
 - [Keeping up with upstream](#keeping-up-with-upstream)
 - [What you need to do](#what-you-need-to-do)
@@ -635,6 +636,62 @@ far away. Without it, the layer draws (and spends tiles) from orbit.
 Anything else Earth Engine can compute needs a small addition to
 `expressionFor`. Use the REST names from the project's `algorithms` list.
 
+## Grid (REFERENCE)
+
+The **Grid** layer, in the REFERENCE group of the DATA LAYERS panel, is off
+by default. It draws a latitude–longitude graticule clamped to the ground,
+so it lies on terrain and on the photoreal 3D tiles alike
+(`src/layers/grid/`).
+
+**Lines.** The spacing follows the camera's height so that about 4 to 12
+lines cross the view: 30°, 10°, 5°, 2°, 1°, 30', 10', 5', 1'.
+
+- **Only around the view.** Lines are made in a window three view-widths
+  each side of the view's centre, at most 40 a side. Parallels stop at
+  ±85°, meridians spread out near the poles, and longitudes stay continuous
+  across the antimeridian. The set is rebuilt when the camera settles
+  somewhere it no longer covers, or the spacing changes; nothing runs per
+  frame.
+- **Marked lines.** The equator and the prime meridian are amber and
+  thicker. The tropics (±23.4365°) and polar circles (±66.5635°) are
+  dashed.
+- **Labels** sit near the view's west and south edges, in the HUD's
+  colours and notation (`38°N`, `76°30'W`, `180°`). `src/ui/dms.js` now
+  holds the HUD's degrees-minutes-seconds formatting, shared by `src/hud.js`
+  and the grid. The HUD's readout is unchanged, checked over 40,000
+  values.
+
+**How it is drawn.**
+
+- **Lines:** one `GroundPolylinePrimitive` (`classificationType` BOTH:
+  terrain and 3D Tiles), plus a dashed one for the tropics and polar
+  circles, both in `scene.groundPrimitives`. Parallels are rhumb lines.
+  Ground primitives are made asynchronously, which loads Cesium's
+  approximate terrain heights the first time.
+- **Labels:** entries in the app's world-overlay host, like all world
+  text (`src/noCesiumLabels.test.mjs` forbids Cesium labels). They are
+  screen-space, in the overlay's mono font, at the crossings' positions on
+  the ellipsoid, with no terrain occlusion so they show over buildings.
+- **Without depth textures** (`GroundPolylinePrimitive.isSupported`), the
+  lines are drawn at sea level, and the row says so.
+
+**Row.** The row has:
+
+- an opacity slider (the Earth Engine rows' control, kept as
+  `gev.grid.opacity`);
+- the spacing drawn;
+- a mode switch, kept as `gev.grid.mode`:
+  - **LAT/LON**, the graticule.
+  - **TISSOT**, Tissot's indicatrix. At each graticule crossing near the
+    view (150 at most, the nearest first) it draws a circle of the same real
+    radius, a third of the spacing, so circles never touch. The graticule
+    stays, faint. The circles are true circles on the WGS84 ellipsoid
+    (Vincenty's direct formula, matching Cesium's `EllipsoidGeodesic` to
+    1e-11), so their unequal shapes on screen are the view's own
+    foreshortening. None is drawn within its radius of a pole.
+  - **MGRS · SOON**, disabled: the Military Grid Reference System is to
+    come.
+
 ## Smaller additions
 
 - **Frame cache.** Camera stills are kept for their Cache-Control lifetime (at
@@ -684,9 +741,9 @@ git merge origin/main
 - `src/data/dataCredits.js`, `.env.example` and `DATA_SOURCES.md`.
 - **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (two
   places) and `src/app/sourceComposition.test.mjs` assert `layers.length`.
-  The fork's count is upstream's plus 8 (the two Baltimore layers, Recorded
-  Video and the five Earth Engine overlays): 40 since the Earth Engine
-  layers (2026-10-17). A record added to `src/data/earthEngineLayers.js` or an
+  The fork's count is upstream's plus 9 (the two Baltimore layers, Recorded
+  Video, the five Earth Engine overlays and the Grid): 41 since the Grid
+  (2026-10-17). A record added to `src/data/earthEngineLayers.js` or an
   upstream layer added later changes the number.
 - **Translations.** Upstream checks that every UI string is marked for
   translation (`npm run i18n`). Fork UI text goes through `t()`, `tn()` and

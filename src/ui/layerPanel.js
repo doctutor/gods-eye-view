@@ -92,6 +92,11 @@ const PANEL_GROUPS = [
     label: msg('Utilities'),
     ids: ['directions', 'radio'],
   },
+  // Personal fork: reference overlays (the latitude–longitude grid).
+  {
+    label: msg('Reference'),
+    ids: ['grid'],
+  },
   // Personal fork: Earth Engine overlays (src/data/earthEngineLayers.js).
   {
     label: msg('Analysis'),

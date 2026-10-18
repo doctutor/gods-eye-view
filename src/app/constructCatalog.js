@@ -34,6 +34,8 @@ import { createInfrastructureLayers } from '../data/infrastructure.js';
 import { createApplicationBaltimoreCameras } from './layers/baltimoreCameras.js';
 // Personal fork: non-live videos tied to places (local-only, not upstream).
 import { createApplicationRecordedVideo } from './layers/recordedVideo.js';
+// Personal fork: the latitude–longitude grid (local-only, not upstream).
+import { createApplicationGrid } from './layers/grid.js';
 // Personal fork: Earth Engine overlays (local-only, not upstream).
 import {
   EARTH_ENGINE_LAYER_IDS,
@@ -59,6 +61,7 @@ export const LOCAL_ONLY_LAYER_METADATA = Object.freeze([
     disposition: 'local-only',
   }),
   Object.freeze({ id: 'recorded-video', disposition: 'local-only' }),
+  Object.freeze({ id: 'grid', disposition: 'local-only' }),
   ...EARTH_ENGINE_LAYER_IDS.map((id) =>
     Object.freeze({ id, disposition: 'local-only' }),
   ),
@@ -160,6 +163,7 @@ export function createApplicationCatalog({
         }),
         createApplicationRecordedVideo(),
         ...createApplicationEarthEngineLayers(),
+        createApplicationGrid(),
         satellites,
         createApplicationLaunches({ source: sources.launches, satellites }),
         createApplicationTraffic({ source: sources.traffic, surface }),

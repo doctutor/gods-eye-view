@@ -1,0 +1,428 @@
+import * as Cesium from 'cesium';
+import {
+  MAX_LAT,
+  geodesicCircle,
+  gridLines,
+  gridViewMoved,
+  labelPlacements,
+  stepForHeight,
+  tissotCircles,
+} from './model.js';
+import { rowControls } from './presentation.js';
+
+/**
+ * Personal fork: the Grid layer (REFERENCE in the DATA LAYERS panel), a
+ * latitude–longitude graticule clamped to the ground, so it lies on terrain
+ * and on the photoreal 3D tiles alike. The lines around the view are one
+ * GroundPolylinePrimitive (classificationType BOTH: terrain and 3D Tiles),
+ * the tropics and polar circles a dashed second one. The labels go through
+ * the app's world-overlay host (all world text does; src/noCesiumLabels.test.mjs),
+ * as screen-space labels at the lines' crossings near the view's edges, in
+ * the overlay's mono font and the HUD's colours. It
+ * is rebuilt only when the camera settles somewhere the current lines no
+ * longer cover; nothing runs per frame.
+ *
+ * Modes: 'latlon' (the graticule) and 'tissot' (Tissot's indicatrix: the
+ * graticule faint, and at each of its intersections a circle of the same
+ * real radius on the ellipsoid, a third of the spacing, so the view's
+ * foreshortening shows as unequal ellipses). MGRS is to come.
+ *
+ * Draping needs depth textures (GroundPolylinePrimitive.isSupported): on a
+ * display without them the lines are drawn at sea level and the row says
+ * so. Ground primitives are made asynchronously, which loads Cesium's
+ * approximate terrain heights the first time.
+ */
+
+export const GRID_LAYER_ID = 'grid';
+export const OPACITY_STORAGE_KEY = 'gev.grid.opacity';
+export const MODE_STORAGE_KEY = 'gev.grid.mode';
+export const GRID_MODES = Object.freeze(['latlon', 'tissot']);
+export const DEFAULT_OPACITY = 0.6;
+/** The HUD's colours (src/ui/styles/overlays.css: --hud-color). */
+const HUD_CYAN = '#00ffff';
+const PRIMARY_AMBER = '#ffd166';
+
+/** The opacity stored in this browser, else the default. */
+export function readGridOpacity(storage) {
+  try {
+    const raw = storage?.getItem(OPACITY_STORAGE_KEY);
+    const value = raw === null || raw === undefined ? NaN : Number(raw);
+    return Number.isFinite(value) && value >= 0 && value <= 1
+      ? value
+      : DEFAULT_OPACITY;
+  } catch {
+    return DEFAULT_OPACITY;
+  }
+}
+
+/** The mode stored in this browser, else the graticule. */
+export function readGridMode(storage) {
+  try {
+    const value = storage?.getItem(MODE_STORAGE_KEY);
+    return GRID_MODES.includes(value) ? value : 'latlon';
+  } catch {
+    return 'latlon';
+  }
+}
+
+function storageOf(storage) {
+  if (storage !== undefined) return storage;
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** A line's look by kind: the equator and prime meridian stand out. */
+export function lineStyle(kind) {
+  switch (kind) {
+    case 'equator':
+    case 'prime-meridian':
+      return { color: PRIMARY_AMBER, alpha: 0.9, width: 2.5 };
+    case 'tissot':
+      return { color: HUD_CYAN, alpha: 0.85, width: 1.5, circle: true };
+    case 'tropic':
+    case 'polar-circle':
+      return { color: PRIMARY_AMBER, alpha: 0.7, width: 1.5, dashed: true };
+    default:
+      return { color: HUD_CYAN, alpha: 0.55, width: 1 };
+  }
+}
+
+/** The points of a parallel across the window (rhumb segments of ≤ 1°). */
+function parallelDegrees(lat, west, east) {
+  const out = [];
+  const pieces = Math.max(2, Math.ceil(east - west));
+  for (let i = 0; i <= pieces; i++)
+    out.push(west + ((east - west) * i) / pieces, lat);
+  return out;
+}
+
+/**
+ * @param {{cesium?: object, requestRender?: (reason: string) => void,
+ *   storage?: Storage|null, overlayHost?: object}} [options] - `overlayHost`
+ *   (src/app/layers/overlayHost.js) draws the labels; without one there are
+ *   none.
+ */
+export function createGridLayer({
+  cesium = Cesium,
+  requestRender = () => {},
+  storage,
+  overlayHost = null,
+} = {}) {
+  const store = storageOf(storage);
+  let _viewer = null;
+  let _enabled = false;
+  let _opacity = readGridOpacity(store);
+  let _mode = readGridMode(store);
+  let _circles = null;
+  let _lines = null;
+  let _primitives = [];
+  let _madeFor = null;
+  let _removeMoveListener = null;
+  let _rowListener = null;
+  let _groundless = false;
+  const notify = () => {
+    try {
+      _rowListener?.();
+    } catch {
+      /* the panel's problem */
+    }
+  };
+
+  function view() {
+    const camera = _viewer?.camera;
+    const canvas = _viewer?.scene?.canvas;
+    let point = null;
+    try {
+      const centre =
+        canvas && camera?.pickEllipsoid
+          ? camera.pickEllipsoid(
+              new cesium.Cartesian2(
+                canvas.clientWidth / 2,
+                canvas.clientHeight / 2,
+              ),
+            )
+          : null;
+      if (centre) point = cesium.Cartographic.fromCartesian(centre);
+    } catch {
+      /* no pick: under the camera */
+    }
+    point ||= camera?.positionCartographic || null;
+    const degrees = (radians) =>
+      Number.isFinite(radians) ? cesium.Math.toDegrees(radians) : 0;
+    const height = camera?.positionCartographic?.height;
+    return {
+      lat: Math.max(-MAX_LAT, Math.min(MAX_LAT, degrees(point?.latitude))),
+      lon: degrees(point?.longitude),
+      heightM: Number.isFinite(height) ? height : 20_000_000,
+    };
+  }
+
+  function clear() {
+    const scene = _viewer?.scene;
+    for (const primitive of _primitives) {
+      try {
+        scene?.groundPrimitives?.remove(primitive);
+        scene?.primitives?.remove(primitive);
+      } catch {
+        /* gone with the scene */
+      }
+    }
+    _primitives = [];
+  }
+
+  /** The labels, as world-overlay entries at the crossings near the view's edges. */
+  function labelEntries(now) {
+    return labelPlacements(_lines, now).map((placement) => ({
+      id: `${placement.axis}:${placement.text}`,
+      position: cesium.Cartesian3.fromDegrees(placement.lon, placement.lat),
+      variant: 'label',
+      title: placement.text,
+      details: [],
+      accent: placement.kind === 'grid' ? HUD_CYAN : PRIMARY_AMBER,
+      priority: placement.kind === 'grid' ? 0 : 10,
+      collisionGroup: 'grid-label',
+      interactive: false,
+      horizonCull: true,
+      terrainOcclusion: false,
+      gapPx: 4,
+      placement: 'above',
+    }));
+  }
+
+  function color(style) {
+    // Under the indicatrix the graticule is a faint reference.
+    const faint = _mode === 'tissot' && !style.circle ? 0.45 : 1;
+    return cesium.Color.fromCssColorString(style.color).withAlpha(
+      style.alpha * _opacity * faint,
+    );
+  }
+
+  function instance(degrees, style, arcType) {
+    return new cesium.GeometryInstance({
+      geometry: _groundless
+        ? new cesium.PolylineGeometry({
+            positions: cesium.Cartesian3.fromDegreesArray(degrees),
+            width: style.width,
+            arcType,
+          })
+        : new cesium.GroundPolylineGeometry({
+            positions: cesium.Cartesian3.fromDegreesArray(degrees),
+            width: style.width,
+            arcType,
+          }),
+      attributes: {
+        color: cesium.ColorGeometryInstanceAttribute.fromColor(color(style)),
+      },
+    });
+  }
+
+  function primitiveOf(instances, appearance) {
+    if (_groundless)
+      return new cesium.Primitive({
+        geometryInstances: instances,
+        appearance,
+        asynchronous: true,
+      });
+    return new cesium.GroundPolylinePrimitive({
+      geometryInstances: instances,
+      appearance,
+      classificationType: cesium.ClassificationType.BOTH,
+      asynchronous: true,
+    });
+  }
+
+  /** Draw the lines and labels for the view, replacing the old ones. */
+  function build(now) {
+    clear();
+    const scene = _viewer?.scene;
+    if (!scene) return;
+    try {
+      _groundless = !cesium.GroundPolylinePrimitive.isSupported(scene);
+    } catch {
+      _groundless = true;
+    }
+    _lines = gridLines(now);
+    const { window } = _lines;
+    const solid = [];
+    const dashed = [];
+    for (const parallel of _lines.parallels) {
+      const style = lineStyle(parallel.kind);
+      (style.dashed ? dashed : solid).push(
+        instance(
+          parallelDegrees(parallel.lat, window.west, window.east),
+          style,
+          cesium.ArcType.RHUMB,
+        ),
+      );
+    }
+    for (const meridian of _lines.meridians)
+      solid.push(
+        instance(
+          [meridian.lon, window.south, meridian.lon, window.north],
+          lineStyle(meridian.kind),
+          cesium.ArcType.GEODESIC,
+        ),
+      );
+    _circles = _mode === 'tissot' ? tissotCircles(_lines, now) : null;
+    for (const centre of _circles?.circles || []) {
+      const degrees = [];
+      for (const point of geodesicCircle(
+        centre.lat,
+        centre.lon,
+        _circles.radiusM,
+      ))
+        degrees.push(point.lon, point.lat);
+      solid.push(
+        instance(degrees, lineStyle('tissot'), cesium.ArcType.GEODESIC),
+      );
+    }
+    const collection = _groundless ? scene.primitives : scene.groundPrimitives;
+    if (solid.length)
+      _primitives.push(
+        collection.add(
+          primitiveOf(solid, new cesium.PolylineColorAppearance()),
+        ),
+      );
+    if (dashed.length) {
+      const dash = lineStyle('tropic');
+      _primitives.push(
+        collection.add(
+          primitiveOf(
+            dashed,
+            new cesium.PolylineMaterialAppearance({
+              material: cesium.Material.fromType('PolylineDash', {
+                color: color(dash),
+                dashLength: 16,
+              }),
+            }),
+          ),
+        ),
+      );
+    }
+    try {
+      overlayHost?.setEntries(GRID_LAYER_ID, labelEntries(now), {
+        moving: false,
+      });
+    } catch (error) {
+      console.warn('[Grid] labels not drawn:', error?.message);
+    }
+    _madeFor = now;
+    requestRender('grid-rebuild');
+    notify();
+  }
+
+  function onMoved() {
+    if (!_enabled) return;
+    const now = view();
+    if (gridViewMoved(_madeFor, now)) build(now);
+  }
+
+  function setMode(mode) {
+    if (!GRID_MODES.includes(mode) || mode === _mode) return;
+    _mode = mode;
+    try {
+      store?.setItem(MODE_STORAGE_KEY, mode);
+    } catch {
+      /* private mode: kept for this page only */
+    }
+    if (_enabled && _madeFor) build(_madeFor);
+    else notify();
+  }
+
+  function setOpacity(value) {
+    _opacity = Math.min(1, Math.max(0, Number(value) || 0));
+    try {
+      store?.setItem(OPACITY_STORAGE_KEY, String(_opacity));
+    } catch {
+      /* private mode: kept for this page only */
+    }
+    // Colours are baked into the instances: a rebuild of the same lines.
+    if (_enabled && _madeFor) build(_madeFor);
+    else notify();
+  }
+
+  return {
+    id: GRID_LAYER_ID,
+    name: 'Grid',
+    icon: '#',
+    source: 'Latitude and longitude',
+    updateInterval: 0,
+
+    init(viewer) {
+      _viewer = viewer;
+    },
+
+    enable(viewer) {
+      _viewer = viewer || _viewer;
+      _enabled = true;
+      overlayHost?.setVisible(GRID_LAYER_ID, true);
+      if (_viewer?.camera?.moveEnd && !_removeMoveListener)
+        _removeMoveListener = _viewer.camera.moveEnd.addEventListener(onMoved);
+      build(view());
+    },
+
+    disable() {
+      _enabled = false;
+      _removeMoveListener?.();
+      _removeMoveListener = null;
+      clear();
+      overlayHost?.clearSource(GRID_LAYER_ID);
+      overlayHost?.setVisible(GRID_LAYER_ID, false);
+      _madeFor = null;
+      _lines = null;
+      _circles = null;
+      requestRender('grid-hide');
+      notify();
+    },
+
+    async update() {
+      return false;
+    },
+
+    destroy() {
+      this.disable();
+      _viewer = null;
+      _rowListener = null;
+    },
+
+    getStats() {
+      const count = _lines
+        ? _lines.parallels.length + _lines.meridians.length
+        : 0;
+      return {
+        count,
+        countLabel: _enabled ? `${Math.round(_opacity * 100)}%` : '—',
+      };
+    },
+
+    getRowControls() {
+      return rowControls({
+        mode: _mode,
+        onMode: setMode,
+        opacity: _opacity,
+        onOpacity: setOpacity,
+        step: _enabled
+          ? (_lines?.latStep ?? stepForHeight(view().heightM))
+          : null,
+        groundless: _enabled && _groundless,
+      });
+    },
+
+    setRowControlsListener(listener) {
+      _rowListener = typeof listener === 'function' ? listener : null;
+    },
+
+    /** For tests: what is drawn. */
+    _state: () => ({
+      lines: _lines,
+      circles: _circles,
+      mode: _mode,
+      primitives: [..._primitives],
+      opacity: _opacity,
+      groundless: _groundless,
+    }),
+  };
+}

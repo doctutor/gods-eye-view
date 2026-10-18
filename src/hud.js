@@ -38,6 +38,8 @@ import {
 } from './hudLayouts.js';
 import { formatNumber, msg, t } from './i18n/index.js';
 import { localizeLayerName } from './ui/layerPanel.js';
+// Personal fork: the HUD's coordinate notation, shared with the Grid layer.
+import { formatDms } from './ui/dms.js';
 
 /** Color palettes keyed by shader mode; applied as CSS custom properties. */
 const HUD_COLORS = {
@@ -558,21 +560,8 @@ export class IntelHUD {
    * @returns {string} Formatted DMS string, e.g. `"38°53'23.10"N"`.
    */
   _toDMS(decimal, type) {
-    const abs = Math.abs(decimal);
-    const deg = Math.floor(abs);
-    const minFloat = (abs - deg) * 60;
-    const min = Math.floor(minFloat);
-    const sec = ((minFloat - min) * 60).toFixed(2);
-
-    let dir;
-    if (type === 'lat') dir = decimal >= 0 ? 'N' : 'S';
-    else dir = decimal >= 0 ? 'E' : 'W';
-
-    const degStr =
-      type === 'lon'
-        ? String(deg).padStart(3, '0')
-        : String(deg).padStart(2, '0');
-    return `${degStr}°${String(min).padStart(2, '0')}'${String(sec).padStart(5, '0')}"${dir}`;
+    // Personal fork: shared with the Grid layer's labels (src/ui/dms.js).
+    return formatDms(decimal, type);
   }
 
   /**
