@@ -1412,9 +1412,15 @@
       "src/i18n/index.js",
       "src/i18n/locale.js",
       "src/i18n/locales/es.json",
-      "src/i18n/locales/ru.json"
+      "src/i18n/locales/ru.json",
+      "src/layers/pointRollup/index.js",
+      "src/layers/pointRollup/rollup.js",
+      "src/layers/cctv/rollup.js",
+      "src/maps/h3Surface.js",
+      "src/maps/h3Cells.js",
+      "src/maps/h3Resolution.js"
     ],
-    "external": ["hls.js", "cesium"]
+    "external": ["hls.js", "cesium", "h3-js"]
   },
   "street-level-layer": {
     "exports": [
@@ -2605,7 +2611,11 @@
       "src/maps/countries/palette.js",
       "src/maps/h3Resolution.js",
       "src/maps/h3Cells.js",
-      "src/layers/wikipediaCoverage/hexes.js"
+      "src/layers/wikipediaCoverage/hexes.js",
+      "src/layers/pointRollup/index.js",
+      "src/layers/pointRollup/rollup.js",
+      "src/layers/cctv/rollup.js",
+      "src/maps/h3Surface.js"
     ],
     "external": [
       "hls.js",
@@ -3216,7 +3226,11 @@
       "src/ui/layerNames.js",
       "src/maps/h3Resolution.js",
       "src/maps/h3Cells.js",
-      "src/layers/wikipediaCoverage/hexes.js"
+      "src/layers/wikipediaCoverage/hexes.js",
+      "src/layers/pointRollup/index.js",
+      "src/layers/pointRollup/rollup.js",
+      "src/layers/cctv/rollup.js",
+      "src/maps/h3Surface.js"
     ],
     "external": [
       "hls.js",

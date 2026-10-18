@@ -3182,5 +3182,9 @@
   "Dark ink: blue-grey and brown lines": "Tinta oscura: líneas gris azulado y marrón",
   "Reset map to south up. Current heading {heading} degrees": "Orientar el mapa al sur. Rumbo actual: {heading} grados",
   "South up": "Sur arriba",
-  "Reset map bearing to north, then south": "Orientar el mapa al norte, luego al sur"
+  "Reset map bearing to north, then south": "Orientar el mapa al norte, luego al sur",
+  "ROLLUP AUTO": "AGRUPAR AUTO",
+  "Group the pins into hexes with counts from above {height} km, or when the view holds more than {count} cameras": "Agrupar los pines en hexágonos con recuentos desde más de {height} km de altura, o cuando la vista contiene más de {count} cámaras",
+  "Always draw every camera pin": "Dibujar siempre cada pin de cámara",
+  "{count} cameras in {cells} hexes at resolution {res}": "{count} cámaras en {cells} hexágonos con resolución {res}"
 }

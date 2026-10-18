@@ -20,6 +20,7 @@ import { createIngestion } from './ingestion.js';
 import { createState } from './state.js';
 import { createProximity } from './proximity.js';
 import { createScreenshotSafe } from './screenshotSafe.js';
+import { createRollup } from './rollup.js';
 
 /** Construct one layer with its own scene state and supplied application services. */
 export function createCctvLayer({ services, source }) {
@@ -55,11 +56,14 @@ export function createCctvLayer({ services, source }) {
   parts.proximity = createProximity(context);
   // Personal fork: screenshot-safe mode (hide Windy webcams).
   parts.screenshotSafe = createScreenshotSafe(context);
+  // Personal fork: camera counts per H3 hex from far out (pointRollup).
+  parts.rollup = createRollup(context);
   return Object.assign(
     {},
     parts.controls.methods,
     parts.lifecycle.methods,
     parts.ingestion?.methods,
+    parts.rollup.methods,
     {
       calibrationPatchMovesAnchor:
         parts.calibration.calibrationPatchMovesAnchor,

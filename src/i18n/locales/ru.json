@@ -3253,5 +3253,9 @@
   "Dark ink: blue-grey and brown lines": "Тёмный цвет: серо-синие и коричневые линии",
   "Reset map to south up. Current heading {heading} degrees": "Повернуть карту югом вверх. Текущий курс: {heading} градусов",
   "South up": "Юг вверху",
-  "Reset map bearing to north, then south": "Повернуть карту на север, затем на юг"
+  "Reset map bearing to north, then south": "Повернуть карту на север, затем на юг",
+  "ROLLUP AUTO": "ГРУППИРОВКА АВТО",
+  "Group the pins into hexes with counts from above {height} km, or when the view holds more than {count} cameras": "Группировать значки в шестиугольники со счётчиками выше {height} км или когда в виде больше {count} камер",
+  "Always draw every camera pin": "Всегда рисовать каждый значок камеры",
+  "{count} cameras in {cells} hexes at resolution {res}": "Камер: {count} в {cells} шестиугольниках, разрешение {res}"
 }

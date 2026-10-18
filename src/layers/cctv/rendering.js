@@ -148,12 +148,16 @@ export function createRendering({
     for (const record of layerState._records) {
       const bb = record.billboard;
       if (!bb) continue;
-      // Personal fork: screenshot-safe mode hides Windy pins too.
+      // Personal fork: screenshot-safe mode hides Windy pins too, and the
+      // hex rollup hides every pin while it stands in for them.
       const visible =
+        !layerState._rollupHidesPins &&
         !hiddenForScreenshots(record.camera, layerState._hideWindy) &&
         occluder.isPointVisible(bb.position);
       if (bb.show !== visible) bb.show = visible;
     }
+    // Personal fork: the same settle (or load) decides the rollup again.
+    parts.rollup?.scheduleRefresh?.();
   }
 
   /**
@@ -326,7 +330,9 @@ export function createRendering({
     }
 
     if (layerState._billboards)
-      layerState._billboards.show = !!layerState._enabled;
+      // Personal fork: the hex rollup keeps the pins hidden while it shows.
+      layerState._billboards.show =
+        !!layerState._enabled && !layerState._rollupHidesPins;
     parts.projection.pauseInactiveProjectionFeeds(activeId);
   }
   return {
