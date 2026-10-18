@@ -340,7 +340,12 @@ test('Cyber setup uses a compact toolbar icon and highlights the north-up letter
   assert.match(css, /#key-setup-chip\[hidden\]\s*\{\s*display: none;/);
   assert.match(
     css,
-    /#north-up-view\[data-north-up='true'\]\s+\.camera-compass-n\s*\{[^}]*color: var\(--cyber-red-bright\)/,
+    /#north-up-view\[data-north-up='true'\]\s+\.camera-compass-n\s*[,{][^}]*color: var\(--cyber-red-bright\)/,
+  );
+  // Personal fork: the compass also lights N while the map is south up.
+  assert.match(
+    css,
+    /#north-up-view\[data-south-up='true'\]\s+\.camera-compass-n\s*\{[^}]*color: var\(--cyber-red-bright\)/,
   );
 });
 const cyberStyles = read('./styles/cyber.css');
