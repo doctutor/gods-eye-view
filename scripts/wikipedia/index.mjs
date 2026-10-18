@@ -4,6 +4,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REFRESH_EVERY_DAYS, buildFiles, runBuild } from './build.mjs';
 import { readGridHeader } from '../../server/providers/wikipediaCoverage/grid.js';
+import { readArrayFileHeader } from '../../server/providers/wikipediaCoverage/arrayFile.js';
+import {
+  H3_MAGIC,
+  H3_VERSION,
+} from '../../server/providers/wikipediaCoverage/h3.js';
 
 /**
  * Wikipedia coverage: where English Wikipedia has written about the Earth,
@@ -89,7 +94,25 @@ export function statusOf(dir, now = () => Date.now()) {
     types: header.types,
     countries: header.countries,
     bytes: fs.statSync(files.grid).size,
+    h3: h3StatusOf(files.h3),
   };
+}
+
+/** The H3 file's part of the status: built or not, its size, cells by resolution. */
+export function h3StatusOf(file) {
+  if (!fs.existsSync(file)) return { built: false };
+  try {
+    const { header } = readArrayFileHeader(file, H3_MAGIC, H3_VERSION);
+    return {
+      built: true,
+      bytes: fs.statSync(file).size,
+      builtAt: header.builtAt,
+      text: Boolean(header.text?.included),
+      resolutions: header.resolutions.map(({ res, cells }) => ({ res, cells })),
+    };
+  } catch (error) {
+    return { built: false, error: String(error?.message || error) };
+  }
 }
 
 function statusLines(status) {
@@ -113,6 +136,11 @@ function statusLines(status) {
     lines.push(
       `types: ${status.types.map(({ key, count }) => `${key} ${number(count)}`).join(', ')}`,
     );
+  lines.push(
+    status.h3?.built
+      ? `h3: ${(status.h3.bytes / 1_048_576).toFixed(1)} MB, cells by resolution ${status.h3.resolutions.map(({ res, cells }) => `${res}:${number(cells)}`).join(' ')}${status.h3.text ? '' : ' (no article sizes)'}`
+      : `h3: not built${status.h3?.error ? ` (${status.h3.error})` : ''}; run npm run wikipedia:build`,
+  );
   return lines;
 }
 

@@ -825,7 +825,63 @@ are redirects): 9.28 GB of wikitext, a text ramp of 58 B to 15 kB per km²
   (a sparse tile packs to a few kB). Cached a day by the browser.
 
 The grid file is stat'ed at most every 5 s and opened again when it
-changes, so a rebuild lands without a restart. The client
+changes, so a rebuild lands without a restart.
+
+**Hexagons** (`h3.bin`, `server/providers/wikipediaCoverage/h3.js`). A
+"per km²" drawn from the equal-angle grid is tied to the grid's own cells;
+so that it can follow the viewer's perspective instead, the build also
+aggregates the same articles into H3 hexagons (`h3-js` 4.5.0). Every kept
+coordinate goes to its resolution-7 cell (about 5 km²), and each coarser
+resolution down to 0 (about 4 million km², 122 base cells) sums its
+children, so the counts and bytes at every resolution add up to the same
+totals. That parent chain is the resolution semantics: H3's nesting is
+approximate, and `latLngToCell` at a coarse resolution can name a cell
+other than the parent of the point's resolution-7 cell, so a coarse
+hexagon holds the articles of its child hexagons, not strictly the
+articles inside its outline. Only non-empty cells are kept, one table per
+resolution, sorted by
+index: the index's two uint32 halves, `articles` (uint32), `bytes`
+(Float64, when the build had sizes), the cell's centre (`lat`, `lon`,
+Float32) and its `cellArea(cell, 'km2')` (Float32). Each table's header
+carries its own ramp domains (5th / 99.5th percentile and median of the
+non-empty cells) for articles per km², text per km² and the raw count,
+because a hexagon at resolution 3 holds a thousand resolution-7 ones and
+their densities spread differently. The file sits beside `grid.bin`,
+follows the same ETag skip (a build is "up to date" only when both files
+are from the current dump), and `wikipedia:status` lists its cells by
+resolution. Inside one resolution a cell's low 52 bits (base cell and
+digits) are its key, which fits a Number exactly; the top 12 bits (mode,
+resolution) are the same for the whole table.
+
+- `GET /api/wikipedia-coverage/h3/<res>/<variant>?west=&south=&east=&north=`
+  (res 0–7; variant `articles`, `text` or `count`; the box in degrees,
+  `west > east` crossing the antimeridian) answers
+  `{res, variant, dump: {date}, domain: {min, max, median}, cells: [[h3Index,
+  value], …]}` for the cells whose **centre** lies in the box: articles and
+  text per km², count raw. More than 20,000 cells is a 413 `{message}`
+  (ask at a coarser resolution or for a smaller box); no `h3.bin` a 503;
+  a bad resolution, variant or box a 400; the text variant without sizes
+  a 404. Same cache headers as the tiles (`private, max-age=86400`, gzip
+  when accepted).
+- `/layers` carries `h3: {built, resolutions, cells: {res: count}, text,
+  maxCells}` (or `{built: false}`).
+
+The cells are chosen by scanning the resolution's centre arrays, not by
+`polygonToCells` of the box: the scan is typed-array arithmetic over the
+non-empty cells only (734,514 at resolution 7 for the 2026-10-08 dump),
+so an ocean-sized box costs the same as a city and nothing empty is ever
+enumerated, whereas filling a large box at resolution 7 would enumerate
+millions of hexagons to find a few thousand with articles. Measured on
+that build: a resolution-7 query over a 1° box around Baltimore (1,390
+cells) takes about 4 ms once the table is read (the first query of a
+resolution reads its arrays, about 25 ms for resolution 7); the world at
+resolution 3 (14,379 cells) about 5 ms; a Pacific box across the
+antimeridian at resolution 7 (5,871 cells) about 5 ms. Europe at
+resolution 5 or 7 is a 413: ask at resolution 4 (3,896 cells).
+
+**Second real run** (2026-10-18, same dump): `h3.bin` 31.8 MB with 122,
+702, 3,233, 14,379, 54,810, 167,423, 412,732 and 734,514 non-empty cells
+at resolutions 0 to 7; 39 s for grid and hexagons together. The client
 (`src/layers/wikipediaCoverage/`) paints each tile itself: a custom Cesium
 imagery provider (`provider.js`, implementing what `ImageryLayer` reads in
 1.138) fetches the values through Cesium's `Resource`, so its scheduler

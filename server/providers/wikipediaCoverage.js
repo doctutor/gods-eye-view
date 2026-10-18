@@ -13,6 +13,13 @@ import {
   openGrid,
   tileValues,
 } from './wikipediaCoverage/grid.js';
+import {
+  H3_VARIANTS,
+  RESOLUTIONS,
+  openH3File,
+  parseBbox,
+  queryCells,
+} from './wikipediaCoverage/h3.js';
 
 /**
  * Where English Wikipedia has written about the Earth, from Wikimedia's
@@ -28,9 +35,15 @@ import {
  *       the 256 × 256 cell values under a Web Mercator tile, resampled from
  *       the grid's pyramid: 'WCT1', width, height, dtype (uint32 each), then
  *       Float32 values; gzip when the browser accepts it
+ *   GET /api/wikipedia-coverage/h3/<res>/<variant>?west=&south=&east=&north=
+ *       the H3 cells (resolution 0–7, from h3.bin beside the grid) whose
+ *       centres lie in the box, as [[index, value], …] with the
+ *       resolution's ramp domain; west > east crosses the antimeridian;
+ *       413 past H3_MAX_CELLS cells, 503 without the file
  *
  * Variants: `articles` (per km²), `text` (bytes of wikitext per km², when
- * the build included the page table), `count` (articles under each pixel).
+ * the build included the page table), `count` (articles under each pixel
+ * or in each hexagon).
  */
 
 export const WIKIPEDIA_COVERAGE_ROUTE = '/api/wikipedia-coverage';
@@ -39,9 +52,50 @@ export const MAX_ZOOM = 9;
 export const ATTRIBUTION = 'Wikipedia, CC BY-SA 4.0 — Wikimedia GeoData';
 export const NEEDS_BUILD =
   'Run npm run wikipedia:build to build the Wikipedia coverage grid';
+export const NEEDS_H3 =
+  'Run npm run wikipedia:build to build the Wikipedia coverage hexagons';
+/** More cells than this in one answer is a 413: ask at a coarser resolution. */
+export const H3_MAX_CELLS = 20_000;
 const CACHE_DIR = path.join('.gev-cache', 'wikipedia');
 /** The grid file is stat'ed at most this often. */
 const STAT_EVERY_MS = 5000;
+
+/**
+ * A file opened with `open` when it is first asked for, opened again when
+ * it changes, and stat'ed at most every STAT_EVERY_MS.
+ */
+function createFileWatch(file, open, now, label) {
+  let held = null;
+  let checkedAt = -Infinity;
+  let lastError = null;
+  return {
+    error: () => lastError,
+    current() {
+      if (now() - checkedAt < STAT_EVERY_MS && (held || lastError))
+        return held?.value || null;
+      checkedAt = now();
+      let stat;
+      try {
+        stat = fs.statSync(file);
+      } catch {
+        held = null;
+        lastError = null;
+        return null;
+      }
+      if (held && held.mtimeMs === stat.mtimeMs && held.size === stat.size)
+        return held.value;
+      try {
+        held = { value: open(file), mtimeMs: stat.mtimeMs, size: stat.size };
+        lastError = null;
+      } catch (error) {
+        held = null;
+        lastError = String(error?.message || error).slice(0, 200);
+        console.warn(`[WikipediaCoverage] ${label} not readable:`, lastError);
+      }
+      return held?.value || null;
+    },
+  };
+}
 
 /** The grid file the settings name (WIKIPEDIA_COVERAGE_DIR, else the cache). */
 export function coverageGridFile(
@@ -57,47 +111,35 @@ export function coverageGridFile(
 
 /**
  * @param {{sourceRoot?: string, env?: object, now?: () => number,
- *   gridFile?: string}} [options]
+ *   gridFile?: string, h3File?: string, h3MaxCells?: number}} [options]
  */
 export function createWikipediaCoverageService({
   sourceRoot = defaultSourceRoot,
   env = process.env,
   now = () => Date.now(),
   gridFile = coverageGridFile(env, sourceRoot),
+  h3File = path.join(path.dirname(gridFile), 'h3.bin'),
+  h3MaxCells = H3_MAX_CELLS,
 } = {}) {
-  /** {grid, mtimeMs, size} of the open grid, or null. */
-  let held = null;
-  let checkedAt = -Infinity;
-  let lastError = null;
-
+  const gridWatch = createFileWatch(gridFile, openGrid, now, 'grid');
+  const h3Watch = createFileWatch(h3File, openH3File, now, 'h3.bin');
   /** The grid, opened (again) when the file is new or changed; null when none. */
-  function grid() {
-    if (now() - checkedAt < STAT_EVERY_MS && (held || lastError))
-      return held?.grid || null;
-    checkedAt = now();
-    let stat;
-    try {
-      stat = fs.statSync(gridFile);
-    } catch {
-      held = null;
-      lastError = null;
-      return null;
-    }
-    if (held && held.mtimeMs === stat.mtimeMs && held.size === stat.size)
-      return held.grid;
-    try {
-      held = {
-        grid: openGrid(gridFile),
-        mtimeMs: stat.mtimeMs,
-        size: stat.size,
-      };
-      lastError = null;
-    } catch (error) {
-      held = null;
-      lastError = String(error?.message || error).slice(0, 200);
-      console.warn('[WikipediaCoverage] grid not readable:', lastError);
-    }
-    return held?.grid || null;
+  const grid = () => gridWatch.current();
+  const hexes = () => h3Watch.current();
+
+  /** What /layers says about the hexagons. */
+  function h3Summary() {
+    const open = hexes();
+    if (!open) return { built: false };
+    return {
+      built: true,
+      resolutions: open.resolutions,
+      cells: Object.fromEntries(
+        open.header.resolutions.map((entry) => [entry.res, entry.cells]),
+      ),
+      text: open.hasText,
+      maxCells: h3MaxCells,
+    };
   }
 
   return {
@@ -107,11 +149,12 @@ export function createWikipediaCoverageService({
       if (!open)
         return {
           configured: false,
-          message: lastError
-            ? `The Wikipedia coverage grid is not readable: ${lastError}`
+          message: gridWatch.error()
+            ? `The Wikipedia coverage grid is not readable: ${gridWatch.error()}`
             : NEEDS_BUILD,
           attribution: ATTRIBUTION,
           variants: VARIANTS.map((key) => ({ key, available: false })),
+          h3: h3Summary(),
         };
       const { header } = open;
       return {
@@ -145,6 +188,51 @@ export function createWikipediaCoverageService({
               : {}),
           };
         }),
+        h3: h3Summary(),
+      };
+    },
+
+    /**
+     * The hexagons of a resolution whose centres lie in a box.
+     * @returns {Promise<{status: number, body?: object, message?: string}>}
+     */
+    async h3(res, variant, box) {
+      if (!RESOLUTIONS.includes(res))
+        return { status: 400, message: 'Resolution must be 0 to 7' };
+      if (!H3_VARIANTS.includes(variant))
+        return { status: 400, message: 'No such variant' };
+      if (!box)
+        return {
+          status: 400,
+          message: 'west, south, east and north are degrees',
+        };
+      const open = hexes();
+      if (!open) return { status: 503, message: NEEDS_H3 };
+      if (variant === 'text' && !open.hasText)
+        return {
+          status: 404,
+          message:
+            'The hexagons were built without article sizes (npm run wikipedia:build -- --text)',
+        };
+      const table = open.table(res);
+      const answer = queryCells(table, variant, box, { maxCells: h3MaxCells });
+      if (answer.tooMany)
+        return {
+          status: 413,
+          message: `More than ${h3MaxCells} cells at resolution ${res} in this box: ask at a coarser resolution or for a smaller box`,
+        };
+      const domain = table.domains?.[variant] || null;
+      return {
+        status: 200,
+        body: {
+          res,
+          variant,
+          dump: { date: open.header.dump?.date || null },
+          domain: domain
+            ? { min: domain.min, max: domain.max, median: domain.median }
+            : null,
+          cells: answer.cells,
+        },
       };
     },
 
@@ -191,6 +279,23 @@ function sendJson(res, status, payload) {
 }
 
 const TILE_PATH = /^\/tile\/([a-z]{1,16})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
+const H3_PATH = /^\/h3\/(\d{1,2})\/([a-z]{1,16})$/;
+
+/** A JSON body, gzip when accepted, cached as the tiles are. */
+function sendCached(req, res, payload) {
+  const accepts = String(req.headers?.['accept-encoding'] || '');
+  let body = Buffer.from(JSON.stringify(payload));
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  res.setHeader('Vary', 'Accept-Encoding');
+  if (/\bgzip\b/.test(accepts)) {
+    body = zlib.gzipSync(body);
+    res.setHeader('Content-Encoding', 'gzip');
+  }
+  res.setHeader('Content-Length', String(body.length));
+  res.end(body);
+}
 
 /** The routes under /api/wikipedia-coverage (same-site only, GET only). */
 export function createWikipediaCoverageHandler({ service }) {
@@ -198,14 +303,23 @@ export function createWikipediaCoverageHandler({ service }) {
     if (admitSameSite(req, res)) return;
     if (req.method !== 'GET')
       return sendJson(res, 405, { error: 'Method not allowed' });
-    const route =
-      new URL(req.url || '/', 'http://localhost').pathname.replace(
-        /\/+$/,
-        '',
-      ) || '/';
+    const url = new URL(req.url || '/', 'http://localhost');
+    const route = url.pathname.replace(/\/+$/, '') || '/';
     try {
       if (route === '/layers')
         return sendJson(res, 200, await service.layers());
+      const hex = H3_PATH.exec(route);
+      if (hex) {
+        const [, res_, variant] = hex;
+        const answer = await service.h3(
+          Number(res_),
+          variant,
+          parseBbox(Object.fromEntries(url.searchParams)),
+        );
+        if (answer.status !== 200)
+          return sendJson(res, answer.status, { message: answer.message });
+        return sendCached(req, res, answer.body);
+      }
       const match = TILE_PATH.exec(route);
       if (match) {
         const [, variant, z, x, y] = match;

@@ -229,7 +229,7 @@ test('the grid file round-trips its header and arrays, reading a level only when
   fs.writeFileSync(path.join(root, 'junk.bin'), 'not a grid at all');
   assert.throws(
     () => readGridHeader(path.join(root, 'junk.bin')),
-    /Not a grid/,
+    /Not a WGRD file/,
   );
 });
 
@@ -411,7 +411,7 @@ test('the service says to build the grid when there is none, then serves it and 
   clock += 10_000;
   const broken = await service.layers();
   assert.equal(broken.configured, false);
-  assert.match(broken.message, /not readable: Not a grid/);
+  assert.match(broken.message, /not readable: Not a WGRD file/);
 });
 
 test('the routes are same-site only and GET only, and gzip tiles for a browser that accepts it', async (t) => {

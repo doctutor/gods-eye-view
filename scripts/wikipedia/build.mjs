@@ -9,6 +9,11 @@ import {
   variantDomains,
   writeGrid,
 } from '../../server/providers/wikipediaCoverage/grid.js';
+import {
+  buildResolutions,
+  createH3Accumulator,
+  writeH3File,
+} from '../../server/providers/wikipediaCoverage/h3.js';
 
 /**
  * The steps of a Wikipedia coverage build (scripts/wikipedia/index.mjs):
@@ -159,8 +164,11 @@ export async function binGeoTags(
   { text = false, limit = Infinity, onProgress = () => {} } = {},
 ) {
   const accumulator = createAccumulator({ text });
-  /** page id → base cell index, for the page pass. */
+  /** The same articles in H3 hexagons (resolution 7; coarser ones are summed later). */
+  const hexes = createH3Accumulator({ text });
+  /** page id → base cell index, and → resolution-7 hexagon key, for the page pass. */
   const pageCells = new Map();
+  const pageHexes = new Map();
   const stats = {
     rows: 0,
     kept: 0,
@@ -212,9 +220,13 @@ export async function binGeoTags(
         return;
       }
       stats.kept += 1;
+      const hex = hexes.add(lat, lon);
       const page = Number(values[fields.page]);
       if (pageCells.has(page)) stats.duplicatePage += 1;
-      else pageCells.set(page, index);
+      else {
+        pageCells.set(page, index);
+        pageHexes.set(page, hex);
+      }
       if (fields.type >= 0) {
         const type = values[fields.type] || '(none)';
         stats.byType[type] = (stats.byType[type] || 0) + 1;
@@ -227,7 +239,9 @@ export async function binGeoTags(
   });
   return {
     accumulator,
+    hexes,
     pageCells,
+    pageHexes,
     stats: { ...stats, inserts: result.inserts },
   };
 }
@@ -239,7 +253,13 @@ export async function binGeoTags(
  */
 export async function addPageSizes(
   chunks,
-  { accumulator, pageCells, onProgress = () => {} },
+  {
+    accumulator,
+    pageCells,
+    hexes = null,
+    pageHexes = null,
+    onProgress = () => {},
+  },
 ) {
   const stats = { rows: 0, matched: 0, bytes: 0, redirects: 0 };
   let fields = null;
@@ -268,6 +288,8 @@ export async function addPageSizes(
       stats.matched += 1;
       stats.bytes += size;
       accumulator.addBytes(cell, size);
+      if (hexes && pageHexes)
+        hexes.addBytes(pageHexes.get(Number(values[fields.id])), size);
     },
   });
   return stats;
@@ -332,6 +354,44 @@ export function writeCoverageGrid({
   return { header, bytes };
 }
 
+/**
+ * Sum the hexagons into every resolution and write the H3 file, with the
+ * same provenance as the grid.
+ * @param {{hexes: object, file: string, dump: object, geo: object,
+ *   page?: object|null, now?: () => number}} options
+ * @returns {{header: object, bytes: number}}
+ */
+export function writeCoverageH3({
+  hexes,
+  file,
+  dump,
+  geo,
+  page = null,
+  now = () => Date.now(),
+}) {
+  const tables = buildResolutions({
+    counts: hexes.counts,
+    bytes: page ? hexes.bytes : null,
+  });
+  return writeH3File(file, {
+    header: {
+      builtAt: new Date(now()).toISOString(),
+      source: 'Wikimedia GeoData (enwiki geo_tags)',
+      dump: {
+        url: dump?.url || GEO_TAGS_URL,
+        etag: dump?.etag || null,
+        lastModified: dump?.lastModified || null,
+        date: dumpDate(dump?.lastModified),
+      },
+      rows: { read: geo.rows, kept: geo.kept },
+      text: page
+        ? { included: true, pagesMatched: page.matched, bytes: page.bytes }
+        : { included: false },
+    },
+    tables,
+  });
+}
+
 /** The files a build directory holds. */
 export function buildFiles(dir) {
   return {
@@ -339,6 +399,7 @@ export function buildFiles(dir) {
     geoTags: path.join(dir, 'enwiki-latest-geo_tags.sql.gz'),
     geoTagsMeta: path.join(dir, 'geo_tags.meta.json'),
     grid: path.join(dir, 'grid.bin'),
+    h3: path.join(dir, 'h3.bin'),
     runs: path.join(dir, 'runs.jsonl'),
   };
 }
@@ -393,10 +454,11 @@ export async function runBuild({
     currentHeader &&
     currentHeader.dump?.etag === dump.etag &&
     currentHeader.dump?.lastModified === dump.lastModified &&
-    (!wantsText || currentHeader.text?.included);
+    (!wantsText || currentHeader.text?.included) &&
+    fs.existsSync(files.h3);
   if (upToDate) {
     log(
-      'grid.bin is built from this dump already; nothing to do (--force rebuilds)',
+      'grid.bin and h3.bin are built from this dump already; nothing to do (--force rebuilds)',
     );
     return { skipped: true, reason: 'up to date', header: currentHeader };
   }
@@ -422,6 +484,8 @@ export async function runBuild({
     page = await addPageSizes(stream.chunks, {
       accumulator: geo.accumulator,
       pageCells: geo.pageCells,
+      hexes: geo.hexes,
+      pageHexes: geo.pageHexes,
       onProgress: (rows) => log(`  ${rows.toLocaleString('en-US')} pages`),
     });
     page.lastModified = stream.lastModified;
@@ -438,6 +502,19 @@ export async function runBuild({
     now,
   });
   log(`wrote ${files.grid} (${(bytes / 1_048_576).toFixed(1)} MB)`);
+  log('summing the hexagons…');
+  const h3 = writeCoverageH3({
+    hexes: geo.hexes,
+    file: files.h3,
+    dump,
+    geo: geo.stats,
+    page,
+    now,
+  });
+  const cells = h3.header.resolutions.map((entry) => entry.cells);
+  log(
+    `wrote ${files.h3} (${(h3.bytes / 1_048_576).toFixed(1)} MB; cells by resolution ${cells.join(', ')})`,
+  );
   fs.appendFileSync(
     files.runs,
     `${JSON.stringify({
@@ -446,7 +523,8 @@ export async function runBuild({
       dump: header.dump.date,
       kept: header.rows.kept,
       text: header.text.included,
+      h3Cells: cells,
     })}\n`,
   );
-  return { skipped: false, header };
+  return { skipped: false, header, h3: h3.header };
 }

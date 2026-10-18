@@ -1,7 +1,10 @@
 // Personal fork: the Wikipedia coverage grid (server/providers/wikipediaCoverage.js).
 // Not part of upstream God's Eye View.
-import fs from 'node:fs';
-import path from 'node:path';
+import {
+  createPacker,
+  openArrayFile,
+  readArrayFileHeader,
+} from './arrayFile.js';
 
 /**
  * Where English Wikipedia has written about the Earth, as a raster: every
@@ -223,11 +226,6 @@ export function variantDomains(base) {
 
 // --- the file ------------------------------------------------------------------
 
-const DTYPES = Object.freeze({
-  u32: { ctor: Uint32Array, size: 4 },
-  f32: { ctor: Float32Array, size: 4 },
-});
-
 /**
  * Write the grid file atomically.
  * @param {string} file
@@ -235,77 +233,27 @@ const DTYPES = Object.freeze({
  *   height: number, counts: Uint32Array, bytes: Float32Array|null}>}} grid
  */
 export function writeGrid(file, { header, levels }) {
-  const arrays = [];
-  let offset = 0;
-  const place = (name, array, dtype) => {
-    const bytes = array.length * DTYPES[dtype].size;
-    const entry = { dtype, offset, length: array.length };
-    arrays.push({ array, offset, bytes });
-    offset += Math.ceil(bytes / 8) * 8;
-    return entry;
-  };
+  const packer = createPacker();
   const levelHeaders = levels.map((level) => ({
     level: level.level,
     width: level.width,
     height: level.height,
     arrays: {
-      counts: place('counts', level.counts, 'u32'),
-      ...(level.bytes ? { bytes: place('bytes', level.bytes, 'f32') } : {}),
+      counts: packer.place(level.counts, 'u32'),
+      ...(level.bytes ? { bytes: packer.place(level.bytes, 'f32') } : {}),
     },
   }));
-  const headerJson = Buffer.from(
-    JSON.stringify({
-      ...header,
-      magic: GRID_MAGIC,
-      version: GRID_VERSION,
-      cellDeg: BASE_CELL_DEG,
-      levels: levelHeaders,
-    }),
-  );
-  const preambleBytes = 8 + headerJson.length;
-  const dataStart = Math.ceil(preambleBytes / 8) * 8;
-  const preamble = Buffer.alloc(dataStart);
-  preamble.write(GRID_MAGIC, 0, 'latin1');
-  preamble.writeUInt32LE(headerJson.length, 4);
-  headerJson.copy(preamble, 8);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.tmp`;
-  const fd = fs.openSync(temporary, 'w');
-  try {
-    fs.writeSync(fd, preamble, 0, preamble.length, 0);
-    for (const { array, offset: at, bytes } of arrays) {
-      const view = Buffer.from(array.buffer, array.byteOffset, bytes);
-      fs.writeSync(fd, view, 0, bytes, dataStart + at);
-    }
-    const end = dataStart + offset;
-    fs.ftruncateSync(fd, end);
-  } finally {
-    fs.closeSync(fd);
-  }
-  fs.renameSync(temporary, file);
-  return { bytes: dataStart + offset };
+  return packer.write(file, GRID_MAGIC, {
+    ...header,
+    version: GRID_VERSION,
+    cellDeg: BASE_CELL_DEG,
+    levels: levelHeaders,
+  });
 }
 
 /** The header of a grid file, without its arrays. */
 export function readGridHeader(file) {
-  const fd = fs.openSync(file, 'r');
-  try {
-    const lead = Buffer.alloc(8);
-    if (fs.readSync(fd, lead, 0, 8, 0) !== 8) throw new Error('Not a grid');
-    if (lead.toString('latin1', 0, 4) !== GRID_MAGIC)
-      throw new Error('Not a grid');
-    const length = lead.readUInt32LE(4);
-    if (length > 1 << 20) throw new Error('Grid header too large');
-    const json = Buffer.alloc(length);
-    if (fs.readSync(fd, json, 0, length, 8) !== length)
-      throw new Error('Grid header truncated');
-    const header = JSON.parse(json.toString('utf8'));
-    if (header.version !== GRID_VERSION)
-      throw new Error(`Grid version ${header.version} is not ${GRID_VERSION}`);
-    return { header, dataStart: Math.ceil((8 + length) / 8) * 8 };
-  } finally {
-    fs.closeSync(fd);
-  }
+  return readArrayFileHeader(file, GRID_MAGIC, GRID_VERSION);
 }
 
 /**
@@ -313,27 +261,8 @@ export function readGridHeader(file) {
  * asked for and kept.
  */
 export function openGrid(file) {
-  const { header, dataStart } = readGridHeader(file);
+  const { header, readArray } = openArrayFile(file, GRID_MAGIC, GRID_VERSION);
   const held = new Map();
-  function readArray(entry) {
-    const { ctor, size } = DTYPES[entry.dtype];
-    const array = new ctor(entry.length);
-    const view = Buffer.from(array.buffer);
-    const fd = fs.openSync(file, 'r');
-    try {
-      const got = fs.readSync(
-        fd,
-        view,
-        0,
-        entry.length * size,
-        dataStart + entry.offset,
-      );
-      if (got !== entry.length * size) throw new Error('Grid array truncated');
-    } finally {
-      fs.closeSync(fd);
-    }
-    return array;
-  }
   return {
     header,
     hasText: header.levels.every((level) => level.arrays.bytes),
