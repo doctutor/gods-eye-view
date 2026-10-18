@@ -1,4 +1,5 @@
 import { msg, t, translateKnown } from '../../i18n/index.js';
+import { NO_IMAGERY_HOST } from '../../maps/imageryHost.js';
 
 /**
  * Personal fork: what an Earth Engine overlay's row in the DATA LAYERS panel
@@ -45,7 +46,8 @@ export function legendLabel(label) {
 /**
  * The status line.
  * @param {{catalog?: object|null, layer?: object|null, variant?: string,
- *   loading?: boolean, failure?: string|null}} state
+ *   loading?: boolean, failure?: string|null, hostless?: boolean}} state
+ *   `hostless`: the map stack can drape no imagery.
  */
 export function statusText({
   catalog = null,
@@ -53,9 +55,13 @@ export function statusText({
   variant = '',
   loading = false,
   failure = null,
+  hostless = false,
 }) {
   if (failure)
     return t('Earth Engine unavailable: {reason}', { reason: failure });
+  // The words Recent Imagery and the weather layers use for this map.
+  if (hostless && catalog?.configured && !layer?.error)
+    return t(NO_IMAGERY_HOST);
   if (!catalog) return loading ? t('Asking Earth Engine…') : '';
   if (!catalog.configured)
     return t(
@@ -79,7 +85,7 @@ export function statusText({
  * The row's controls for the layer panel (src/ui/layerPanel.js).
  * @param {{record: object, catalog?: object|null, variant?: string,
  *   opacity: number, onOpacity: (value: number) => void, loading?: boolean,
- *   failure?: string|null}} input
+ *   failure?: string|null, hostless?: boolean}} input
  */
 export function rowControls({
   record,
@@ -89,6 +95,7 @@ export function rowControls({
   onOpacity,
   loading = false,
   failure = null,
+  hostless = false,
 }) {
   const layer = catalog?.layers?.get?.(record.id) || null;
   return {
@@ -103,7 +110,14 @@ export function rowControls({
       value: Math.round(opacity * 100),
       onInput: (value) => onOpacity(value / 100),
     },
-    info: statusText({ catalog, layer, variant, loading, failure }),
+    info: statusText({
+      catalog,
+      layer,
+      variant,
+      loading,
+      failure,
+      hostless,
+    }),
     infoTitle: layer?.attribution || '',
   };
 }

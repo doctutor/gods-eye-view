@@ -339,3 +339,148 @@ test('legend words and status lines read in English by default', () => {
   assert.equal(statusText({ loading: true }), 'Asking Earth Engine…');
   assert.equal(statusText({}), '');
 });
+
+/** An imagery collection like Cesium's (a viewer's or a tileset's). */
+function fakeCollection() {
+  const layers = [];
+  let destroyed = false;
+  return {
+    layers,
+    destroy: () => (destroyed = true),
+    addImageryProvider(provider) {
+      if (destroyed) throw new Error('destroyed');
+      const layer = { provider, alpha: 1 };
+      layers.push(layer);
+      return layer;
+    },
+    remove(layer) {
+      if (destroyed) throw new Error('destroyed');
+      const i = layers.indexOf(layer);
+      if (i >= 0) layers.splice(i, 1);
+      return i >= 0;
+    },
+  };
+}
+
+/** A map stack controller like src/maps/controller.js, for draping. */
+function fakeMapStack(viewer) {
+  const listeners = new Set();
+  let tileset = null;
+  return {
+    getImageryHostTileset: () => tileset,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    listeners,
+    /** Settle on a stack: photoreal shows a tileset and hides the globe. */
+    settle(next) {
+      tileset = next.tileset ?? null;
+      viewer.scene.globe.show = next.globe === true;
+      for (const listener of [...listeners]) listener({ activeId: next.id });
+    },
+  };
+}
+
+test('in photoreal the overlay drapes on the Google tileset, follows map switches, and keeps its opacity', async () => {
+  const fake = fakeViewer(3_000_000);
+  fake.viewer.scene = { globe: { show: false } };
+  const globe = fakeCollection();
+  fake.viewer.imageryLayers = globe;
+  const stack = fakeMapStack(fake.viewer);
+  const photoreal = {
+    show: true,
+    imageryLayers: fakeCollection(),
+    isDestroyed: () => false,
+  };
+  stack.settle({ id: 'photoreal', tileset: photoreal });
+  const server = fakeServer({
+    configured: true,
+    tiles: { used: 0, budget: 20000 },
+    layers: [serverLayer('ee-terrain-slope')],
+  });
+  const layer = createEarthEngineLayer({
+    record: record('ee-terrain-slope'),
+    source: createEarthEngineSource({ fetchImpl: server.fetchImpl }),
+    storage: memoryStorage(),
+  });
+  layer.init(fake.viewer);
+  layer.attachMapStackController(stack);
+  layer.enable(fake.viewer);
+  await flush();
+  assert.equal(photoreal.imageryLayers.layers.length, 1, 'on the tileset');
+  assert.equal(globe.layers.length, 0, 'not asked for twice');
+  assert.equal(layer._state().host, 'tileset');
+  layer.getRowControls().slider.onInput(40);
+  assert.equal(photoreal.imageryLayers.layers[0].alpha, 0.4);
+  // To a globe map: it moves to the globe, at the same opacity.
+  stack.settle({ id: 'esri-imagery', globe: true });
+  assert.equal(photoreal.imageryLayers.layers.length, 0);
+  assert.equal(globe.layers.length, 1);
+  assert.equal(globe.layers[0].alpha, 0.4);
+  assert.equal(layer._state().host, 'globe');
+  // Back to photoreal, on a tileset made anew; the old one is gone.
+  photoreal.imageryLayers.destroy();
+  const again = {
+    show: true,
+    imageryLayers: fakeCollection(),
+    isDestroyed: () => false,
+  };
+  stack.settle({ id: 'photoreal', tileset: again });
+  assert.equal(
+    again.imageryLayers.layers.length,
+    1,
+    're-draped on the new tileset',
+  );
+  assert.equal(globe.layers.length, 0);
+  assert.equal(again.imageryLayers.layers[0].alpha, 0.4);
+  // A tileset destroyed under the overlay: the next switch still re-drapes.
+  const third = {
+    show: true,
+    imageryLayers: fakeCollection(),
+    isDestroyed: () => false,
+  };
+  again.imageryLayers.destroy();
+  stack.settle({ id: 'photoreal', tileset: third });
+  assert.equal(third.imageryLayers.layers.length, 1);
+  // Off: gone from the host; destroyed: no longer listening.
+  layer.disable();
+  assert.equal(third.imageryLayers.layers.length, 0);
+  assert.equal(globe.layers.length, 0);
+  layer.destroy();
+  assert.equal(stack.listeners.size, 0);
+});
+
+test('a map that can drape nothing says so in the row', async () => {
+  const fake = fakeViewer(3_000_000);
+  fake.viewer.scene = { globe: { show: false } };
+  fake.viewer.imageryLayers = fakeCollection();
+  const stack = fakeMapStack(fake.viewer);
+  // A tileset without imagery layers (an older Cesium, a non-draping stack).
+  stack.settle({ id: 'photoreal', tileset: { show: true } });
+  const server = fakeServer({
+    configured: true,
+    tiles: { used: 0, budget: 20000 },
+    layers: [serverLayer('ee-forest-loss')],
+  });
+  const layer = createEarthEngineLayer({
+    record: record('ee-forest-loss'),
+    source: createEarthEngineSource({ fetchImpl: server.fetchImpl }),
+    storage: memoryStorage(),
+  });
+  layer.init(fake.viewer);
+  layer.attachMapStackController(stack);
+  layer.enable(fake.viewer);
+  await flush();
+  assert.equal(layer._state().mounted, false);
+  assert.equal(fake.viewer.imageryLayers.layers.length, 0);
+  assert.equal(
+    layer.getRowControls().info,
+    'Hidden by this map source · choose a globe map',
+  );
+  // A globe map later: it draws, and the row says the usual.
+  stack.settle({ id: 'esri-imagery', globe: true });
+  assert.equal(fake.viewer.imageryLayers.layers.length, 1);
+  assert.equal(layer.getRowControls().info, '0 of 20000 tiles today');
+  layer.destroy();
+});

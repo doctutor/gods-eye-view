@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import { variantForHeight } from '../../data/earthEngineLayers.js';
+import { resolveImageryHost } from '../../maps/imageryHost.js';
 import { rowControls } from './presentation.js';
 import { tileTemplate } from './source.js';
 
@@ -11,6 +12,12 @@ import { tileTemplate } from './source.js';
  * legend, an opacity slider (kept per layer in this browser) and the
  * server's status. A layer with variants (administrative levels) changes
  * variant with the camera's height.
+ *
+ * It drapes where the map stack can take imagery (maps/imageryHost.js, as
+ * Recent Imagery and the weather layers do): the globe's imagery layers on
+ * a globe map, the photoreal tileset's own imagery layers (Cesium 1.131+)
+ * when the globe is hidden. Each settled map switch re-drapes it on the new
+ * host; a stack with neither says so in the row.
  */
 
 export const OPACITY_STORAGE_PREFIX = 'gev.earthEngine.opacity.';
@@ -79,6 +86,12 @@ export function createEarthEngineLayer({
   let _opacity = readOpacity(store, record.id);
   let _removeMoveListener = null;
   let _rowListener = null;
+  /** The map stack controller (src/maps/controller.js), when attached. */
+  let _controller = null;
+  let _unsubscribeMap = null;
+  /** The collection the overlay is draped on, and what kind of host it is. */
+  let _collection = null;
+  let _hostKind = 'globe';
   const notify = () => {
     try {
       _rowListener?.();
@@ -96,29 +109,46 @@ export function createEarthEngineLayer({
     return variantForHeight(record, cameraHeight()).key;
   }
 
+  /** Where imagery can be draped on the current map stack. */
+  function imageryHost() {
+    // Without a controller (tests, an older shell), the globe's collection.
+    if (!_controller)
+      return _viewer?.imageryLayers
+        ? { collection: _viewer.imageryLayers, kind: 'globe' }
+        : { collection: null, kind: 'none' };
+    return resolveImageryHost({
+      viewer: _viewer,
+      tileset: _controller.getImageryHostTileset?.() || null,
+    });
+  }
+
   function unmount() {
     if (!_imagery) return;
     try {
-      _viewer?.imageryLayers?.remove(_imagery, true);
+      _collection?.remove(_imagery, true);
     } catch {
-      /* already gone with the viewer */
+      /* already gone with its tileset or the viewer */
     }
     _imagery = null;
+    _collection = null;
     _mountedKey = '';
     requestRender('earth-engine-hide');
   }
 
-  /** Drape the variant the camera wants, when the server can draw it. */
+  /** Drape the variant the camera wants, on the stack's host, when the server can draw it. */
   function sync() {
     const layer = _catalog?.layers?.get?.(record.id);
+    const host = imageryHost();
+    _hostKind = host.kind;
     const drawable =
-      _enabled && _viewer?.imageryLayers && _catalog?.configured && layer;
+      _enabled && host.collection && _catalog?.configured && layer;
     if (!drawable) {
       unmount();
       return;
     }
     const variant = wantedVariant();
-    if (_imagery && _mountedKey === variant) return;
+    if (_imagery && _mountedKey === variant && _collection === host.collection)
+      return;
     unmount();
     const provider = new cesium.UrlTemplateImageryProvider({
       url: tileTemplate(record.id, variant),
@@ -128,8 +158,9 @@ export function createEarthEngineLayer({
       credit: layer.attribution || record.attribution,
       hasAlphaChannel: true,
     });
-    _imagery = _viewer.imageryLayers.addImageryProvider(provider);
+    _imagery = host.collection.addImageryProvider(provider);
     _imagery.alpha = _opacity;
+    _collection = host.collection;
     _mountedKey = variant;
     requestRender('earth-engine-show');
     notify();
@@ -157,6 +188,15 @@ export function createEarthEngineLayer({
       sync();
       if (before !== _mountedKey) notify();
     }
+  }
+
+  /** A settled map switch: the host may have changed (a new tileset, the globe). */
+  function onMapSettled() {
+    if (!_enabled) return;
+    const before = _collection;
+    const kind = _hostKind;
+    sync();
+    if (before !== _collection || kind !== _hostKind) notify();
   }
 
   function setOpacity(value) {
@@ -210,6 +250,9 @@ export function createEarthEngineLayer({
 
     destroy() {
       this.disable();
+      _unsubscribeMap?.();
+      _unsubscribeMap = null;
+      _controller = null;
       _viewer = null;
       _catalog = null;
       _rowListener = null;
@@ -234,7 +277,22 @@ export function createEarthEngineLayer({
         onOpacity: setOpacity,
         loading: _loading,
         failure: _failure,
+        hostless: _enabled && _hostKind === 'none',
       });
+    },
+
+    /**
+     * The map stack controller (src/app/data.js hands it to every layer):
+     * where to drape, and every settled switch.
+     * @param {object|null} controller
+     */
+    attachMapStackController(controller) {
+      _unsubscribeMap?.();
+      _unsubscribeMap = null;
+      _controller = controller || null;
+      const off = _controller?.subscribe?.(onMapSettled);
+      _unsubscribeMap = typeof off === 'function' ? off : null;
+      onMapSettled();
     },
 
     setRowControlsListener(listener) {
@@ -246,6 +304,8 @@ export function createEarthEngineLayer({
       mounted: Boolean(_imagery),
       variant: _mountedKey,
       opacity: _opacity,
+      host: _imagery ? _hostKind : 'none',
+      collection: _collection,
     }),
   };
 }
