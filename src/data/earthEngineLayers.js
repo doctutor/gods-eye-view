@@ -15,9 +15,11 @@
  * - FAO/GAUL/2025/level1 and level2 (tables, CC-BY-4.0), the successors of
  *   the deprecated, noncommercial-only 2015 tables. GAUL 2025 has no
  *   level0 (checked with the API on 2026-10-18: the folder lists level1
- *   and level2 only), so the countries variant is FAO/GAUL/2015/level0,
- *   which exists (deprecated, noncommercial; the project is registered
- *   noncommercial). USDOS/LSIB_SIMPLE/2017 is the public-domain alternative.
+ *   and level2 only);
+ * - USDOS/LSIB/2017 (table, US public domain: "no restrictions on use"),
+ *   the countries variant since 2026-10-18; its interior boundaries
+ *   reflect US government policy on disputes. LSIB_SIMPLE/2017 stores
+ *   Canada and the United States in chunks, like GAUL 2015's level0.
  *
  * A record:
  *   id          layer id ('ee-' prefix), also the tile route's name
@@ -38,12 +40,6 @@
  *               picks among the `auto` variants. For features they are
  *               administrative levels, and a chip can force any of them;
  *               for terrain a far and a near source, chosen by height only
- *   code        a variant's unit-code property (ADM0_CODE); with it the
- *               map draws edges where the code changes, not feature
- *               outlines, so a table stored in chunks (GAUL 2015 cuts Canada
- *               and the United States along even parallels and meridians)
- *               shows no seams; without it, Collection.style. Only for a
- *               chunked table: edges cost Earth Engine several times more
  *   legend      [{label, color}] (labels are English UI text)
  *   attribution the notice the dataset's terms require
  *   maxZoom     the deepest tile level asked for
@@ -195,17 +191,16 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     name: 'Administrative boundaries',
     kind: 'features',
     variants: Object.freeze([
-      // Countries only when asked for (the COUNTRIES chip): GAUL 2025 has
-      // no level0 table, so this is the 2015 one. It stores Canada, the
-      // United States and others in chunks (292 features, 276 codes), so it
-      // is drawn as the edges of its code. The 2025 tables have one feature
-      // per unit (level1: 3,104 features, 3,103 codes; level2: 43,819 and
-      // 43,819) and keep their outlines: edges cost Earth Engine 35 to
-      // 110 s a z 1 tile there, outlines 5 to 19 s (2026-10-18).
+      // Countries only when asked for (the COUNTRIES chip). GAUL 2025 has
+      // no level0, and GAUL 2015's stores Canada, the United States and
+      // others in chunks (292 features, 276 codes) whose outlines are
+      // straight false borders. LSIB 2017 has one feature per country (279
+      // and 279), and its outlines took Earth Engine 0.4 to 3.6 s a z 1 to 3
+      // tile (2026-10-18). Edges of GAUL 2015's code (Image.paint, focalMin)
+      // hid the seams but took 15 s to over 240 s a z 1 to 3 tile.
       Object.freeze({
         key: 'level0',
-        asset: Object.freeze({ table: 'FAO/GAUL/2015/level0' }),
-        code: 'ADM0_CODE',
+        asset: Object.freeze({ table: 'USDOS/LSIB/2017' }),
       }),
       // On AUTO: states and provinces from far out; districts closer in.
       Object.freeze({
@@ -234,7 +229,7 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
       Object.freeze({ label: 'Boundary', color: '#ffffff' }),
     ]),
     attribution:
-      'FAO GAUL 2025 (countries: GAUL 2015), Global Administrative Unit Layers (CC BY 4.0); boundaries do not imply any opinion of FAO',
+      'FAO GAUL 2025, Global Administrative Unit Layers (CC BY 4.0); boundaries do not imply any opinion of FAO. Countries: LSIB 2017, Office of the Geographer, U.S. Department of State',
     maxZoom: 12,
   }),
 ]);

@@ -428,90 +428,26 @@
         "values": {
           "0": {
             "functionInvocationValue": {
-              "functionName": "Image.selfMask",
+              "functionName": "Collection.style",
               "arguments": {
-                "image": {
+                "collection": {
                   "functionInvocationValue": {
-                    "functionName": "Image.neq",
+                    "functionName": "Collection.loadTable",
                     "arguments": {
-                      "image1": {
-                        "functionInvocationValue": {
-                          "functionName": "Image.paint",
-                          "arguments": {
-                            "image": {
-                              "functionInvocationValue": {
-                                "functionName": "Image.constant",
-                                "arguments": {
-                                  "value": {
-                                    "constantValue": 0
-                                  }
-                                }
-                              }
-                            },
-                            "featureCollection": {
-                              "functionInvocationValue": {
-                                "functionName": "Collection.loadTable",
-                                "arguments": {
-                                  "tableId": {
-                                    "constantValue": "FAO/GAUL/2015/level0"
-                                  }
-                                }
-                              }
-                            },
-                            "color": {
-                              "constantValue": "ADM0_CODE"
-                            }
-                          }
-                        }
-                      },
-                      "image2": {
-                        "functionInvocationValue": {
-                          "functionName": "Image.focalMin",
-                          "arguments": {
-                            "image": {
-                              "functionInvocationValue": {
-                                "functionName": "Image.paint",
-                                "arguments": {
-                                  "image": {
-                                    "functionInvocationValue": {
-                                      "functionName": "Image.constant",
-                                      "arguments": {
-                                        "value": {
-                                          "constantValue": 0
-                                        }
-                                      }
-                                    }
-                                  },
-                                  "featureCollection": {
-                                    "functionInvocationValue": {
-                                      "functionName": "Collection.loadTable",
-                                      "arguments": {
-                                        "tableId": {
-                                          "constantValue": "FAO/GAUL/2015/level0"
-                                        }
-                                      }
-                                    }
-                                  },
-                                  "color": {
-                                    "constantValue": "ADM0_CODE"
-                                  }
-                                }
-                              }
-                            },
-                            "radius": {
-                              "constantValue": 1
-                            },
-                            "kernelType": {
-                              "constantValue": "square"
-                            },
-                            "units": {
-                              "constantValue": "pixels"
-                            }
-                          }
-                        }
+                      "tableId": {
+                        "constantValue": "USDOS/LSIB/2017"
                       }
                     }
                   }
+                },
+                "color": {
+                  "constantValue": "ffffffcc"
+                },
+                "fillColor": {
+                  "constantValue": "00000000"
+                },
+                "width": {
+                  "constantValue": 1
                 }
               }
             }
@@ -519,107 +455,33 @@
         },
         "result": "0"
       },
-      "fileFormat": "PNG",
-      "visualizationOptions": {
-        "ranges": [
-          {
-            "min": 0,
-            "max": 1
-          }
-        ],
-        "paletteColors": ["ffffff"],
-        "opacity": 0.8
-      }
+      "fileFormat": "PNG"
     },
     "ee-admin-boundaries/level0/dark": {
       "expression": {
         "values": {
           "0": {
             "functionInvocationValue": {
-              "functionName": "Image.selfMask",
+              "functionName": "Collection.style",
               "arguments": {
-                "image": {
+                "collection": {
                   "functionInvocationValue": {
-                    "functionName": "Image.neq",
+                    "functionName": "Collection.loadTable",
                     "arguments": {
-                      "image1": {
-                        "functionInvocationValue": {
-                          "functionName": "Image.paint",
-                          "arguments": {
-                            "image": {
-                              "functionInvocationValue": {
-                                "functionName": "Image.constant",
-                                "arguments": {
-                                  "value": {
-                                    "constantValue": 0
-                                  }
-                                }
-                              }
-                            },
-                            "featureCollection": {
-                              "functionInvocationValue": {
-                                "functionName": "Collection.loadTable",
-                                "arguments": {
-                                  "tableId": {
-                                    "constantValue": "FAO/GAUL/2015/level0"
-                                  }
-                                }
-                              }
-                            },
-                            "color": {
-                              "constantValue": "ADM0_CODE"
-                            }
-                          }
-                        }
-                      },
-                      "image2": {
-                        "functionInvocationValue": {
-                          "functionName": "Image.focalMin",
-                          "arguments": {
-                            "image": {
-                              "functionInvocationValue": {
-                                "functionName": "Image.paint",
-                                "arguments": {
-                                  "image": {
-                                    "functionInvocationValue": {
-                                      "functionName": "Image.constant",
-                                      "arguments": {
-                                        "value": {
-                                          "constantValue": 0
-                                        }
-                                      }
-                                    }
-                                  },
-                                  "featureCollection": {
-                                    "functionInvocationValue": {
-                                      "functionName": "Collection.loadTable",
-                                      "arguments": {
-                                        "tableId": {
-                                          "constantValue": "FAO/GAUL/2015/level0"
-                                        }
-                                      }
-                                    }
-                                  },
-                                  "color": {
-                                    "constantValue": "ADM0_CODE"
-                                  }
-                                }
-                              }
-                            },
-                            "radius": {
-                              "constantValue": 1
-                            },
-                            "kernelType": {
-                              "constantValue": "square"
-                            },
-                            "units": {
-                              "constantValue": "pixels"
-                            }
-                          }
-                        }
+                      "tableId": {
+                        "constantValue": "USDOS/LSIB/2017"
                       }
                     }
                   }
+                },
+                "color": {
+                  "constantValue": "1a1a1acc"
+                },
+                "fillColor": {
+                  "constantValue": "00000000"
+                },
+                "width": {
+                  "constantValue": 1
                 }
               }
             }
@@ -627,17 +489,7 @@
         },
         "result": "0"
       },
-      "fileFormat": "PNG",
-      "visualizationOptions": {
-        "ranges": [
-          {
-            "min": 0,
-            "max": 1
-          }
-        ],
-        "paletteColors": ["1a1a1a"],
-        "opacity": 0.8
-      }
+      "fileFormat": "PNG"
     },
     "ee-admin-boundaries/level1/light": {
       "expression": {

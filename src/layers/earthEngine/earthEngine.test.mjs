@@ -144,6 +144,29 @@ test('the catalog is checked on the way in, shared, and kept a few minutes', asy
     tileTemplate('ee-admin-boundaries', 'level1', 'dark'),
     '/api/earth-engine/tile/ee-admin-boundaries/level1/dark/{z}/{x}/{y}',
   );
+  // The map request's hash rides along, so a changed expression is a new
+  // URL to the browser's cache; anything else is dropped.
+  assert.equal(
+    tileTemplate('ee-admin-boundaries', 'level0', 'dark', '0123456789ab'),
+    '/api/earth-engine/tile/ee-admin-boundaries/level0/dark/{z}/{x}/{y}?v=0123456789ab',
+  );
+  assert.equal(
+    tileTemplate('ee-admin-boundaries', 'level0', 'dark', '../x'),
+    '/api/earth-engine/tile/ee-admin-boundaries/level0/dark/{z}/{x}/{y}',
+  );
+  assert.deepEqual(
+    toCatalogLayer({
+      id: 'ee-admin-boundaries',
+      variants: [
+        {
+          key: 'level0',
+          ready: true,
+          versions: { light: '0123456789ab', dark: 'nothex', 'x y': 'ab' },
+        },
+      ],
+    }).variants[0].versions,
+    { light: '0123456789ab' },
+  );
   let clock = 0;
   const server = fakeServer({
     configured: true,
@@ -656,7 +679,26 @@ test('above its ceiling an overlay asks for nothing and says how low to go', asy
       fetchImpl: fakeServer({
         configured: true,
         tiles: { used: 0, budget: 20000 },
-        layers: [serverLayer('ee-terrain-slope')],
+        layers: [
+          serverLayer('ee-terrain-slope', {
+            variants: [
+              {
+                key: 'far',
+                ready: true,
+                auto: true,
+                minHeightM: 3_000_000,
+                versions: { default: 'aaaaaaaaaaaa' },
+              },
+              {
+                key: 'near',
+                ready: true,
+                auto: true,
+                maxHeightM: 3_000_000,
+                versions: { default: 'bbbbbbbbbbbb' },
+              },
+            ],
+          }),
+        ],
       }).fetchImpl,
     }),
     storage: memoryStorage(),
@@ -668,8 +710,8 @@ test('above its ceiling an overlay asks for nothing and says how low to go', asy
   assert.equal(fake.layers.length, 1, 'slope from 20,000 km: the planet');
   assert.match(
     fake.layers[0].imageryProvider.url,
-    /\/ee-terrain-slope\/far\/default\//,
-    'from GMTED2010, which Earth Engine answers in under a second',
+    /\/ee-terrain-slope\/far\/default\/\{z\}\/\{x\}\/\{y\}\?v=aaaaaaaaaaaa$/,
+    'from GMTED2010, which Earth Engine answers in under a second; the map hash in the URL',
   );
   assert.equal(
     fake.layers[0].rectangle.west,
@@ -682,7 +724,7 @@ test('above its ceiling an overlay asks for nothing and says how low to go', asy
   assert.equal(fake.layers.length, 1);
   assert.match(
     fake.layers[0].imageryProvider.url,
-    /\/ee-terrain-slope\/near\/default\//,
+    /\/ee-terrain-slope\/near\/default\/\{z\}\/\{x\}\/\{y\}\?v=bbbbbbbbbbbb$/,
   );
   slope.destroy();
 });

@@ -18,6 +18,7 @@ import {
   createServiceAccountAuth,
   earthEngineSettings,
   mapRequestFor,
+  mapRequestHash,
 } from '../../server/providers/earthEngine.js';
 import {
   EARTH_ENGINE_LAYERS,
@@ -76,45 +77,18 @@ test('every map request is exactly the committed fixture', async () => {
   const loss =
     requests['ee-forest-loss/default/default'].expression.values['0'];
   assert.equal(loss.functionInvocationValue.functionName, 'Image.selfMask');
-  // Countries: edges where ADM0_CODE changes, never an outline of each
-  // chunk GAUL 2015 stores Canada and the United States in.
+  // Countries: LSIB 2017's outlines, one feature per country, never GAUL
+  // 2015's level0, which stores Canada and the United States in chunks
+  // whose outlines are straight false borders.
   const level0 = requests['ee-admin-boundaries/level0/light'];
   assert.equal(
     level0.expression.values['0'].functionInvocationValue.functionName,
-    'Image.selfMask',
-    'edges of the unit code, not Collection.style outlines',
+    'Collection.style',
   );
-  const edge = level0.expression.values['0'].functionInvocationValue.arguments;
-  assert.equal(edge.image.functionInvocationValue.functionName, 'Image.neq');
-  const { image1, image2 } = edge.image.functionInvocationValue.arguments;
-  assert.equal(image1.functionInvocationValue.functionName, 'Image.paint');
-  assert.equal(
-    image1.functionInvocationValue.arguments.color.constantValue,
-    'ADM0_CODE',
-  );
-  assert.equal(
-    image1.functionInvocationValue.arguments.image.functionInvocationValue
-      .functionName,
-    'Image.constant',
-  );
-  assert.equal(image2.functionInvocationValue.functionName, 'Image.focalMin');
-  assert.deepEqual(image2.functionInvocationValue.arguments.radius, {
-    constantValue: 1,
-  });
-  assert.deepEqual(image2.functionInvocationValue.arguments.image, image1);
-  assert.deepEqual(level0.visualizationOptions, {
-    ranges: [{ min: 0, max: 1 }],
-    paletteColors: ['ffffff'],
-    opacity: 0.8,
-  });
-  assert.doesNotMatch(JSON.stringify(level0), /Collection\.style/);
-  // One map per ink: the dark one differs only in its visualization.
-  const level0Dark = requests['ee-admin-boundaries/level0/dark'];
-  assert.deepEqual(level0Dark.expression, level0.expression);
-  assert.deepEqual(level0Dark.visualizationOptions.paletteColors, ['1a1a1a']);
-  assert.equal(level0Dark.visualizationOptions.opacity, 0.8);
-  // The 2025 tables have one feature per unit: their outlines, which Earth
-  // Engine draws several times faster.
+  assert.match(JSON.stringify(level0), /"USDOS\/LSIB\/2017"/);
+  assert.doesNotMatch(JSON.stringify(requests), /GAUL\/2015|LSIB_SIMPLE/);
+  assert.doesNotMatch(JSON.stringify(requests), /Image\.paint/);
+  // Regions and districts: GAUL 2025, one feature per unit.
   const level2 = requests['ee-admin-boundaries/level2/light'];
   assert.equal(
     level2.expression.values['0'].functionInvocationValue.functionName,
@@ -142,9 +116,8 @@ test('every map request is exactly the committed fixture', async () => {
   assert.deepEqual(layerInks(byId('ee-admin-boundaries')), ['light', 'dark']);
   assert.deepEqual(layerInks(byId('ee-forest-loss')), ['default']);
   assert.match(
-    JSON.stringify(requests['ee-admin-boundaries/level0/light']),
-    /FAO\/GAUL\/2015\/level0/,
-    'GAUL 2025 has no level0',
+    byId('ee-admin-boundaries').attribution,
+    /FAO GAUL 2025.*LSIB 2017, Office of the Geographer, U\.S\. Department of State/,
   );
 });
 
@@ -450,6 +423,81 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
     'Earth Engine 400: bad expression',
     'and the error is said',
   );
+});
+
+test('the disk cache is keyed by a hash of the map request, so a changed expression never serves old tiles', async (t) => {
+  const root = await tempRoot(t);
+  const layer = byId('ee-forest-loss');
+  const variant = layerVariants(layer)[0];
+  const hash = mapRequestHash(layer, variant, 'default');
+  assert.match(hash, /^[0-9a-f]{12}$/);
+  const changed = { ...layer, vis: { ...layer.vis, max: 26 } };
+  assert.notEqual(mapRequestHash(changed, variant, 'default'), hash);
+  const boundaries = byId('ee-admin-boundaries');
+  const level0 = layerVariants(boundaries)[0];
+  assert.notEqual(
+    mapRequestHash(boundaries, level0, 'light'),
+    mapRequestHash(boundaries, level0, 'dark'),
+    'each ink its own',
+  );
+  // A tile left under the old layout, or under another hash, is not served.
+  const tiles = path.join(root, '.gev-cache', 'earth-engine', 'tiles');
+  for (const stale of [
+    path.join(tiles, 'ee-forest-loss', 'default', 'default', '3', '2'),
+    path.join(
+      tiles,
+      'ee-forest-loss',
+      'default',
+      'default',
+      'f'.repeat(12),
+      '3',
+      '2',
+    ),
+  ]) {
+    await fs.mkdir(stale, { recursive: true });
+    await fs.writeFile(path.join(stale, '1.png'), 'stale');
+  }
+  const backend = fakeBackend();
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    backend,
+  });
+  const tile = await service.tile(
+    'ee-forest-loss',
+    'default',
+    'default',
+    3,
+    2,
+    1,
+  );
+  assert.equal(tile.body.toString(), '3/2/1', 'made by Earth Engine');
+  assert.equal(backend.tiles.length, 1);
+  assert.equal(
+    await fs.readFile(
+      path.join(
+        tiles,
+        'ee-forest-loss',
+        'default',
+        'default',
+        hash,
+        '3',
+        '2',
+        '1.png',
+      ),
+      'utf8',
+    ),
+    '3/2/1',
+    'kept under its hash',
+  );
+  // The catalog gives the client each ink's hash for the tile URL.
+  const catalog = await service.layers();
+  const loss = catalog.layers.find((entry) => entry.id === 'ee-forest-loss');
+  assert.deepEqual(loss.variants[0].versions, { default: hash });
+  const level0Row = catalog.layers
+    .find((entry) => entry.id === 'ee-admin-boundaries')
+    .variants.find((entry) => entry.key === 'level0');
+  assert.deepEqual(Object.keys(level0Row.versions), ['light', 'dark']);
 });
 
 test('tiles come from disk first, within the day’s budget, and an expired map is made again once', async (t) => {

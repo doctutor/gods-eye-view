@@ -15,6 +15,15 @@ const text = (value, max = 400) =>
     .trim()
     .slice(0, max);
 
+/** {versions: {ink: hash}} for the well-formed entries, or nothing. */
+function versionsOf(versions) {
+  const kept = Object.entries(versions || {}).filter(
+    ([ink, hash]) =>
+      /^[a-z]{1,10}$/.test(ink) && /^[0-9a-f]{12}$/.test(String(hash)),
+  );
+  return kept.length ? { versions: Object.fromEntries(kept) } : {};
+}
+
 /** One server layer, checked on the way in, or null. */
 export function toCatalogLayer(row) {
   const id = String(row?.id || '');
@@ -31,6 +40,8 @@ export function toCatalogLayer(row) {
       ...(Number.isFinite(variant.maxHeightM)
         ? { maxHeightM: variant.maxHeightM }
         : {}),
+      // Per ink, the hash of what the map is made from (the server's).
+      ...versionsOf(variant.versions),
     }));
   const inks = (Array.isArray(row.inks) ? row.inks : []).filter((ink) =>
     /^[a-z]{1,10}$/.test(String(ink)),
@@ -54,9 +65,16 @@ export function toCatalogLayer(row) {
   };
 }
 
-/** The tile URL template for a layer variant in an ink (the server's proxy). */
-export function tileTemplate(layerId, variantKey, ink = 'default') {
-  return `${EARTH_ENGINE_ENDPOINT}/tile/${layerId}/${variantKey}/${ink}/{z}/{x}/{y}`;
+/**
+ * The tile URL template for a layer variant in an ink (the server's proxy).
+ * `version`, the hash of the map's request, only busts the browser's cache:
+ * the server reads the path.
+ */
+export function tileTemplate(layerId, variantKey, ink = 'default', version) {
+  const query = /^[0-9a-f]{12}$/.test(String(version || ''))
+    ? `?v=${version}`
+    : '';
+  return `${EARTH_ENGINE_ENDPOINT}/tile/${layerId}/${variantKey}/${ink}/{z}/{x}/{y}${query}`;
 }
 
 /**
