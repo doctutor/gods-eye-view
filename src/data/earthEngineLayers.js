@@ -8,6 +8,8 @@
  * (storage.googleapis.com/earthengine-stac), checked 2026-10-17:
  * - COPERNICUS/DEM/GLO30_2024_1 (image collection, band DEM), the
  *   successor of the deprecated COPERNICUS/DEM/GLO30;
+ * - USGS/GMTED2010_FULL (image, band mea: mean elevation at 7.5"), the
+ *   terrain layers' far source (used live 2026-10-18; USGS, public domain);
  * - UMD/hansen/global_forest_change_2025_v1_13 (image, band lossyear:
  *   0 = no loss, 1–25 = loss in 2001–2025), the latest version;
  * - FAO/GAUL/2025/level1 and level2 (tables, CC-BY-4.0), the successors of
@@ -22,7 +24,8 @@
  *   name        the layer's English name (translated in layerNames.js)
  *   kind        'image' (a band, visualized with vis) or 'features'
  *               (a table, drawn with style)
- *   asset       {collection | image | table, band?}; a collection is mosaicked
+ *   asset       {collection | image | table, band?, seaIsZero?}; a collection
+ *               is mosaicked; seaIsZero masks the zero pixels before use
  *   terrain     'slope' | 'aspect' | 'hillshade' (ee.Terrain), optional
  *   selfMask    true to leave zero pixels transparent
  *   vis         {min, max, palette} (palette colours as RRGGBB)
@@ -30,14 +33,26 @@
  *   inks        for features: {light: RRGGBBAA, dark: RRGGBBAA}, the line
  *               colour per ink; one map per (variant, ink), and the client
  *               picks the ink from the basemap's luminance (src/maps/ink.js)
- *   variants    for features: [{key, asset, auto?, minHeightM?, maxHeightM?}],
- *               one map per variant; on AUTO the camera height picks among
- *               the `auto` variants, and a chip can force any variant
+ *   variants    [{key, asset, auto?, minHeightM?, maxHeightM?}] in place of
+ *               `asset`, one map per variant; on AUTO the camera height
+ *               picks among the `auto` variants. For features they are
+ *               administrative levels, and a chip can force any of them;
+ *               for terrain a far and a near source, chosen by height only
+ *   code        a variant's unit-code property (ADM0_CODE); with it the
+ *               map draws edges where the code changes, not feature
+ *               outlines, so a table stored in chunks (GAUL 2015 cuts Canada
+ *               and the United States along even parallels and meridians)
+ *               shows no seams; without it, Collection.style. Only for a
+ *               chunked table: edges cost Earth Engine several times more
  *   legend      [{label, color}] (labels are English UI text)
  *   attribution the notice the dataset's terms require
  *   maxZoom     the deepest tile level asked for
  *   maxHeightM  no tiles are asked for while the camera is higher than this
- *               (optional; terrain says nothing from orbit)
+ *               (optional; only for a quantity that means nothing once
+ *               averaged down, like forest-loss years. Elevation averages
+ *               sensibly and Earth Engine derives slope, aspect and
+ *               hillshade at the tile's scale, so the terrain layers draw
+ *               from orbit: docs/PERSONAL-FORK.md, "Level of detail")
  */
 
 export const EARTH_ENGINE_ATTRIBUTION = 'Google Earth Engine';
@@ -48,13 +63,39 @@ const DEM = Object.freeze({
   collection: 'COPERNICUS/DEM/GLO30_2024_1',
   band: 'DEM',
 });
+// Far views of the terrain layers: GMTED2010's 7.5" mean elevation, one
+// pyramided image. The Copernicus mosaic is some 26,000 images, and a z 0
+// to 2 tile of it took Earth Engine 10 to 156 s (2026-10-18), past the
+// proxy's 30 s; this one answers in under a second. Its sea is 0, masked.
+const DEM_FAR = Object.freeze({
+  image: 'USGS/GMTED2010_FULL',
+  band: 'mea',
+  seaIsZero: true,
+});
+/** Above this camera height the terrain layers draw from DEM_FAR. */
+const DEM_FAR_ABOVE_M = 3_000_000;
+const DEM_VARIANTS = Object.freeze([
+  Object.freeze({
+    key: 'far',
+    asset: DEM_FAR,
+    auto: true,
+    minHeightM: DEM_FAR_ABOVE_M,
+  }),
+  Object.freeze({
+    key: 'near',
+    asset: DEM,
+    auto: true,
+    maxHeightM: DEM_FAR_ABOVE_M,
+  }),
+]);
+const DEM_NOTICE = `${COPERNICUS_DEM_NOTICE}. Far views: GMTED2010, USGS and NGA`;
 
 export const EARTH_ENGINE_LAYERS = Object.freeze([
   Object.freeze({
     id: 'ee-terrain-slope',
     name: 'Terrain slope',
     kind: 'image',
-    asset: DEM,
+    variants: DEM_VARIANTS,
     terrain: 'slope',
     vis: Object.freeze({
       min: 0,
@@ -74,15 +115,14 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
       Object.freeze({ label: '34°', color: '#fc8d59' }),
       Object.freeze({ label: '45°+', color: '#d73027' }),
     ]),
-    attribution: COPERNICUS_DEM_NOTICE,
+    attribution: DEM_NOTICE,
     maxZoom: 14,
-    maxHeightM: 500_000,
   }),
   Object.freeze({
     id: 'ee-terrain-aspect',
     name: 'Terrain aspect',
     kind: 'image',
-    asset: DEM,
+    variants: DEM_VARIANTS,
     terrain: 'aspect',
     vis: Object.freeze({
       min: 0,
@@ -102,15 +142,14 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
       Object.freeze({ label: 'S', color: '#fee08b' }),
       Object.freeze({ label: 'W', color: '#fc8d59' }),
     ]),
-    attribution: COPERNICUS_DEM_NOTICE,
+    attribution: DEM_NOTICE,
     maxZoom: 14,
-    maxHeightM: 500_000,
   }),
   Object.freeze({
     id: 'ee-terrain-hillshade',
     name: 'Hillshade',
     kind: 'image',
-    asset: DEM,
+    variants: DEM_VARIANTS,
     terrain: 'hillshade',
     vis: Object.freeze({
       min: 0,
@@ -123,9 +162,8 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
       // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
       Object.freeze({ label: 'Light', color: '#ffffff' }),
     ]),
-    attribution: COPERNICUS_DEM_NOTICE,
+    attribution: DEM_NOTICE,
     maxZoom: 14,
-    maxHeightM: 500_000,
   }),
   Object.freeze({
     id: 'ee-forest-loss',
@@ -158,10 +196,16 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     kind: 'features',
     variants: Object.freeze([
       // Countries only when asked for (the COUNTRIES chip): GAUL 2025 has
-      // no level0 table, so this is the 2015 one.
+      // no level0 table, so this is the 2015 one. It stores Canada, the
+      // United States and others in chunks (292 features, 276 codes), so it
+      // is drawn as the edges of its code. The 2025 tables have one feature
+      // per unit (level1: 3,104 features, 3,103 codes; level2: 43,819 and
+      // 43,819) and keep their outlines: edges cost Earth Engine 35 to
+      // 110 s a z 1 tile there, outlines 5 to 19 s (2026-10-18).
       Object.freeze({
         key: 'level0',
         asset: Object.freeze({ table: 'FAO/GAUL/2015/level0' }),
+        code: 'ADM0_CODE',
       }),
       // On AUTO: states and provinces from far out; districts closer in.
       Object.freeze({

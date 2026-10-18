@@ -31,9 +31,10 @@ import {
  *
  * Each (layer, variant, ink) has its own map, made by POST
  * /v1/projects/<project>/maps with the layer's expression (the computation
- * graph Earth Engine's own clients send; a features layer's line colour is
- * the ink's), cached until it nears its expiry, made again on demand, one
- * request at a time per map; when a new one cannot be made the old one
+ * graph Earth Engine's own clients send; a features layer is drawn in the
+ * ink's colour, as the edges of its unit code when the variant names one),
+ * cached until it nears its expiry, made again on demand, one request at a
+ * time per map; when a new one cannot be made the old one
  * keeps serving and the error is reported. The JSON sent for each map is
  * a committed fixture (src/data/fixtures/earth-engine-expressions.json), so
  * an Earth Engine rejection can be read against exactly what was sent.
@@ -55,6 +56,11 @@ export const DEFAULT_DAILY_TILES = 20_000;
 export const BUDGET_WARNINGS = Object.freeze([50, 90]);
 const MAX_TILE_BYTES = 2 * 1024 * 1024;
 const TILE_TIMEOUT_MS = 30_000;
+// A coarse tile can take Earth Engine minutes (z 0 to 3 of the countries'
+// edges: 15 s to over 200 s, 2026-10-18), but there are only 85 of them per
+// map and the disk keeps each 30 days, so they are waited for longer.
+const COARSE_TILE_MAX_Z = 3;
+const COARSE_TILE_TIMEOUT_MS = 240_000;
 const CACHE_DIR = path.join('.gev-cache', 'earth-engine');
 const NEEDS_KEY =
   'Set EARTH_ENGINE_KEY_FILE and EARTH_ENGINE_PROJECT in .env to draw the Earth Engine layers';
@@ -77,12 +83,13 @@ function assetNode(asset) {
         }),
       })
     : invoke('Image.load', { id: constant(asset?.image) });
-  return asset?.band
+  const band = asset?.band
     ? invoke('Image.select', {
         input: image,
         bandSelectors: constant([asset.band]),
       })
     : image;
+  return asset?.seaIsZero ? invoke('Image.selfMask', { image: band }) : band;
 }
 
 /**
@@ -95,7 +102,32 @@ export function expressionFor(
   ink = layerInks(layer)[0],
 ) {
   let node = assetNode(variant.asset);
-  if (layer.kind === 'features') {
+  if (layer.kind === 'features' && variant.code) {
+    // Edges where the unit code changes, not feature outlines: the table is
+    // painted into an image of its code over a zero (sea) background, and a
+    // pixel whose 3 × 3 neighbourhood holds a smaller code is an edge, one
+    // pixel wide on the higher-code side. A seam between two chunks of one
+    // unit has the same code both sides and vanishes; a shared border is
+    // drawn once; the coast counts, since sea is 0. The ink is applied by
+    // the map's visualization (mapRequestFor), not baked in here.
+    const painted = invoke('Image.paint', {
+      image: invoke('Image.constant', { value: constant(0) }),
+      featureCollection: node,
+      color: constant(variant.code),
+    });
+    node = invoke('Image.selfMask', {
+      image: invoke('Image.neq', {
+        image1: painted,
+        image2: invoke('Image.focalMin', {
+          image: painted,
+          radius: constant(1),
+          kernelType: constant('square'),
+          units: constant('pixels'),
+        }),
+      }),
+    });
+  } else if (layer.kind === 'features') {
+    // A table without a code property: its feature outlines.
     const style = layer.style || {};
     node = invoke('Collection.style', {
       collection: node,
@@ -106,11 +138,12 @@ export function expressionFor(
   } else {
     if (layer.terrain) {
       // A mosaic has no native projection; terrain needs one in metres.
-      node = invoke('Image.setDefaultProjection', {
-        image: node,
-        crs: invoke('Projection', { crs: constant('EPSG:3857') }),
-        scale: constant(30),
-      });
+      if (variant.asset?.collection)
+        node = invoke('Image.setDefaultProjection', {
+          image: node,
+          crs: invoke('Projection', { crs: constant('EPSG:3857') }),
+          scale: constant(30),
+        });
       node =
         layer.terrain === 'hillshade'
           ? invoke('Terrain.hillshade', {
@@ -139,6 +172,21 @@ export function mapRequestFor(layer, variant, ink = layerInks(layer)[0]) {
       ranges: [{ min: layer.vis.min, max: layer.vis.max }],
       paletteColors: [...(layer.vis.palette || [])],
     };
+  if (layer.kind === 'features' && variant.code) {
+    // The edge image is 1 where there is an edge (masked elsewhere): the
+    // ink's RRGGBB is the one palette colour, its AA the opacity.
+    const color = inkColor(layer, ink);
+    body.visualizationOptions = {
+      ranges: [{ min: 0, max: 1 }],
+      paletteColors: [color.slice(0, 6)],
+      ...(color.length === 8
+        ? {
+            opacity:
+              Math.round((parseInt(color.slice(6), 16) / 255) * 100) / 100,
+          }
+        : {}),
+    };
+  }
   return body;
 }
 
@@ -266,7 +314,7 @@ export function createRestBackend({
   auth,
   fetchImpl = (...args) => fetch(...args),
 }) {
-  async function authorized(url, init = {}) {
+  async function authorized(url, init = {}, timeoutMs = TILE_TIMEOUT_MS) {
     const send = async () =>
       fetchImpl(url, {
         ...init,
@@ -274,7 +322,7 @@ export function createRestBackend({
           ...(init.headers || {}),
           Authorization: `Bearer ${await auth.token()}`,
         },
-        signal: AbortSignal.timeout(TILE_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
         redirect: 'error',
       });
     let response = await send();
@@ -305,6 +353,8 @@ export function createRestBackend({
     async fetchTile(name, z, x, y) {
       const response = await authorized(
         `${EE_API}/${name}/tiles/${z}/${x}/${y}`,
+        {},
+        z <= COARSE_TILE_MAX_Z ? COARSE_TILE_TIMEOUT_MS : TILE_TIMEOUT_MS,
       );
       if (!response.ok)
         return {

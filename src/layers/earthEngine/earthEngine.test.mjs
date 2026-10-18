@@ -608,24 +608,24 @@ test('an overlay covers only the view’s neighbourhood, rebuilt as the view mov
 });
 
 test('above its ceiling an overlay asks for nothing and says how low to go', async () => {
-  const fake = fakeViewer(800_000);
+  const fake = fakeViewer(4_000_000);
   const server = fakeServer({
     configured: true,
     tiles: { used: 1200, budget: 20000 },
-    layers: [serverLayer('ee-terrain-slope', { tilesToday: 1158 })],
+    layers: [serverLayer('ee-forest-loss', { tilesToday: 1158 })],
   });
   const layer = createEarthEngineLayer({
-    record: record('ee-terrain-slope'),
+    record: record('ee-forest-loss'),
     source: createEarthEngineSource({ fetchImpl: server.fetchImpl }),
     storage: memoryStorage(),
   });
   layer.init(fake.viewer);
   layer.enable(fake.viewer);
   await flush();
-  assert.equal(fake.layers.length, 0, 'terrain from 800 km: nothing');
+  assert.equal(fake.layers.length, 0, 'forest loss from 4,000 km: nothing');
   assert.equal(
     layer.getRowControls().info,
-    'Zoom in below 500 km to draw it · 1158 tiles today, this layer · 1200 of 20000 tiles today',
+    'Zoom in below 3000 km to draw it · 1158 tiles today, this layer · 1200 of 20000 tiles today',
   );
   fake.setHeight(60_000);
   fake.settle();
@@ -634,13 +634,57 @@ test('above its ceiling an overlay asks for nothing and says how low to go', asy
     layer.getRowControls().info,
     '1158 tiles today, this layer · 1200 of 20000 tiles today',
   );
-  fake.setHeight(900_000);
+  fake.setHeight(3_500_000);
   fake.settle();
   assert.equal(fake.layers.length, 0, 'and taken off again above it');
-  // The boundaries have no ceiling: their first level is for far views.
-  assert.equal(record('ee-admin-boundaries').maxHeightM, undefined);
+  // Only forest loss has a ceiling: its loss years mean nothing averaged
+  // down. Terrain pyramids into continental relief and draws from orbit;
+  // the boundaries' first level is for far views.
   assert.equal(record('ee-forest-loss').maxHeightM, 3_000_000);
+  for (const id of [
+    'ee-terrain-slope',
+    'ee-terrain-aspect',
+    'ee-terrain-hillshade',
+    'ee-admin-boundaries',
+  ])
+    assert.equal(record(id).maxHeightM, undefined, id);
   layer.destroy();
+  // Terrain from orbit: drawn.
+  const slope = createEarthEngineLayer({
+    record: record('ee-terrain-slope'),
+    source: createEarthEngineSource({
+      fetchImpl: fakeServer({
+        configured: true,
+        tiles: { used: 0, budget: 20000 },
+        layers: [serverLayer('ee-terrain-slope')],
+      }).fetchImpl,
+    }),
+    storage: memoryStorage(),
+  });
+  fake.setHeight(20_000_000);
+  slope.init(fake.viewer);
+  slope.enable(fake.viewer);
+  await flush();
+  assert.equal(fake.layers.length, 1, 'slope from 20,000 km: the planet');
+  assert.match(
+    fake.layers[0].imageryProvider.url,
+    /\/ee-terrain-slope\/far\/default\//,
+    'from GMTED2010, which Earth Engine answers in under a second',
+  );
+  assert.equal(
+    fake.layers[0].rectangle.west,
+    -Math.PI,
+    'no view rectangle: the whole world',
+  );
+  // Below 3,000 km the Copernicus DEM takes over.
+  fake.setHeight(1_000_000);
+  fake.settle();
+  assert.equal(fake.layers.length, 1);
+  assert.match(
+    fake.layers[0].imageryProvider.url,
+    /\/ee-terrain-slope\/near\/default\//,
+  );
+  slope.destroy();
 });
 
 /** A map stack controller with a luminance, as src/maps/controller.js exposes it. */
@@ -758,7 +802,8 @@ test('the boundaries take their ink from the basemap, and the chips force and ke
     })._state().inkSetting,
     'auto',
   );
-  // An image layer has no ink chips and a 'default' ink in its URL.
+  // An image layer has no ink chips and a 'default' ink in its URL; its
+  // far/near sources are no chips either.
   const slope = createEarthEngineLayer({
     record: record('ee-terrain-slope'),
     source: createEarthEngineSource({
@@ -775,7 +820,7 @@ test('the boundaries take their ink from the basemap, and the chips force and ke
   slope.init(fake.viewer);
   slope.enable(fake.viewer);
   await flush();
-  assert.match(fake.layers[0].imageryProvider.url, /\/default\/default\/\{z\}/);
+  assert.match(fake.layers[0].imageryProvider.url, /\/near\/default\/\{z\}/);
   assert.equal(slope._state().ink, 'default');
   slope.destroy();
 });

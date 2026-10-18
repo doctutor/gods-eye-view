@@ -54,15 +54,67 @@ test('every map request is exactly the committed fixture', async () => {
         );
   // A changed layer changes what is sent: regenerate the fixture with it.
   assert.deepEqual(built, requests);
-  const slope = requests['ee-terrain-slope/default/default'];
+  const slope = requests['ee-terrain-slope/near/default'];
   assert.equal(slope.fileFormat, 'PNG');
   assert.equal(slope.expression.result, '0');
   const root = slope.expression.values['0'].functionInvocationValue;
   assert.equal(root.functionName, 'Terrain.slope');
   assert.deepEqual(slope.visualizationOptions.ranges, [{ min: 0, max: 45 }]);
+  assert.match(JSON.stringify(slope), /COPERNICUS\/DEM\/GLO30_2024_1/);
+  assert.match(JSON.stringify(slope), /Image\.setDefaultProjection/);
+  // Far views: GMTED2010, one pyramided image, its zero sea masked, in its
+  // own projection.
+  const far = requests['ee-terrain-hillshade/far/default'];
+  const farRoot = far.expression.values['0'].functionInvocationValue;
+  assert.equal(farRoot.functionName, 'Terrain.hillshade');
+  assert.equal(
+    farRoot.arguments.input.functionInvocationValue.functionName,
+    'Image.selfMask',
+  );
+  assert.match(JSON.stringify(far), /USGS\/GMTED2010_FULL/);
+  assert.doesNotMatch(JSON.stringify(far), /setDefaultProjection/);
   const loss =
     requests['ee-forest-loss/default/default'].expression.values['0'];
   assert.equal(loss.functionInvocationValue.functionName, 'Image.selfMask');
+  // Countries: edges where ADM0_CODE changes, never an outline of each
+  // chunk GAUL 2015 stores Canada and the United States in.
+  const level0 = requests['ee-admin-boundaries/level0/light'];
+  assert.equal(
+    level0.expression.values['0'].functionInvocationValue.functionName,
+    'Image.selfMask',
+    'edges of the unit code, not Collection.style outlines',
+  );
+  const edge = level0.expression.values['0'].functionInvocationValue.arguments;
+  assert.equal(edge.image.functionInvocationValue.functionName, 'Image.neq');
+  const { image1, image2 } = edge.image.functionInvocationValue.arguments;
+  assert.equal(image1.functionInvocationValue.functionName, 'Image.paint');
+  assert.equal(
+    image1.functionInvocationValue.arguments.color.constantValue,
+    'ADM0_CODE',
+  );
+  assert.equal(
+    image1.functionInvocationValue.arguments.image.functionInvocationValue
+      .functionName,
+    'Image.constant',
+  );
+  assert.equal(image2.functionInvocationValue.functionName, 'Image.focalMin');
+  assert.deepEqual(image2.functionInvocationValue.arguments.radius, {
+    constantValue: 1,
+  });
+  assert.deepEqual(image2.functionInvocationValue.arguments.image, image1);
+  assert.deepEqual(level0.visualizationOptions, {
+    ranges: [{ min: 0, max: 1 }],
+    paletteColors: ['ffffff'],
+    opacity: 0.8,
+  });
+  assert.doesNotMatch(JSON.stringify(level0), /Collection\.style/);
+  // One map per ink: the dark one differs only in its visualization.
+  const level0Dark = requests['ee-admin-boundaries/level0/dark'];
+  assert.deepEqual(level0Dark.expression, level0.expression);
+  assert.deepEqual(level0Dark.visualizationOptions.paletteColors, ['1a1a1a']);
+  assert.equal(level0Dark.visualizationOptions.opacity, 0.8);
+  // The 2025 tables have one feature per unit: their outlines, which Earth
+  // Engine draws several times faster.
   const level2 = requests['ee-admin-boundaries/level2/light'];
   assert.equal(
     level2.expression.values['0'].functionInvocationValue.functionName,
@@ -81,6 +133,11 @@ test('every map request is exactly the committed fixture', async () => {
       .constantValue;
   assert.equal(colorOf(level2), 'ffffffcc');
   assert.equal(colorOf(dark), '1a1a1acc');
+  assert.equal(
+    requests['ee-admin-boundaries/level1/light'].expression.values['0']
+      .functionInvocationValue.functionName,
+    'Collection.style',
+  );
   assert.equal(inkColor(byId('ee-admin-boundaries'), 'dark'), '1a1a1acc');
   assert.deepEqual(layerInks(byId('ee-admin-boundaries')), ['light', 'dark']);
   assert.deepEqual(layerInks(byId('ee-forest-loss')), ['default']);
@@ -102,6 +159,25 @@ test('the boundaries change level with the camera’s height', () => {
   for (const height of [0, 800_000, 20_000_000])
     assert.notEqual(variantForHeight(layer, height).key, 'level0');
   assert.equal(variantForHeight(byId('ee-forest-loss'), 10).key, 'default');
+});
+
+test('terrain draws from GMTED2010 above 3,000 km and Copernicus below', () => {
+  for (const id of [
+    'ee-terrain-slope',
+    'ee-terrain-aspect',
+    'ee-terrain-hillshade',
+  ]) {
+    const layer = byId(id);
+    assert.deepEqual(
+      layerVariants(layer).map((v) => v.key),
+      ['far', 'near'],
+    );
+    assert.equal(variantForHeight(layer, 20_000_000).key, 'far', id);
+    assert.equal(variantForHeight(layer, 3_000_000).key, 'far', id);
+    assert.equal(variantForHeight(layer, 2_999_999).key, 'near', id);
+    assert.equal(variantForHeight(layer, 500).key, 'near', id);
+    assert.match(layer.attribution, /Copernicus DEM GLO-30.*GMTED2010/);
+  }
 });
 
 test('configured only with a project and a key file that exists; the key is never read here', async (t) => {
@@ -324,11 +400,12 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
   const [first] = await Promise.all([service.layers(), service.layers()]);
   assert.equal(
     backend.made.length,
-    10,
+    13,
     'one map per variant and ink, one request each',
   );
   assert.ok(backend.made.includes('ee-admin-boundaries/level0/dark'));
-  assert.ok(backend.made.includes('ee-terrain-slope/default/default'));
+  assert.ok(backend.made.includes('ee-terrain-slope/near/default'));
+  assert.ok(backend.made.includes('ee-terrain-slope/far/default'));
   assert.equal(first.configured, true);
   const slope = first.layers.find((layer) => layer.id === 'ee-terrain-slope');
   assert.equal(
@@ -359,11 +436,11 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
     ['light', 'dark'],
   );
   await service.layers();
-  assert.equal(backend.made.length, 10, 'kept');
+  assert.equal(backend.made.length, 13, 'kept');
   clock += MAP_TTL_MS + 1;
   failing = true;
   const stale = await service.layers();
-  assert.equal(backend.made.length, 20, 'asked again');
+  assert.equal(backend.made.length, 26, 'asked again');
   const staleSlope = stale.layers.find(
     (layer) => layer.id === 'ee-terrain-slope',
   );
@@ -573,9 +650,9 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     now: () => clock,
   });
   for (let x = 0; x < 4; x++)
-    await service.tile('ee-terrain-slope', 'default', 'default', 4, x, 1);
+    await service.tile('ee-terrain-slope', 'near', 'default', 4, x, 1);
   // A disk hit is not counted.
-  await service.tile('ee-terrain-slope', 'default', 'default', 4, 0, 1);
+  await service.tile('ee-terrain-slope', 'near', 'default', 4, 0, 1);
   await service.tile('ee-forest-loss', 'default', 'default', 4, 0, 1);
   const budgetWarnings = () => warnings.filter((w) => /tile budget/.test(w));
   assert.deepEqual(budgetWarnings(), [
