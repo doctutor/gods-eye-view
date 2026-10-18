@@ -53,6 +53,8 @@ export function readShellElements(document = globalThis.document) {
     _scopeFeatherSlider: document.getElementById('scope-feather-slider'),
     _scopeFeatherValue: document.getElementById('scope-feather-value'),
     _mapStackChips: document.getElementById('map-stack-chips'),
+    // Personal fork: the grouped "More styles" picker under the chips.
+    _mapStackMore: document.getElementById('map-stack-more'),
     _mapStackStatus: document.getElementById('map-stack-status'),
     _cleanViewBtn: document.getElementById('clean-view-toggle'),
     _cleanViewExitBtn: document.getElementById('clean-view-exit'),

@@ -1,4 +1,14 @@
 import * as Cesium from 'cesium';
+// Personal fork: keyless raster basemaps (blank, CARTO, OpenTopoMap, NASA
+// GIBS, Stamen via Stadia) follow the five upstream sources.
+import {
+  KEYLESS_BASEMAPS,
+  keylessBasemapDescriptor,
+} from './keylessBasemapCatalog.js';
+import {
+  COUNTRIES_BASEMAPS,
+  countriesBasemapDescriptor,
+} from './countries/catalog.js';
 export const MAP_STACKS = [
   {
     id: 'photoreal',
@@ -37,4 +47,7 @@ export const MAP_STACKS = [
     kind: 'osm',
     requiresIon: false,
   },
+  // Personal fork: the keyless styles, then the Countries basemap styles.
+  ...KEYLESS_BASEMAPS.map(keylessBasemapDescriptor),
+  ...COUNTRIES_BASEMAPS.map(countriesBasemapDescriptor),
 ];

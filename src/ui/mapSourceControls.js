@@ -1,4 +1,6 @@
 import { renderMapStackChips, syncMapStackChips } from '../mapStackChips.js';
+// Personal fork: the grouped "More styles" picker under the five chips.
+import { renderMapStackMore, syncMapStackMore } from '../mapStackMore.js';
 import { t } from '../i18n/index.js';
 
 /**
@@ -7,6 +9,7 @@ import { t } from '../i18n/index.js';
  */
 export function createMapSourceControls({
   container,
+  moreContainer = null,
   statusElement,
   controller,
   subscribe,
@@ -24,6 +27,7 @@ export function createMapSourceControls({
   function render(state) {
     if (destroyed || !state) return;
     syncMapStackChips(container, state.activeId);
+    syncMapStackMore(moreContainer, state.activeId); // Personal fork
     if (statusElement) {
       const stack = state.activeStack;
       statusElement.textContent =
@@ -60,6 +64,14 @@ export function createMapSourceControls({
     if (destroyed) return;
     for (const remove of removers.splice(0)) remove();
     renderMapStackChips(container, controller.getStacks(), {
+      activeId: controller.getActiveId(),
+      onSelect: (id) => {
+        void select(id).catch(() => {});
+      },
+      bind,
+    });
+    // Personal fork: every stack outside the chip row, same selection path.
+    renderMapStackMore(moreContainer, controller.getStacks(), {
       activeId: controller.getActiveId(),
       onSelect: (id) => {
         void select(id).catch(() => {});

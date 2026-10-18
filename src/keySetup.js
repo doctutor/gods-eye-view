@@ -207,7 +207,35 @@ export function stripKeylessBasemapFromHash(hash) {
   if (!hash) return null;
   try {
     const params = new URLSearchParams(hash);
-    if (!['osm', 'esri-imagery'].includes(params.get('map'))) return null;
+    // Personal fork: the keyless styles (src/maps/keylessBasemapCatalog.js)
+    // are auto-selectable without a key too, so they strip like OSM and Esri.
+    if (
+      ![
+        'osm',
+        'esri-imagery',
+        'blank-black',
+        'blank-white',
+        'natural-earth-ii',
+        'carto-positron',
+        'carto-positron-nolabels',
+        'carto-dark-matter',
+        'carto-dark-matter-nolabels',
+        'opentopomap',
+        'nasa-black-marble',
+        'nasa-blue-marble',
+        'stamen-toner',
+        'stamen-toner-lite',
+        'stamen-terrain',
+        'stamen-watercolor',
+        'countries-simple-dark',
+        'countries-simple-light',
+        'countries-subdivisions-dark',
+        'countries-subdivisions-light',
+        'countries-hex-dark',
+        'countries-hex-light',
+      ].includes(params.get('map'))
+    )
+      return null;
     params.delete('map');
     return params.toString();
   } catch {

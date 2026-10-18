@@ -1,6 +1,8 @@
 import { MapSourceController } from './maps/controller.js';
 import { createDefaultMapSources } from './maps/defaultSources.js';
 import { governorRequestRender } from './renderGovernor.js';
+// Personal fork: the Countries basemap draws geometry as the stack settles.
+import { attachCountriesBasemap } from './maps/countries/index.js';
 export { MAP_STACKS } from './maps/catalog.js';
 export { photorealUnavailableReason } from './maps/availability.js';
 
@@ -20,6 +22,16 @@ export class MapStackController extends MapSourceController {
     });
     this.googleTileset = options.googleTileset || null;
     this.cesiumToken = String(options.cesiumToken || '').trim();
+    // Personal fork: the Countries basemap renderer, for the owner's hooks
+    // (setOpacity, setCountryFill, setCountryFills).
+    this.countriesBasemap = attachCountriesBasemap(this, viewer, {
+      requestRender: governorRequestRender,
+    });
+  }
+  destroy() {
+    this.countriesBasemap?.destroy(); // Personal fork
+    this.countriesBasemap = null;
+    super.destroy();
   }
   _hasPhotorealCredentials() {
     const googleKey =

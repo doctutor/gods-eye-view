@@ -124,6 +124,18 @@ export const KEY_SETUP_KEYS = Object.freeze([
     envVars: Object.freeze(['LL2_API_TOKEN']),
     tier: 'free',
   }),
+  // Personal fork: optional, so hidden from the panel and the missing-key
+  // count; Stadia serves the Stamen styles to localhost without a key.
+  Object.freeze({
+    id: 'stadia-maps',
+    title: 'STADIA MAPS', // i18n-ignore: provider product name; row is hidden
+    unlocks: msg('Stamen map styles from any origin (localhost works without)'),
+    getUrl: 'https://client.stadiamaps.com/',
+    envVars: Object.freeze(['STADIA_MAPS_API_KEY']),
+    tier: 'free',
+    clientExposed: true,
+    hidden: true,
+  }),
 ]);
 
 /** Hostnames a Provider Settings request may arrive under or originate from. */

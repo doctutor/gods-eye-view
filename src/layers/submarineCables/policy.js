@@ -78,7 +78,35 @@ export const CABLE_LABEL_DEPTH_DECISION = Object.freeze({
  */
 
 export const CABLE_GLOBE_STACK_IDS = Object.freeze(
-  new Set(['bing-aerial', 'bing-labels', 'esri-imagery', 'osm']),
+  new Set([
+    'bing-aerial',
+    'bing-labels',
+    'esri-imagery',
+    'osm',
+    // Personal fork: the keyless styles (src/maps/keylessBasemapCatalog.js)
+    // all render on the shown globe, blank ones included.
+    'blank-black',
+    'blank-white',
+    'natural-earth-ii',
+    'carto-positron',
+    'carto-positron-nolabels',
+    'carto-dark-matter',
+    'carto-dark-matter-nolabels',
+    'opentopomap',
+    'nasa-black-marble',
+    'nasa-blue-marble',
+    'stamen-toner',
+    'stamen-toner-lite',
+    'stamen-terrain',
+    'stamen-watercolor',
+    // Personal fork: the Countries basemap (src/maps/countries/catalog.js).
+    'countries-simple-dark',
+    'countries-simple-light',
+    'countries-subdivisions-dark',
+    'countries-subdivisions-light',
+    'countries-hex-dark',
+    'countries-hex-light',
+  ]),
 );
 
 /** EntityCluster's private marker collections and their required types. */
