@@ -3180,8 +3180,12 @@
   "Latitude and longitude, every few degrees or minutes": "Широта и долгота через несколько градусов или минут",
   "TISSOT": "ТИССО",
   "Tissot's indicatrix: circles of one real size at the grid's crossings": "Индикатриса Тиссо: круги одного реального размера в узлах сетки",
-  "MGRS · SOON": "MGRS · СКОРО",
-  "The Military Grid Reference System, coming in a later version": "Военная система координатной сетки (MGRS) появится в следующей версии",
   "Grid": "Сетка",
-  "Reference": "Справка"
+  "Reference": "Справка",
+  "MGRS": "MGRS",
+  "The Military Grid Reference System: grid zones, then 100 km squares, then 10 km and 1 km lines": "Военная система координатной сетки (MGRS): зоны сетки, затем квадраты 100 км, затем линии через 10 км и 1 км",
+  "Grid zones, 6° by 8°": "Зоны сетки 6° на 8°",
+  "{km} km": "{km} км",
+  "Centre {reference}": "Центр {reference}",
+  "MGRS stops at 80°S and 84°N: the polar UPS grid is not drawn": "MGRS заканчивается на 80° ю. ш. и 84° с. ш.: полярная сетка UPS не рисуется"
 }

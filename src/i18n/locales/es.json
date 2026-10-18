@@ -3110,8 +3110,12 @@
   "Latitude and longitude, every few degrees or minutes": "Latitud y longitud, cada pocos grados o minutos",
   "TISSOT": "TISSOT",
   "Tissot's indicatrix: circles of one real size at the grid's crossings": "Indicatriz de Tissot: círculos de un mismo tamaño real en los cruces de la cuadrícula",
-  "MGRS · SOON": "MGRS · PRONTO",
-  "The Military Grid Reference System, coming in a later version": "El Sistema de Referencia de Cuadrícula Militar, en una versión futura",
   "Grid": "Cuadrícula",
-  "Reference": "Referencia"
+  "Reference": "Referencia",
+  "MGRS": "MGRS",
+  "The Military Grid Reference System: grid zones, then 100 km squares, then 10 km and 1 km lines": "El Sistema de Referencia de Cuadrícula Militar: zonas de cuadrícula, luego cuadrados de 100 km, luego líneas cada 10 km y 1 km",
+  "Grid zones, 6° by 8°": "Zonas de cuadrícula de 6° por 8°",
+  "{km} km": "{km} km",
+  "Centre {reference}": "Centro {reference}",
+  "MGRS stops at 80°S and 84°N: the polar UPS grid is not drawn": "MGRS termina en 80°S y 84°N: no se dibuja la cuadrícula polar UPS"
 }

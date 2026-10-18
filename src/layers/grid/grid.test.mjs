@@ -1,4 +1,4 @@
-// Personal fork: the Grid layer (graticule and Tissot's indicatrix).
+// Personal fork: the Grid layer (graticule, Tissot's indicatrix and MGRS).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
@@ -191,7 +191,7 @@ test('indicatrix circles are true circles on the ellipsoid, one radius, at the c
   assert.ok(polar.circles.length > 0);
 });
 
-test('the row offers the graticule, Tissot and a disabled MGRS', () => {
+test('the row offers the graticule, Tissot and MGRS', () => {
   let chosen = null;
   const controls = rowControls({
     mode: 'tissot',
@@ -209,12 +209,14 @@ test('the row offers the graticule, Tissot and a disabled MGRS', () => {
     [
       ['latlon', false, false],
       ['tissot', true, false],
-      ['mgrs', false, true],
+      ['mgrs', false, false],
     ],
   );
-  assert.equal(controls.chips[2].label, 'MGRS · SOON');
+  assert.equal(controls.chips[2].label, 'MGRS');
   controls.chips[0].onClick();
   assert.equal(chosen, 'latlon');
+  controls.chips[2].onClick();
+  assert.equal(chosen, 'mgrs');
   assert.equal(controls.slider.value, 60);
   assert.match(controls.info, /^Lines every 10' · Equal circles/);
   assert.equal(spacingText(30), 'Lines every 30°');
@@ -407,14 +409,49 @@ test('the grid drapes ground lines, labels them through the overlay host, follow
   );
   assert.equal(readGridMode(storage), 'tissot');
   assert.equal(
-    readGridMode(memoryStorage({ [MODE_STORAGE_KEY]: 'mgrs' })),
+    readGridMode(memoryStorage({ [MODE_STORAGE_KEY]: 'utm' })),
     'latlon',
   );
+  // MGRS: zone boundaries and UTM lines in place of the graticule.
+  layer
+    .getRowControls()
+    .chips.find((c) => c.id === 'mgrs')
+    .onClick();
+  assert.equal(readGridMode(storage), 'mgrs');
+  const mgrs = layer._state();
+  assert.equal(mgrs.lines, null, 'no graticule');
+  assert.equal(mgrs.circles, null);
+  assert.ok(mgrs.mgrs.lines.length > 0);
+  assert.equal(fake.scene.groundPrimitives.items.length, 1, 'nothing dashed');
+  assert.equal(
+    instancesOf(fake.scene.groundPrimitives.items[0]).length,
+    mgrs.mgrs.boundaries.length + mgrs.mgrs.lines.length,
+  );
+  const mgrsLabels = overlayHost.sources.get('grid');
+  assert.ok(mgrsLabels.some((e) => /^\d\d$/.test(e.title)));
+  // The camera is at 41.5°N by now: band T.
+  assert.ok(mgrsLabels.some((e) => /^18T [A-Z]{2}$/.test(e.title)));
+  assert.ok(
+    new Set(mgrsLabels.map((e) => e.title)).size < mgrsLabels.length,
+    'lines 100 km apart share their digits, and keep both labels',
+  );
+  for (const entry of mgrsLabels)
+    assert.doesNotThrow(() => normalizeOverlayEntry('grid', entry));
+  assert.match(
+    layer.getRowControls().info,
+    /^Lines every 10 km · Centre 18T [A-Z]{2} \d \d$/,
+  );
+  // A new level rebuilds even without a long move.
+  const before = fake.scene.groundPrimitives.items[0];
+  fake.move({ height: 6_000 });
+  assert.notEqual(fake.scene.groundPrimitives.items[0], before);
+  assert.equal(layer._state().mgrs.level.id, '1km');
   layer
     .getRowControls()
     .chips.find((c) => c.id === 'latlon')
     .onClick();
   assert.equal(layer._state().circles, null);
+  assert.equal(layer._state().mgrs, null);
   // Off: nothing left in the scene, and no camera listener.
   layer.disable();
   assert.equal(fake.scene.groundPrimitives.items.length, 0);

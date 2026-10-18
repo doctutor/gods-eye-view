@@ -74,17 +74,16 @@ const near = (a, b) => Math.abs(a - b) < 1e-9;
 const snap = (value, step) => Math.round(value / step) * step;
 
 /**
- * The lines around a view.
- * @param {{lat: number, lon: number, heightM: number}} view
- * @returns {{latStep: number, lonStep: number,
- *   window: {south: number, north: number, west: number, east: number},
- *   parallels: Array<{lat: number, kind: string}>,
- *   meridians: Array<{lon: number, kind: string}>}} Longitudes in the
- *   window are unwrapped (they may pass ±180 across the antimeridian).
+ * The window lines are made in: three view half-widths each side of the
+ * view's centre, latitudes within ±85°, longitudes unwrapped from the
+ * centre's (so they may pass ±180) and widened towards the poles, up to the
+ * whole circle. Shared by the graticule and the MGRS grid.
+ * @returns {{half: number, south: number, north: number, west: number,
+ *   east: number, fullCircle: boolean}} `half`: the view's half-width in
+ *   degrees of latitude.
  */
-export function gridLines({ lat, lon, heightM }) {
+export function gridWindow({ lat, lon, heightM }) {
   const half = viewHalfDegrees(heightM);
-  const latStep = stepForSpan(2 * half);
   const halfLat = Math.min(180, WINDOW_FACTOR * half);
   const south = Math.max(-MAX_LAT, lat - halfLat);
   const north = Math.min(MAX_LAT, lat + halfLat);
@@ -97,8 +96,41 @@ export function gridLines({ lat, lon, heightM }) {
   );
   const halfLon = (WINDOW_FACTOR * half) / Math.max(cos, 0.05);
   const fullCircle = halfLon >= 180;
-  const west = fullCircle ? -180 : lon - halfLon;
-  const east = fullCircle ? 180 : lon + halfLon;
+  return {
+    half,
+    south,
+    north,
+    west: fullCircle ? -180 : lon - halfLon,
+    east: fullCircle ? 180 : lon + halfLon,
+    fullCircle,
+  };
+}
+
+/** The view's own half-width in degrees of longitude, at its centre. */
+export function viewHalfLon({ lat, heightM }) {
+  const cos = Math.max(
+    0.05,
+    Math.cos((Math.min(Math.abs(lat), MAX_LAT) * Math.PI) / 180),
+  );
+  return Math.min(180, viewHalfDegrees(heightM) / cos);
+}
+
+/**
+ * The lines around a view.
+ * @param {{lat: number, lon: number, heightM: number}} view
+ * @returns {{latStep: number, lonStep: number,
+ *   window: {south: number, north: number, west: number, east: number},
+ *   parallels: Array<{lat: number, kind: string}>,
+ *   meridians: Array<{lon: number, kind: string}>}} Longitudes in the
+ *   window are unwrapped (they may pass ±180 across the antimeridian).
+ */
+export function gridLines({ lat, lon, heightM }) {
+  const { half, south, north, west, east, fullCircle } = gridWindow({
+    lat,
+    lon,
+    heightM,
+  });
+  const latStep = stepForSpan(2 * half);
   // Meridians crowd together near the poles: past the cap, a wider step.
   let lonStep = latStep;
   for (const step of [...GRID_STEPS_DEG].reverse())
@@ -185,11 +217,7 @@ export function labelText(value, axis, step) {
  */
 export function labelPlacements(lines, { lat, lon, heightM }) {
   const half = viewHalfDegrees(heightM);
-  const cos = Math.max(
-    0.05,
-    Math.cos((Math.min(Math.abs(lat), MAX_LAT) * Math.PI) / 180),
-  );
-  const halfLon = Math.min(180, half / cos);
+  const halfLon = viewHalfLon({ lat, heightM });
   const labelLon = lon - 0.8 * halfLon;
   const labelLat = Math.max(-MAX_LAT, lat - 0.8 * half);
   const out = [];

@@ -498,11 +498,11 @@ images over the globe. Each overlay is its own toggle. Its row has a legend,
 an opacity slider (kept per layer in this browser as
 `gev.earthEngine.opacity.<id>`), and a status line.
 
-| Layer | Dataset (Earth Engine id) | Licence |
-| --- | --- | --- |
-| Terrain slope, Terrain aspect, Hillshade | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`) | Copernicus DEM licence; notice required |
-| Forest loss (2001–2025, coloured by year) | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear` | CC BY 4.0 |
-| Administrative boundaries | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km | CC BY 4.0 |
+| Layer                                     | Dataset (Earth Engine id)                                                                        | Licence                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| Terrain slope, Terrain aspect, Hillshade  | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`)                              | Copernicus DEM licence; notice required |
+| Forest loss (2001–2025, coloured by year) | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear` | CC BY 4.0                               |
+| Administrative boundaries                 | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km                        | CC BY 4.0                               |
 
 The ids were taken from Earth Engine's catalog records on 2026-10-17. The
 older ids, `COPERNICUS/DEM/GLO30` and `FAO/GAUL/2015/*`, are deprecated, and
@@ -550,7 +550,7 @@ pulls in about 110 MB (`googleapis@92`).
 1. The server signs a JWT with the key (RS256, `node:crypto`) and exchanges it
    for an access token, which it keeps for its hour.
 2. For each layer it makes a map: `POST
-   /v1/projects/<project>/maps` with the layer's expression, the computation
+/v1/projects/<project>/maps` with the layer's expression, the computation
    graph Earth Engine's own clients send. The map is made again after two
    hours, or when a tile says it has expired. One request is in flight per
    layer at a time. When a new map cannot be made, the old one keeps serving.
@@ -679,7 +679,8 @@ lines cross the view: 30°, 10°, 5°, 2°, 1°, 30', 10', 5', 1'.
 
 - an opacity slider (the Earth Engine rows' control, kept as
   `gev.grid.opacity`);
-- the spacing drawn;
+- the spacing drawn (in MGRS, with the view centre's reference, such as
+  `18S UJ 23 06`);
 - a mode switch, kept as `gev.grid.mode`:
   - **LAT/LON**, the graticule.
   - **TISSOT**, Tissot's indicatrix. At each graticule crossing near the
@@ -689,8 +690,25 @@ lines cross the view: 30°, 10°, 5°, 2°, 1°, 30', 10', 5', 1'.
     (Vincenty's direct formula, matching Cesium's `EllipsoidGeodesic` to
     1e-11), so their unequal shapes on screen are the view's own
     foreshortening. None is drawn within its radius of a pole.
-  - **MGRS · SOON**, disabled: the Military Grid Reference System is to
-    come.
+  - **MGRS**, the Military Grid Reference System, in place of the
+    graticule (`src/layers/grid/mgrs.js`, `src/layers/grid/utm.js`).
+    - **Levels.** Like the graticule's spacing, the level follows the
+      camera's height: the grid zones (6° by 8°, labelled `18S`), then
+      100 km squares (`18S UJ`), then 10 km and 1 km lines. The fine lines
+      are labelled with their kilometre digits near the view's west and
+      south edges, with the square's reference at the corner.
+    - **Zones.** The zone boundaries are amber, and are always drawn,
+      including Norway's 32V and Svalbard's 31X–37X. UTM lines are traced
+      in each zone's own grid and cut where the zone ends, so they meet its
+      edge at their true slant.
+    - **Bounds.** Lines come only from the graticule's window around the
+      view: at most 40 per axis in a zone, and 240 pieces in all, the
+      view's zone first. MGRS stops at 80°S and 84°N; the polar UPS caps
+      are not drawn, and the row says so there.
+    - **Arithmetic.** Transverse Mercator on WGS84 by Krüger's series to
+      sixth order (Karney 2011). Round trips agree to the nanometre, and
+      the Eiffel Tower gives Veness's published `31U DQ 48251 11932`. The
+      100 km lettering is the WGS84 ("AA") scheme. There is no dependency.
 
 ## Smaller additions
 

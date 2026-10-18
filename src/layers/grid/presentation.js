@@ -4,8 +4,8 @@ import { labelText } from './model.js';
 /**
  * Personal fork: the Grid row in the DATA LAYERS panel (REFERENCE): the
  * opacity slider (the same row control the Earth Engine rows use), a style
- * switch (latitude–longitude now; MGRS to come, shown disabled), and a line
- * saying the spacing drawn.
+ * switch (latitude–longitude, Tissot's indicatrix, MGRS), and a line saying
+ * the spacing drawn (in MGRS, with the view centre's reference).
  */
 
 /** The spacing as the row says it: "Every 10°", "Every 30'". */
@@ -17,11 +17,21 @@ export function spacingText(step) {
   return t('Lines every {spacing}', { spacing: short });
 }
 
+/** An MGRS level as the row says it: "Grid zones, 6° by 8°", "Lines every 1 km". */
+export function mgrsSpacingText(level) {
+  if (!level?.stepM) return t('Grid zones, 6° by 8°');
+  return t('Lines every {spacing}', {
+    spacing: t('{km} km', { km: level.stepM / 1000 }),
+  });
+}
+
 /**
  * @param {{mode?: string, onMode?: (mode: string) => void, opacity: number,
  *   onOpacity: (value: number) => void, step: number|null,
- *   groundless?: boolean}} input - `groundless`: the scene cannot clamp
- *   lines to the ground (no depth textures).
+ *   groundless?: boolean, mgrs?: {level: object, reference: string|null,
+ *   polar: boolean}|null}} input - `groundless`: the scene cannot clamp
+ *   lines to the ground (no depth textures); `mgrs`: what the MGRS mode
+ *   draws, when it is on.
  */
 export function rowControls({
   mode = 'latlon',
@@ -30,9 +40,18 @@ export function rowControls({
   onOpacity,
   step,
   groundless = false,
+  mgrs = null,
 }) {
   const parts = [];
-  if (Number.isFinite(step)) parts.push(spacingText(step));
+  if (mode === 'mgrs' && mgrs) {
+    parts.push(mgrsSpacingText(mgrs.level));
+    if (mgrs.reference)
+      parts.push(t('Centre {reference}', { reference: mgrs.reference }));
+    if (mgrs.polar)
+      parts.push(
+        t('MGRS stops at 80°S and 84°N: the polar UPS grid is not drawn'),
+      );
+  } else if (Number.isFinite(step)) parts.push(spacingText(step));
   if (mode === 'tissot')
     parts.push(
       t('Equal circles on the ground: their shapes show the view’s distortion'),
@@ -59,12 +78,12 @@ export function rowControls({
       },
       {
         id: 'mgrs',
-        label: t('MGRS · SOON'),
-        active: false,
-        disabled: true,
+        label: t('MGRS'),
+        active: mode === 'mgrs',
         title: t(
-          'The Military Grid Reference System, coming in a later version',
+          'The Military Grid Reference System: grid zones, then 100 km squares, then 10 km and 1 km lines',
         ),
+        onClick: () => onMode('mgrs'),
       },
     ],
     slider: {

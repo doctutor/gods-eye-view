@@ -8,6 +8,13 @@ import {
   stepForHeight,
   tissotCircles,
 } from './model.js';
+import {
+  mgrsLabelPlacements,
+  mgrsLevelChanged,
+  mgrsLines,
+  viewReference,
+} from './mgrs.js';
+import { MGRS_NORTH, MGRS_SOUTH } from './utm.js';
 import { rowControls } from './presentation.js';
 
 /**
@@ -25,7 +32,10 @@ import { rowControls } from './presentation.js';
  * Modes: 'latlon' (the graticule) and 'tissot' (Tissot's indicatrix: the
  * graticule faint, and at each of its intersections a circle of the same
  * real radius on the ellipsoid, a third of the spacing, so the view's
- * foreshortening shows as unequal ellipses). MGRS is to come.
+ * foreshortening shows as unequal ellipses), and 'mgrs' (the Military Grid
+ * Reference System, src/layers/grid/mgrs.js: grid-zone boundaries in amber,
+ * then 100 km squares, 10 km and 1 km lines traced in each zone's UTM grid,
+ * in place of the graticule).
  *
  * Draping needs depth textures (GroundPolylinePrimitive.isSupported): on a
  * display without them the lines are drawn at sea level and the row says
@@ -36,7 +46,7 @@ import { rowControls } from './presentation.js';
 export const GRID_LAYER_ID = 'grid';
 export const OPACITY_STORAGE_KEY = 'gev.grid.opacity';
 export const MODE_STORAGE_KEY = 'gev.grid.mode';
-export const GRID_MODES = Object.freeze(['latlon', 'tissot']);
+export const GRID_MODES = Object.freeze(['latlon', 'tissot', 'mgrs']);
 export const DEFAULT_OPACITY = 0.6;
 /** The HUD's colours (src/ui/styles/overlays.css: --hud-color). */
 const HUD_CYAN = '#00ffff';
@@ -82,6 +92,10 @@ export function lineStyle(kind) {
       return { color: PRIMARY_AMBER, alpha: 0.9, width: 2.5 };
     case 'tissot':
       return { color: HUD_CYAN, alpha: 0.85, width: 1.5, circle: true };
+    case 'gzd':
+      return { color: PRIMARY_AMBER, alpha: 0.8, width: 2 };
+    case 'mgrs-100k':
+      return { color: HUD_CYAN, alpha: 0.75, width: 1.5 };
     case 'tropic':
     case 'polar-circle':
       return { color: PRIMARY_AMBER, alpha: 0.7, width: 1.5, dashed: true };
@@ -118,6 +132,7 @@ export function createGridLayer({
   let _mode = readGridMode(store);
   let _circles = null;
   let _lines = null;
+  let _mgrs = null;
   let _primitives = [];
   let _madeFor = null;
   let _removeMoveListener = null;
@@ -175,21 +190,36 @@ export function createGridLayer({
 
   /** The labels, as world-overlay entries at the crossings near the view's edges. */
   function labelEntries(now) {
-    return labelPlacements(_lines, now).map((placement) => ({
-      id: `${placement.axis}:${placement.text}`,
-      position: cesium.Cartesian3.fromDegrees(placement.lon, placement.lat),
-      variant: 'label',
-      title: placement.text,
-      details: [],
-      accent: placement.kind === 'grid' ? HUD_CYAN : PRIMARY_AMBER,
-      priority: placement.kind === 'grid' ? 0 : 10,
-      collisionGroup: 'grid-label',
-      interactive: false,
-      horizonCull: true,
-      terrainOcclusion: false,
-      gapPx: 4,
-      placement: 'above',
-    }));
+    const placements = _mgrs
+      ? mgrsLabelPlacements(_mgrs, now)
+      : labelPlacements(_lines, now);
+    const quiet = new Set(['grid', 'mgrs', 'mgrs-100k']);
+    const seen = new Set();
+    return placements
+      .map((placement) => ({
+        placement,
+        id: placement.key ?? `${placement.axis}:${placement.text}`,
+      }))
+      .filter(({ id }) => {
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      })
+      .map(({ placement, id }) => ({
+        id,
+        position: cesium.Cartesian3.fromDegrees(placement.lon, placement.lat),
+        variant: 'label',
+        title: placement.text,
+        details: [],
+        accent: quiet.has(placement.kind) ? HUD_CYAN : PRIMARY_AMBER,
+        priority: quiet.has(placement.kind) ? 0 : 10,
+        collisionGroup: 'grid-label',
+        interactive: false,
+        horizonCull: true,
+        terrainOcclusion: false,
+        gapPx: 4,
+        placement: 'above',
+      }));
   }
 
   function color(style) {
@@ -244,11 +274,43 @@ export function createGridLayer({
     } catch {
       _groundless = true;
     }
-    _lines = gridLines(now);
-    const { window } = _lines;
     const solid = [];
     const dashed = [];
-    for (const parallel of _lines.parallels) {
+    if (_mode === 'mgrs') {
+      _lines = null;
+      _circles = null;
+      _mgrs = mgrsLines(now);
+      const flat = (points) => points.flatMap((p) => [p.lon, p.lat]);
+      for (const boundary of _mgrs.boundaries) {
+        const [from, to] = boundary.points;
+        solid.push(
+          boundary.axis === 'parallel'
+            ? instance(
+                parallelDegrees(from.lat, from.lon, to.lon),
+                lineStyle('gzd'),
+                cesium.ArcType.RHUMB,
+              )
+            : instance(
+                flat(boundary.points),
+                lineStyle('gzd'),
+                cesium.ArcType.GEODESIC,
+              ),
+        );
+      }
+      for (const line of _mgrs.lines)
+        solid.push(
+          instance(
+            flat(line.points),
+            lineStyle(line.kind),
+            cesium.ArcType.GEODESIC,
+          ),
+        );
+    } else {
+      _mgrs = null;
+      _lines = gridLines(now);
+    }
+    const window = _lines?.window;
+    for (const parallel of _lines?.parallels || []) {
       const style = lineStyle(parallel.kind);
       (style.dashed ? dashed : solid).push(
         instance(
@@ -258,7 +320,7 @@ export function createGridLayer({
         ),
       );
     }
-    for (const meridian of _lines.meridians)
+    for (const meridian of _lines?.meridians || [])
       solid.push(
         instance(
           [meridian.lon, window.south, meridian.lon, window.north],
@@ -317,7 +379,11 @@ export function createGridLayer({
   function onMoved() {
     if (!_enabled) return;
     const now = view();
-    if (gridViewMoved(_madeFor, now)) build(now);
+    if (
+      gridViewMoved(_madeFor, now) ||
+      (_mode === 'mgrs' && mgrsLevelChanged(_madeFor, now))
+    )
+      build(now);
   }
 
   function setMode(mode) {
@@ -373,6 +439,7 @@ export function createGridLayer({
       overlayHost?.setVisible(GRID_LAYER_ID, false);
       _madeFor = null;
       _lines = null;
+      _mgrs = null;
       _circles = null;
       requestRender('grid-hide');
       notify();
@@ -391,9 +458,11 @@ export function createGridLayer({
     },
 
     getStats() {
-      const count = _lines
-        ? _lines.parallels.length + _lines.meridians.length
-        : 0;
+      const count = _mgrs
+        ? _mgrs.boundaries.length + _mgrs.lines.length
+        : _lines
+          ? _lines.parallels.length + _lines.meridians.length
+          : 0;
       return {
         count,
         countLabel: _enabled ? `${Math.round(_opacity * 100)}%` : '—',
@@ -410,6 +479,14 @@ export function createGridLayer({
           ? (_lines?.latStep ?? stepForHeight(view().heightM))
           : null,
         groundless: _enabled && _groundless,
+        mgrs:
+          _enabled && _mgrs && _madeFor
+            ? {
+                level: _mgrs.level,
+                reference: viewReference(_madeFor, _mgrs.level),
+                polar: _madeFor.lat > MGRS_NORTH || _madeFor.lat < MGRS_SOUTH,
+              }
+            : null,
       });
     },
 
@@ -420,6 +497,7 @@ export function createGridLayer({
     /** For tests: what is drawn. */
     _state: () => ({
       lines: _lines,
+      mgrs: _mgrs,
       circles: _circles,
       mode: _mode,
       primitives: [..._primitives],
