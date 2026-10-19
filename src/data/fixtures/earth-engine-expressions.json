@@ -15706,6 +15706,2476 @@
           "fae6a0"
         ]
       }
+    },
+    "ee-elevation-contours/c500/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.constant",
+                    "arguments": {
+                      "value": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.where",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.neq",
+                                "arguments": {
+                                  "image1": {
+                                    "valueReference": "1"
+                                  },
+                                  "image2": {
+                                    "valueReference": "2"
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 0.55
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "test": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.neq",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "1"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "2"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "value": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "functionInvocationValue": {
+              "functionName": "Image.floor",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.divide",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.selfMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.resample",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.selfMask",
+                                      "arguments": {
+                                        "image": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Image.load",
+                                                  "arguments": {
+                                                    "id": {
+                                                      "constantValue": "USGS/GMTED2010_FULL"
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "mea"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "mode": {
+                                    "constantValue": "bilinear"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 500
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "2": {
+            "functionInvocationValue": {
+              "functionName": "Image.focalMin",
+              "arguments": {
+                "image": {
+                  "valueReference": "1"
+                },
+                "radius": {
+                  "constantValue": 1
+                },
+                "kernelType": {
+                  "constantValue": "square"
+                },
+                "units": {
+                  "constantValue": "pixels"
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 1
+          }
+        ],
+        "paletteColors": [
+          "ffffff",
+          "ffffff"
+        ],
+        "opacity": 0.8
+      }
+    },
+    "ee-elevation-contours/c500/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.constant",
+                    "arguments": {
+                      "value": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.where",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.neq",
+                                "arguments": {
+                                  "image1": {
+                                    "valueReference": "1"
+                                  },
+                                  "image2": {
+                                    "valueReference": "2"
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 0.55
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "test": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.neq",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "1"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "2"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "value": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "functionInvocationValue": {
+              "functionName": "Image.floor",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.divide",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.selfMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.resample",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.selfMask",
+                                      "arguments": {
+                                        "image": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Image.load",
+                                                  "arguments": {
+                                                    "id": {
+                                                      "constantValue": "USGS/GMTED2010_FULL"
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "mea"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "mode": {
+                                    "constantValue": "bilinear"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 500
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "2": {
+            "functionInvocationValue": {
+              "functionName": "Image.focalMin",
+              "arguments": {
+                "image": {
+                  "valueReference": "1"
+                },
+                "radius": {
+                  "constantValue": 1
+                },
+                "kernelType": {
+                  "constantValue": "square"
+                },
+                "units": {
+                  "constantValue": "pixels"
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 1
+          }
+        ],
+        "paletteColors": [
+          "1a1a1a",
+          "1a1a1a"
+        ],
+        "opacity": 0.8
+      }
+    },
+    "ee-elevation-contours/c200/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.constant",
+                    "arguments": {
+                      "value": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.where",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.neq",
+                                "arguments": {
+                                  "image1": {
+                                    "valueReference": "1"
+                                  },
+                                  "image2": {
+                                    "valueReference": "2"
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 0.55
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "test": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.neq",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "1"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "2"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "value": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "functionInvocationValue": {
+              "functionName": "Image.floor",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.divide",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.selfMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.resample",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.selfMask",
+                                      "arguments": {
+                                        "image": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Image.load",
+                                                  "arguments": {
+                                                    "id": {
+                                                      "constantValue": "USGS/GMTED2010_FULL"
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "mea"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "mode": {
+                                    "constantValue": "bilinear"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 200
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "2": {
+            "functionInvocationValue": {
+              "functionName": "Image.focalMin",
+              "arguments": {
+                "image": {
+                  "valueReference": "1"
+                },
+                "radius": {
+                  "constantValue": 1
+                },
+                "kernelType": {
+                  "constantValue": "square"
+                },
+                "units": {
+                  "constantValue": "pixels"
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 1
+          }
+        ],
+        "paletteColors": [
+          "ffffff",
+          "ffffff"
+        ],
+        "opacity": 0.8
+      }
+    },
+    "ee-elevation-contours/c200/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.constant",
+                    "arguments": {
+                      "value": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.where",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.neq",
+                                "arguments": {
+                                  "image1": {
+                                    "valueReference": "1"
+                                  },
+                                  "image2": {
+                                    "valueReference": "2"
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 0.55
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "test": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.neq",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "1"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "2"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "value": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "functionInvocationValue": {
+              "functionName": "Image.floor",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.divide",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.selfMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.resample",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.selfMask",
+                                      "arguments": {
+                                        "image": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Image.load",
+                                                  "arguments": {
+                                                    "id": {
+                                                      "constantValue": "USGS/GMTED2010_FULL"
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "mea"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "mode": {
+                                    "constantValue": "bilinear"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 200
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "2": {
+            "functionInvocationValue": {
+              "functionName": "Image.focalMin",
+              "arguments": {
+                "image": {
+                  "valueReference": "1"
+                },
+                "radius": {
+                  "constantValue": 1
+                },
+                "kernelType": {
+                  "constantValue": "square"
+                },
+                "units": {
+                  "constantValue": "pixels"
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 1
+          }
+        ],
+        "paletteColors": [
+          "1a1a1a",
+          "1a1a1a"
+        ],
+        "opacity": 0.8
+      }
+    },
+    "ee-elevation-contours/c100/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.constant",
+                    "arguments": {
+                      "value": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.where",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.neq",
+                                "arguments": {
+                                  "image1": {
+                                    "valueReference": "1"
+                                  },
+                                  "image2": {
+                                    "valueReference": "2"
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 0.55
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "test": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.neq",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "1"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "2"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "value": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "functionInvocationValue": {
+              "functionName": "Image.floor",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.divide",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.selfMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.resample",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.setDefaultProjection",
+                                      "arguments": {
+                                        "image": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.mosaic",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "COPERNICUS/DEM/GLO30_2024_1"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "DEM"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "crs": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Projection",
+                                            "arguments": {
+                                              "crs": {
+                                                "constantValue": "EPSG:3857"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "scale": {
+                                          "constantValue": 30
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "mode": {
+                                    "constantValue": "bilinear"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 100
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "2": {
+            "functionInvocationValue": {
+              "functionName": "Image.focalMin",
+              "arguments": {
+                "image": {
+                  "valueReference": "1"
+                },
+                "radius": {
+                  "constantValue": 1
+                },
+                "kernelType": {
+                  "constantValue": "square"
+                },
+                "units": {
+                  "constantValue": "pixels"
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 1
+          }
+        ],
+        "paletteColors": [
+          "ffffff",
+          "ffffff"
+        ],
+        "opacity": 0.8
+      }
+    },
+    "ee-elevation-contours/c100/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.constant",
+                    "arguments": {
+                      "value": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.where",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.neq",
+                                "arguments": {
+                                  "image1": {
+                                    "valueReference": "1"
+                                  },
+                                  "image2": {
+                                    "valueReference": "2"
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 0.55
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "test": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.neq",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "1"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "2"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "value": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "functionInvocationValue": {
+              "functionName": "Image.floor",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.divide",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.selfMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.resample",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.setDefaultProjection",
+                                      "arguments": {
+                                        "image": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.mosaic",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "COPERNICUS/DEM/GLO30_2024_1"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "DEM"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "crs": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Projection",
+                                            "arguments": {
+                                              "crs": {
+                                                "constantValue": "EPSG:3857"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "scale": {
+                                          "constantValue": 30
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "mode": {
+                                    "constantValue": "bilinear"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 100
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "2": {
+            "functionInvocationValue": {
+              "functionName": "Image.focalMin",
+              "arguments": {
+                "image": {
+                  "valueReference": "1"
+                },
+                "radius": {
+                  "constantValue": 1
+                },
+                "kernelType": {
+                  "constantValue": "square"
+                },
+                "units": {
+                  "constantValue": "pixels"
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 1
+          }
+        ],
+        "paletteColors": [
+          "1a1a1a",
+          "1a1a1a"
+        ],
+        "opacity": 0.8
+      }
+    },
+    "ee-elevation-contours/c40/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.constant",
+                    "arguments": {
+                      "value": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.where",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.neq",
+                                "arguments": {
+                                  "image1": {
+                                    "valueReference": "1"
+                                  },
+                                  "image2": {
+                                    "valueReference": "2"
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 0.55
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "test": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.neq",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "1"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "2"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "value": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "functionInvocationValue": {
+              "functionName": "Image.floor",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.divide",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.selfMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.resample",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.setDefaultProjection",
+                                      "arguments": {
+                                        "image": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.mosaic",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "COPERNICUS/DEM/GLO30_2024_1"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "DEM"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "crs": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Projection",
+                                            "arguments": {
+                                              "crs": {
+                                                "constantValue": "EPSG:3857"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "scale": {
+                                          "constantValue": 30
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "mode": {
+                                    "constantValue": "bilinear"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 40
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "2": {
+            "functionInvocationValue": {
+              "functionName": "Image.focalMin",
+              "arguments": {
+                "image": {
+                  "valueReference": "1"
+                },
+                "radius": {
+                  "constantValue": 1
+                },
+                "kernelType": {
+                  "constantValue": "square"
+                },
+                "units": {
+                  "constantValue": "pixels"
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 1
+          }
+        ],
+        "paletteColors": [
+          "ffffff",
+          "ffffff"
+        ],
+        "opacity": 0.8
+      }
+    },
+    "ee-elevation-contours/c40/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.constant",
+                    "arguments": {
+                      "value": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.where",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.neq",
+                                "arguments": {
+                                  "image1": {
+                                    "valueReference": "1"
+                                  },
+                                  "image2": {
+                                    "valueReference": "2"
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 0.55
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "test": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.neq",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "1"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "2"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "value": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "functionInvocationValue": {
+              "functionName": "Image.floor",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.divide",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.selfMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.resample",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.setDefaultProjection",
+                                      "arguments": {
+                                        "image": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.mosaic",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "COPERNICUS/DEM/GLO30_2024_1"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "DEM"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "crs": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Projection",
+                                            "arguments": {
+                                              "crs": {
+                                                "constantValue": "EPSG:3857"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "scale": {
+                                          "constantValue": 30
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "mode": {
+                                    "constantValue": "bilinear"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 40
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "2": {
+            "functionInvocationValue": {
+              "functionName": "Image.focalMin",
+              "arguments": {
+                "image": {
+                  "valueReference": "1"
+                },
+                "radius": {
+                  "constantValue": 1
+                },
+                "kernelType": {
+                  "constantValue": "square"
+                },
+                "units": {
+                  "constantValue": "pixels"
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 1
+          }
+        ],
+        "paletteColors": [
+          "1a1a1a",
+          "1a1a1a"
+        ],
+        "opacity": 0.8
+      }
+    },
+    "ee-elevation-contours/c20/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.constant",
+                    "arguments": {
+                      "value": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.where",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.neq",
+                                "arguments": {
+                                  "image1": {
+                                    "valueReference": "1"
+                                  },
+                                  "image2": {
+                                    "valueReference": "2"
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 0.55
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "test": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.neq",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "1"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "2"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "value": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "functionInvocationValue": {
+              "functionName": "Image.floor",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.divide",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.selfMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.resample",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.setDefaultProjection",
+                                      "arguments": {
+                                        "image": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.mosaic",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "COPERNICUS/DEM/GLO30_2024_1"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "DEM"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "crs": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Projection",
+                                            "arguments": {
+                                              "crs": {
+                                                "constantValue": "EPSG:3857"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "scale": {
+                                          "constantValue": 30
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "mode": {
+                                    "constantValue": "bilinear"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 20
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "2": {
+            "functionInvocationValue": {
+              "functionName": "Image.focalMin",
+              "arguments": {
+                "image": {
+                  "valueReference": "1"
+                },
+                "radius": {
+                  "constantValue": 1
+                },
+                "kernelType": {
+                  "constantValue": "square"
+                },
+                "units": {
+                  "constantValue": "pixels"
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 1
+          }
+        ],
+        "paletteColors": [
+          "ffffff",
+          "ffffff"
+        ],
+        "opacity": 0.8
+      }
+    },
+    "ee-elevation-contours/c20/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.constant",
+                    "arguments": {
+                      "value": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.where",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.neq",
+                                "arguments": {
+                                  "image1": {
+                                    "valueReference": "1"
+                                  },
+                                  "image2": {
+                                    "valueReference": "2"
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 0.55
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "test": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.neq",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "1"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.floor",
+                                "arguments": {
+                                  "value": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.divide",
+                                      "arguments": {
+                                        "image1": {
+                                          "valueReference": "2"
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 5
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "value": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "1": {
+            "functionInvocationValue": {
+              "functionName": "Image.floor",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.divide",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.selfMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.resample",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.setDefaultProjection",
+                                      "arguments": {
+                                        "image": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.mosaic",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "COPERNICUS/DEM/GLO30_2024_1"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "DEM"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "crs": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Projection",
+                                            "arguments": {
+                                              "crs": {
+                                                "constantValue": "EPSG:3857"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "scale": {
+                                          "constantValue": 30
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "mode": {
+                                    "constantValue": "bilinear"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 20
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "2": {
+            "functionInvocationValue": {
+              "functionName": "Image.focalMin",
+              "arguments": {
+                "image": {
+                  "valueReference": "1"
+                },
+                "radius": {
+                  "constantValue": 1
+                },
+                "kernelType": {
+                  "constantValue": "square"
+                },
+                "units": {
+                  "constantValue": "pixels"
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 1
+          }
+        ],
+        "paletteColors": [
+          "1a1a1a",
+          "1a1a1a"
+        ],
+        "opacity": 0.8
+      }
     }
   }
 }

@@ -282,9 +282,90 @@ function styledFeatures(layer, variant, collection, ink, modeKey) {
   };
 }
 
-/** An Earth Engine image of one constant value. */
-const constantImage = (value) =>
+const imageConstant = (value) =>
   invoke('Image.constant', { value: constant(value) });
+const reference = (key) => ({ valueReference: key });
+
+/**
+ * The expression of contour lines of an elevation every `step` metres (a
+ * `contour` layer): the elevation, its sea (stored as 0) masked, is
+ * quantised to the step (floor(dem / step)), and a pixel is on a line where
+ * a neighbour's class is lower (the class differs from Image.focalMin over
+ * the 3 × 3 pixels about it): lines one pixel wide, on the upper side of
+ * each level, in the tile's own pixels. Every `indexEvery`-th level
+ * (floor(class / indexEvery) changes too) is an index contour. The result
+ * is a constant image whose mask is the line's alpha: `minorShare` for a
+ * line, 1 for an index line, 0 elsewhere; the visualization colours it in
+ * the ink, and the ink's own alpha (cc) scales both. The class and its
+ * focal minimum are each one shared value (valueReference), as Earth
+ * Engine's own clients send a value used more than once.
+ */
+export function contourExpression(
+  dem,
+  step,
+  { indexEvery = 5, minorShare = 0.55, resample = '' },
+  { mosaic = false } = {},
+) {
+  // Bilinear: a tile finer than the DEM's cells reads a smooth surface, not
+  // nearest-neighbour steps (staircase lines at z 13 and 14 on 30 m cells).
+  // A mosaic's default projection is 1°, so it is given its cells' first,
+  // as for terrain: resampled over 1° cells, the lines were straight ramps.
+  const surface = resample
+    ? invoke('Image.resample', {
+        image: mosaic
+          ? invoke('Image.setDefaultProjection', {
+              image: dem,
+              crs: invoke('Projection', { crs: constant('EPSG:3857') }),
+              scale: constant(30),
+            })
+          : dem,
+        mode: constant(resample),
+      })
+    : dem;
+  const level = invoke('Image.floor', {
+    value: invoke('Image.divide', {
+      image1: invoke('Image.selfMask', { image: surface }),
+      image2: imageConstant(step),
+    }),
+  });
+  const lowest = invoke('Image.focalMin', {
+    image: reference('1'),
+    radius: constant(1),
+    kernelType: constant('square'),
+    units: constant('pixels'),
+  });
+  const indexOf = (image) =>
+    invoke('Image.floor', {
+      value: invoke('Image.divide', {
+        image1: image,
+        image2: imageConstant(indexEvery),
+      }),
+    });
+  const line = invoke('Image.neq', {
+    image1: reference('1'),
+    image2: reference('2'),
+  });
+  const index = invoke('Image.neq', {
+    image1: indexOf(reference('1')),
+    image2: indexOf(reference('2')),
+  });
+  const alpha = invoke('Image.where', {
+    input: invoke('Image.multiply', {
+      image1: line,
+      image2: imageConstant(minorShare),
+    }),
+    test: index,
+    value: imageConstant(1),
+  });
+  return {
+    values: {
+      0: invoke('Image.updateMask', { image: imageConstant(1), mask: alpha }),
+      1: level,
+      2: lowest,
+    },
+    result: '0',
+  };
+}
 
 /**
  * An image layer's picture, from its record and, for a layer with modes,
@@ -346,19 +427,19 @@ function imageNode(layer, variant, modeKey) {
   else if (zero === 'nonzero')
     node = invoke('Image.updateMask', {
       image: node,
-      mask: invoke('Image.neq', { image1: node, image2: constantImage(0) }),
+      mask: invoke('Image.neq', { image1: node, image2: imageConstant(0) }),
     });
   if (Number.isFinite(steps.scale))
     node = invoke('Image.multiply', {
       image1: node,
-      image2: constantImage(steps.scale),
+      image2: imageConstant(steps.scale),
     });
   if (Number.isFinite(steps.atLeast))
     node = invoke('Image.updateMask', {
       image: node,
       mask: invoke('Image.gte', {
         image1: node,
-        image2: constantImage(steps.atLeast),
+        image2: imageConstant(steps.atLeast),
       }),
     });
   if (steps.log10) node = invoke('Image.log10', { value: node });
@@ -382,6 +463,14 @@ export function expressionFor(
   ink = layerInks(layer)[0],
   mode = layerModes(layer)[0],
 ) {
+  // Contour lines (Elevation contours) have their own expression.
+  if (layer.contour)
+    return contourExpression(
+      assetNode(variant.asset),
+      variant.step,
+      layer.contour,
+      { mosaic: Boolean(variant.asset?.collection) },
+    );
   if (layer.kind !== 'features')
     return { values: { 0: imageNode(layer, variant, mode) }, result: '0' };
   let node = assetNode(variant.asset);
@@ -429,7 +518,16 @@ export function mapRequestFor(
     fileFormat: 'PNG',
   };
   const vis = visFor(layer, mode);
-  if (vis)
+  if (layer.contour) {
+    // The lines in the ink; the ink's alpha (RRGGBBAA) is the map's opacity.
+    const color = inkColor(layer, ink);
+    const alpha = parseInt(String(color).slice(6, 8) || 'ff', 16) / 255;
+    body.visualizationOptions = {
+      ranges: [{ min: 0, max: 1 }],
+      paletteColors: [color.slice(0, 6), color.slice(0, 6)],
+      opacity: Math.round(alpha * 1000) / 1000,
+    };
+  } else if (vis)
     body.visualizationOptions = {
       ranges: [{ min: vis.min, max: vis.max }],
       paletteColors: [...(vis.palette || [])],

@@ -59,6 +59,7 @@ const FORK_LAYER_NAMES = [
   'Terrain slope',
   'Terrain aspect',
   'Hillshade',
+  'Elevation contours',
   'Forest loss',
   'Forest types',
   'Population',
