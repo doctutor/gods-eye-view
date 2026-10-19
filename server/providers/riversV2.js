@@ -2,8 +2,11 @@
 // served from level files built by scripts/rivers/index.mjs. Not part of
 // upstream God's Eye View.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { admitSameSite } from './common/same-site.js';
+import { keepTile } from './common/tileCache.js';
+import { createTilePool } from './common/tilePool.js';
 import { defaultSourceRoot } from './common/source-root.js';
 import {
   BANDS,
@@ -92,14 +95,27 @@ export function openBuild(dir, manifest) {
 }
 
 /**
- * @param {{sourceRoot?: string, env?: object, now?: () => number, dir?: string}} [options]
+ * @param {{sourceRoot?: string, env?: object, now?: () => number, dir?: string,
+ *   tileWorkers?: number}} [options] `tileWorkers`: draw tiles in that many
+ *   worker threads (./common/tilePool.js); 0 draws them on this thread.
  */
 export function createRiversV2Service({
   sourceRoot = defaultSourceRoot,
   env = process.env,
   now = () => Date.now(),
   dir = v2Dir(riversCacheDir(env, sourceRoot)),
+  tileWorkers = 0,
 } = {}) {
+  const pool =
+    tileWorkers > 0
+      ? createTilePool({
+          drawer: 'rivers-v2',
+          options: { dir, env: {} },
+          size: tileWorkers,
+        })
+      : null;
+  /** Tile file → the draw (and write) in flight. */
+  const drawingTiles = new Map();
   const manifestFile = path.join(dir, 'manifest.json');
   let held = null;
   let checkedAt = -Infinity;
@@ -228,25 +244,48 @@ export function createRiversV2Service({
       } catch {
         /* not on disk */
       }
-      const { coverage } = renderTileCoverage(open.levels, z, x, y);
-      if (coverage.empty)
-        return {
-          status: 200,
-          contentType: 'image/png',
-          body: EMPTY_PNG,
-          empty: true,
-          version,
-        };
-      const body = encodePng(coverage, INKS[ink]);
-      try {
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        const temporary = `${file}.${process.pid}.tmp`;
-        fs.writeFileSync(temporary, body);
-        fs.renameSync(temporary, file);
-      } catch {
-        /* serving matters more than keeping */
+      // One draw and one write per tile, however many ask for it at once.
+      let drawing = drawingTiles.get(file);
+      if (!drawing) {
+        drawing = (async () => {
+          const drawn = pool
+            ? await pool.render('draw', [ink, z, x, y])
+            : this.draw(ink, z, x, y);
+          if (drawn.status === 200 && drawn.body)
+            keepTile(file, drawn.body, { label: 'Rivers v2', empty: false });
+          return drawn;
+        })().finally(() => drawingTiles.delete(file));
+        drawingTiles.set(file, drawing);
       }
-      return { status: 200, contentType: 'image/png', body, version };
+      const drawn = await drawing;
+      if (drawn.status !== 200) return drawn;
+      return drawn.body
+        ? { status: 200, contentType: 'image/png', body: drawn.body, version }
+        : {
+            status: 200,
+            contentType: 'image/png',
+            body: EMPTY_PNG,
+            empty: true,
+            version,
+          };
+    },
+
+    /**
+     * Draw a tile (no disk cache): {status, version, body: Buffer|null}, a
+     * null body for an empty tile. What a worker thread runs.
+     */
+    draw(ink, z, x, y) {
+      const open = build();
+      if (!open) return { status: 503, error: NEEDS_BUILD };
+      const version = open.versions[ink];
+      const { coverage } = renderTileCoverage(open.levels, z, x, y);
+      if (coverage.empty) return { status: 200, version, body: null };
+      return { status: 200, version, body: encodePng(coverage, INKS[ink]) };
+    },
+
+    /** Stop the tile workers. */
+    async close() {
+      await pool?.close();
     },
   };
 }
@@ -304,6 +343,8 @@ export function createRiversV2Handler({ service }) {
 }
 
 let shared = null;
+/** The dev server draws river tiles in this many worker threads. */
+const RIVERS_TILE_WORKERS = Math.max(1, Math.min(2, os.cpus().length - 4));
 
 /** Vite plugin: /api/rivers/v2 for the Rivers layer's HydroSHEDS v2 tiles. */
 export function riversV2Proxy({
@@ -311,7 +352,10 @@ export function riversV2Proxy({
   service,
 } = {}) {
   function install(middlewares) {
-    shared ||= createRiversV2Service({ sourceRoot });
+    shared ||= createRiversV2Service({
+      sourceRoot,
+      tileWorkers: RIVERS_TILE_WORKERS,
+    });
     middlewares.use(
       RIVERS_V2_ROUTE,
       createRiversV2Handler({ service: service || shared }),

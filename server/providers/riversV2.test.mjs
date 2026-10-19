@@ -584,3 +584,28 @@ test('a broken build reads as not configured, with the reason', async (t) => {
   assert.match(layers.message, /not readable: bad level path/);
   assert.equal((await service.tile('light', 0, 0, 0)).status, 503);
 });
+
+test('tiles drawn in worker threads are the tiles drawn here, and drawn once when asked twice', async (t) => {
+  const here = await tempRoot(t);
+  writeTestBuild(here);
+  const pooledRoot = await tempRoot(t);
+  writeTestBuild(pooledRoot);
+  const inline = createRiversV2Service({ dir: here });
+  const pooled = createRiversV2Service({ dir: pooledRoot, tileWorkers: 2 });
+  t.after(() => pooled.close());
+  const z = 6;
+  const x = Math.floor(worldX(-55) * 2 ** z);
+  const y = Math.floor(worldY(1) * 2 ** z);
+  const [a, b] = await Promise.all([
+    pooled.tile('light', z, x, y),
+    pooled.tile('light', z, x, y),
+  ]);
+  const direct = await inline.tile('light', z, x, y);
+  assert.equal(a.status, 200);
+  assert.ok(a.body.equals(direct.body));
+  assert.ok(b.body.equals(direct.body));
+  assert.equal((await pooled.tile('light', z, x, y)).cached, true);
+  // An empty tile from a worker is the empty PNG, not kept.
+  const empty = await pooled.tile('dark', 3, 6, 3);
+  assert.equal(empty.empty, true);
+});

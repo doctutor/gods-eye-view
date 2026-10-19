@@ -523,3 +523,34 @@ test('the census server draws surface temperature once it is computed, and says 
   assert.equal(lstColor(null), NO_ESTIMATE_COLOR);
   assert.equal(LST_CLASSES.length, 7);
 });
+
+test('census tiles drawn in worker threads are the tiles drawn here', async (t) => {
+  const income = { [GEOID]: 87_500 };
+  const here = await built(t, { income });
+  const pooledDir = await built(t, { income });
+  const inline = createCensusService({ dir: here, env: {} });
+  const pooled = createCensusService({
+    dir: pooledDir,
+    env: {},
+    tileWorkers: 2,
+  });
+  t.after(() => pooled.close());
+  const n = 2 ** 12;
+  const x = Math.floor(((-74.0 + 180) / 360) * n);
+  const lat = (40.75 * Math.PI) / 180;
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2) * n,
+  );
+  const [a, b] = await Promise.all([
+    pooled.tile('income', 12, x, y),
+    pooled.tile('income', 12, x, y),
+  ]);
+  const direct = await inline.tile('income', 12, x, y);
+  assert.equal(a.status, 200);
+  assert.ok(!a.empty);
+  assert.ok(a.body.equals(direct.body));
+  assert.ok(b.body.equals(direct.body));
+  assert.equal(a.version, direct.version);
+  assert.equal((await pooled.tile('income', 12, x, y)).cached, true);
+  assert.equal((await pooled.tile('income', 12, 0, 0)).empty, true);
+});
