@@ -8,6 +8,14 @@ import { admitSameSite } from './common/same-site.js';
 import { defaultSourceRoot } from './common/source-root.js';
 import { openIndex } from './overture/divisionsFile.js';
 import { NEEDS_BUILD, overtureCacheDir } from './overture/sources.js';
+import { createBuildingsTiles } from './overture/buildingsTiles.js';
+import { EMPTY_PNG } from './riversV2/render.js';
+import {
+  OVERTURE_BUILDING_INKS,
+  OVERTURE_BUILDING_MODES,
+  OVERTURE_BUILDINGS_MAX_ZOOM,
+  OVERTURE_FOOTPRINT_ZOOM,
+} from '../../src/data/overtureBuildings.js';
 import {
   OVERTURE_ATTRIBUTION,
   OVERTURE_ENDPOINT,
@@ -25,6 +33,11 @@ import {
  *
  *   GET /api/overture/layers
  *       whether the index is built, its release, version and attribution
+ *   GET /api/overture/buildings/tile/<mode>/<ink>/<z>/<x>/<y>[?v=]
+ *       the Buildings layer's tile where Open Buildings has no data:
+ *       COUNT, COVER or HEIGHT from Overture's footprints, their outlines
+ *       in the ink from z 15 (server/providers/overture/buildingsTiles.js),
+ *       kept on disk under the buildings' version
  *   GET /api/overture/divisions?west=&south=&east=&north=&zoom=[&v=]
  *       the places named at `zoom` in the box: those whose zoom (the
  *       build's, from prominence and kind) the view reaches, the most
@@ -101,6 +114,7 @@ export function createOvertureService({
   dir = overtureCacheDir(env, sourceRoot),
 } = {}) {
   const pointer = path.join(dir, 'build', 'current.json');
+  const buildings = createBuildingsTiles({ dir, now });
   let held = null;
   let checkedAt = -Infinity;
   let lastError = null;
@@ -157,6 +171,7 @@ export function createOvertureService({
           release: OVERTURE_RELEASE,
           attribution: OVERTURE_ATTRIBUTION,
           license: OVERTURE_LICENSE,
+          buildings: buildings.status(),
         };
       const { manifest } = build;
       return {
@@ -170,7 +185,83 @@ export function createOvertureService({
         license: manifest.license || OVERTURE_LICENSE,
         limit: OVERTURE_PLACE_LIMIT,
         maxSpanDegrees: OVERTURE_MAX_SPAN_DEGREES,
+        buildings: buildings.status(),
       };
+    },
+
+    /** A Buildings tile from Overture's footprints, kept on disk by version. */
+    async buildingTile(mode, ink, z, x, y) {
+      if (
+        !OVERTURE_BUILDING_MODES.includes(mode) ||
+        !OVERTURE_BUILDING_INKS.includes(ink)
+      )
+        return { status: 404, error: 'No such mode or ink' };
+      if (!(
+        z >= 0 &&
+        z <= OVERTURE_BUILDINGS_MAX_ZOOM &&
+        x >= 0 &&
+        x < 2 ** z &&
+        y >= 0 &&
+        y < 2 ** z
+      ))
+        return { status: 400, error: 'Tile out of range' };
+      const status = buildings.status();
+      if (!status.configured)
+        return {
+          status: 503,
+          error: status.message || 'Overture buildings are not built',
+        };
+      // The ink shows only in the footprints' tiles.
+      const inkKey = z >= OVERTURE_FOOTPRINT_ZOOM ? ink : 'any';
+      const file = path.join(
+        dir,
+        'buildings',
+        'tiles',
+        status.version,
+        mode,
+        inkKey,
+        String(z),
+        String(x),
+        `${y}.png`,
+      );
+      const empty = `${file}.empty`;
+      try {
+        return {
+          status: 200,
+          version: status.version,
+          body: fs.readFileSync(file),
+          cached: true,
+        };
+      } catch {
+        /* not drawn yet */
+      }
+      if (fs.existsSync(empty))
+        return {
+          status: 200,
+          version: status.version,
+          body: EMPTY_PNG,
+          empty: true,
+          cached: true,
+        };
+      const answer = buildings.tile(mode, ink, z, x, y);
+      if (answer.status !== 200) return answer;
+      try {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        if (answer.body) {
+          fs.writeFileSync(`${file}.${process.pid}.tmp`, answer.body);
+          fs.renameSync(`${file}.${process.pid}.tmp`, file);
+        } else fs.writeFileSync(empty, '');
+      } catch {
+        /* serving matters more than keeping */
+      }
+      return answer.body
+        ? { status: 200, version: answer.version, body: answer.body }
+        : {
+            status: 200,
+            version: answer.version,
+            body: EMPTY_PNG,
+            empty: true,
+          };
     },
 
     /** The places of a view; `query` from parseDivisionsQuery. */
@@ -206,6 +297,9 @@ function sendJson(res, status, payload, cache = 'no-store') {
   res.end(JSON.stringify(payload));
 }
 
+const BUILDING_TILE =
+  /^\/buildings\/tile\/([a-z]{1,10})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,6})\/(\d{1,6})$/;
+
 /** The routes under /api/overture (same-site only, GET only). */
 export function createOvertureHandler({ service }) {
   return async function handle(req, res, next) {
@@ -217,6 +311,31 @@ export function createOvertureHandler({ service }) {
     try {
       if (route === '/layers')
         return sendJson(res, 200, await service.layers());
+      const tile = BUILDING_TILE.exec(route);
+      if (tile) {
+        const [, mode, ink, z, x, y] = tile;
+        const answer = await service.buildingTile(
+          mode,
+          ink,
+          Number(z),
+          Number(x),
+          Number(y),
+        );
+        if (answer.status !== 200)
+          return sendJson(res, answer.status, { error: answer.error });
+        const asked = url.searchParams.get('v');
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader(
+          'Cache-Control',
+          asked && asked === answer.version
+            ? 'private, max-age=86400'
+            : 'no-store',
+        );
+        res.setHeader('Content-Length', String(answer.body.length));
+        res.end(answer.body);
+        return;
+      }
       if (route === '/divisions') {
         const query = parseDivisionsQuery(url.searchParams);
         if (query.error) return sendJson(res, 400, { error: query.error });

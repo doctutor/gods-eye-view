@@ -6,6 +6,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openParquet, rowsOfFlat, rowsOfRepeated } from './parquet.mjs';
+import { buildBuildings, buildingsStatus } from './buildings.mjs';
 import {
   INDEX_FORMAT,
   CELL_DEGREES,
@@ -13,6 +14,7 @@ import {
 } from '../../server/providers/overture/divisionsFile.js';
 import {
   DIVISIONS,
+  BUILDINGS_REGIONS,
   DOWNLOAD_CAP_BYTES,
   OVERTURE_BUCKET,
   REGIONS,
@@ -72,6 +74,11 @@ export function parseArgs(argv) {
     else if (argv[i] === '--json') flags.json = true;
     else if (argv[i] === '--dir') flags.dir = argv[++i];
     else if (argv[i] === '--regions') flags.regions = argv[++i];
+    else if (argv[i] === '--buildings') flags.buildings = true;
+    else if (argv[i] === '--building-regions')
+      flags.buildingRegions = argv[++i];
+    else if (argv[i] === '--keep-raw') flags.keepRaw = true;
+    else if (argv[i] === '--cap-gb') flags.capGb = Number(argv[++i]);
     else throw new Error(`unknown option ${argv[i]}`);
   }
   return flags;
@@ -443,7 +450,13 @@ export async function build({
 
 export function status(dir) {
   const current = currentBuild(dir);
-  if (!current) return { built: false, dir, release: DIVISIONS.release };
+  if (!current)
+    return {
+      built: false,
+      dir,
+      release: DIVISIONS.release,
+      buildings: buildingsStatus(dir),
+    };
   return {
     built: true,
     dir,
@@ -455,6 +468,7 @@ export function status(dir) {
     byKind: current.byKind,
     inputs: current.inputs.map(({ file, size }) => ({ file, size })),
     bytes: current.bytes,
+    buildings: buildingsStatus(dir),
   };
 }
 
@@ -469,6 +483,25 @@ async function main() {
       force: flags.force,
       regions: flags.regions || process.env.OVERTURE_REGIONS || 'world',
     });
+    if (flags.buildings || flags.buildingRegions) {
+      const names = String(
+        flags.buildingRegions ||
+          process.env.OVERTURE_BUILDING_REGIONS ||
+          BUILDINGS_REGIONS.join(','),
+      )
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean);
+      if (flags.capGb !== undefined && !(flags.capGb > 0))
+        throw new Error('--cap-gb takes a number of GB');
+      await buildBuildings({
+        dir,
+        regions: names,
+        keepRaw: Boolean(flags.keepRaw),
+        ...(flags.capGb ? { capBytes: flags.capGb * 1e9 } : {}),
+        userAgent: USER_AGENT,
+      });
+    }
     return;
   }
   if (flags.command === 'status') {
@@ -485,6 +518,15 @@ async function main() {
       console.log(`  ${kind}: ${n.toLocaleString('en')}`);
     for (const input of answer.inputs)
       console.log(`  ${input.file}: ${(input.size / 1e6).toFixed(0)} MB`);
+    const { buildings } = answer;
+    if (!buildings.built)
+      console.log(
+        'Overture buildings: not built. Run npm run overture:build -- --buildings.',
+      );
+    else
+      console.log(
+        `Overture buildings ${buildings.version} of ${buildings.builtAt}: ${buildings.buildings.toLocaleString('en')} buildings (${buildings.regions.join(', ')}), ${(buildings.bytes / 1e9).toFixed(2)} GB in ${buildings.buckets} buckets; ${buildings.withHeight.toLocaleString('en')} with a height`,
+      );
     return;
   }
   throw new Error(`unknown command ${flags.command} (build, status)`);

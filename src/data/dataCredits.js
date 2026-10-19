@@ -502,6 +502,17 @@ export const NATURAL_EARTH_CREDIT = {
 /** Personal fork: registered while the Rivers layer draws the self-hosted
  * HydroSHEDS v2 network over the Americas (CC BY 4.0, attribution
  * required). */
+/** Personal fork: the Buildings layer's Overture footprints outside Open Buildings. */
+export const OVERTURE_BUILDINGS_CREDIT = {
+  key: 'overture-buildings',
+  html:
+    'Buildings outside Open Buildings: ' +
+    '<a href="https://docs.overturemaps.org/attribution/" target="_blank" rel="noopener">© OpenStreetMap contributors, Overture Maps Foundation</a> ' +
+    '(<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">ODbL</a>), from OpenStreetMap, ' +
+    'Esri Community Maps contributors (CC BY 4.0), Microsoft Global ML Building Footprints (ODbL), Google Open Buildings (CC BY 4.0), ' +
+    'the USGS 3D Elevation Program, Shi et al. (CC BY 4.0) and work derived from BTN 2024, ign.es (CC BY 4.0)',
+};
+
 export const HYDROSHEDS_V2_CREDIT = {
   key: 'hydrosheds-v2',
   html:
