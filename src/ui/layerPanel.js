@@ -92,10 +92,10 @@ const PANEL_GROUPS = [
     label: msg('Utilities'),
     ids: ['directions', 'radio'],
   },
-  // Personal fork: reference overlays (the latitude–longitude grid).
+  // Personal fork: reference overlays (the latitude–longitude grid, place names).
   {
     label: msg('Reference'),
-    ids: ['grid'],
+    ids: ['grid', 'localities'],
   },
   // Personal fork: Earth Engine overlays (src/data/earthEngineLayers.js).
   {
@@ -115,6 +115,8 @@ const PANEL_GROUPS = [
       'ee-land-cover',
       // Personal fork: Wikipedia coverage (src/layers/wikipediaCoverage/).
       'wikipedia-coverage',
+      // Personal fork: OpenStreetMap street assets (src/layers/streetAssets/).
+      'street-assets',
     ],
   },
 ];

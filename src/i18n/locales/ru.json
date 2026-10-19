@@ -3357,5 +3357,85 @@
   "Forest types": "Типы лесов",
   "Population": "Население",
   "Elevation": "Высота рельефа",
-  "Elevation: {source}": "Высоты: {source}"
+  "Elevation: {source}": "Высоты: {source}",
+  "City": "Город",
+  "Town": "Небольшой город",
+  "Village": "Село",
+  "Hamlet": "Деревня",
+  "Suburb": "Район",
+  "Neighbourhood": "Микрорайон",
+  "National capital": "Столица страны",
+  "Regional capital": "Административный центр региона",
+  "Populated place": "Населённый пункт",
+  "{kind} · {country}": "{kind} · {country}",
+  "Population {count}": "Население {count}",
+  "Local name: {name}": "Местное название: {name}",
+  "OpenStreetMap places below {height} km": "Места OpenStreetMap ниже {height} км",
+  "Asking OpenStreetMap…": "Запрос к OpenStreetMap…",
+  "OpenStreetMap places need OVERPASS_UPSTREAMS in .env (Natural Earth places only)": "Для мест OpenStreetMap нужен OVERPASS_UPSTREAMS в .env (только места Natural Earth)",
+  "OpenStreetMap is busy; trying again shortly": "OpenStreetMap занят; повторная попытка вскоре",
+  "OpenStreetMap places unavailable": "Места OpenStreetMap недоступны",
+  "{count}+ OpenStreetMap places": "Мест OpenStreetMap: {count}+",
+  "{count} OpenStreetMap places": {
+    "one": "{count} место OpenStreetMap",
+    "few": "{count} места OpenStreetMap",
+    "many": "{count} мест OpenStreetMap",
+    "other": "{count} мест OpenStreetMap"
+  },
+  "{count} Natural Earth places": {
+    "one": "{count} место Natural Earth",
+    "few": "{count} места Natural Earth",
+    "many": "{count} мест Natural Earth",
+    "other": "{count} мест Natural Earth"
+  },
+  "DOTS": "ТОЧКИ",
+  "A dot at each named place": "Точка у каждого места с названием",
+  "EV CHARGING": "ЗАРЯДКА ЭМ",
+  "Electric vehicle charging stations (OpenStreetMap)": "Зарядные станции для электромобилей (OpenStreetMap)",
+  "BIKE LANES": "ВЕЛОДОРОЖКИ",
+  "Cycleways and roads with a bike lane or track (OpenStreetMap)": "Велодорожки и улицы с велополосой (OpenStreetMap)",
+  "HYDRANTS": "ГИДРАНТЫ",
+  "Fire hydrants (OpenStreetMap)": "Пожарные гидранты (OpenStreetMap)",
+  "STREET LIGHTS": "ФОНАРИ",
+  "Street lamps (OpenStreetMap)": "Уличные фонари (OpenStreetMap)",
+  "SIGNALS": "СВЕТОФОРЫ",
+  "Traffic signals (OpenStreetMap)": "Светофоры (OpenStreetMap)",
+  "{count} charging stations": {
+    "one": "{count} зарядная станция",
+    "few": "{count} зарядные станции",
+    "many": "{count} зарядных станций",
+    "other": "{count} зарядных станций"
+  },
+  "{count} bike lane segments": {
+    "one": "{count} участок велодорожки",
+    "few": "{count} участка велодорожек",
+    "many": "{count} участков велодорожек",
+    "other": "{count} участков велодорожек"
+  },
+  "{count} fire hydrants": {
+    "one": "{count} пожарный гидрант",
+    "few": "{count} пожарных гидранта",
+    "many": "{count} пожарных гидрантов",
+    "other": "{count} пожарных гидрантов"
+  },
+  "{count} street lights": {
+    "one": "{count} уличный фонарь",
+    "few": "{count} уличных фонаря",
+    "many": "{count} уличных фонарей",
+    "other": "{count} уличных фонарей"
+  },
+  "{count} traffic signals": {
+    "one": "{count} светофор",
+    "few": "{count} светофора",
+    "many": "{count} светофоров",
+    "other": "{count} светофоров"
+  },
+  "Zoom in below {height} km to draw them": "Приблизьтесь ниже {height} км, чтобы их показать",
+  "Street assets need OVERPASS_UPSTREAMS in .env": "Для городской инфраструктуры нужен OVERPASS_UPSTREAMS в .env",
+  "Street assets unavailable": "Городская инфраструктура недоступна",
+  "more than the view can show; zoom in for all": "больше, чем помещается в вид; приблизьтесь, чтобы увидеть все",
+  "Counts per hexagon; pins below {height} km": "Число на шестиугольник; метки ниже {height} км",
+  "Pins": "Метки",
+  "Localities": "Населённые пункты",
+  "Street assets": "Городская инфраструктура"
 }

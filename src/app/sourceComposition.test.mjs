@@ -41,8 +41,8 @@ test('all acquisition sources may be absent, and enable fails before initializin
   // Recorded Video layer, the twelve Earth Engine overlays
   // (src/data/earthEngineLayers.js; Surface water, Land cover, Elevation,
   // Elevation contours, Forest types and Population since 2026-10-19), the
-  // Grid and the Wikipedia coverage layer.
-  assert.equal(actual.layers.length, 49);
+  // Grid, the Wikipedia coverage layer, Localities and Street assets.
+  assert.equal(actual.layers.length, 51);
   const manager = new LayerLifecycle(
     {},
     { getSourceAvailability: actual.getSourceAvailability },
