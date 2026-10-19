@@ -3,12 +3,14 @@
 // God's Eye View.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { admitSameSite } from './common/same-site.js';
 import { defaultSourceRoot } from './common/source-root.js';
 import { openIndex } from './overture/divisionsFile.js';
 import { NEEDS_BUILD, overtureCacheDir } from './overture/sources.js';
 import { createBuildingsTiles } from './overture/buildingsTiles.js';
+import { createTilePool } from './overture/buildingsTilePool.js';
 import { EMPTY_PNG } from './riversV2/render.js';
 import {
   OVERTURE_BUILDING_INKS,
@@ -105,16 +107,21 @@ export function parseDivisionsQuery(params) {
 
 /**
  * @param {{sourceRoot?: string, env?: object, now?: () => number,
- *   dir?: string}} [options]
+ *   dir?: string, tileWorkers?: number}} [options] `tileWorkers`: draw
+ *   buildings tiles in that many worker threads (buildingsTilePool.js);
+ *   0 draws them on this thread.
  */
 export function createOvertureService({
   sourceRoot = defaultSourceRoot,
   env = process.env,
   now = () => Date.now(),
   dir = overtureCacheDir(env, sourceRoot),
+  tileWorkers = 0,
 } = {}) {
   const pointer = path.join(dir, 'build', 'current.json');
   const buildings = createBuildingsTiles({ dir, now });
+  const pool =
+    tileWorkers > 0 ? createTilePool({ dir, size: tileWorkers }) : null;
   let held = null;
   let checkedAt = -Infinity;
   let lastError = null;
@@ -243,7 +250,9 @@ export function createOvertureService({
           empty: true,
           cached: true,
         };
-      const answer = buildings.tile(mode, ink, z, x, y);
+      const answer = pool
+        ? await pool.render(mode, ink, z, x, y)
+        : buildings.tile(mode, ink, z, x, y);
       if (answer.status !== 200) return answer;
       try {
         fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -262,6 +271,12 @@ export function createOvertureService({
             body: EMPTY_PNG,
             empty: true,
           };
+    },
+
+    /** Stop the tile workers and close the open files. */
+    async close() {
+      await pool?.close();
+      buildings.close();
     },
 
     /** The places of a view; `query` from parseDivisionsQuery. */
@@ -360,6 +375,8 @@ export function createOvertureHandler({ service }) {
 }
 
 let shared = null;
+/** The dev server draws buildings tiles in this many worker threads. */
+const TILE_WORKERS = Math.max(1, Math.min(4, os.cpus().length - 2));
 
 /** Vite plugin: /api/overture for the Localities layer's places close in. */
 export function overtureProxy({
@@ -367,7 +384,10 @@ export function overtureProxy({
   service,
 } = {}) {
   function install(middlewares) {
-    shared ||= createOvertureService({ sourceRoot });
+    shared ||= createOvertureService({
+      sourceRoot,
+      tileWorkers: TILE_WORKERS,
+    });
     middlewares.use(
       OVERTURE_ENDPOINT,
       createOvertureHandler({ service: service || shared }),

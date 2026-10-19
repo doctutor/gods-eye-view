@@ -36,8 +36,8 @@ import {
  * sums the build kept, so a coarse pixel is the sum of what is under it
  * divided by its ground:
  *
- * - z 0–6 from the buckets' own cells (D14), z 7–10 from the z 10 tiles'
- *   (D18);
+ * - z 0–4 from each bucket's own cells (D14) summed to 64 × 64 once and
+ *   kept, z 5–6 from those cells, z 7–10 from the z 10 tiles' (D18);
  * - z 11 and closer from the footprints themselves (F), binned into cells
  *   no finer than a z 11 pixel (OVERTURE_DENSITY_CELL_ZOOM);
  * - from z 15 the footprints' outlines over it, in the ink.
@@ -48,6 +48,9 @@ const SHIFT = (zoom) => WORLD_BITS - zoom;
 const BLOCKS_PER_BUCKET = 2 ** (BLOCK_ZOOM - BUCKET_ZOOM);
 const DENSITY_PER_BUCKET = 2 ** (DENSITY_ZOOM - BUCKET_ZOOM);
 const MODE = new Map(BUILDINGS_MODES.map((mode) => [mode.key, mode]));
+/** A bucket's overview is OVERVIEW cells a side: a z 4 tile's pixels. */
+const OVERVIEW = 64;
+const OVERVIEW_ZOOM = BUCKET_ZOOM - Math.log2(TILE / OVERVIEW);
 /** Outlines read beyond the tile by this much (units), for buildings that cross its edge. */
 const EDGE_UNITS = 2 ** 10;
 
@@ -112,9 +115,65 @@ export function createBuildingsTiles({
   let lastError = null;
   const open = new Map(); // file → bucket (LRU by insertion)
 
+  /** Each bucket's cells summed to OVERVIEW × OVERVIEW, for z 0–4 (by file). */
+  const overviews = new Map();
+
   function closeAll() {
     for (const bucket of open.values()) bucket.close();
     open.clear();
+    overviews.clear();
+  }
+
+  /**
+   * A bucket's overview: its own 256 × 256 cells summed 4 × 4, kept for the
+   * build's life (64 KB a bucket), so a tile from orbit, which reads every
+   * bucket, reads each only once.
+   */
+  function overview(m, bx, by) {
+    const entry = m.buckets[String(by * 2 ** BUCKET_ZOOM + bx)];
+    if (!entry) return null;
+    let grid = overviews.get(entry.file);
+    if (grid) return grid;
+    const b = bucket(m, bx, by);
+    const raw = b?.block(KIND.D14, 0);
+    grid = new Float32Array(OVERVIEW * OVERVIEW * 4);
+    const factor = TILE / OVERVIEW;
+    if (raw)
+      eachCell(raw, (cell, count, area, heightArea, known) => {
+        const at =
+          (Math.floor(Math.floor(cell / TILE) / factor) * OVERVIEW +
+            Math.floor((cell % TILE) / factor)) *
+          4;
+        grid[at] += count;
+        grid[at + 1] += area;
+        grid[at + 2] += heightArea;
+        grid[at + 3] += known;
+      });
+    overviews.set(entry.file, grid);
+    return grid;
+  }
+
+  /** z 0–4: the buckets' overviews under the tile, summed into its pixels. */
+  function fromOverviews(m, z, x, y, grid, cells) {
+    const span = 2 ** (BUCKET_ZOOM - z); // buckets a side
+    const factor = (span * OVERVIEW) / cells; // overview cells per pixel, a side
+    for (let by = 0; by < span; by++)
+      for (let bx = 0; bx < span; bx++) {
+        const view = overview(m, x * span + bx, y * span + by);
+        if (!view) continue;
+        for (let cy = 0; cy < OVERVIEW; cy++)
+          for (let cx = 0; cx < OVERVIEW; cx++) {
+            const from = (cy * OVERVIEW + cx) * 4;
+            if (!view[from]) continue;
+            const px = Math.floor((bx * OVERVIEW + cx) / factor);
+            const py = Math.floor((by * OVERVIEW + cy) / factor);
+            const at = (py * cells + px) * 4;
+            grid[at] += view[from];
+            grid[at + 1] += view[from + 1];
+            grid[at + 2] += view[from + 2];
+            grid[at + 3] += view[from + 3];
+          }
+      }
   }
 
   function manifest() {
@@ -229,7 +288,8 @@ export function createBuildingsTiles({
     const uy1 = uy0 + 2 ** s;
     const footprints = z >= OVERTURE_FOOTPRINT_ZOOM ? [] : null;
     let any = false;
-    if (z <= DENSITY_ZOOM) fromDensity(m, z, x, y, grid, cells);
+    if (z <= OVERVIEW_ZOOM) fromOverviews(m, z, x, y, grid, cells);
+    else if (z <= DENSITY_ZOOM) fromDensity(m, z, x, y, grid, cells);
     else {
       const cellShift = SHIFT(cellZoom);
       const pad = footprints ? EDGE_UNITS : 0;

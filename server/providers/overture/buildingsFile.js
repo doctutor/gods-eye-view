@@ -35,6 +35,8 @@ export const KIND = Object.freeze({ F: 1, D18: 2, D14: 3 });
 const MAGIC = 0x42564547; // "GEVB"
 const VERSION = 1;
 const ENTRY_BYTES = 24;
+/** Blocks a bucket may hold (an index position fits under it). */
+const POSITION = 2 ** 18;
 const CELL_BYTES = 18;
 const MAX_LATITUDE = 85.05112877980659;
 /** Metres per unit at the equator. */
@@ -365,7 +367,13 @@ export function bucketWriter(file, blockCount) {
   };
 }
 
-/** Open a bucket file: its blocks by kind and key, read on demand. */
+/**
+ * Open a bucket file: its blocks by kind and key, read on demand. The index
+ * stays a buffer, found through one natively sorted Float64Array of
+ * (kind × 2^32 + key) × 2^18 + position (under 2^53, exact): a dense bucket has tens of
+ * thousands of blocks, and building a Map of them for every open cost more
+ * than the tile (2.8 s to open the 191 buckets of a world tile).
+ */
 export function openBucket(file) {
   const fd = fs.openSync(file, 'r');
   try {
@@ -374,29 +382,67 @@ export function openBucket(file) {
     if (head.readUInt32LE(0) !== MAGIC || head.readUInt32LE(4) !== VERSION)
       throw new Error(`${file} is not a buildings bucket`);
     const count = head.readUInt32LE(8);
+    if (count >= POSITION) throw new Error(`${file} has too many blocks`);
     const index = Buffer.alloc(count * ENTRY_BYTES);
     fs.readSync(fd, index, 0, index.length, 12);
-    const entries = new Map();
+    const sorted = new Float64Array(count);
     for (let i = 0; i < count; i++) {
       const at = i * ENTRY_BYTES;
-      const kind = index.readUInt8(at);
-      const key = index.readUInt32LE(at + 4);
-      entries.set(kind * 2 ** 32 + key, {
-        kind,
-        key,
+      sorted[i] =
+        (index.readUInt8(at) * 2 ** 32 + index.readUInt32LE(at + 4)) *
+          POSITION +
+        i;
+    }
+    sorted.sort();
+    const entryAt = (i) => {
+      const at = i * ENTRY_BYTES;
+      return {
+        kind: index.readUInt8(at),
+        key: index.readUInt32LE(at + 4),
         offset: index.readUInt32LE(at + 8),
         length: index.readUInt32LE(at + 12),
         rawLength: index.readUInt32LE(at + 16),
         count: index.readUInt32LE(at + 20),
-      });
-    }
+      };
+    };
+    /** The position of a block in the index, or -1. */
+    const find = (kind, key) => {
+      const want = kind * 2 ** 32 + key;
+      let lo = 0;
+      let hi = count - 1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >>> 1;
+        const at = Math.floor(sorted[mid] / POSITION);
+        if (at === want) return sorted[mid] - at * POSITION;
+        if (at < want) lo = mid + 1;
+        else hi = mid - 1;
+      }
+      return -1;
+    };
+    let entries = null;
     return {
-      entries,
-      has: (kind, key) => entries.has(kind * 2 ** 32 + key),
+      /** Every block's entry by kind × 2^32 + key (built when first asked). */
+      get entries() {
+        if (!entries) {
+          entries = new Map();
+          for (let i = 0; i < count; i++) {
+            const entry = entryAt(i);
+            entries.set(entry.kind * 2 ** 32 + entry.key, entry);
+          }
+        }
+        return entries;
+      },
+      has: (kind, key) => find(kind, key) >= 0,
+      /** A block's entry (offset, lengths, count), or null. */
+      entry(kind, key) {
+        const i = find(kind, key);
+        return i < 0 ? null : entryAt(i);
+      },
       /** A block's bytes, decompressed, or null. */
       block(kind, key) {
-        const entry = entries.get(kind * 2 ** 32 + key);
-        if (!entry) return null;
+        const i = find(kind, key);
+        if (i < 0) return null;
+        const entry = entryAt(i);
         const body = Buffer.alloc(entry.length);
         fs.readSync(fd, body, 0, entry.length, entry.offset);
         return zlib.zstdDecompressSync(body);
