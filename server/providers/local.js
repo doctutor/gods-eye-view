@@ -31,6 +31,8 @@ import { earthEngineProxy } from './earthEngine.js';
 import { wikipediaCoverageProxy } from './wikipediaCoverage.js';
 // Personal fork: the Rivers layer's self-hosted HydroSHEDS v2 tiles.
 import { riversV2Proxy } from './riversV2.js';
+// Personal fork: clicking a river reach (the Rivers layer).
+import { riverReachProxy } from './riverReach.js';
 import { keySetupEndpoint } from '../standalone/key-setup.js';
 import { weatherProxy } from './weather.js';
 import { firePerimetersProxy } from './firePerimeters.js';
@@ -75,6 +77,7 @@ function localProviderPlugins({ realtime } = {}) {
     earthEngineProxy({ sourceRoot: defaultSourceRoot }),
     wikipediaCoverageProxy({ sourceRoot: defaultSourceRoot }),
     riversV2Proxy({ sourceRoot: defaultSourceRoot }),
+    riverReachProxy({ sourceRoot: defaultSourceRoot }),
     firePerimetersProxy(),
     gnssIntegrityProxy(),
     keySetupEndpoint(),

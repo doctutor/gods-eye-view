@@ -24,6 +24,8 @@ const FORK_FILES = [
   'src/layers/grid/',
   'src/layers/wikipediaCoverage/',
   'src/layers/streetLevel/providers/googleIndoor/',
+  'src/layers/rivers/reachCard.js',
+  'src/layers/rivers/reachHighlight.js',
   'src/maps/keylessBasemapCatalog.js',
   'src/maps/keylessBasemaps.js',
   'src/maps/countries/',
