@@ -676,6 +676,598 @@
       },
       "fileFormat": "PNG"
     },
+    "ee-forest-types/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.remap",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.select",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.load",
+                          "arguments": {
+                            "id": {
+                              "constantValue": "JRC/GFC2020_subtypes/V1"
+                            }
+                          }
+                        }
+                      },
+                      "bandSelectors": {
+                        "constantValue": [
+                          "Map"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "from": {
+                  "constantValue": [
+                    1,
+                    10,
+                    20
+                  ]
+                },
+                "to": {
+                  "constantValue": [
+                    1,
+                    2,
+                    3
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 1,
+            "max": 3
+          }
+        ],
+        "paletteColors": [
+          "b8e186",
+          "1b9e77",
+          "d95f02"
+        ]
+      }
+    },
+    "ee-population/density-2020/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.log10",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.updateMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.load",
+                                      "arguments": {
+                                        "id": {
+                                          "constantValue": "JRC/GHSL/P2023A/GHS_POP/2020"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "population_count"
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 100
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "mask": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.gte",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.multiply",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "JRC/GHSL/P2023A/GHS_POP/2020"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "population_count"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 100
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 1
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 4
+          }
+        ],
+        "paletteColors": [
+          "fed976",
+          "fecc5c",
+          "fd8d3c",
+          "f03b20",
+          "bd0026"
+        ]
+      }
+    },
+    "ee-population/density-2000/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.log10",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.updateMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.load",
+                                      "arguments": {
+                                        "id": {
+                                          "constantValue": "JRC/GHSL/P2023A/GHS_POP/2000"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "population_count"
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 100
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "mask": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.gte",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.multiply",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "JRC/GHSL/P2023A/GHS_POP/2000"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "population_count"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 100
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 1
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 4
+          }
+        ],
+        "paletteColors": [
+          "fed976",
+          "fecc5c",
+          "fd8d3c",
+          "f03b20",
+          "bd0026"
+        ]
+      }
+    },
+    "ee-population/density-1990/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.log10",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.updateMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.load",
+                                      "arguments": {
+                                        "id": {
+                                          "constantValue": "JRC/GHSL/P2023A/GHS_POP/1990"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "population_count"
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 100
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "mask": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.gte",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.multiply",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "JRC/GHSL/P2023A/GHS_POP/1990"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "population_count"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 100
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 1
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 4
+          }
+        ],
+        "paletteColors": [
+          "fed976",
+          "fecc5c",
+          "fd8d3c",
+          "f03b20",
+          "bd0026"
+        ]
+      }
+    },
+    "ee-population/density-1975/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.log10",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.updateMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.load",
+                                      "arguments": {
+                                        "id": {
+                                          "constantValue": "JRC/GHSL/P2023A/GHS_POP/1975"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "population_count"
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 100
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "mask": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.gte",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.multiply",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "JRC/GHSL/P2023A/GHS_POP/1975"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "population_count"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 100
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 1
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 4
+          }
+        ],
+        "paletteColors": [
+          "fed976",
+          "fecc5c",
+          "fd8d3c",
+          "f03b20",
+          "bd0026"
+        ]
+      }
+    },
     "ee-rivers/network/o3/light": {
       "expression": {
         "values": {

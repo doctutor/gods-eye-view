@@ -3347,5 +3347,13 @@
   "2020": "2020",
   "ESA WorldCover 2020 (v100), to compare; its method differs, so not every change is real": "ESA WorldCover 2020 (v100), для сравнения; метод другой, поэтому не каждое изменение настоящее",
   "Surface water": "Поверхностные воды",
-  "Land cover": "Земной покров"
+  "Land cover": "Земной покров",
+  "Naturally regenerating forest": "Естественно возобновляющийся лес",
+  "Primary forest": "Первичный лес",
+  "Planted forest": "Лесные культуры",
+  "1,000": "1 000",
+  "10,000+ per km²": "10 000+ на км²",
+  "People per km² in {year} (GHSL)": "Жителей на км² в {year} году (GHSL)",
+  "Forest types": "Типы лесов",
+  "Population": "Население"
 }

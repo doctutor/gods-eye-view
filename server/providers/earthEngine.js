@@ -37,7 +37,8 @@ import {
  *       layer with inks, 'default' otherwise
  *   GET /api/earth-engine/tile/<layer>/<mode>/<variant>/<ink>/<z>/<x>/<y>
  *       the same for a layer with modes (the Rivers' network, free-flowing
- *       and pressure colourings; Surface water's bands; Land cover's years)
+ *       and pressure colourings; Surface water's bands; Land cover's
+ *       years; Population's epochs)
  *
  * A tile coarser than its variant's `minZoom` is a transparent PNG, made
  * here: no Earth Engine request, nothing counted.
@@ -367,39 +368,81 @@ export function contourExpression(
 }
 
 /**
- * An image layer's mode (Surface water, Land cover): its band of the
- * variant's asset or its own asset, masked by another band of it
- * (`maskBand`), class codes remapped, zero masked.
+ * An image layer's picture, from its record and, for a layer with modes,
+ * its mode's (whose fields win; one map per mode), step by step:
+ * - the asset: the mode's own `asset` (Land cover's years, Population's
+ *   epochs), else the variant's with the mode's `band` (Surface water's
+ *   bands), else the variant's;
+ * - `terrain` (the layer's): slope, aspect or hillshade (ee.Terrain);
+ * - `maskBand`: masked by another band of the variant's asset (Surface
+ *   water's max_extent, whose coarse pyramid is water only where most of a
+ *   pixel is);
+ * - `remap` {from, to}: class codes to palette indices, anything else
+ *   masked (Land cover, Forest types);
+ * - zero masked: `mask` 'self' (or the layer's `selfMask`), or 'nonzero'
+ *   for signed values (Surface water's change);
+ * - `scale`: × a factor (Population: a count per equal-area cell to one
+ *   per km²); `atLeast`: values below it masked; `log10`: the logarithm.
  */
-function imageModeNode(variant, mode) {
+function imageNode(layer, variant, modeKey) {
+  const mode = layer.modes?.length ? modeRecord(layer, modeKey) : null;
+  const steps = { ...layer, ...mode };
   let node = assetNode(
-    mode.asset || {
-      ...variant.asset,
-      ...(mode.band ? { band: mode.band } : {}),
-    },
+    mode?.asset ||
+      (mode?.band ? { ...variant.asset, band: mode.band } : variant.asset),
   );
-  // A band whose coarse pyramid is the water's own extent (Surface water's
-  // max_extent): from far out only where most of a pixel is water.
-  if (mode.maskBand)
+  if (layer.terrain) {
+    // A mosaic has no native projection; terrain needs one in metres.
+    if (variant.asset?.collection)
+      node = invoke('Image.setDefaultProjection', {
+        image: node,
+        crs: invoke('Projection', { crs: constant('EPSG:3857') }),
+        scale: constant(30),
+      });
+    node =
+      layer.terrain === 'hillshade'
+        ? invoke('Terrain.hillshade', {
+            input: node,
+            azimuth: constant(315),
+            elevation: constant(45),
+          })
+        : invoke(
+            layer.terrain === 'aspect' ? 'Terrain.aspect' : 'Terrain.slope',
+            { input: node },
+          );
+  }
+  if (steps.maskBand)
     node = invoke('Image.updateMask', {
       image: node,
-      mask: assetNode({ ...variant.asset, band: mode.maskBand }),
+      mask: assetNode({ ...variant.asset, band: steps.maskBand }),
     });
-  if (mode.remap)
+  if (steps.remap)
     node = invoke('Image.remap', {
       image: node,
-      from: constant([...mode.remap.from]),
-      to: constant([...mode.remap.to]),
+      from: constant([...steps.remap.from]),
+      to: constant([...steps.remap.to]),
     });
-  if (mode.mask === 'self') node = invoke('Image.selfMask', { image: node });
-  else if (mode.mask === 'nonzero')
+  const zero = steps.mask || (steps.selfMask ? 'self' : null);
+  if (zero === 'self') node = invoke('Image.selfMask', { image: node });
+  else if (zero === 'nonzero')
     node = invoke('Image.updateMask', {
       image: node,
-      mask: invoke('Image.neq', {
+      mask: invoke('Image.neq', { image1: node, image2: imageConstant(0) }),
+    });
+  if (Number.isFinite(steps.scale))
+    node = invoke('Image.multiply', {
+      image1: node,
+      image2: imageConstant(steps.scale),
+    });
+  if (Number.isFinite(steps.atLeast))
+    node = invoke('Image.updateMask', {
+      image: node,
+      mask: invoke('Image.gte', {
         image1: node,
-        image2: invoke('Image.constant', { value: constant(0) }),
+        image2: imageConstant(steps.atLeast),
       }),
     });
+  if (steps.log10) node = invoke('Image.log10', { value: node });
   return node;
 }
 
@@ -420,52 +463,28 @@ export function expressionFor(
   ink = layerInks(layer)[0],
   mode = layerModes(layer)[0],
 ) {
-  if (layer.kind !== 'features' && layer.modes?.length)
-    return {
-      values: { 0: imageModeNode(variant, modeRecord(layer, mode)) },
-      result: '0',
-    };
+  // Contour lines (Elevation contours) have their own expression.
+  if (layer.contour)
+    return contourExpression(
+      assetNode(variant.asset),
+      variant.step,
+      layer.contour,
+      { mosaic: Boolean(variant.asset?.collection) },
+    );
+  if (layer.kind !== 'features')
+    return { values: { 0: imageNode(layer, variant, mode) }, result: '0' };
   let node = assetNode(variant.asset);
-  if (layer.kind === 'features') {
-    const filter = featureFilter(layer, variant, mode);
-    if (filter)
-      node = invoke('Collection.filter', { collection: node, filter });
-    if (layer.modes?.length)
-      return styledFeatures(layer, variant, node, ink, mode);
-    const style = layer.style || {};
-    node = invoke('Collection.style', {
-      collection: node,
-      color: constant(inkColor(layer, ink)),
-      fillColor: constant(style.fillColor || '00000000'),
-      width: constant(style.width ?? 1),
-    });
-  } else if (layer.contour) {
-    return contourExpression(node, variant.step, layer.contour, {
-      mosaic: Boolean(variant.asset?.collection),
-    });
-  } else {
-    if (layer.terrain) {
-      // A mosaic has no native projection; terrain needs one in metres.
-      if (variant.asset?.collection)
-        node = invoke('Image.setDefaultProjection', {
-          image: node,
-          crs: invoke('Projection', { crs: constant('EPSG:3857') }),
-          scale: constant(30),
-        });
-      node =
-        layer.terrain === 'hillshade'
-          ? invoke('Terrain.hillshade', {
-              input: node,
-              azimuth: constant(315),
-              elevation: constant(45),
-            })
-          : invoke(
-              layer.terrain === 'aspect' ? 'Terrain.aspect' : 'Terrain.slope',
-              { input: node },
-            );
-    }
-    if (layer.selfMask) node = invoke('Image.selfMask', { image: node });
-  }
+  const filter = featureFilter(layer, variant, mode);
+  if (filter) node = invoke('Collection.filter', { collection: node, filter });
+  if (layer.modes?.length)
+    return styledFeatures(layer, variant, node, ink, mode);
+  const style = layer.style || {};
+  node = invoke('Collection.style', {
+    collection: node,
+    color: constant(inkColor(layer, ink)),
+    fillColor: constant(style.fillColor || '00000000'),
+    width: constant(style.width ?? 1),
+  });
   return { values: { 0: node }, result: '0' };
 }
 

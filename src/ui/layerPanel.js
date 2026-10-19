@@ -106,6 +106,8 @@ const PANEL_GROUPS = [
       'ee-terrain-hillshade',
       'ee-elevation-contours',
       'ee-forest-loss',
+      'ee-forest-types',
+      'ee-population',
       'ee-admin-boundaries',
       'ee-rivers',
       'ee-surface-water',

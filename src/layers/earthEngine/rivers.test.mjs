@@ -704,6 +704,11 @@ test('the mode chips exist only on a layer with modes', () => {
       'seasonality',
       'v200',
       'v100',
+      // Population's epochs (src/data/forestPopulation.test.mjs).
+      'density-2020',
+      'density-2000',
+      'density-1990',
+      'density-1975',
     ],
   );
   const boundaries = EARTH_ENGINE_LAYERS.find(

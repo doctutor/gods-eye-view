@@ -29,7 +29,13 @@
  *   Copernicus, free, "Source: EC JRC/Google"), checked 2026-10-19;
  * - ESA/WorldCover/v200/2021 and ESA/WorldCover/v100/2020 (the one image
  *   of each collection, 10 m; band Map, 11 classes, pyramided by MODE;
- *   CC-BY-4.0), checked 2026-10-19.
+ *   CC-BY-4.0), checked 2026-10-19;
+ * - JRC/GFC2020_subtypes/V1 (image, band Map: 1 naturally regenerating,
+ *   10 primary, 20 planted forest; 10 m; free to use, citation requested),
+ *   the Forest types layer since 2026-10-19;
+ * - JRC/GHSL/P2023A/GHS_POP (image collection, one image per epoch 1975 to
+ *   2030, band population_count: people per 100 m cell; reuse authorised
+ *   with acknowledgement), the Population layer since 2026-10-19.
  *
  * A record:
  *   id          layer id ('ee-' prefix), also the tile route's name
@@ -55,24 +61,34 @@
  *               it). `minZoom`: the variant's tiles start at that level
  *               (the client asks for nothing coarser, the server answers a
  *               coarser tile with a transparent one)
- *   modes       for an image layer (Surface water, Land cover): [{key,
- *               band?, asset?, maskBand?, mask?, remap?, vis, legend}], one
- *               map per (variant, mode): the mode's band of the variant's
- *               asset (or its own asset), masked by `maskBand` of the same
- *               asset, `mask` 'self' (zero transparent) or
- *               'nonzero' (zero transparent where values are signed),
- *               `remap` {from, to} for class codes, drawn with its own vis;
- *               a chip picks the mode, kept as `modeStorageKey`.
+ *   modes       for an image layer (Surface water, Land cover,
+ *               Population): [{key, band?, asset?, maskBand?, mask?,
+ *               remap?, scale?, atLeast?, log10?, vis, legend}], one map per
+ *               (variant, mode), its fields over the layer's (the steps
+ *               below): the mode's `band` of the variant's asset or its own
+ *               `asset`, drawn with its own vis; a chip picks the mode,
+ *               kept as `modeStorageKey`.
  *               Or [{key, property, numeric?, colors: {ink: {value:
  *               RRGGBBAA}}, fallback: {ink: RRGGBBAA}, legend}] for a
- *               features layer drawn per feature: one map per (variant, ink, mode), each
- *               reach coloured by its `property` through the ink's table
- *               (`numeric`: the property is an integer 1, 2, 3… that every
- *               feature has, so it indexes a list; otherwise text, with
- *               `fallback` for values not in the table) and as wide as
- *               riverLineWidth gives its `widthProperty` in the band; a chip picks the
- *               mode, kept as `modeStorageKey`. The catalog makes these
- *               maps only when a tile asks for one (`lazyMaps`)
+ *               features layer drawn per feature: one map per (variant,
+ *               ink, mode), each reach coloured by its `property` through
+ *               the ink's table (`numeric`: the property is an integer 1,
+ *               2, 3… that every feature has, so it indexes a list;
+ *               otherwise text, with `fallback` for values not in the
+ *               table) and as wide as riverLineWidth gives its
+ *               `widthProperty` in the band; a chip picks the mode, kept as
+ *               `modeStorageKey`. A layer marked `lazyMaps` has its maps
+ *               made only when a tile asks for one (the Rivers, Population)
+ *   An image's steps, on the layer or its mode, in this order
+ *   (server/providers/earthEngine.js, imageNode):
+ *   maskBand    masked by that band of the variant's asset
+ *   remap       {from, to}: class codes to palette indices (anything else
+ *               is masked)
+ *   mask        'self' (zero transparent, as `selfMask`) or 'nonzero' (zero
+ *               transparent where values are signed)
+ *   scale       a factor (a count per equal-area cell to one per km²)
+ *   atLeast     values below it are masked
+ *   log10       true to draw the logarithm (vis min/max in log10)
  *   omitAmericas  rivers: true leaves out the reaches with CON_ID 1 and 2
  *               (AMERICAS_CON_IDS) in every mode, so another source can
  *               draw the Americas; a mode with `omitAmericas` (network-rest)
@@ -97,7 +113,9 @@
  *               misleads, like Land cover's z 0 tile. Elevation averages
  *               sensibly and Earth Engine derives slope, aspect and
  *               hillshade at the tile's scale, so the terrain layers draw
- *               from orbit: docs/PERSONAL-FORK.md, "Level of detail")
+ *               from orbit, as do Forest types (a MODE pyramid with an
+ *               averaged mask) and Population (a density):
+ *               docs/PERSONAL-FORK.md, "Level of detail")
  */
 
 export const EARTH_ENGINE_ATTRIBUTION = 'Google Earth Engine';
@@ -432,8 +450,9 @@ const LAND_COVER_NOTICE =
 /**
  * No land cover tiles above this height. WorldCover's Map band is pyramided
  * by MODE (read from the asset, 2026-10-19): a coarse pixel is the class
- * most of it holds, so unlike forest loss (MEAN of loss years, a year that
- * never was) every level shows real classes, and every level drew in under
+ * most of it holds, so unlike forest loss (whose lossyear pyramid is MODE
+ * too, but its "no loss" 0 outvotes the rare loss pixels from far away)
+ * every level shows real classes, and every level drew in under
  * 1 s (z 0 to 10, 2026-10-19; docs/PERSONAL-FORK.md, "Land cover"). The
  * ceiling is for the one level that misleads: the z 0 world tile, which a
  * view of the whole disc drapes on the photoreal tiles, draws the Arctic as
@@ -656,6 +675,107 @@ const ELEVATION_CONTOURS = Object.freeze({
   maxZoom: CONTOUR_MAX_ZOOM,
 });
 
+// --- Forest types ------------------------------------------------------------
+
+/**
+ * JRC's global forest types 2020 v1 (10 m): 1 naturally regenerating, 10
+ * primary, 20 planted; anything else is masked. One image whose pyramid is
+ * MODE for the classes, while the mask is averaged: a coarser pixel is the
+ * commonest type beneath it, as opaque as the share of forest (checked
+ * live 2026-10-19).
+ */
+const FOREST_TYPES_IMAGE = Object.freeze({
+  image: 'JRC/GFC2020_subtypes/V1',
+  band: 'Map',
+});
+/**
+ * Brewer's Dark2 hues (the dataset's own dark green for primary forest
+ * vanished on forest imagery and black): a light yellow-green, a teal and
+ * an orange, apart in lightness too.
+ */
+export const FOREST_TYPE_COLORS = Object.freeze({
+  natural: 'b8e186',
+  primary: '1b9e77',
+  planted: 'd95f02',
+});
+
+// --- Population --------------------------------------------------------------
+
+/** GHSL's population epochs (P2023A): 1975 to 2020 estimated, 2025 and 2030 projected. */
+export const POPULATION_COLLECTION = 'JRC/GHSL/P2023A/GHS_POP';
+export const POPULATION_BAND = 'population_count';
+/** The latest epoch that is an estimate, not a projection. */
+export const POPULATION_EPOCH = 2020;
+/** The epochs a chip draws. */
+export const POPULATION_EPOCHS = Object.freeze([2020, 2000, 1990, 1975]);
+/**
+ * People per km² from a cell's count: GHS_POP's cells are 100 m squares of
+ * the equal-area World Mollweide grid, 0.01 km² each, and Earth Engine's
+ * pyramid for the band is MEAN (checked 2026-10-19), so a coarser level's
+ * pixel is the mean count of the 100 m cells beneath it and × 100 is their
+ * density at every level: scale-invariant, unlike a count.
+ */
+export const POPULATION_PER_KM2 = 100;
+
+/**
+ * The GHSL population image of an epoch, for a layer or a join (a later
+ * "Wikipedia articles per capita"): its Earth Engine id, band, the factor
+ * from a cell's count to people per km², and the cell size.
+ */
+export function populationDataset(epoch = POPULATION_EPOCH) {
+  const year = Number(epoch);
+  if (!Number.isInteger(year) || year < 1975 || year > 2030 || year % 5)
+    throw new RangeError(`No GHSL population epoch ${epoch}`);
+  return Object.freeze({
+    collection: POPULATION_COLLECTION,
+    image: `${POPULATION_COLLECTION}/${year}`,
+    band: POPULATION_BAND,
+    epoch: year,
+    projected: year > POPULATION_EPOCH,
+    cellM: 100,
+    perKm2: POPULATION_PER_KM2,
+  });
+}
+
+/** The density ramp: log10 of people per km², 1 to 10,000+. */
+const POPULATION_PALETTE = Object.freeze([
+  'fed976',
+  'fecc5c',
+  'fd8d3c',
+  'f03b20',
+  'bd0026',
+]);
+const POPULATION_LEGEND = Object.freeze([
+  Object.freeze({ label: '1', color: `#${POPULATION_PALETTE[0]}` }),
+  Object.freeze({ label: '10', color: `#${POPULATION_PALETTE[1]}` }),
+  Object.freeze({ label: '100', color: `#${POPULATION_PALETTE[2]}` }),
+  // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+  Object.freeze({ label: '1,000', color: `#${POPULATION_PALETTE[3]}` }),
+  Object.freeze({
+    // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+    label: '10,000+ per km²',
+    color: `#${POPULATION_PALETTE[4]}`,
+  }),
+]);
+
+/** The Population modes: people per km² in one epoch each (chips by year). */
+export const POPULATION_MODES = Object.freeze(
+  POPULATION_EPOCHS.map((epoch) => {
+    const dataset = populationDataset(epoch);
+    return Object.freeze({
+      key: `density-${epoch}`,
+      epoch,
+      asset: Object.freeze({ image: dataset.image, band: dataset.band }),
+      scale: dataset.perKm2,
+      // Under one person per km² is left clear.
+      atLeast: 1,
+      log10: true,
+      vis: Object.freeze({ min: 0, max: 4, palette: POPULATION_PALETTE }),
+      legend: POPULATION_LEGEND,
+    });
+  }),
+);
+
 export const EARTH_ENGINE_LAYERS = Object.freeze([
   Object.freeze({
     id: 'ee-terrain-slope',
@@ -800,6 +920,64 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     ]),
     attribution:
       'FAO GAUL 2025, Global Administrative Unit Layers (CC BY 4.0); boundaries do not imply any opinion of FAO. Countries: LSIB 2017, Office of the Geographer, U.S. Department of State',
+    maxZoom: 12,
+  }),
+  // Forest types: a categorical 10 m image whose MODE pyramid keeps its
+  // meaning from orbit (FOREST_TYPES_IMAGE), so it has no ceiling.
+  Object.freeze({
+    id: 'ee-forest-types',
+    name: 'Forest types',
+    kind: 'image',
+    asset: FOREST_TYPES_IMAGE,
+    // The class codes as palette indices.
+    remap: Object.freeze({
+      from: Object.freeze([1, 10, 20]),
+      to: Object.freeze([1, 2, 3]),
+    }),
+    vis: Object.freeze({
+      min: 1,
+      max: 3,
+      palette: Object.freeze([
+        FOREST_TYPE_COLORS.natural,
+        FOREST_TYPE_COLORS.primary,
+        FOREST_TYPE_COLORS.planted,
+      ]),
+    }),
+    legend: Object.freeze([
+      Object.freeze({
+        // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+        label: 'Naturally regenerating forest',
+        color: `#${FOREST_TYPE_COLORS.natural}`,
+      }),
+      Object.freeze({
+        // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+        label: 'Primary forest',
+        color: `#${FOREST_TYPE_COLORS.primary}`,
+      }),
+      Object.freeze({
+        // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+        label: 'Planted forest',
+        color: `#${FOREST_TYPE_COLORS.planted}`,
+      }),
+    ]),
+    attribution:
+      'EC JRC, Global map of forest types 2020 v1 (Bourgoin et al. 2026)',
+    maxZoom: 14,
+  }),
+  // Population: people per km², a density, so it averages sensibly and draws
+  // from orbit (POPULATION_PER_KM2).
+  Object.freeze({
+    id: 'ee-population',
+    name: 'Population',
+    kind: 'image',
+    asset: POPULATION_MODES[0].asset,
+    modes: POPULATION_MODES,
+    modeStorageKey: 'gev.population.mode',
+    // One epoch is drawn at a time: its map is made when a tile asks.
+    lazyMaps: true,
+    legend: POPULATION_LEGEND,
+    attribution:
+      'GHSL: Global population surfaces P2023A, European Commission, Joint Research Centre',
     maxZoom: 12,
   }),
   // Rivers: a vector network drawn by Earth Engine per reach, its detail by

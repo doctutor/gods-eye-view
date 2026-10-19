@@ -1,6 +1,10 @@
 import { msg, t, tn, translateKnown } from '../../i18n/index.js';
 import { NO_IMAGERY_HOST } from '../../maps/imageryHost.js';
-import { inkColor, modeRecord } from '../../data/earthEngineLayers.js';
+import {
+  POPULATION_MODES,
+  inkColor,
+  modeRecord,
+} from '../../data/earthEngineLayers.js';
 
 /**
  * Personal fork: what an Earth Engine overlay's row in the DATA LAYERS panel
@@ -50,6 +54,13 @@ export const LEGEND_WORDS = Object.freeze({
   // Elevation contours.
   Contour: msg('Contour'),
   'Index contour': msg('Index contour'),
+  // Forest types.
+  'Naturally regenerating forest': msg('Naturally regenerating forest'),
+  'Primary forest': msg('Primary forest'),
+  'Planted forest': msg('Planted forest'),
+  // Population (people per km²).
+  '1,000': msg('1,000'),
+  '10,000+ per km²': msg('10,000+ per km²'),
 });
 
 /** A compass point's letter in the page language, else null. */
@@ -88,7 +99,18 @@ export function variantLabel(variant) {
   return VARIANT_LABELS[variant] ? t(VARIANT_LABELS[variant]) : '';
 }
 
-/** The mode chips of a layer with modes (the Rivers, Surface water, Land cover). */
+const POPULATION_TITLE = msg('People per km² in {year} (GHSL)');
+
+/** A mode's words for the status line, or '' (Population's epoch). */
+export function modeLabel(mode) {
+  const epoch = POPULATION_MODES.find((entry) => entry.key === mode)?.epoch;
+  return epoch ? t(POPULATION_TITLE, { year: epoch }) : '';
+}
+
+/**
+ * The mode chips of a layer with modes (the Rivers, Surface water, Land
+ * cover, Population's epochs).
+ */
 export const MODE_CHIPS = Object.freeze([
   Object.freeze({
     key: 'network',
@@ -142,6 +164,16 @@ export const MODE_CHIPS = Object.freeze([
       'ESA WorldCover 2020 (v100), to compare; its method differs, so not every change is real',
     ),
   }),
+  // Population: one chip per epoch, its year (a number, the same in every
+  // language).
+  ...POPULATION_MODES.map((mode) =>
+    Object.freeze({
+      key: mode.key,
+      label: String(mode.epoch),
+      title: POPULATION_TITLE,
+      values: Object.freeze({ year: mode.epoch }),
+    }),
+  ),
 ]);
 
 /** The level chips: AUTO (the height rule), then each variant. */
@@ -210,9 +242,10 @@ export function inkSwatch(record, ink) {
  * The status line.
  * @param {{catalog?: object|null, layer?: object|null, variant?: string,
  *   loading?: boolean, failure?: string|null, hostless?: boolean,
- *   ceilingM?: number|null, slowDistricts?: boolean, americasV2?: boolean}}
- *   state - `americasV2`: the Rivers draw the Americas from HydroSHEDS v2;
- *   `hostless`:
+ *   ceilingM?: number|null, slowDistricts?: boolean, americasV2?: boolean,
+ *   mode?: string}}
+ *   state - `mode`: the mode drawn (Population's epoch); `americasV2`: the
+ *   Rivers draw the Americas from HydroSHEDS v2; `hostless`:
  *   the map stack can drape no imagery; `ceilingM`: the camera is above the
  *   layer's ceiling; `slowDistricts`: districts are forced from far out.
  */
@@ -226,6 +259,7 @@ export function statusText({
   ceilingM = null,
   slowDistricts = false,
   americasV2 = false,
+  mode = '',
 }) {
   if (failure)
     return t('Earth Engine unavailable: {reason}', { reason: failure });
@@ -247,6 +281,7 @@ export function statusText({
       }),
     );
   else if (variantLabel(variant)) parts.push(variantLabel(variant));
+  else if (modeLabel(mode)) parts.push(modeLabel(mode));
   if (slowDistricts)
     parts.push(t('Districts from this height: the tiles arrive slowly'));
   if (americasV2) parts.push(t('The Americas from HydroSHEDS v2'));
@@ -309,7 +344,7 @@ export function rowControls({
     chips.push({
       id: `mode-${chip.key}`,
       label: t(chip.label),
-      title: t(chip.title),
+      title: t(chip.title, chip.values),
       active: mode === chip.key,
       onClick: () => onMode(chip.key),
     });
@@ -383,6 +418,7 @@ export function rowControls({
       ceilingM,
       slowDistricts,
       americasV2,
+      mode,
     }),
     infoTitle: layer?.attribution || '',
   };

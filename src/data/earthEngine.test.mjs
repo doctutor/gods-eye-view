@@ -394,8 +394,8 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
   const [first] = await Promise.all([service.layers(), service.layers()]);
   assert.equal(
     backend.made.length,
-    18,
-    'one map per variant and ink (and mode), one request each',
+    19,
+    'one map per variant and ink (and mode), one request each; Population makes its maps lazily',
   );
   assert.ok(backend.made.includes('ee-admin-boundaries/level0/dark'));
   assert.ok(backend.made.includes('ee-terrain-slope/near/default'));
@@ -430,11 +430,11 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
     ['light', 'dark'],
   );
   await service.layers();
-  assert.equal(backend.made.length, 18, 'kept');
+  assert.equal(backend.made.length, 19, 'kept');
   clock += MAP_TTL_MS + 1;
   failing = true;
   const stale = await service.layers();
-  assert.equal(backend.made.length, 36, 'asked again');
+  assert.equal(backend.made.length, 38, 'asked again');
   const staleSlope = stale.layers.find(
     (layer) => layer.id === 'ee-terrain-slope',
   );
@@ -746,6 +746,8 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     'ee-terrain-hillshade': 0,
     'ee-forest-loss': 6,
     'ee-admin-boundaries': 0,
+    'ee-forest-types': 0,
+    'ee-population': 0,
     'ee-rivers': 0,
     'ee-surface-water': 0,
     'ee-land-cover': 0,
@@ -1226,7 +1228,7 @@ test('Land cover: WorldCover classes remapped to the dataset palette, two years,
   assert.equal(cover.legend[4].color, '#fa0000');
 });
 
-test('the tile route takes a mode with digits (Land cover’s v200)', async () => {
+test('the tile route takes a mode with digits (Land cover’s v200, Population’s density-1990)', async () => {
   const asked = [];
   const handle = createEarthEngineHandler({
     service: {
@@ -1270,9 +1272,15 @@ test('the tile route takes a mode with digits (Land cover’s v200)', async () =
       .status,
     200,
   );
+  assert.equal(
+    (await call('/tile/ee-population/density-1990/default/default/3/2/1'))
+      .status,
+    200,
+  );
   assert.deepEqual(asked, [
     ['ee-land-cover', 'default', 'default', 3, 4, 2, 'v200'],
     ['ee-surface-water', 'default', 'default', 9, 291, 144, 'change'],
+    ['ee-population', 'default', 'default', 3, 2, 1, 'density-1990'],
   ]);
   assert.equal(
     (await call('/tile/ee-land-cover/2021/default/default/3/4/2')).nexted,

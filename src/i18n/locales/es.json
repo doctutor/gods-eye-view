@@ -3276,5 +3276,13 @@
   "2020": "2020",
   "ESA WorldCover 2020 (v100), to compare; its method differs, so not every change is real": "ESA WorldCover 2020 (v100), para comparar; su método es distinto, así que no todo cambio es real",
   "Surface water": "Aguas superficiales",
-  "Land cover": "Cobertura del suelo"
+  "Land cover": "Cobertura del suelo",
+  "Naturally regenerating forest": "Bosque en regeneración natural",
+  "Primary forest": "Bosque primario",
+  "Planted forest": "Bosque plantado",
+  "1,000": "1000",
+  "10,000+ per km²": "10 000+ por km²",
+  "People per km² in {year} (GHSL)": "Habitantes por km² en {year} (GHSL)",
+  "Forest types": "Tipos de bosque",
+  "Population": "Población"
 }

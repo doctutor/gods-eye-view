@@ -54,8 +54,9 @@ import { riversV2ImageryOptions, riversV2Ready } from '../riversV2/source.js';
  *   on the globe and on a tileset alike; only a band asked for by name
  *   (an older server) keeps its `minZoom` on the globe.
  *
- * A layer with `modes` (the Rivers: NETWORK, FREE-FLOWING, PRESSURE) draws
- * the mode a chip picks, kept as the record's `modeStorageKey`; a layer
+ * A layer with `modes` (the Rivers: NETWORK, FREE-FLOWING, PRESSURE;
+ * Population: one per epoch) draws the mode a chip picks, kept as the
+ * record's `modeStorageKey`; a layer
  * with `names` gets a names companion (`names`, src/layers/earthEngine/
  * riverNames.js) that it shows, updates on each settled view and ink, and
  * hides with it.
