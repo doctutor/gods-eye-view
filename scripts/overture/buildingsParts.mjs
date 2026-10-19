@@ -14,13 +14,15 @@ import {
   unitY,
 } from '../../server/providers/overture/buildingsFile.js';
 import { inOpenBuildings } from '../../src/data/openBuildingsCoverage.js';
+import { openBuildingsDraws } from './openBuildingsGaps.mjs';
 
 /**
  * The second half of the Overture buildings step: one fetched row group →
  * one part file, its buildings encoded (buildingsFile.js) and grouped by
  * bucket and z 14 tile. A building is kept when its centre is in the
- * region, in no region done before it (regions add up), and outside every
- * Open Buildings box. Its height is Overture's `height`, else 3 m a floor
+ * region, in no region done before it (regions add up), and where Open
+ * Buildings draws nothing: outside its boxes, or inside one but in a
+ * country it has no data for (openBuildingsGaps.mjs). Its height is Overture's `height`, else 3 m a floor
  * (`num_floors`), else unknown.
  *
  * Part file: Uint32 header length, the JSON header (region, row group,
@@ -115,14 +117,17 @@ export function buildingHeight(height, floors) {
  * Decode a fetched row group into a part.
  * @param {{header: object, chunk: (path: string) => Buffer}} group readRowGroupFile's
  * @param {object} footer the file's footer (leaves and chunk metadata)
- * @param {{region: number[], earlier?: number[][], outsideOpenBuildings?: boolean}} filter
- *   `outsideOpenBuildings: false` keeps buildings inside the Open Buildings
+ * @param {{region: number[], earlier?: number[][], outsideOpenBuildings?: boolean,
+ *   gapsOnly?: boolean}} filter `gapsOnly` keeps only the buildings inside an
+ *   Open Buildings box in a country it has no data for (a region built before
+ *   rule 2 left them out); `outsideOpenBuildings: false` keeps buildings
+ *   inside the Open Buildings
  *   boxes too (to compare the two sources)
  */
 export function decodeRowGroup(
   group,
   footer,
-  { region, earlier = [], outsideOpenBuildings = true },
+  { region, earlier = [], outsideOpenBuildings = true, gapsOnly = false },
 ) {
   const meta = footer.rowGroups[group.header.group];
   const column = (p) => {
@@ -181,7 +186,9 @@ export function decodeRowGroup(
     const lat = latOfUnitY(cy);
     if (!inBox(lon, lat, region)) continue;
     if (earlier.some((box) => inBox(lon, lat, box))) continue;
-    if (outsideOpenBuildings && inOpenBuildings(lat, lon)) continue;
+    if (gapsOnly) {
+      if (!inOpenBuildings(lat, lon) || openBuildingsDraws(lat, lon)) continue;
+    } else if (outsideOpenBuildings && openBuildingsDraws(lat, lon)) continue;
     const h = buildingHeight(height[i], floors[i]);
     stats.kept += 1;
     if (h) {

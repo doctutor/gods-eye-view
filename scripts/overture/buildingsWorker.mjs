@@ -24,6 +24,7 @@ async function part({
   partFile,
   region,
   earlier,
+  gapsOnly = false,
   dropRaw,
   userAgent,
 }) {
@@ -51,6 +52,7 @@ async function part({
   const { buckets, stats } = decodeRowGroup(readRowGroupFile(rawFile), footer, {
     region,
     earlier,
+    gapsOnly,
   });
   const bytes = writePart(
     partFile,

@@ -34,6 +34,10 @@ import {
 } from '../../scripts/overture/buildingsParts.mjs';
 import { mergeBucket } from '../../scripts/overture/buildingsMerge.mjs';
 import {
+  gapBoxes,
+  openBuildingsDraws,
+} from '../../scripts/overture/openBuildingsGaps.mjs';
+import {
   cellColor,
   createBuildingsTiles,
   paletteColor,
@@ -448,4 +452,29 @@ test('the route and the layer’s side: versioned tiles, the status, the regions
     (await call('/buildings/tile/count/light/18/1/1')).statusCode,
     400,
   );
+});
+
+test('inside Open Buildings boxes, the land Google has no data for is Overture’s', () => {
+  const where = (lat, lon) =>
+    openBuildingsDraws(lat, lon) ? 'ob' : 'overture';
+  // Across the US–Mexico border, in the same S2 cells.
+  assert.equal(where(32.72, -117.16), 'overture', 'San Diego');
+  assert.equal(where(32.52, -117.03), 'ob', 'Tijuana');
+  assert.equal(where(31.76, -106.49), 'overture', 'El Paso');
+  assert.equal(where(31.69, -106.42), 'ob', 'Ciudad Juárez');
+  assert.equal(where(25.76, -80.19), 'overture', 'Miami');
+  assert.equal(where(25.05, -77.35), 'ob', 'Nassau');
+  // Across the Strait of Gibraltar and the Sicilian channel.
+  assert.equal(where(36.72, -4.42), 'overture', 'Málaga');
+  assert.equal(where(35.76, -5.83), 'ob', 'Tangier');
+  assert.equal(where(37.5, 15.09), 'overture', 'Catania');
+  assert.equal(where(36.8, 10.18), 'ob', 'Tunis');
+  // Outside every box: Open Buildings draws nothing anyway.
+  assert.equal(where(39.29, -76.61), 'overture', 'Baltimore');
+  assert.equal(where(6.45, 3.39), 'ob', 'Lagos');
+  // The plan keeps a row group wholly inside a box with gap land.
+  const sanDiegoBox = gapBoxes().find(
+    ([w, s, e, n]) => w <= -117.16 && e >= -117.16 && s <= 32.72 && n >= 32.72,
+  );
+  assert.ok(sanDiegoBox);
 });

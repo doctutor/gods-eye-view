@@ -10,6 +10,7 @@ import {
   rowGroupFile,
 } from './buildingsPlan.mjs';
 import { readPartHeader } from './buildingsParts.mjs';
+import { gapBoxes } from './openBuildingsGaps.mjs';
 import { BUCKET_ZOOM } from '../../server/providers/overture/buildingsFile.js';
 import {
   BUILDINGS,
@@ -95,6 +96,12 @@ function pool(size) {
   };
 }
 
+/**
+ * What a region's buildings were chosen by: 1 everything outside the Open
+ * Buildings boxes; 2 also the land inside them Google has no data for
+ * (openBuildingsGaps.mjs). A region built under 1 gets a gaps pass.
+ */
+export const BUILDINGS_RULES = 2;
 /** Buckets merged at once. */
 const MERGE_CONCURRENCY = 3;
 
@@ -148,28 +155,51 @@ export async function buildBuildings({
     );
   const tasks = [];
   let toFetch = 0;
+  const gaps = gapBoxes();
   for (const name of order) {
     const index = order.indexOf(name);
     const earlier = order.slice(0, index).map((n) => REGIONS[n]);
-    const doneHere = new Set(done[name] || []);
-    for (const entry of planRowGroups(files, footers, [REGIONS[name]])) {
-      const id = partId(entry);
-      if (doneHere.has(id)) continue;
-      const size = files.find((f) => f.name === entry.file).size;
-      const partFile = path.join(outDir, 'parts', name, `${id}.part`);
-      if (
-        !fs.existsSync(partFile) &&
-        !fs.existsSync(rowGroupFile(rawDir, entry))
-      )
-        toFetch += entry.bytes;
-      tasks.push({
-        region: name,
-        id,
-        entry: { ...entry, size },
-        partFile,
-        earlier,
-        box: REGIONS[name],
-      });
+    // A region built under rule 1 left out the land inside Open Buildings
+    // boxes that Google has no data for: a gaps pass adds it.
+    const oldRules =
+      previous?.regions?.includes(name) &&
+      (previous.regionRules?.[name] ?? 1) < BUILDINGS_RULES;
+    // Its main pass keeps the plan it was built by (all done); the gaps
+    // pass alone takes the gap land, so nothing is taken twice.
+    const passes = [
+      { key: name, gapsOnly: false, gapBoxes: oldRules ? [] : null },
+    ];
+    if (oldRules) passes.push({ key: `${name}.gaps`, gapsOnly: true });
+    for (const pass of passes) {
+      // A row group its gaps pass took is done for the main pass too.
+      const doneHere = new Set([
+        ...(done[pass.key] || []),
+        ...(pass.gapsOnly ? [] : done[`${pass.key}.gaps`] || []),
+      ]);
+      for (const entry of planRowGroups(files, footers, [REGIONS[name]], {
+        gapBoxes: pass.gapBoxes || gaps,
+        gapsOnly: pass.gapsOnly,
+      })) {
+        const id = partId(entry);
+        if (doneHere.has(id)) continue;
+        const size = files.find((f) => f.name === entry.file).size;
+        const partFile = path.join(outDir, 'parts', pass.key, `${id}.part`);
+        if (
+          !fs.existsSync(partFile) &&
+          !fs.existsSync(rowGroupFile(rawDir, entry))
+        )
+          toFetch += entry.bytes;
+        tasks.push({
+          region: name,
+          pass: pass.key,
+          gapsOnly: pass.gapsOnly,
+          id,
+          entry: { ...entry, size },
+          partFile,
+          earlier,
+          box: REGIONS[name],
+        });
+      }
     }
   }
   log(
@@ -200,6 +230,7 @@ export async function buildBuildings({
             partFile: task.partFile,
             region: task.box,
             earlier: task.earlier,
+            gapsOnly: task.gapsOnly,
             dropRaw: !keepRaw,
             userAgent,
           });
@@ -278,7 +309,7 @@ export async function buildBuildings({
 
     // The manifest, then what it no longer names.
     const doneNext = { ...done };
-    for (const task of tasks) (doneNext[task.region] ||= []).push(task.id);
+    for (const task of tasks) (doneNext[task.pass] ||= []).push(task.id);
     const byRegion = { ...(previous?.byRegion || {}) };
     for (const [name, s] of Object.entries(partsByRegion))
       byRegion[name] = mergeStats({ ...(byRegion[name] || {}) }, s);
@@ -300,6 +331,7 @@ export async function buildBuildings({
       attribution: OVERTURE_BUILDINGS_ATTRIBUTION,
       regions: order,
       regionBoxes: Object.fromEntries(order.map((n) => [n, REGIONS[n]])),
+      regionRules: Object.fromEntries(order.map((n) => [n, BUILDINGS_RULES])),
       buckets,
       buildings: Object.values(buckets).reduce(
         (sum, b) => sum + b.buildings,
@@ -346,7 +378,7 @@ export async function buildBuildings({
     for (const name of fs.readdirSync(outDir))
       if (/^manifest-[0-9a-f]{12}\.json$/.test(name) && name !== manifestName)
         fs.rmSync(path.join(outDir, name), { force: true });
-    for (const name of new Set(tasks.map((task) => task.region)))
+    for (const name of new Set(tasks.map((task) => task.pass)))
       fs.rmSync(path.join(outDir, 'parts', name), {
         recursive: true,
         force: true,

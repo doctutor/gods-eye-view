@@ -1484,10 +1484,32 @@ USGS 3DEP heights and more, ODbL) beside Earth Engine's tiles, from a
 local build: `npm run overture:build -- --buildings`. The row then says
 **"Overture buildings (OSM, Microsoft, Esri…)"** in place of "No Open
 Buildings data here", and the credit adds Overture's
-(`OVERTURE_BUILDINGS_CREDIT`). The build leaves out every building inside
-an Open Buildings box, so the two never draw the same place; inside the
-boxes Open Buildings stays. Without the build the row says what it said
-before. With Earth Engine not set up, Overture's buildings still draw.
+(`OVERTURE_BUILDINGS_CREDIT`). The build leaves out every building Open
+Buildings draws, so the two never draw the same place. Without the build
+the row says what it said before. With Earth Engine not set up,
+Overture's buildings still draw.
+
+_Where Open Buildings draws._ Its 46 boxes are coarse S2 cells, and five
+take in land Google has no data for: the US Southwest and South Florida
+(San Diego, Tucson, El Paso, San Antonio, Miami), southern Spain, Sicily,
+Malta and southern Greece. Leaving out everything in the boxes left those
+cities blank, so a building inside a box is still Overture's when its
+country is the US, Spain, Portugal, Italy, Malta, Greece or Gibraltar
+(`scripts/overture/openBuildingsGaps.mjs`). The country comes from Natural
+Earth's admin-0 outlines (the bundled pack), rasterized once over the
+boxes at 0.01° (about 1 km); the outlines are simplified, so the gap
+countries reach 8 cells (about 8 km) further into cells no other country
+claims (the sea, a border sliver). Checked: San Diego, Tucson, El Paso,
+San Antonio, Laredo, McAllen, Miami, Miami Beach, Málaga, Gibraltar,
+Palermo, Catania, Valletta and Kalamata draw Overture's; Tijuana, Ciudad
+Juárez, Nuevo Laredo, Reynosa, Matamoros, Monterrey, Havana, Nassau,
+Tangier, Ceuta and Tunis draw Open Buildings'. Known misses, where the
+simplified outlines leave the place out or another country's takes it:
+the Florida Keys (islands under 20 km² are dropped from the pack),
+Brownsville TX, and small islands such as Lampedusa. Along the US–Mexico
+border the 1 km cells show as a stair-step edge between the sources.
+Rule 2 (`BUILDINGS_RULES`) is this; a region built under rule 1 (the US's
+first build) gets a gaps pass that adds only those buildings.
 
 The same three modes in the same ramps and legends, so the two sources
 read alike: COUNT per km² (log, 1 to 10,000+, under 1 clear), COVER (2%
@@ -1545,13 +1567,31 @@ thrashed; merging a z 10 tile at a time, three buckets at once, fixed it.
 Cold tiles: 8 to 356 ms (the US at z 3 320 ms; Baltimore z 11 356 ms, z 12
 75 to 93 ms, z 15 with outlines 81 ms; a Naperville suburb z 15 46 ms).
 
+**Europe and the gaps** (2026-10-19, one run, `--building-regions
+conterminous-us,europe --cap-gb 47`, the cache on D: through the junction):
+the US gaps pass (1,096 row groups, 2.19 GB) and Europe (18,578 row
+groups, 33.30 GB): 38.5 GB fetched and decoded in 40.7 min, merged in
+13.2 min, 56.7 min in all. The build now holds **579,463,210 buildings**
+in 191 buckets, **11.07 GB**:
+
+| Region          | Buildings   | With a height       | Sources                                                                  |
+| --------------- | ----------- | ------------------- | ------------------------------------------------------------------------ |
+| Conterminous US | 164,043,095 | 121.2 million (74%) | OSM 83.6 M, Microsoft 71.3 M, Esri 8.5 M, Google 0.6 M (northern Mexico) |
+| Europe          | 415,420,115 | 91.7 million (22%)  | OSM 254.4 M, Microsoft 145.8 M, IGN Spain 12.0 M, Esri 3.3 M             |
+
+Europe's heights are mostly floors (29.2 million of the 91.7 million are
+3 m a floor). The gaps pass added 11.2 million US buildings. Cold tiles:
+9 to 781 ms (Europe at z 4 781 ms; London z 11 529 ms; Paris z 12 249 ms,
+z 15 with outlines 147 ms; Málaga, Catania, San Diego, Miami z 12 49 to
+105 ms).
+
 What each region costs (the plan, from the footers; the derived size at
 2.1 GB per 100 million):
 
 | Region (`--building-regions`)                 | Fetched  | Buildings     | Derived |
 | --------------------------------------------- | -------- | ------------- | ------- |
 | Conterminous US `conterminous-us` (built)     | 14.40 GB | 155.3 million | 3.27 GB |
-| Europe `europe` [-32, 34, 45, 72]             | 31.80 GB | 415.5 million | ~8.9 GB |
+| Europe `europe` [-32, 34, 45, 72] (built)     | 33.30 GB | 435.9 million | ~7.6 GB |
 | Western Europe [-11, 35, 19, 61]              | 19.89 GB | 242.8 million | ~5.2 GB |
 | France, Benelux, UK, Germany [-6, 42, 15, 59] | 14.42 GB | 179.6 million | ~3.8 GB |
 | France [-5, 42, 8.5, 51.2]                    | 6.44 GB  | 80.9 million  | ~1.7 GB |

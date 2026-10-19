@@ -149,14 +149,23 @@ export function planRowGroups(
   files,
   footers,
   regionBoxes,
-  { openBuildings = OPEN_BUILDINGS_BOXES } = {},
+  {
+    openBuildings = OPEN_BUILDINGS_BOXES,
+    gapBoxes = [],
+    gapsOnly = false,
+  } = {},
 ) {
+  const isGap = (ob) => gapBoxes.some((g) => g.every((v, i) => v === ob[i]));
   const plan = [];
   files.forEach((file, f) => {
     footers[f].rowGroups.forEach((group, g) => {
       const box = rowGroupBox(group);
       if (!box || !regionBoxes.some((region) => meets(box, region))) return;
-      if (openBuildings.some((ob) => within(box, ob))) return;
+      // A gaps pass: only what meets an Open Buildings box with gap land.
+      if (gapsOnly && !gapBoxes.some((gap) => meets(box, gap))) return;
+      // Wholly inside an Open Buildings box: Google's, unless the box holds
+      // land it has no data for (openBuildingsGaps.mjs).
+      if (openBuildings.some((ob) => within(box, ob) && !isGap(ob))) return;
       const chunks = BUILDING_COLUMNS.map((p) => {
         const chunk = group.columns.find((c) => c.path === p);
         if (!chunk) throw new Error(`${file.name}: no column ${p}`);
