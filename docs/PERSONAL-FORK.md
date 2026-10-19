@@ -3357,6 +3357,7 @@ docs.overturemaps.org/attribution. The app serves the places from the
 local index and bundles none.
 
 Foursquare's [NOTICE](https://opensource.foursquare.com/places-notice-txt/)
+(kept verbatim in [docs/notices/FOURSQUARE-OS-PLACES-NOTICE.txt](notices/FOURSQUARE-OS-PLACES-NOTICE.txt))
 must travel in full with any distribution of its data; for an API, it
 goes in the developer documentation. It names Foursquare Labs, Inc. as
 the copyright holder and the Apache License 2.0 as the licence, asks that
