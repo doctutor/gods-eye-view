@@ -45,6 +45,7 @@ import {
 import {
   createOvertureHandler,
   createOvertureService,
+  keepTile,
 } from '../../server/providers/overture.js';
 import {
   inOvertureBuildings,
@@ -513,4 +514,71 @@ test('tiles drawn in worker threads are the tiles drawn here', async (t) => {
     (await here.buildingTile('count', 'light', 12, 1, 1)).status,
     503,
   );
+});
+
+test('a drawn tile is kept even when Windows refuses the first renames', (t) => {
+  const dir = tmp(t);
+  const file = path.join(dir, 'tiles', 'v', 'count', 'any', '3', '2', '3.png');
+  const body = Buffer.from('png');
+  let refusals = 2;
+  const flaky = (from, to) => {
+    if (refusals-- > 0)
+      throw Object.assign(new Error('busy'), { code: 'EPERM' });
+    fs.renameSync(from, to);
+  };
+  assert.equal(keepTile(file, body, { renameSync: flaky }), true);
+  assert.ok(fs.readFileSync(file).equals(body));
+  // Refused every time, but the tile is there (a reader held it): kept.
+  const always = () => {
+    throw Object.assign(new Error('busy'), { code: 'EPERM' });
+  };
+  assert.equal(keepTile(file, body, { renameSync: always }), true);
+  // Refused every time and not there: not kept, said once, no temp left.
+  const other = path.join(dir, 'tiles', 'v', 'count', 'any', '3', '2', '4.png');
+  const said = [];
+  assert.equal(
+    keepTile(other, body, {
+      renameSync: always,
+      log: (line) => said.push(line),
+    }),
+    false,
+  );
+  assert.match(said[0] || '', /tile not kept \(EPERM\)/);
+  assert.deepEqual(
+    fs.readdirSync(path.dirname(other)).filter((n) => n.endsWith('.tmp')),
+    [],
+  );
+  // No body: the empty marker.
+  assert.equal(keepTile(other, null), true);
+  assert.ok(fs.existsSync(`${other}.empty`));
+});
+
+test('both inks below the footprints share one draw and one file', async (t) => {
+  const polygons = wkbPolygons(square(-76.61, 39.29, 0.0002));
+  const dir = service(
+    t,
+    Array.from({ length: 5 }, () => ({ height: 9, polygons })),
+  );
+  const pooled = createOvertureService({ dir, tileWorkers: 2 });
+  t.after(() => pooled.close());
+  const [x, y] = tileOf(-76.61, 39.29, 10);
+  const [light, dark] = await Promise.all([
+    pooled.buildingTile('count', 'light', 10, x, y),
+    pooled.buildingTile('count', 'dark', 10, x, y),
+  ]);
+  assert.ok(light.body.equals(dark.body));
+  const kept = path.join(
+    dir,
+    'buildings',
+    'tiles',
+    'abcdef012345',
+    'count',
+    'any',
+    '10',
+    String(x),
+    `${y}.png`,
+  );
+  assert.ok(fs.existsSync(kept));
+  const again = await pooled.buildingTile('count', 'dark', 10, x, y);
+  assert.equal(again.cached, true);
 });

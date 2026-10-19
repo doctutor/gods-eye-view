@@ -122,6 +122,8 @@ export function createOvertureService({
   const buildings = createBuildingsTiles({ dir, now });
   const pool =
     tileWorkers > 0 ? createTilePool({ dir, size: tileWorkers }) : null;
+  /** Tile file → the draw (and write) in flight. */
+  const drawingTiles = new Map();
   let held = null;
   let checkedAt = -Infinity;
   let lastError = null;
@@ -250,19 +252,21 @@ export function createOvertureService({
           empty: true,
           cached: true,
         };
-      const answer = pool
-        ? await pool.render(mode, ink, z, x, y)
-        : buildings.tile(mode, ink, z, x, y);
-      if (answer.status !== 200) return answer;
-      try {
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        if (answer.body) {
-          fs.writeFileSync(`${file}.${process.pid}.tmp`, answer.body);
-          fs.renameSync(`${file}.${process.pid}.tmp`, file);
-        } else fs.writeFileSync(empty, '');
-      } catch {
-        /* serving matters more than keeping */
+      // One draw and one write per tile file, however many ask for it at
+      // once (both inks below the footprints' zoom share a file).
+      let drawing = drawingTiles.get(file);
+      if (!drawing) {
+        drawing = (async () => {
+          const drawn = pool
+            ? await pool.render(mode, inkKey === 'any' ? 'light' : ink, z, x, y)
+            : buildings.tile(mode, ink, z, x, y);
+          if (drawn.status === 200) keepTile(file, drawn.body);
+          return drawn;
+        })().finally(() => drawingTiles.delete(file));
+        drawingTiles.set(file, drawing);
       }
+      const answer = await drawing;
+      if (answer.status !== 200) return answer;
       return answer.body
         ? { status: 200, version: answer.version, body: answer.body }
         : {
@@ -373,6 +377,55 @@ export function createOvertureHandler({ service }) {
     }
   };
 }
+
+/**
+ * Keep a drawn tile on disk: a temp file of its own, then a rename, tried
+ * again a few times when Windows refuses it (EPERM, EBUSY, EACCES: another
+ * process, or a reader of the same file, has it open). A tile already there
+ * counts as kept. Failures are logged (once a minute), never thrown:
+ * serving matters more than keeping.
+ */
+export function keepTile(
+  file,
+  body,
+  { renameSync = fs.renameSync, log = console.warn } = {},
+) {
+  const temporary = `${file}.${process.pid}.${(tempSerial += 1)}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (!body) {
+      fs.writeFileSync(`${file}.empty`, '');
+      return true;
+    }
+    fs.writeFileSync(temporary, body);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        renameSync(temporary, file);
+        return true;
+      } catch (error) {
+        const busy = ['EPERM', 'EBUSY', 'EACCES'].includes(error?.code);
+        if (!busy || attempt >= KEEP_RETRIES) throw error;
+        sleepSync(KEEP_RETRY_MS * (attempt + 1));
+      }
+    }
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    if (fs.existsSync(file)) return true;
+    if (Date.now() - lastKeepWarning > 60_000) {
+      lastKeepWarning = Date.now();
+      log(
+        `[Overture] tile not kept (${error?.code || error?.message}): ${file}`,
+      );
+    }
+    return false;
+  }
+}
+let tempSerial = 0;
+let lastKeepWarning = -Infinity;
+const KEEP_RETRIES = 4;
+const KEEP_RETRY_MS = 25;
+const sleepSync = (ms) =>
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 let shared = null;
 /** The dev server draws buildings tiles in this many worker threads. */
