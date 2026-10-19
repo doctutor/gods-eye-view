@@ -5,9 +5,11 @@ import { createRiverNames } from '../../layers/earthEngine/riverNames.js';
 import { createEarthEngineSource } from '../../layers/earthEngine/source.js';
 import { createRiversV2Source } from '../../layers/riversV2/source.js';
 import { createCensusSource } from '../../layers/census/source.js';
+import { createOvertureBuildingsSource } from '../../layers/earthEngine/overtureBuildings.js';
 import { governorRequestRender } from '../../renderGovernor.js';
 import {
   HYDROSHEDS_V2_CREDIT,
+  OVERTURE_BUILDINGS_CREDIT,
   RIVER_REACH_CREDIT,
   demSourceCredit,
   registerDynamicCredit,
@@ -27,6 +29,7 @@ export function createApplicationEarthEngineLayers({
   source = createEarthEngineSource(),
   riversV2 = createRiversV2Source(),
   census = createCensusSource(),
+  overtureBuildings = createOvertureBuildingsSource(),
 } = {}) {
   const credits = { register: registerDynamicCredit };
   return EARTH_ENGINE_LAYERS.map((record) =>
@@ -58,6 +61,9 @@ export function createApplicationEarthEngineLayers({
       v2Credit: record.americasV2 ? HYDROSHEDS_V2_CREDIT : null,
       // The terrain layers credit each elevation source as it first draws.
       demCredit: record.demStack ? demSourceCredit : null,
+      // Buildings: Overture's outside Open Buildings, when built.
+      overtureSource: record.overture ? overtureBuildings : null,
+      overtureCredit: record.overture ? OVERTURE_BUILDINGS_CREDIT : null,
     }),
   );
 }

@@ -104,6 +104,7 @@ const VARIANT_LABELS = Object.freeze({
 /** What the row says outside a layer's `coverage` (its key). */
 export const COVERAGE_MESSAGES = Object.freeze({
   'open-buildings': msg('No Open Buildings data here'),
+  'overture-buildings': msg('Overture buildings (OSM, Microsoft, Esri…)'),
 });
 
 /** A variant's words for the status line, or ''. */

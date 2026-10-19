@@ -1475,6 +1475,115 @@ The slowest tile drawn, 8.6 s, is under a third of the proxy's 30 s.
 `maxZoom` is 17. Outside the coverage the raster's tiles are empty
 (Baltimore: 334 B a tile).
 
+#### Overture buildings outside Open Buildings
+
+Where Open Buildings has no data, the layer drapes **Overture Maps'
+buildings** (release 2026-09-23.1, the `buildings` theme: OpenStreetMap,
+Microsoft's ML footprints, Esri Community Maps, Google Open Buildings,
+USGS 3DEP heights and more, ODbL) beside Earth Engine's tiles, from a
+local build: `npm run overture:build -- --buildings`. The row then says
+**"Overture buildings (OSM, Microsoft, Esri…)"** in place of "No Open
+Buildings data here", and the credit adds Overture's
+(`OVERTURE_BUILDINGS_CREDIT`). The build leaves out every building inside
+an Open Buildings box, so the two never draw the same place; inside the
+boxes Open Buildings stays. Without the build the row says what it said
+before. With Earth Engine not set up, Overture's buildings still draw.
+
+The same three modes in the same ramps and legends, so the two sources
+read alike: COUNT per km² (log, 1 to 10,000+, under 1 clear), COVER (2%
+to 50%+), HEIGHT (3 to 30+ m, where at least 5% is built and the height
+of at least a quarter of what is built is known). A building's height is
+Overture's `height`, else 3 m a floor (`num_floors`), else unknown.
+Footprint outlines in the ink from z 15, as Open Buildings' v3 polygons.
+
+_The build._ The theme is 512 GeoParquet files, 277 GB, 2.53 billion
+buildings. The step reads only what it needs:
+
+1. **Plan.** Each file's footer is fetched once and kept
+   (`raw/2026-09-23.1/buildings/footers/`, 419 MB for the 512 files, 76 s).
+   A row group is planned when its bounding box (the `bbox` columns'
+   statistics) meets a region asked for and is not wholly inside one Open
+   Buildings box, and only six columns are fetched (`geometry`, `height`,
+   `num_floors`, `subtype`, `class`, `sources.dataset`; the geometry is
+   97% of the bytes). The plan is checked against a 25 GB cap
+   (`--cap-gb` raises it).
+2. **Parts.** Each row group is fetched by HTTP range, decoded by the
+   dependency-free Parquet reader (`scripts/overture/parquet.mjs`) in
+   worker threads, and written as a part: its buildings quantized to a
+   web-mercator grid of 2^28 units (0.15 m at the equator), grouped by the
+   z 14 tile of their centre. A building is kept when its centre is in the
+   region, in no region built before it, and outside every Open Buildings
+   box. The raw bytes are dropped once decoded (`--keep-raw` keeps them).
+   A part on disk is done, so a stopped build repeats nothing finished.
+3. **Merge.** Each z 6 bucket that new parts reach is written again from
+   its earlier file and the parts, three at a time, one z 10 tile at a
+   time: the footprints per z 14 tile (varint deltas, zstd), and the
+   density sums (buildings, built m², Σ height × m², m² with a known
+   height) at the cells of each z 10 tile (153 m at the equator) and of
+   the bucket's own z 6 tile. Then a new manifest, `buildings/current.json`
+   pointing at it, and the parts and replaced files go
+   (`server/providers/overture/buildingsFile.js`).
+
+Regions add up: `--building-regions europe` later keeps the US and adds
+Europe, and its row groups skip any building the US already took.
+
+_Level of detail._ The tiles (`server/providers/overture/buildingsTiles.js`)
+are sums divided by ground, so each mode is the same quantity at every
+zoom: z 0–6 from the buckets' cells, z 7–10 from the z 10 tiles' cells,
+z 11 and closer from the footprints themselves, binned into cells no finer
+than a z 11 pixel (76 m at the equator, 58 m at Baltimore; at z 15 a cell is
+16 pixels), with the outlines over them from z 15. Tiles are kept on disk
+under the build's version (`buildings/tiles/<version>/`; the ink only in
+footprint tiles' paths), and the browser keeps one a day under its `?v=`.
+
+Measured, the conterminous US (2026-10-19): 8,061 row groups, 14.4 GB of
+column chunks fetched in 603 s (12 connections); decoded in 6.6 min (14
+workers) and merged in 2.7 min. **152,795,749 buildings** in 60 buckets,
+**3.27 GB** (about 2.1 GB per 100 million buildings); 113.4 million (74%)
+have a height. A first merge of 14 buckets at a time held 15.6 GB and
+thrashed; merging a z 10 tile at a time, three buckets at once, fixed it.
+Cold tiles: 8 to 356 ms (the US at z 3 320 ms; Baltimore z 11 356 ms, z 12
+75 to 93 ms, z 15 with outlines 81 ms; a Naperville suburb z 15 46 ms).
+
+What each region costs (the plan, from the footers; the derived size at
+2.1 GB per 100 million):
+
+| Region (`--building-regions`)                 | Fetched  | Buildings     | Derived |
+| --------------------------------------------- | -------- | ------------- | ------- |
+| Conterminous US `conterminous-us` (built)     | 14.40 GB | 155.3 million | 3.27 GB |
+| Europe `europe` [-32, 34, 45, 72]             | 31.80 GB | 415.5 million | ~8.9 GB |
+| Western Europe [-11, 35, 19, 61]              | 19.89 GB | 242.8 million | ~5.2 GB |
+| France, Benelux, UK, Germany [-6, 42, 15, 59] | 14.42 GB | 179.6 million | ~3.8 GB |
+| France [-5, 42, 8.5, 51.2]                    | 6.44 GB  | 80.9 million  | ~1.7 GB |
+| The world outside Open Buildings              | 72.3 GB  | 953 million   | ~20 GB  |
+
+Row groups are spatially sorted but their boxes are coarse, so a small
+region pulls in some of its neighbours' bytes (dropped by the centre test).
+
+_Where both sources have data_ (1 km boxes, Overture with the Open
+Buildings exclusion off, against Open Buildings 2.5D 2023 summed in Earth
+Engine at 0.5 m):
+
+| Box                   | COUNT per km², Overture / Open Buildings | Ratio | COVER, Overture / Open Buildings | Ratio |
+| --------------------- | ---------------------------------------- | ----- | -------------------------------- | ----- |
+| Lagos, Ikeja          | 2,345 / 3,308                            | 0.71  | 42.5% / 44.0%                    | 0.97  |
+| Lagos Island          | 2,113 / 5,135                            | 0.41  | 36.1% / 40.8%                    | 0.89  |
+| São Paulo, Pinheiros  | 2,666 / 4,427                            | 0.60  | 47.3% / 36.3%                    | 1.30  |
+| Mexico City, Narvarte | 609 / 6,169                              | 0.10  | 6.6% / 39.7%                     | 0.17  |
+
+Cover agrees within about 10% where Overture has the buildings; COUNT
+reads 0.4 to 0.7 times Open Buildings' fractional count, whose raster
+splits terraced rows into more buildings than footprints do. Narvarte is a
+gap in Overture itself (607 footprints for a dense square kilometre). So
+across a boundary between the sources expect COUNT to step down by about
+half and COVER to agree.
+
+_Licence._ Overture's buildings are ODbL: the local build is a derived
+database (share-alike if it were published), and the tiles on screen are a
+Produced Work that needs the credit, which the layer registers. Its
+sources' licences are listed in the credit and in DATA_SOURCES.md. Like
+the divisions index, it stays in `.gev-cache` and is never committed.
+
 ### Tree canopy
 
 **Tree canopy** (`ee-tree-canopy`, ANALYSIS) draws canopy height in metres,

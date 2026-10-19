@@ -1069,6 +1069,9 @@ const BUILDINGS = Object.freeze({
     key: 'open-buildings',
     boxes: OPEN_BUILDINGS_BOXES,
   }),
+  // Outside the boxes: Overture's buildings, when the local build has them
+  // (src/layers/earthEngine/overtureBuildings.js).
+  overture: true,
   legend: BUILDINGS_MODES[0].legend,
   attribution: BUILDINGS_NOTICE,
   maxZoom: BUILDINGS_MAX_ZOOM,

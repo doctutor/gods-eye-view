@@ -12,6 +12,7 @@ import { createEarthEngineService } from '../../../server/providers/earthEngine.
 import { createEarthEngineLayer } from './index.js';
 import { createEarthEngineSource } from './source.js';
 import { statusText, variantLabel } from './presentation.js';
+import { toOvertureBuildingsStatus } from './overtureBuildings.js';
 
 const record = (id) => EARTH_ENGINE_LAYERS.find((layer) => layer.id === id);
 
@@ -23,7 +24,11 @@ function memoryStorage(entries = {}) {
   };
 }
 
-async function mounted(t, id, { lat, lon, heightM, luminance = 'dark' }) {
+async function mounted(
+  t,
+  id,
+  { lat, lon, heightM, luminance = 'dark', overture = null, catalog = null },
+) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gev-bc-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const service = createEarthEngineService({
@@ -68,9 +73,17 @@ async function mounted(t, id, { lat, lon, heightM, luminance = 'dark' }) {
   const layer = createEarthEngineLayer({
     record: record(id),
     source: createEarthEngineSource({
-      fetchImpl: async () => Response.json(body),
+      fetchImpl: async () => Response.json(catalog || body),
     }),
     storage: memoryStorage(),
+    ...(overture
+      ? {
+          overtureSource: {
+            status: async () => overture,
+            last: () => overture,
+          },
+        }
+      : {}),
   });
   layer.init(viewer);
   layer.attachMapStackController({
@@ -166,4 +179,59 @@ test('Tree canopy: META 1 M and ETH 10 M chips, heights in metres', async (t) =>
   assert.match(layers[0].imageryProvider.url, /\/ee-tree-canopy\/meta\//);
   assert.doesNotMatch(row.info, /No .* data here/);
   layer.disable();
+});
+
+const OVERTURE = toOvertureBuildingsStatus({
+  buildings: {
+    configured: true,
+    version: 'abcdef012345',
+    regionBoxes: { 'conterminous-us': [-125, 24.4, -66.8, 49.5] },
+    attribution: '© OpenStreetMap contributors, Overture Maps Foundation',
+    maxZoom: 17,
+  },
+});
+
+test('outside Open Buildings, Overture’s buildings are draped beside it and the row names them', async (t) => {
+  const baltimore = await mounted(t, 'ee-buildings', {
+    lat: 39.29,
+    lon: -76.61,
+    heightM: 50_000,
+    overture: OVERTURE,
+  });
+  const urls = baltimore.layers.map((layer) => layer.imageryProvider.url);
+  assert.equal(urls.length, 2, 'Earth Engine’s tiles and Overture’s');
+  assert.match(
+    urls[1],
+    /^\/api\/overture\/buildings\/tile\/count\/light\/\{z\}\/\{x\}\/\{y\}\?v=abcdef012345$/,
+  );
+  assert.match(
+    baltimore.layer.getRowControls().info,
+    /^Overture buildings \(OSM, Microsoft, Esri…\) · /,
+  );
+  baltimore.layer.disable();
+  assert.equal(baltimore.layers.length, 0);
+  // Lagos: inside Open Buildings, outside every Overture region.
+  const lagos = await mounted(t, 'ee-buildings', {
+    lat: 6.455,
+    lon: 3.39,
+    heightM: 50_000,
+    overture: OVERTURE,
+  });
+  assert.equal(lagos.layers.length, 1);
+  assert.doesNotMatch(lagos.layer.getRowControls().info, /Overture/);
+  lagos.layer.disable();
+  // Earth Engine not set up: Overture's buildings alone.
+  const alone = await mounted(t, 'ee-buildings', {
+    lat: 39.29,
+    lon: -76.61,
+    heightM: 50_000,
+    overture: OVERTURE,
+    catalog: { configured: false, layers: [] },
+  });
+  assert.equal(alone.layers.length, 1);
+  assert.match(
+    alone.layers[0].imageryProvider.url,
+    /^\/api\/overture\/buildings\//,
+  );
+  alone.layer.disable();
 });

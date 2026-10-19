@@ -22,6 +22,10 @@ import {
 } from './presentation.js';
 import { ZOOM_VARIANT, tileTemplate } from './source.js';
 import { riversV2ImageryOptions, riversV2Ready } from '../riversV2/source.js';
+import {
+  inOvertureBuildings,
+  overtureBuildingsImageryOptions,
+} from './overtureBuildings.js';
 import { censusImageryOptions, censusModeMessage } from '../census/source.js';
 
 /**
@@ -279,6 +283,8 @@ export function createEarthEngineLayer({
   v2Credit = null,
   localSource = null,
   demCredit = null,
+  overtureSource = null,
+  overtureCredit = null,
 }) {
   const store = storageOf(storage);
   let _viewer = null;
@@ -315,6 +321,9 @@ export function createEarthEngineLayer({
   /** A local mode's server status (the Census tracts' income), when asked. */
   let _localStatus = null;
   let _v2Imagery = null;
+  /** Overture's buildings (the Buildings layer, outside Open Buildings). */
+  let _overtureStatus = null;
+  let _overtureImagery = null;
   const notify = () => {
     try {
       _rowListener?.();
@@ -446,11 +455,13 @@ export function createEarthEngineLayer({
     try {
       _collection?.remove(_imagery, true);
       if (_v2Imagery) _collection?.remove(_v2Imagery, true);
+      if (_overtureImagery) _collection?.remove(_overtureImagery, true);
     } catch {
       /* already gone with its tileset or the viewer */
     }
     _imagery = null;
     _v2Imagery = null;
+    _overtureImagery = null;
     _collection = null;
     _mountedKey = '';
     _madeFor = null;
@@ -531,8 +542,14 @@ export function createEarthEngineLayer({
       layer &&
       !_aboveCeiling;
     if (_enabled) names?.update(view, wantedInk());
+    const overtureOptions =
+      _enabled && host.collection && !_aboveCeiling
+        ? overtureOptionsNow()
+        : null;
     if (!drawable) {
-      unmount();
+      // Earth Engine not set up: Overture's buildings still draw.
+      if (overtureOptions) mountOvertureOnly(host, view, overtureOptions);
+      else unmount();
       return;
     }
     const ink = wantedInk();
@@ -565,7 +582,7 @@ export function createEarthEngineLayer({
     const demSources = record.demStack
       ? demSourcesInView(record, wantedVariant(), box, maximumLevel)
       : [];
-    const key = `${variant}|${ink}|${version}|${mode}|${v2Version}|${maximumLevel}|${demSources.map((entry) => entry.key).join(',')}`;
+    const key = `${variant}|${ink}|${version}|${mode}|${v2Version}|${maximumLevel}|${demSources.map((entry) => entry.key).join(',')}|${overtureOptions?.url || ''}`;
     if (
       _imagery &&
       _mountedKey === key &&
@@ -617,6 +634,13 @@ export function createEarthEngineLayer({
     host.collection.add(_imagery);
     if (useV2)
       mountV2(host.collection, ink, box, { minimumLevel, maximumLevel });
+    if (overtureOptions)
+      _overtureImagery = overtureLayer(
+        host.collection,
+        overtureOptions,
+        box,
+        minimumLevel,
+      );
     _demSources = demSources;
     if (demCredit)
       for (const entry of demSources)
@@ -667,6 +691,106 @@ export function createEarthEngineLayer({
     });
     collection.add(_v2Imagery);
     if (v2Credit) credits?.register?.(_viewer, v2Credit);
+  }
+
+  /** Overture's buildings for the mode and ink drawn now, or null. */
+  function overtureOptionsNow() {
+    if (!record.overture || !overtureSource) return null;
+    return overtureBuildingsImageryOptions(
+      _overtureStatus,
+      hasModes ? _mode : 'count',
+      wantedInk(),
+    );
+  }
+
+  /**
+   * Overture's buildings over the build's regions that meet the view's
+   * square, at the layer's opacity. They hold nothing inside an Open
+   * Buildings box, so they sit beside Earth Engine's tiles, never over
+   * them. Returns the imagery layer, or null when no region is in view.
+   */
+  function overtureLayer(collection, options, box, minimumLevel = 0) {
+    const { boxes, ...rest } = options;
+    const meets = boxes.filter(
+      ([west, south, east, north]) =>
+        !box ||
+        (west <= box.east &&
+          east >= box.west &&
+          south <= box.north &&
+          north >= box.south),
+    );
+    if (!meets.length) return null;
+    const extent = [
+      Math.min(...meets.map((b) => b[0])),
+      Math.min(...meets.map((b) => b[1])),
+      Math.max(...meets.map((b) => b[2])),
+      Math.max(...meets.map((b) => b[3])),
+    ];
+    const clip = box
+      ? [
+          Math.max(extent[0], box.west),
+          Math.max(extent[1], box.south),
+          Math.min(extent[2], box.east),
+          Math.min(extent[3], box.north),
+        ]
+      : extent;
+    if (!(clip[0] < clip[2] && clip[1] < clip[3])) return null;
+    const provider = new cesium.UrlTemplateImageryProvider({
+      ...rest,
+      minimumLevel,
+      tilingScheme: new cesium.WebMercatorTilingScheme(),
+      rectangle: cesium.Rectangle.fromDegrees(...extent),
+    });
+    const layer = new cesium.ImageryLayer(provider, {
+      alpha: _opacity,
+      rectangle: cesium.Rectangle.fromDegrees(...clip),
+    });
+    collection.add(layer);
+    if (overtureCredit) credits?.register?.(_viewer, overtureCredit);
+    return layer;
+  }
+
+  /** Earth Engine is not set up: Overture's buildings alone. */
+  function mountOvertureOnly(host, view, options) {
+    const key = `overture|${options.url}`;
+    if (
+      _imagery &&
+      _mountedKey === key &&
+      _collection === host.collection &&
+      !viewMoved(_madeFor, view)
+    )
+      return;
+    unmount();
+    const box = viewRectangleDegrees(view.lat, view.lon, view.height);
+    _imagery = overtureLayer(host.collection, options, box);
+    if (!_imagery) {
+      notify();
+      return;
+    }
+    _collection = host.collection;
+    _mountedKey = key;
+    _madeFor = view;
+    requestRender('earth-engine-show');
+    notify();
+  }
+
+  /** Overture's buildings status: a failure reads as not built. */
+  async function loadOverture({ refresh = false } = {}) {
+    if (!record.overture || !overtureSource) return;
+    try {
+      _overtureStatus = await overtureSource.status({ refresh });
+    } catch {
+      _overtureStatus = null;
+    }
+    if (_enabled) sync();
+    notify();
+  }
+
+  /** Whether Overture's buildings speak for the view (outside Open Buildings). */
+  function overtureHere() {
+    if (!overtureOptionsNow()) return false;
+    const { lat, lon } = viewNow();
+    return inOvertureBuildings(_overtureStatus, lat, lon);
   }
 
   /** A local mode's server status: a failure reads as not built. */
@@ -779,6 +903,7 @@ export function createEarthEngineLayer({
       /* private mode: kept for this page only */
     }
     if (_v2Imagery) _v2Imagery.alpha = _opacity;
+    if (_overtureImagery) _overtureImagery.alpha = _opacity;
     if (_imagery) {
       _imagery.alpha = _opacity;
       requestRender('earth-engine-opacity');
@@ -806,12 +931,14 @@ export function createEarthEngineLayer({
       _catalog = source.last?.() || _catalog;
       _v2Status = v2Source?.last?.() || _v2Status;
       _localStatus = localSource?.last?.() || _localStatus;
+      _overtureStatus = overtureSource?.last?.() || _overtureStatus;
       names?.enable();
       clicks?.enable(_viewer);
       sync();
       void loadCatalog();
       void loadV2();
       void loadLocal();
+      void loadOverture();
     },
 
     disable() {
@@ -827,6 +954,7 @@ export function createEarthEngineLayer({
     async update() {
       if (!_enabled) return false;
       void loadV2({ refresh: true });
+      void loadOverture({ refresh: true });
       return loadCatalog({ refresh: true });
     },
 
@@ -883,10 +1011,13 @@ export function createEarthEngineLayer({
               (_localStatus ? '' : 'Asking the local census server…')
             : '',
         demSource: _enabled && record.demStack ? demSourceName() : '',
-        // Personal fork: outside where the data is (Buildings), the row says so.
+        // Personal fork: outside where the data is (Buildings), the row says
+        // so, or that Overture's buildings are drawn there.
         outsideCoverage:
           _enabled && record.coverage && !viewInCoverage()
-            ? record.coverage.key
+            ? overtureHere()
+              ? 'overture-buildings'
+              : record.coverage.key
             : '',
         creditTitle:
           record.demStack && _demSources.length
