@@ -113,6 +113,8 @@ const PANEL_GROUPS = [
       'ee-rivers',
       'ee-surface-water',
       'ee-land-cover',
+      'ee-buildings',
+      'ee-tree-canopy',
       // Personal fork: Wikipedia coverage (src/layers/wikipediaCoverage/).
       'wikipedia-coverage',
     ],

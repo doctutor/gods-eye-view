@@ -87,12 +87,23 @@ const invoke = (functionName, args) => ({
 function assetNode(asset) {
   if (asset?.table)
     return invoke('Collection.loadTable', { tableId: constant(asset.table) });
-  const image = asset?.collection
-    ? invoke('ImageCollection.mosaic', {
-        collection: invoke('ImageCollection.load', {
-          id: constant(asset.collection),
-        }),
-      })
+  const loaded = asset?.collection
+    ? invoke('ImageCollection.load', { id: constant(asset.collection) })
+    : null;
+  // A collection with one image per year (Open Buildings): that year's.
+  const collection =
+    loaded && Number.isInteger(asset.year)
+      ? invoke('Collection.filter', {
+          collection: loaded,
+          filter: invoke('Filter.calendarRange', {
+            start: constant(asset.year),
+            end: constant(asset.year),
+            field: constant('year'),
+          }),
+        })
+      : loaded;
+  const image = collection
+    ? invoke('ImageCollection.mosaic', { collection })
     : invoke('Image.load', { id: constant(asset?.image) });
   const band = asset?.band
     ? invoke('Image.select', {
@@ -387,6 +398,9 @@ export function contourExpression(
  *   masked (Land cover, Forest types);
  * - zero masked: `mask` 'self' (or the layer's `selfMask`), or 'nonzero'
  *   for signed values (Surface water's change);
+ * - `perBand` {band, atLeast}: ÷ another band of the same asset, masked
+ *   where that band is below `atLeast` (Buildings' height per built share:
+ *   both bands MEAN-pyramided, so a coarse pixel is Σ height / Σ presence);
  * - `scale`: × a factor (Population: a count per equal-area cell to one
  *   per km²); `atLeast`: values below it masked; `log10`: the logarithm.
  */
@@ -406,6 +420,19 @@ function imageNode(layer, variant, modeKey) {
         scale: constant(30),
       });
     node = terrainNode(layer.terrain, node);
+  }
+  if (steps.perBand) {
+    const asset =
+      mode?.asset ||
+      (mode?.band ? { ...variant.asset, band: mode.band } : variant.asset);
+    const divisor = assetNode({ ...asset, band: steps.perBand.band });
+    node = invoke('Image.updateMask', {
+      image: invoke('Image.divide', { image1: node, image2: divisor }),
+      mask: invoke('Image.gte', {
+        image1: divisor,
+        image2: imageConstant(steps.perBand.atLeast ?? 0),
+      }),
+    });
   }
   if (steps.maskBand)
     node = invoke('Image.updateMask', {
@@ -662,6 +689,48 @@ function stackContourExpression(layer, variant) {
 }
 
 /**
+ * An image layer's picture with a table drawn over it (a variant's
+ * `overlay`: Buildings' footprints from z 15). The picture is visualized
+ * with the mode's vis (Image.visualize), then the features whose
+ * `overlay.filter.property` is at least `atLeast` are drawn by
+ * Collection.style in the ink, `overlay.width` px, unfilled, and blended on
+ * top. The map has no visualization of its own (the result is RGB).
+ */
+export function overlayExpression(layer, variant, ink, modeKey) {
+  const vis = visFor(layer, modeKey);
+  const picture = invoke('Image.visualize', {
+    image: imageNode(layer, variant, modeKey),
+    min: constant(vis.min),
+    max: constant(vis.max),
+    palette: constant([...vis.palette]),
+  });
+  const { table, filter, width = 1 } = variant.overlay;
+  let features = assetNode({ table });
+  if (filter)
+    features = invoke('Collection.filter', {
+      collection: features,
+      filter: invoke('Filter.gte', {
+        leftField: constant(filter.property),
+        rightValue: constant(filter.atLeast),
+      }),
+    });
+  return {
+    values: {
+      0: invoke('Image.blend', {
+        bottom: picture,
+        top: invoke('Collection.style', {
+          collection: features,
+          color: constant(inkColor(layer, ink)),
+          fillColor: constant('00000000'),
+          width: constant(width),
+        }),
+      }),
+    },
+    result: '0',
+  };
+}
+
+/**
  * A layer variant's expression in an ink (and mode), as the REST API takes
  * it: {values: {0: <value node>, …}, result: '0'}.
  */
@@ -684,6 +753,10 @@ export function expressionFor(
   }
   // The terrain layers and Elevation: the DEM stack's band.
   if (variant?.stack) return demStackExpression(layer, variant);
+  // A band with an `overlay` (Buildings' footprints up close): the mode's
+  // picture with a table's outlines in the ink on top.
+  if (layer.kind !== 'features' && variant?.overlay)
+    return overlayExpression(layer, variant, ink, mode);
   if (layer.kind !== 'features')
     return { values: { 0: imageNode(layer, variant, mode) }, result: '0' };
   let node = assetNode(variant.asset);
@@ -730,7 +803,7 @@ export function mapRequestFor(
     expression: expressionFor(layer, variant, ink, mode),
     fileFormat: 'PNG',
   };
-  const vis = visFor(layer, mode);
+  const vis = variant?.overlay ? null : visFor(layer, mode);
   if (layer.contour) {
     // The lines in the ink; the ink's alpha (RRGGBBAA) is the map's opacity.
     const color = inkColor(layer, ink);

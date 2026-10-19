@@ -889,6 +889,8 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     'ee-surface-water': 0,
     'ee-land-cover': 0,
     'ee-elevation-contours': 0,
+    'ee-buildings': 0,
+    'ee-tree-canopy': 0,
   });
   assert.deepEqual(catalog.tiles, { used: 10, budget: 10 });
   // A new day starts from nothing, with its own warnings.

@@ -709,6 +709,12 @@ test('the mode chips exist only on a layer with modes', () => {
       'density-2000',
       'density-1990',
       'density-1975',
+      // Buildings' modes and Tree canopy's sources.
+      'count',
+      'cover',
+      'height',
+      'meta',
+      'eth',
     ],
   );
   const boundaries = EARTH_ENGINE_LAYERS.find(

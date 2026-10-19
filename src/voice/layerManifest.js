@@ -425,6 +425,8 @@ export const VOICE_OFF_LAYERS = Object.freeze({
   'ee-rivers': 'personal fork layer',
   'ee-surface-water': 'personal fork layer',
   'ee-land-cover': 'personal fork layer',
+  'ee-buildings': 'personal fork layer',
+  'ee-tree-canopy': 'personal fork layer',
   grid: 'personal fork layer',
   'wikipedia-coverage': 'personal fork layer',
 });

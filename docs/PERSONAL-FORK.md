@@ -34,6 +34,8 @@ unless its switch is set to `0`.
   - [Rivers](#rivers)
   - [Surface water](#surface-water)
   - [Land cover](#land-cover)
+  - [Buildings](#buildings)
+  - [Tree canopy](#tree-canopy)
 - [Elevation: the DEM stack](#elevation-the-dem-stack)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
@@ -525,6 +527,8 @@ has level and ink chips (below).
 | Rivers (see [Rivers](#rivers))                                     | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth                                                                                  | HydroSHEDS licence, attribution (Natural Earth: public domain)                                                                                   |
 | Surface water (see [Surface water](#surface-water))                | JRC Global Surface Water 1.4 (1984–2021, 30 m), `JRC/GSW1_4/GlobalSurfaceWater`, bands `occurrence`, `change_abs`, `seasonality`, masked by `max_extent`                                                 | Copernicus, free without restriction; "Source: EC JRC/Google"                                                                                    |
 | Land cover (see [Land cover](#land-cover))                         | ESA WorldCover 10 m, 2021 `ESA/WorldCover/v200/2021` and 2020 `ESA/WorldCover/v100/2020`, band `Map`                                                                                                     | CC BY 4.0, "© ESA WorldCover project" notice                                                                                                     |
+| Buildings (see [Buildings](#buildings))                            | Google Open Buildings 2.5D Temporal v1, 2023, `GOOGLE/Research/open-buildings-temporal/v1`; footprints from Open Buildings v3, `GOOGLE/Research/open-buildings/v3/polygons`                              | CC BY 4.0 (the temporal set: or ODbL 1.0)                                                                                                        |
+| Tree canopy (see [Tree canopy](#tree-canopy))                      | Meta and WRI canopy height 1 m, `projects/meta-forest-monitoring-okw37/assets/CanopyHeight`; ETH Global Canopy Height 2020 10 m, `users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1`                        | CC BY 4.0                                                                                                                                        |
 
 The ids were taken from Earth Engine's catalog records on 2026-10-17. The
 older ids, `COPERNICUS/DEM/GLO30` and `FAO/GAUL/2015/*`, are deprecated, and
@@ -1401,6 +1405,115 @@ expression, mask and colours, the class remap and palette, the ceiling, a
 mode with digits on the tile route, the fixture) and
 `src/layers/earthEngine/earthEngine.test.mjs` (the chips, the stored mode,
 the legends, the ceiling's status line).
+
+### Buildings
+
+**Buildings** (`ee-buildings`, ANALYSIS) draws Google's Open Buildings 2.5D
+Temporal v1 for 2023: one image per S2 cell and year (2016 to 2023), on a
+0.5 m grid of 4 m effective resolution, with three bands, all pyramided by
+MEAN (read from the assets on 2026-10-19). It covers Africa, South and
+Southeast Asia, Latin America and the Caribbean: 46 S2 cells, 151 images in 2023. There is no data for the United States, Europe, China, Japan or
+Australia. There, the row says **"No Open Buildings data here"** rather than
+drawing nothing: the point under the view is tested against the 46 cells'
+boxes (`src/data/openBuildingsCoverage.js`). The boxes are coarse, so inside
+one there may still be no data, but outside them there surely is none.
+
+Three chips, kept as `gev.buildings.mode`:
+
+- **COUNT** (the default): buildings per km², on a log scale from 1 to
+  10,000+. The fractional count per 0.25 m² pixel × 4,000,000; with a MEAN
+  pyramid that is the same density at every zoom (a 1 km box in Lagos:
+  about 2,400 per km²). It reads well from orbit.
+- **COVER**: the share of the ground built on (building_presence), 2% to
+  50%+ (35% in that Lagos box). From orbit only cities show: a z 3 pixel
+  (20 km) is under 2% built almost everywhere else.
+- **HEIGHT**: metres, building_height ÷ building_presence. Both are MEAN
+  pyramids, so at every zoom a pixel is Σ height / Σ presence over it:
+  roughly the mean height of what is built. Height is predicted off
+  buildings too: 11 to 22% of the pixels with presence under 0.1 had some,
+  in 1 km boxes. So this reads 28 to 50% above the mean height of the
+  pixels with presence over 0.5: Lagos 10.1 m against 7.9 m, Jakarta 24.9 m
+  against 16.6 m, São Paulo 31.8 m against 23.7 m. The plain mean over the
+  ground (3.5, 5.8 and 10.5 m) would be half the buildings' height. Pixels
+  under 5% built are clear.
+
+**Footprints from z 15.** The layer's two bands go through the server's
+`zoom` variant, as the Rivers' do:
+
+- **Raster** (z 0–14): the mode alone.
+- **Footprints** (z 15–17): the mode, visualized (`Image.visualize`), with
+  Open Buildings v3's polygons blended over it as 1 px outlines in the ink
+  (`Image.blend`; `overlayExpression` in `server/providers/earthEngine.js`).
+  Only polygons with a confidence of at least 0.7 are drawn; the dataset
+  suggests 0.65 to 0.75.
+
+The row then says "With building footprints (Open Buildings v3)", and the
+ink chips (AUTO / LIGHT / DARK) choose the outlines' colour. The v3 table
+is huge (some 1.8 billion buildings), and its tiles cost seconds whatever
+the zoom. z 15 is where a 4.8 m pixel shows a house's shape. Maps are made
+when a tile asks for them (`lazyMaps`: 2 bands × 3 modes × 2 inks).
+
+Timed live on 2026-10-19, first answers, over Lagos, Jakarta and São Paulo
+(maps made in 0.3 to 1.9 s):
+
+| Tiles                          | z 0–4       | z 5–9       | z 10–14                                                                | z 15–17                  |
+| ------------------------------ | ----------- | ----------- | ---------------------------------------------------------------------- | ------------------------ |
+| COVER                          | 0.30–1.75 s | 0.20–1.13 s | 0.18–1.52 s                                                            | raster alone 0.21–0.50 s |
+| COUNT                          | 0.45–0.74 s | 0.21–1.57 s | 0.14–0.78 s                                                            |                          |
+| HEIGHT                         | 0.27–0.64 s | 0.16–2.11 s | 0.28–0.51 s                                                            | raster alone 0.31–0.45 s |
+| Footprints alone (v3, ≥ 0.7)   |             |             | z 11: 7.2 s and over 30 s (Jakarta); z 13: 4.9–10.9 s; z 14: 3.0–4.3 s | 3.0–7.6 s                |
+| Footprints over COVER (drawn)  |             |             |                                                                        | 3.5–7.1 s                |
+| Footprints over HEIGHT (drawn) |             |             |                                                                        | 2.8–8.6 s                |
+
+The slowest tile drawn, 8.6 s, is under a third of the proxy's 30 s.
+`maxZoom` is 17. Outside the coverage the raster's tiles are empty
+(Baltimore: 334 B a tile).
+
+### Tree canopy
+
+**Tree canopy** (`ee-tree-canopy`, ANALYSIS) draws canopy height in metres,
+from 2 m to 40+ m, light to dark green, where there is none clear. Two
+chips, kept as `gev.treeCanopy.mode`:
+
+- **META 1 M** (the default): Meta and WRI's High Resolution Canopy Height
+  Maps (Tolan et al. 2024). The Earth Engine community catalog's
+  `projects/meta-forest-monitoring-okw37/assets/CanopyHeight` is 170 tiles,
+  band `cover_code` (height in m), 1.19 m cells in EPSG:3857, MEAN
+  pyramid.
+- **ETH 10 M**: ETH Zürich's Global Canopy Height 2020 (Lang et al. 2023),
+  `users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1`, band `b1`, 10 m, MEAN
+  pyramid. It is there to compare: Meta's reads lower in tall forest (a
+  1 km box in the Congo basin: 22.6 m mean against 32.7 m; the Pacific
+  Northwest: 10.3 m against 20.0 m), so the two are not blended.
+
+Both assets are readable by the service account (checked 2026-10-19).
+
+**Level of detail: a mean pyramid, from orbit.** Zero (no canopy) is part
+of the mean, so a coarse pixel is the mean height over all the ground
+beneath it, gaps included: a forest reads lower from far out than its trees
+are. Meta's band is an integer, so a coarse pixel whose mean is under 1 m
+(dry savanna; East Africa at z 2) is 0 and clear. **Canopy cover** (the
+share of ground above a height) is not offered. A mean pyramid of heights
+cannot give it, and deriving it from the 1 m pixels for a coarse tile would
+read every pixel under it: that needs a precomputed pyramid of its own.
+
+Every tile was fast, so Meta's 1 m map draws from orbit with no far
+fallback. Timed live on 2026-10-19 over the Congo basin and the Pacific
+Northwest (maps made in 0.3 to 0.9 s):
+
+| Tiles    | z 0–3       | z 4–6       | z 8–10      | z 12–14     |
+| -------- | ----------- | ----------- | ----------- | ----------- |
+| META 1 M | 0.19–0.67 s | 0.18–0.34 s | 0.18–0.34 s | 0.21–0.34 s |
+| ETH 10 M | 0.11–0.36 s | 0.10–0.41 s | 0.15–0.44 s | 0.14–0.43 s |
+
+`maxZoom` is 16 (2.4 m pixels). The optional US NLCD tree canopy mode was
+not added.
+
+Tests: `src/data/earthEngineBuildingsCanopy.test.mjs` (the records, each
+mode's expression, the year filter, the footprints' blend, the zoom
+variant's maps, the coverage boxes) and
+`src/layers/earthEngine/buildingsCanopy.test.mjs` (the rows: coverage
+words, chips, legends, the footprints' words).
 
 ## Elevation: the DEM stack
 
@@ -2648,7 +2761,10 @@ drowning the view. There are four ways to do it, by the kind of data:
   MODE (the commonest type) with an averaged mask (opacity as the share of
   forest), so a far pixel still says something true (see
   [Forest types and Population](#forest-types-and-population)). Population
-  is drawn as a density, which a MEAN pyramid keeps.
+  is drawn as a density, which a MEAN pyramid keeps, and so are Buildings'
+  COUNT and COVER; Buildings' HEIGHT is a ratio of two MEAN pyramids (Σ
+  height / Σ presence) and Tree canopy a mean height over the ground (see
+  [Buildings](#buildings), [Tree canopy](#tree-canopy)).
 - **Masked rasters: mask by a band pyramided for the mask.** A band whose
   unmasked pixels are only some of the ground (Surface water's) averages
   just those pixels at coarse levels and keeps every coarse pixel any of
@@ -2749,10 +2865,9 @@ git merge origin/main
 - `src/data/dataCredits.js`, `.env.example` and `DATA_SOURCES.md`.
 - **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (two
   places) and `src/app/sourceComposition.test.mjs` assert `layers.length`.
-  The fork's count is upstream's plus 17 (the two Baltimore layers, Recorded
-  Video, the twelve Earth Engine overlays, the Grid and Wikipedia coverage):
-  49 since Elevation, Elevation contours, Surface water, Land cover, Forest
-  types and Population (2026-10-19). A record added to `src/data/earthEngineLayers.js` or an
+  The fork's count is upstream's plus 19 (the two Baltimore layers, Recorded
+  Video, the fourteen Earth Engine overlays, the Grid and Wikipedia
+  coverage): 51 since Buildings and Tree canopy (2026-10-19). A record added to `src/data/earthEngineLayers.js` or an
   upstream layer added later changes the number.
 - **Translations.** Upstream checks that every UI string is marked for
   translation (`npm run i18n`). Fork UI text goes through `t()`, `tn()` and
