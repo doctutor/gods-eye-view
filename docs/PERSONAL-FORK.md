@@ -731,20 +731,33 @@ Anything else Earth Engine can compute needs a small addition to
 reaches from HydroSHEDS' 15″ hydrography (weaker above 60° N, where it comes
 from coarser data), as Earth Engine publishes it with the connectivity
 attributes of the free-flowing rivers study: `WWF/HydroSHEDS/v1/FreeFlowingRivers`.
-The names are Natural Earth's, drawn by the client. Credit (in the Cesium credit
-line and the data-attribution popover): HydroSHEDS/WWF, Lehner, Verdin and
-Jarvis 2008 (Eos 89:93, HydroSHEDS), Grill et al. 2019 (Nature 569:215, the
-free-flowing rivers), and Natural Earth. The HydroSHEDS licence allows
-commercial and noncommercial use with attribution; Natural Earth is public
+In NETWORK mode, when the self-hosted HydroSHEDS v2 build is there, the
+Americas come from v2 instead (below, and
+[Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)).
+A click on the map traces the reach there to the sea
+([Rivers: click a reach](#rivers-click-a-reach)). The names are Natural
+Earth's, drawn by the client. Credit (in the Cesium credit line and the
+data-attribution popover): HydroSHEDS/WWF, Lehner, Verdin and Jarvis 2008
+(Eos 89:93, HydroSHEDS), Grill et al. 2019 (Nature 569:215, the
+free-flowing rivers), Natural Earth, and, while v2 is drawn, "HydroSHEDS v2
+(Lehner et al. 2022; WWF, DLR, Confluvio), CC BY 4.0" with
+doi:10.1029/2022EO220167 (`HYDROSHEDS_V2_CREDIT` in `src/data/dataCredits.js`,
+registered when v2 is first draped; the reach lookup's `RIVER_REACH_CREDIT`
+when the clicks attach). The HydroSHEDS licence allows commercial and
+noncommercial use with attribution; v2 is CC BY 4.0; Natural Earth is public
 domain.
 
 **Modes** (chips, kept as `gev.rivers.mode`):
 
-- **NETWORK**: every reach in the ink, wider and more opaque the larger its
-  flow (`RIV_ORD`, the order of the long-term average discharge: 1 is over
-  100,000 m³/s, the Amazon; each order a tenth of the one before). Widths
-  run from 3 px (order 1) to 1 px (order 8 and smaller); alpha from `ff`
-  to `77`.
+- **NETWORK**: every reach in the ink, wider the larger its flow
+  (`RIV_ORD`, the order of the long-term average discharge: 1 is over
+  100,000 m³/s, the Amazon; each order a tenth of the one before), drawn
+  exactly as HydroSHEDS v2's tiles are: the smallest order a band draws is
+  0.75 px, each order larger adds 0.55 px, up to 4 px (`riverLineWidth`, one
+  function for both); under a pixel a 1 px line at that share of the ink's
+  alpha (v2's coverage raster does the same). The inks are v2's too:
+  `ffffffcc` light, `1a1a1acc` dark (the boundaries' and the Grid's), one
+  table (`RIVER_INKS`) that v2's `bands.js` imports.
 - **FREE-FLOWING**: three colours by `CSI_FF2` (1 free-flowing, 2 good
   connectivity, 3 impacted): blue, yellow, vermillion.
 - **PRESSURE**: six colours by `CSI_D`, the pressure that lowers the reach's
@@ -753,43 +766,131 @@ domain.
   purple, road density (`RDD`) green, urban areas (`URB`) yellow. The 5.3
   million reaches with none (`NAN`) are drawn a faint grey.
 
-The colours are the Okabe–Ito hues, which stay apart with the common colour
-vision deficiencies. Each has a light-ink version (lightened, for imagery
-and dark maps) and a dark-ink one (darkened, for the white globe, Positron
-and the light styles), each at least 3.9:1 against its background; the
-network's inks are `9fd8ff` and `08519c`. **AUTO INK / LIGHT INK / DARK INK**
-work as on the boundaries, in every mode, and the legend's swatches follow
-the mode and the ink drawn.
+FREE-FLOWING and PRESSURE stay HydroRIVERS v1 everywhere, the Americas
+included: their scores exist only for v1. Their colours are the Okabe–Ito
+hues, which stay apart with the common colour vision deficiencies, each in
+a light-ink version (lightened, for imagery and dark maps) and a dark-ink
+one (darkened, for the white globe, Positron and the light styles), at least
+3.9:1 against its background, at the same widths as NETWORK. **AUTO INK /
+LIGHT INK / DARK INK** work as on the boundaries, in every mode, and the
+legend's swatches follow the mode and the ink drawn. The names are in the
+ink too (`#ffffff`, `#1a1a1a`).
+
+**Why the first lines looked broken** (2026-10-19). The first version drew
+NETWORK 1.8 to 3 px wide at z 3 (an absolute width by order, 3 px for order
+1 down to 1 px) with alpha by order. Over the eastern United States and
+northern South America (`o4`, z 3 `3/2/3`) that came out as thick blobs.
+`Collection.style`, `Collection.draw` and `Image.paint` (1 px) drew the
+same tile identically, and painting at four times the resolution and
+taking each pixel's maximum changed nothing, so neither the drawing call
+nor a coarse internal scale cuts the lines: HydroRIVERS' reaches are short
+(a few km) and each is stroked on its own, so wide strokes overlap into
+blobs at the joints, and an order threshold starts a river where its flow
+crosses it (100 m³/s for `o4`), which reads as a gap. The widths now are
+v2's (thin, relative to the band), and the same tile is continuous. Still,
+Earth Engine composites overlapping strokes where v2 takes each pixel's
+maximum, and v1 orders by discharge where v2 orders by upstream area, so
+v1 is a little heavier: on the same z 8 tile over Virginia (`8/70/99`,
+both orders ≤ 6) v1 drew 7,205 pixels at a mean alpha of 102 against v2's
+5,656 at 92, the same rivers at the same widths; at z 3 (`3/2/3`, ≤ 3) v1
+draws more of the Orinoco's and the Amazon's tributaries, which are a
+discharge order bigger than their basin's area makes them. `Image.paint`
+with per-reach widths and a coverage mask (v2's way of compositing) took
+66.7 s for that z 3 tile and drew nothing, so it was dropped.
 
 **How it is drawn.** Each reach gets a whole style (`{color, width}`) looked
 up from constant tables in one mapped function (`Collection.map`, then
 `Collection.style` with `styleProperty`): NETWORK one `List.get` by
 `RIV_ORD`, FREE-FLOWING a list by `CSI_FF2` then by `RIV_ORD`, PRESSURE a
 dictionary by `CSI_D` (with the faint style for anything else) then a list
-by `RIV_ORD`. Building a `Dictionary` per reach with `Number.format` keys
+by `RIV_ORD`. The tables are per band (the widths depend on the band's
+largest order). Building a `Dictionary` per reach with `Number.format` keys
 (the first version) made the slowest tiles about twice as slow (orders 1 to
-6, pressure, z 5 over the Amazon: 18.3 s against 9.7 s). `RIV_ORD` (1 to 10) and `CSI_FF2` (1 to 3) are on every reach (counted live), so they index
-lists. Each (band, ink, mode) is its own map, 6 × 2 × 3 = 36, and the
-catalog makes none of them (`lazyMaps`): the first tile that needs one
-makes it. The tile route carries the mode after the layer,
+6, pressure, z 5 over the Amazon: 18.3 s against 9.7 s). `RIV_ORD` (1 to 10)
+and `CSI_FF2` (1 to 3) are on every reach (counted live), so they index
+lists. Each (band, ink, mode) is its own map, 6 × 2 × 4 = 48 with the hidden
+`network-rest` mode (below), and the catalog makes none of them
+(`lazyMaps`): the first tile that needs one makes it. The tile route carries
+the mode after the layer,
 `/api/earth-engine/tile/ee-rivers/<mode>/<band>/<ink>/<z>/<x>/<y>?v=<hash>`,
 and the disk cache keeps them under
 `.gev-cache/earth-engine/tiles/ee-rivers/<mode>/<band>/<ink>/<hash>/`; `/layers`
 gives each band's hashes per mode and ink (`modeVersions`), so a changed
 expression is never served old tiles.
 
+**HydroSHEDS v2 over the Americas** (NETWORK only). The layer asks
+`/api/rivers/v2/layers` on enable and on each refresh
+(`createRiversV2Source`, kept 5 minutes). While `riversV2Ready(status, ink)`
+holds, it drapes two imagery layers at one opacity: Earth Engine's
+`network-rest` maps (NETWORK without CON_ID 1 and 2) and, above them, v2's
+tiles in the same ink (`riversV2ImageryOptions`: its own version per ink, so
+a change of ink swaps the provider), limited to v2's extent and, below
+1,667 km, to the view's square as well; a view whose square misses the
+Americas drapes Earth Engine only. The row says "The Americas from
+HydroSHEDS v2"; the NETWORK chip stays lit. When there is no build (503,
+"Run npm run rivers:build"), the status cannot be read, or it has no tiles
+in the ink, NETWORK is v1 everywhere and the row says nothing about it.
+FREE-FLOWING and PRESSURE never omit the Americas. `network-rest` keeps v1
+where v2 has no data (`AMERICAS_KEEP`, checked live on 2026-10-18):
+
+- `COUNTRY = 'Greenland'`: 137,088 reaches, all CON_ID 1, none outside
+  Greenland (the Canadian islands beside it are `Canada`: 55,993 against
+  5,532 in a box over the Nares Strait); v2 stops at Newfoundland;
+- a box west of 169.72° W: 734 CON_ID 1 reaches (`United States`: the
+  Aleutians past Umnak, the Pribilofs, St. Lawrence Island), next to 7,818
+  Russian ones (CON_ID 5, never omitted);
+- a box north of 83.13° N: 28 Canadian reaches at Ellesmere's north tip.
+
+Nothing else of CON_ID 1 or 2 lies outside v2's extent: none south of
+55.96° S, and east of 32.41° W only Greenland's (27,827, all `Greenland`).
+Easter Island and Hawaii have no v1 reach, so need nothing. The filter is
+`not (CON_ID = 1 or 2) or COUNTRY = 'Greenland' or in one of the boxes`,
+the CON_ID test first so a reach outside the Americas costs no geometry
+test. Live tiles of `network-rest` against `network` (dark ink): a z 7 tile
+over south-west Greenland (`7/46/34`) 61 KB both, the Aleutians at z 6
+(`6/0/21`, `6/1/21`) 2 and 1 KB both, Ellesmere's north at z 5 (`5/9/1`)
+10 KB against 3 KB (only the reaches past 83.13° N), New England at z 6
+(`6/18/22`) 88 KB against 0 KB, South America at z 3 (`3/2/4`) 22 KB against
+0 KB, Europe (`3/4/2`) 11 KB both.
+
 **Level of detail: RIV_ORD bands by height** (level switching, like the
 boundaries). On AUTO the camera height picks how many orders are drawn,
-the largest rivers from orbit and more as the view comes in:
+the largest rivers from orbit and more as the view comes in. Since
+2026-10-19 the heights are where the imagery level Cesium drapes at the
+middle of the view steps, and HydroSHEDS v2's zoom bands
+(`server/providers/riversV2/bands.js` `BANDS`) draw the same orders at those
+zooms, so the Americas' edge does not jump:
 
-| Camera height   | Band  | Orders                  | Tiles from | First-level tile, live (s) |
-| --------------- | ----- | ----------------------- | ---------- | -------------------------- |
-| 6,000 km and up | `o3`  | 1–3 (over 1,000 m³/s)   | z 2        | 4.6–8.6                    |
-| 1,600–6,000 km  | `o4`  | 1–4 (over 100 m³/s)     | z 3        | 2.5–11.7                   |
-| 700–1,600 km    | `o5`  | 1–5 (over 10 m³/s)      | z 4        | 2.5–12.9                   |
-| 250–700 km      | `o6`  | 1–6 (over 1 m³/s)       | z 5        | 1.7–14.2                   |
-| 80–250 km       | `o7`  | 1–7 (over 0.1 m³/s)     | z 6        | 1.6–8.2                    |
-| below 80 km     | `all` | every order (8,477,883) | z 7        | 0.9–3.0                    |
+| Camera height   | Band  | Orders                  | Cesium zooms there | v2 band (zooms, orders) | Tiles from | First-level tile, live (s) |
+| --------------- | ----- | ----------------------- | ------------------ | ----------------------- | ---------- | -------------------------- |
+| 6,675 km and up | `o3`  | 1–3 (over 1,000 m³/s)   | z 0–4              | z 0–4, ≤ 3              | z 2        | 3.1–8.6                    |
+| 1,666–6,675 km  | `o4`  | 1–4 (over 100 m³/s)     | z 5–6              | z 5–6, ≤ 4              | z 3        | 1.9–11.9                   |
+| 834–1,666 km    | `o5`  | 1–5 (over 10 m³/s)      | z 7                | z 7, ≤ 5                | z 4        | 2.5–12.9                   |
+| 417–834 km      | `o6`  | 1–6 (over 1 m³/s)       | z 8                | z 8, ≤ 6                | z 5        | 1.7–14.2                   |
+| 104–417 km      | `o7`  | 1–7 (over 0.1 m³/s)     | z 9–10             | z 9–10, ≤ 7             | z 6        | 1.6–8.2                    |
+| below 104 km    | `all` | every order (8,477,883) | z 11 and up        | z 11–14, all (8)        | z 7        | 0.9–3.0                    |
+
+(Earlier the steps were at 6,000, 1,600, 700, 250 and 80 km; v2's bands
+were z 0–2 ≤ 3, z 3–4 ≤ 4, z 5–6 ≤ 5, z 7–8 ≤ 6, z 9–10 ≤ 7, so v2 drew an
+order more than v1 at most heights.)
+
+**Which zoom Cesium drapes** (`riverZoomForHeight`, from Cesium 1.138's
+code): the globe refines a terrain tile of level L (geometric error
+77,067 m / 2^L for a 65-sample heightmap over two level-0 tiles) until its
+screen-space error, error × drawing-buffer height / (distance ×
+sseDenominator) / pixel ratio, is at most 2 px; sseDenominator is
+2·tan(30°)/aspect for the 60° frustum, so the bound is error ≤ 2.309 ×
+distance / canvas width (CSS px). The tile then takes the imagery level
+round(L + log2(2.03 × cos latitude)) (`ImageryLayer`'s
+`getLevelWithMaximumTexelSpacing`), L + 1 from the equator to about 50°.
+For a 1,600 px wide canvas looking down that is z = ceil(log2(5.34e7 /
+height)) + 1, which steps at 5.34e7 / 2^n m: 6,675, 3,338, 1,669, 834, 417,
+209 and 104 km. The `o4`/`o5` step is at 1,666 km rather than 1,669 so that
+`o5`'s view square is never the whole world. On a wider canvas every step
+moves up (2,560 px: by 1.6×); v2 follows the zoom Cesium actually picks and
+v1 the height, so there the edge can differ by a zoom. Towards the horizon
+Cesium drapes coarser tiles: v2 thins there by zoom, v1 keeps the band of
+the camera's height.
 
 Each band's tiles start at its `minZoom`: the client's imagery provider
 asks for nothing coarser (`minimumLevel`), and the server answers a coarser
@@ -843,6 +944,22 @@ North America at each level (for example z 3 `3/4/2`, `3/2/4`, `3/5/3`,
 `3/6/2`, `3/1/2`). Earth Engine's timings vary by up to two times between
 runs.
 
+Re-timed on 2026-10-19 with v2's widths and inks (dark ink, s):
+
+| Band, mode        | Tiles                                                                               |
+| ----------------- | ----------------------------------------------------------------------------------- |
+| `o3` network      | z 2: `2/0/1` 3.1, `2/1/0` 0.3, `2/1/1` 4.3, `2/2/1` 5.9, `2/1/2` 4.7, `2/3/1` 6.3   |
+| `o3` network-rest | z 2: `2/0/1` 3.4, `2/1/0` 0.5, `2/1/1` 7.4, `2/2/1` 15.0, `2/1/2` 5.1, `2/3/1` 4.1  |
+| `o4` network      | z 3: `3/0/2` 1.9, `3/2/2` 2.4, `3/2/3` 11.5, `3/2/4` 11.9, `3/4/2` 4.0, `3/1/2` 2.9 |
+| `o4` network-rest | z 3: `3/0/2` 1.1, `3/2/2` 2.3, `3/2/3` 5.2, `3/2/4` 3.8, `3/4/2` 3.5, `3/1/2` 4.4   |
+| `o4` free-flowing | z 3: `3/2/4` 21.8, `3/4/2` 5.5                                                      |
+| `o4` pressure     | z 3: `3/2/4` 9.6, `3/4/2` 5.0                                                       |
+
+The Americas filter costs little: the Americas tiles of `network-rest` are
+empty (Greenland and the boxes aside) and mostly faster. `o4`
+free-flowing over the Amazon (21.8 s) is the slowest tile measured in this
+layer; the same request took 11.2 s the day before.
+
 **Far fallbacks considered.** The coarse tiles are slow because Earth Engine
 reads every reach under them; three faster sources were tried:
 
@@ -872,7 +989,9 @@ The bands' `minZoom` (above) is what made the far view fast enough
 instead.
 
 **The Americas switch.** `omitAmericas` in the record (off) leaves out
-`CON_ID` 1 and 2, for another source (HydroSHEDS v2) to draw there. The
+`CON_ID` 1 and 2 in every mode, with no exceptions; it is a manual
+override. The wiring above uses the `network-rest` mode instead, which
+keeps `AMERICAS_KEEP` and only applies while v2 is drawn. The
 check, live on 2026-10-18: every reach has a `CON_ID` (none missing, none
 0: 1 = 1,270,524, 2 = 1,790,250, 3 = 938,544, 4 = 1,527,551, 5 = 2,114,542,
 6 = 836,472). Greenland is 1 (124,446 reaches), as are the Canadian Arctic
@@ -922,8 +1041,11 @@ rivers first, then nearer the middle of the view, at most 160.
 - [x] Not a boundary table (each reach is one feature).
 
 Tests: `src/layers/earthEngine/rivers.test.mjs` (the bands by height, the
-mode expressions, the Americas flag, the names' thinning and labels, the
-pack, the chips and `gev.rivers.mode`) and the Rivers tests in
+zoom each height gets and v2's orders at it, the widths and inks shared
+with v2, the mode expressions, the Americas flag and `network-rest`'s
+exemptions, the v2 and v1 choice and its quiet fallback, the clicks' attach
+and detach and their `maxOrder` by height, the names' thinning and labels,
+the pack, the chips and `gev.rivers.mode`) and the Rivers tests in
 `src/data/earthEngine.test.mjs` (lazy maps, the mode route, the transparent
 tile, the cache path per mode).
 
@@ -1224,8 +1346,9 @@ rest of the world). v2 is traced from 12 m TanDEM-X elevation on a
 stream with at least 1 km² upstream. The app's own server draws it into
 transparent 256 × 256 PNG tiles, z 0 to 14, in the layer's two inks, and
 keeps them on disk; nothing is fetched at request time. This section is
-the data pipeline, the tile route and a client helper; the Rivers layer's
-wiring is separate.
+the data pipeline, the tile route and a client helper; the Rivers layer
+uses it for NETWORK while a build is there (see [Rivers](#rivers): Earth
+Engine then draws the rest of the world, and v1 where v2 has no data).
 
 **Source, licence, attribution.** HydroSHEDS v2 core data, river network
 (RIV), version `v2r0`, released for the Americas in July 2026 (the DLR EOC
@@ -1311,25 +1434,33 @@ American river reaches order 1 (the Amazon's 5.95 M km² is order 2).
 
 | Zooms   | Orders drawn | Upstream area | Simplified for | Cells at | Reaches | Level file |
 | ------- | ------------ | ------------- | -------------- | -------- | ------- | ---------- |
-| 0 – 2   | ≤ 3          | ≥ 100,000 km² | z 2            | z 2      | 62 k    | 0.04 MB    |
-| 3 – 4   | ≤ 4          | ≥ 10,000 km²  | z 4            | z 3      | 276 k   | 0.5 MB     |
-| 5 – 6   | ≤ 5          | ≥ 1,000 km²   | z 6            | z 5      | 908 k   | 3.9 MB     |
-| 7 – 8   | ≤ 6          | ≥ 100 km²     | z 8            | z 7      | 2.67 M  | 17.8 MB    |
-| 9 – 10  | ≤ 7          | ≥ 10 km²      | z 10           | z 9      | 7.37 M  | 95.2 MB    |
-| 11 – 14 | ≤ 8 (all)    | ≥ 1 km²       | z 12           | z 11     | 21.0 M  | 717 MB     |
+| 0 – 4   | ≤ 3          | ≥ 100,000 km² | z 4            | z 2      | 62 k    | 0.1 MB     |
+| 5 – 6   | ≤ 4          | ≥ 10,000 km²  | z 6            | z 5      | 276 k   | 1.1 MB     |
+| 7       | ≤ 5          | ≥ 1,000 km²   | z 7            | z 7      | 908 k   | 4.6 MB     |
+| 8       | ≤ 6          | ≥ 100 km²     | z 8            | z 8      | 2.67 M  | 16.6 MB    |
+| 9 – 10  | ≤ 7          | ≥ 10 km²      | z 10           | z 9      | 7.37 M  | 90.8 MB    |
+| 11 – 14 | ≤ 8 (all)    | ≥ 1 km²       | z 12           | z 11     | 21.0 M  | 684 MB     |
+
+Since 2026-10-19 these are the Rivers layer's v1 bands at the zooms Cesium
+drapes at their heights (`riverZoomForHeight`; the table in [Rivers](#rivers)),
+so both sides of the Americas' edge draw the same orders. Before, they were
+z 0–2 ≤ 3, z 3–4 ≤ 4, z 5–6 ≤ 5, z 7–8 ≤ 6, z 9–10 ≤ 7 and z 11–14 all, which
+kept the gap between drawn rivers at roughly 5 to 15 pixels (a basin of
+10^n km² is about √10^n km across) and drew an order more than v1 at most
+heights.
 
 Reaches by order: 2: 6,512; 3: 55,915; 4: 213,250; 5: 632,582; 6: 1.76 M;
-7: 4.70 M; 8: 13.6 M. Each band keeps the gap between drawn rivers at
-roughly 5 to 15 pixels (a basin of 10^n km² is about √10^n km across).
-Within a band each reach is projected to Web Mercator, simplified
+7: 4.70 M; 8: 13.6 M. Within a band each reach is projected to Web Mercator, simplified
 (Douglas–Peucker, half a pixel at the "simplified for" zoom; for the last
 band 19 m at the equator, under the 30 m grid, which smooths the 1″ stair
 steps), and quantized to a quarter pixel at the band's deepest zoom. Line
 width grows with size: the smallest order a zoom draws is 0.75 px, each
-order bigger adds 0.55 px, up to 4 px (`widthFor`); under a pixel a line is
-drawn fainter rather than thinner. Lines are antialiased capsules,
-max-composited (crossings and joints do not darken), in the Rivers layer's
-inks: light `ffffffcc`, dark `1a1a1acc` (AUTO is resolved by the layer).
+order bigger adds 0.55 px, up to 4 px (`widthFor`, which calls the Rivers
+layer's `riverLineWidth`: the Earth Engine v1 tiles use the same rule);
+under a pixel a line is drawn fainter rather than thinner. Lines are
+antialiased capsules, max-composited (crossings and joints do not darken),
+in the Rivers layer's inks (`RIVER_INKS`, imported): light `ffffffcc`, dark
+`1a1a1acc` (AUTO is resolved by the layer).
 The bands are one table (`BANDS`); a change there is a new tile version
 and a rebuild.
 
@@ -1361,6 +1492,11 @@ input is skipped (`--force` rebuilds; `--limit N` builds from the first N
 reaches of each region, never counted as up to date). `manifest.json` names
 the level files (in `levels-<stamp>/`), the build id, the sources, the
 extent and the timings; older levels and all tiles go when a build lands.
+
+Rebuilt on 2026-10-19 for the aligned bands (into the main checkout's
+cache with `RIVERS_CACHE_DIR`): 318 s in all (North America read 154 s,
+South America 100 s, writing the levels 64 s), build `d7ccfc67a4e187a6`,
+tile versions light `5d040e0b91d8`, dark `818bc602933d`, levels 797.0 MB.
 
 Measured on 2026-10-18 (this machine, Node 24.21): reading and cutting
 6 min 34 s in all (North America 186 s, South America 123 s, writing the
@@ -1576,6 +1712,32 @@ object, `{source, covers, atPoint, byId, upstream}`, answering this shape
 and put ahead of the v1 service in `riverReachProxy({sources})`. The client
 can also point at another server (`attachReachHighlight(…, {endpoint})`),
 whose relative links it resolves against that server.
+
+**In the Rivers layer** (`src/layers/earthEngine/riverClicks.js`, made in
+`src/app/layers/earthEngine.js`). The layer attaches the highlight and the
+click handler when it is turned on and detaches both when it is turned
+off; the size limit it passes is the orders it draws at the camera's
+height (`riverOrdersAt`: ≤ 3 above 6,675 km, ≤ 4 to 1,666 km, ≤ 5 to
+834 km, ≤ 6 to 417 km, ≤ 7 to 104 km, then all), so a click takes a river
+that is on screen, not the endpoint's own height rule. The lookup's credit
+(`RIVER_REACH_CREDIT`) is registered when the clicks attach.
+
+**Clicks on v2's streams.** Over the Americas, NETWORK draws HydroSHEDS v2,
+which has streams v1 lacks (every 1 km² basin against v1's 10 km², traced
+from a 30 m grid instead of 460 m), while the lookup is still v1's. A click
+on a v2-only stream finds the nearest v1 reach within the click's tolerance
+(about twelve pixels of ground), usually the river it flows into, and the
+trace drawn is v1's geometry, which can sit a pixel or two off v2's line;
+past the tolerance the card says "No river here". The fix is a local v2
+source for `riverReachProxy({sources})`, `covers` true inside v2's extent
+(outside Greenland), answering from v2's own `STRM_ID` / `STRM_DN` /
+`UPLAND_SKM`. It is not cheap with what the build keeps: the level files
+hold only each piece's order and coordinates, cut into cells and
+simplified per band, with no reach id, so a v2 source needs its own index
+(id, downstream id, upstream area and full geometry per reach, plus a
+spatial index for the nearest reach) written by `scripts/rivers/build.mjs`
+alongside the levels. That is a follow-up; it also has no names (v2 carries
+none), so its card would name the river only through v1.
 
 **The client** (`src/layers/rivers/reachHighlight.js`, with the card's words
 in `reachCard.js`). `attachReachHighlight({viewer, overlays, cesium,
@@ -1908,11 +2070,12 @@ drowning the view. There are four ways to do it, by the kind of data:
   above), and the Grid steps its spacing (30° at orbit to 1' at the street;
   MGRS from grid zones to 1 km lines). The Rivers draw more `RIV_ORD`
   orders as the camera comes in (orders 1 to 3 from orbit, every order
-  below 80 km; see [Rivers](#rivers)), each band from the level whose tiles
+  below 104 km; see [Rivers](#rivers)), each band from the level whose tiles
   Earth Engine draws in seconds.
 - **Lines: thin by size, simplify per band.** The HydroSHEDS v2 rivers
-  draw the rivers of 100,000 km² and more from orbit and add a decade of
-  upstream area every two zooms, to every 1 km² stream from z 11, each band
+  draw the rivers of 100,000 km² and more from orbit (to z 4) and add a
+  decade of upstream area at z 5, 7, 8 and 9 (the Rivers' v1 bands at the
+  zooms Cesium drapes at their heights), to every 1 km² stream from z 11, each band
   simplified to half a pixel at its own zooms (see
   [Rivers: HydroSHEDS v2](#rivers-hydrosheds-v2-for-the-americas)).
 

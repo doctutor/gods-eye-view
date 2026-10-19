@@ -3203,8 +3203,8 @@
   "Rivers of flow orders 1 to {max}": "Ríos de órdenes de caudal 1 a {max}",
   "NETWORK": "RED",
   "The river network, wider and brighter the larger the flow (HydroRIVERS)": "La red fluvial, más ancha y brillante cuanto mayor es el caudal (HydroRIVERS)",
-  "FREE-FLOWING": "CURSO LIBRE",
-  "Connectivity status (Grill et al. 2019): free-flowing, good connectivity, impacted": "Estado de conectividad (Grill et al. 2019): de curso libre, buena conectividad, alterado",
+  "FREE-FLOWING": "FLUJO LIBRE",
+  "Connectivity status (Grill et al. 2019): free-flowing, good connectivity, impacted": "Estado de conectividad (Grill et al. 2019): de flujo libre, buena conectividad, alterado",
   "PRESSURE": "PRESIÓN",
   "The pressure that most lowers each reach’s connectivity: dams, flow regulation, sediment trapping, water use, roads, cities": "La presión que más reduce la conectividad de cada tramo: presas, regulación del caudal, retención de sedimentos, uso del agua, carreteras, ciudades",
   "Rivers": "Ríos",
@@ -3242,5 +3242,6 @@
   "River lookups need Earth Engine on the server": "Buscar ríos requiere Earth Engine en el servidor",
   "Too many river lookups; try again shortly": "Demasiadas búsquedas de ríos; inténtalo de nuevo en breve",
   "The river could not be traced": "No se pudo trazar el río",
-  "A river of the {basin} basin": "Un río de la cuenca del {basin}"
+  "A river of the {basin} basin": "Un río de la cuenca del {basin}",
+  "The Americas from HydroSHEDS v2": "Las Américas, de HydroSHEDS v2"
 }

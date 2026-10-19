@@ -153,7 +153,9 @@ export function inkSwatch(record, ink) {
  * The status line.
  * @param {{catalog?: object|null, layer?: object|null, variant?: string,
  *   loading?: boolean, failure?: string|null, hostless?: boolean,
- *   ceilingM?: number|null, slowDistricts?: boolean}} state - `hostless`:
+ *   ceilingM?: number|null, slowDistricts?: boolean, americasV2?: boolean}}
+ *   state - `americasV2`: the Rivers draw the Americas from HydroSHEDS v2;
+ *   `hostless`:
  *   the map stack can drape no imagery; `ceilingM`: the camera is above the
  *   layer's ceiling; `slowDistricts`: districts are forced from far out.
  */
@@ -166,6 +168,7 @@ export function statusText({
   hostless = false,
   ceilingM = null,
   slowDistricts = false,
+  americasV2 = false,
 }) {
   if (failure)
     return t('Earth Engine unavailable: {reason}', { reason: failure });
@@ -189,6 +192,7 @@ export function statusText({
   else if (variantLabel(variant)) parts.push(variantLabel(variant));
   if (slowDistricts)
     parts.push(t('Districts from this height: the tiles arrive slowly'));
+  if (americasV2) parts.push(t('The Americas from HydroSHEDS v2'));
   if (Number.isFinite(layer?.tilesToday))
     parts.push(
       tn(
@@ -237,13 +241,14 @@ export function rowControls({
   slowDistricts = false,
   mode = '',
   onMode = () => {},
+  americasV2 = false,
 }) {
   const layer = catalog?.layers?.get?.(record.id) || null;
   const variantKeys = new Set((record.variants || []).map((v) => v.key));
   const chips = [];
   const modeKeys = new Set((record.modes || []).map((entry) => entry.key));
   for (const chip of MODE_CHIPS) {
-    if (!modeKeys.has(chip.key)) continue;
+    if (!modeKeys.has(chip.key)) continue; // hidden modes have no chip
     chips.push({
       id: `mode-${chip.key}`,
       label: t(chip.label),
@@ -283,9 +288,12 @@ export function rowControls({
   const legend = drawnMode
     ? drawnMode.legend.map((entry) => ({
         label: legendLabel(entry.label),
-        color: `#${String(
-          drawnMode.colors?.[inkDrawn]?.[entry.value] || entry.color.slice(1),
-        ).slice(0, 6)}`,
+        color: entry.ink
+          ? inkSwatch(record, inkDrawn === 'default' ? 'light' : inkDrawn)
+          : `#${String(
+              drawnMode.colors?.[inkDrawn]?.[entry.value] ||
+                entry.color.slice(1),
+            ).slice(0, 6)}`,
       }))
     : (layer?.legend?.length ? layer.legend : record.legend || []).map(
         (entry) => ({
@@ -317,6 +325,7 @@ export function rowControls({
       hostless,
       ceilingM,
       slowDistricts,
+      americasV2,
     }),
     infoTitle: layer?.attribution || '',
   };

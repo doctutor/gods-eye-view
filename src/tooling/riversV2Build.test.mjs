@@ -781,8 +781,9 @@ test('each band holds only the orders it draws', () => {
     );
   // Orders: 2 (2.5 M km²), 4 (12,000), 6 (40 km² → 7), 8 (2.5 km²).
   assert.deepEqual([...byBand.get('z0')].sort(), [2]);
-  assert.deepEqual([...byBand.get('z3')].sort(), [2, 4]);
+  assert.deepEqual([...byBand.get('z5')].sort(), [2, 4]);
   assert.deepEqual([...byBand.get('z7')].sort(), [2, 4]);
+  assert.deepEqual([...byBand.get('z8')].sort(), [2, 4]);
   assert.deepEqual([...byBand.get('z9')].sort(), [2, 4, 7]);
   assert.deepEqual([...byBand.get('z11')].sort(), [2, 4, 7, 8]);
 });
@@ -802,7 +803,8 @@ test('Douglas–Peucker keeps the ends and anything past the tolerance', () => {
   );
   assert.deepEqual([...simplify(new Float64Array([1, 1, 1, 1]), 1)], [1, 1]);
   const band = bandForZoom(0);
-  assert.equal(toleranceFor(band), 0.5 / (256 * 4));
+  // The first band (z 0 to 4) is simplified for its deepest zoom.
+  assert.equal(toleranceFor(band), 0.5 / (256 * 16));
 });
 
 test('quantizing drops repeats and lines shorter than a unit', () => {

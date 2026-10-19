@@ -9,6 +9,9 @@ import { defaultSourceRoot } from './common/source-root.js';
 import { deflateSync } from 'node:zlib';
 import {
   AMERICAS_CON_IDS,
+  AMERICAS_KEEP,
+  riverLineWidth,
+  scaleAlpha,
   EARTH_ENGINE_ATTRIBUTION,
   EARTH_ENGINE_LAYERS,
   inkColor,
@@ -98,11 +101,56 @@ function assetNode(asset) {
   return asset?.seaIsZero ? invoke('Image.selfMask', { image: band }) : band;
 }
 
+const orOf = (filters) =>
+  filters.length === 1
+    ? filters[0]
+    : invoke('Filter.or', { filters: { arrayValue: { values: filters } } });
+
+/**
+ * Not the Americas (CON_ID 1 or 2), or one of the `keep` places. CON_ID is
+ * stored as a double: Filter.inList with [1, 2] matched no reach (live,
+ * 2026-10-18) where Filter.eq compares numbers and matched 1,270,524 for
+ * 1. So: not (CON_ID = 1 or CON_ID = 2), or COUNTRY = …, or inside a box.
+ * The CON_ID test comes first, so a reach outside the Americas costs no
+ * geometry test.
+ */
+function americasFilter(keep) {
+  const outside = invoke('Filter.not', {
+    filter: orOf(
+      AMERICAS_CON_IDS.map((id) =>
+        invoke('Filter.eq', {
+          leftField: constant('CON_ID'),
+          rightValue: constant(id),
+        }),
+      ),
+    ),
+  });
+  const kept = keep.map((place) =>
+    place.box
+      ? invoke('Filter.intersects', {
+          leftField: constant('.geo'),
+          rightValue: invoke('GeometryConstructors.BBox', {
+            west: constant(place.box[0]),
+            south: constant(place.box[1]),
+            east: constant(place.box[2]),
+            north: constant(place.box[3]),
+          }),
+        })
+      : invoke('Filter.eq', {
+          leftField: constant(place.property),
+          rightValue: constant(place.equals),
+        }),
+  );
+  return orOf([outside, ...kept]);
+}
+
 /**
  * The filter a features variant draws through, or null: its RIV_ORD band
- * (`maxOrder`) and the layer's `omitAmericas` switch.
+ * (`maxOrder`), and the Americas left out by the layer's `omitAmericas`
+ * switch (all of them) or by a mode's (`network-rest`: all but
+ * AMERICAS_KEEP, where HydroSHEDS v2 has no data).
  */
-export function featureFilter(layer, variant) {
+export function featureFilter(layer, variant, modeKey) {
   const filters = [];
   if (Number.isFinite(variant?.maxOrder))
     filters.push(
@@ -111,26 +159,10 @@ export function featureFilter(layer, variant) {
         rightValue: constant(variant.maxOrder),
       }),
     );
-  // CON_ID is stored as a double: Filter.inList with [1, 2] matched no reach
-  // (live, 2026-10-18) where Filter.eq compares numbers and matched 1,270,524
-  // for 1. So: not (CON_ID = 1 or CON_ID = 2).
-  if (layer?.omitAmericas === true)
-    filters.push(
-      invoke('Filter.not', {
-        filter: invoke('Filter.or', {
-          filters: {
-            arrayValue: {
-              values: AMERICAS_CON_IDS.map((id) =>
-                invoke('Filter.eq', {
-                  leftField: constant('CON_ID'),
-                  rightValue: constant(id),
-                }),
-              ),
-            },
-          },
-        }),
-      }),
-    );
+  const mode = layer?.modes?.length ? modeRecord(layer, modeKey) : null;
+  if (layer?.omitAmericas === true) filters.push(americasFilter([]));
+  else if (mode?.omitAmericas === true)
+    filters.push(americasFilter(AMERICAS_KEEP));
   if (!filters.length) return null;
   return filters.length === 1
     ? filters[0]
@@ -159,11 +191,27 @@ const byNumber = (table) =>
     .map((key) => table[key]);
 
 /**
+ * The styles of one colour by order (RIV_ORD 1 to 10) in a band: the width
+ * HydroSHEDS v2's renderer gives that order there (riverLineWidth), and
+ * under a pixel a 1 px line with the colour's alpha scaled by the width.
+ * A style is a whole {color, width} dictionary.
+ */
+function stylesByOrder(color, bandMaxOrder) {
+  return Array.from({ length: 10 }, (_, i) => {
+    const width = riverLineWidth(i + 1, bandMaxOrder);
+    return {
+      color: width < 1 ? scaleAlpha(color, width) : color,
+      width: Math.max(1, Math.round(width * 100) / 100),
+    };
+  });
+}
+
+/**
  * A layer drawn per feature (`modes`): each feature gets a whole style
  * dictionary ({color, width}) looked up from constant tables, and
- * Collection.style draws them through `styleProperty`. The colour comes
- * from the mode's table for the ink (by the mode's property), the width from
- * the layer's `widths` (by `widthProperty`).
+ * Collection.style draws them through `styleProperty`. The colour is the
+ * ink's (`inInk`: NETWORK) or comes from the mode's table for the ink (by
+ * the mode's property); the width by RIV_ORD within the band.
  *
  * Built so each reach costs one or two lookups of constants: building a
  * Dictionary per reach (with Number.format keys) made the slowest tiles
@@ -174,21 +222,19 @@ const byNumber = (table) =>
  * function body is value '1', as Earth Engine's own clients encode a
  * mapped function.
  */
-function styledFeatures(layer, collection, ink, modeKey) {
+function styledFeatures(layer, variant, collection, ink, modeKey) {
   const mode = modeRecord(layer, modeKey);
+  const bandMax = variant?.maxOrder ?? 10;
   const colors = mode.colors?.[ink] || {};
   const fallback = mode.fallback?.[ink] || inkColor(layer, ink);
-  const widths = byNumber(layer.widths || {});
-  /** One colour's styles, by the width property's value. */
-  const stylesIn = (color) => widths.map((width) => ({ color, width }));
+  const stylesIn = (color) => stylesByOrder(color, bandMax);
+  const byOrder = indexOf(layer.widthProperty);
   let style;
-  if (mode.property === layer.widthProperty)
-    // Colour and width by the same property (NETWORK: RIV_ORD): one lookup.
+  if (mode.inInk)
+    // NETWORK: the ink, its width by RIV_ORD: one lookup.
     style = invoke('List.get', {
-      list: constant(
-        byNumber(colors).map((color, i) => ({ color, width: widths[i] })),
-      ),
-      index: indexOf(mode.property),
+      list: constant(stylesIn(inkColor(layer, ink))),
+      index: byOrder,
     });
   else
     style = invoke('List.get', {
@@ -212,7 +258,7 @@ function styledFeatures(layer, collection, ink, modeKey) {
             }),
             defaultValue: constant(stylesIn(fallback)),
           }),
-      index: indexOf(layer.widthProperty),
+      index: byOrder,
     });
   return {
     values: {
@@ -247,10 +293,11 @@ export function expressionFor(
 ) {
   let node = assetNode(variant.asset);
   if (layer.kind === 'features') {
-    const filter = featureFilter(layer, variant);
+    const filter = featureFilter(layer, variant, mode);
     if (filter)
       node = invoke('Collection.filter', { collection: node, filter });
-    if (layer.modes?.length) return styledFeatures(layer, node, ink, mode);
+    if (layer.modes?.length)
+      return styledFeatures(layer, variant, node, ink, mode);
     const style = layer.style || {};
     node = invoke('Collection.style', {
       collection: node,

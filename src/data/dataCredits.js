@@ -499,6 +499,30 @@ export const NATURAL_EARTH_CREDIT = {
     '<a href="https://www.naturalearthdata.com" target="_blank" rel="noopener">Natural Earth</a> (public domain)',
 };
 
+/** Personal fork: registered while the Rivers layer draws the self-hosted
+ * HydroSHEDS v2 network over the Americas (CC BY 4.0, attribution
+ * required). */
+export const HYDROSHEDS_V2_CREDIT = {
+  key: 'hydrosheds-v2',
+  html:
+    'Rivers of the Americas: ' +
+    '<a href="https://www.hydrosheds.org/products/hydrosheds-v2" target="_blank" rel="noopener">HydroSHEDS v2</a> ' +
+    '(Lehner et al. 2022; WWF, DLR, Confluvio; ' +
+    '<a href="https://doi.org/10.1029/2022EO220167" target="_blank" rel="noopener">doi:10.1029/2022EO220167</a>), ' +
+    '<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>',
+};
+
+/** Personal fork: registered when the Rivers layer's reach lookup (a click
+ * on a river) is attached. */
+export const RIVER_REACH_CREDIT = {
+  key: 'river-reach',
+  html:
+    'River reach lookup: HydroRIVERS v1 (Lehner et al. 2008) with the ' +
+    'Free-Flowing Rivers attributes (Grill et al. 2019, Nature 569:215), ' +
+    '<a href="https://www.hydrosheds.org" target="_blank" rel="noopener">HydroSHEDS</a>/WWF, via ' +
+    '<a href="https://earthengine.google.com/" target="_blank" rel="noopener">Google Earth Engine</a>',
+};
+
 /** Registered when the first bundled US county outline resolves (public
  * domain — credited as a courtesy). */
 export const US_CENSUS_CREDIT = {

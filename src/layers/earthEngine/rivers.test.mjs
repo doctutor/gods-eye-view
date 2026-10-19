@@ -10,13 +10,24 @@ import * as Cesium from 'cesium';
 
 import {
   AMERICAS_CON_IDS,
+  AMERICAS_KEEP,
   EARTH_ENGINE_LAYERS,
   RIVER_BANDS,
+  RIVER_INKS,
   layerInks,
   layerModes,
   modeRecord,
+  riverLineWidth,
+  riverOrdersAt,
+  riverZoomForHeight,
+  scaleAlpha,
   variantForHeight,
 } from '../../data/earthEngineLayers.js';
+import {
+  INKS as V2_INKS,
+  bandForZoom,
+  widthFor,
+} from '../../../server/providers/riversV2/bands.js';
 import {
   createEarthEngineService,
   featureFilter,
@@ -26,6 +37,7 @@ import {
 import { normalizeOverlayEntry } from '../../overlays/worldOverlay.js';
 import { createEarthEngineLayer, readMode } from './index.js';
 import { MODE_CHIPS, rowControls } from './presentation.js';
+import { createRiverClicks } from './riverClicks.js';
 import {
   MAX_NAME_LABELS,
   NAMES_MIN_HEIGHT_M,
@@ -57,20 +69,23 @@ function memoryStorage(entries = {}) {
 test('detail follows the camera: RIV_ORD bands by height, each from a level Earth Engine draws in time', () => {
   const at = (height) => variantForHeight(RIVERS, height).key;
   assert.equal(at(20_000_000), 'o3', 'orbit: orders 1 to 3');
-  assert.equal(at(6_000_000), 'o3');
-  assert.equal(at(5_999_999), 'o4');
-  assert.equal(at(1_600_000), 'o4');
-  assert.equal(at(1_599_999), 'o5');
-  assert.equal(at(700_000), 'o5');
-  assert.equal(at(699_999), 'o6');
-  assert.equal(at(250_000), 'o6');
-  assert.equal(at(249_999), 'o7');
-  assert.equal(at(80_000), 'o7');
-  assert.equal(at(79_999), 'all');
+  assert.equal(at(6_675_000), 'o3');
+  assert.equal(at(6_674_999), 'o4');
+  assert.equal(at(1_666_000), 'o4');
+  assert.equal(at(1_665_999), 'o5');
+  assert.equal(at(834_375), 'o5');
+  assert.equal(at(834_374), 'o6');
+  assert.equal(at(417_187.5), 'o6');
+  assert.equal(at(417_187), 'o7');
+  assert.equal(at(104_296.875), 'o7');
+  assert.equal(at(104_296), 'all');
   assert.equal(at(500), 'all');
   // More orders as the view comes in.
   const orders = RIVER_BANDS.map((v) => v.maxOrder ?? 10);
   assert.deepEqual(orders, [3, 4, 5, 6, 7, 10]);
+  assert.equal(riverOrdersAt(20_000_000), 3);
+  assert.equal(riverOrdersAt(1_000_000), 5);
+  assert.equal(riverOrdersAt(50_000), 10);
   // Every band is on AUTO, and the bands tile the heights without a gap.
   for (let i = 0; i < RIVER_BANDS.length; i++) {
     assert.equal(RIVER_BANDS[i].auto, true);
@@ -90,8 +105,91 @@ test('detail follows the camera: RIV_ORD bands by height, each from a level Eart
   assert.equal(RIVERS.maxZoom, 11);
 });
 
+test('the bands switch where Cesium’s imagery level steps, and HydroSHEDS v2 draws the same orders at those zooms', () => {
+  // Cesium's level at the middle of the view (a 1,600 px wide canvas).
+  assert.equal(riverZoomForHeight(20_000_000), 3);
+  assert.equal(riverZoomForHeight(6_675_000), 4);
+  assert.equal(riverZoomForHeight(6_674_000), 5);
+  assert.equal(riverZoomForHeight(1_670_000), 6);
+  assert.equal(riverZoomForHeight(1_660_000), 7);
+  assert.equal(riverZoomForHeight(834_375), 7);
+  assert.equal(riverZoomForHeight(834_000), 8);
+  assert.equal(riverZoomForHeight(417_187.5), 8);
+  assert.equal(riverZoomForHeight(417_000), 9);
+  assert.equal(riverZoomForHeight(104_296.875), 10);
+  assert.equal(riverZoomForHeight(104_000), 11);
+  // Each band's zooms are the ones its heights give…
+  for (const variant of RIVER_BANDS) {
+    const top = Math.min(variant.maxHeightM ?? 40_000_000, 40_000_000);
+    const bottom = variant.minHeightM ?? 1_000;
+    const [from, to] = variant.zooms;
+    // (o4's floor is 1,666 km, a hair under the z 6/7 step at 1,669 km.)
+    if (variant.minHeightM)
+      assert.equal(riverZoomForHeight(bottom * 1.003), to, variant.key);
+    if (variant.maxHeightM)
+      assert.equal(riverZoomForHeight(top * 0.999), from, variant.key);
+  }
+  // …and v2's band at each of those zooms draws the same orders (v2 has no
+  // order past 8, its 1 km² streams).
+  for (const variant of RIVER_BANDS)
+    for (let z = variant.zooms[0]; z <= variant.zooms[1]; z++)
+      assert.equal(
+        bandForZoom(z).maxOrder,
+        Math.min(8, variant.maxOrder ?? 10),
+        `${variant.key} at z ${z}`,
+      );
+  // Height by height, the orders drawn are the same on both sides.
+  for (let height = 50_000; height < 30_000_000; height *= 1.07) {
+    const v1 = Math.min(8, riverOrdersAt(height));
+    const v2 = bandForZoom(Math.min(14, riverZoomForHeight(height))).maxOrder;
+    if (Math.abs(height - 1_667_500) > 3_000)
+      assert.equal(v2, v1, `${Math.round(height / 1000)} km`);
+  }
+});
+
+test('lines match HydroSHEDS v2’s: 0.75 px for the smallest order a band draws, 0.55 px more per order, 4 px at most, in the same inks', () => {
+  assert.deepEqual({ ...RIVER_INKS }, { light: 'ffffffcc', dark: '1a1a1acc' });
+  assert.equal(V2_INKS, RIVER_INKS, 'one table');
+  assert.equal(riverLineWidth(4, 4), 0.75);
+  assert.equal(riverLineWidth(3, 4), 1.3);
+  assert.equal(riverLineWidth(1, 4), 2.4);
+  assert.equal(riverLineWidth(1, 10), 4, 'capped');
+  assert.equal(riverLineWidth(9, 10), 0.75, 'v1 orders 9 and 10 draw as 8');
+  for (let z = 0; z <= 14; z++) {
+    const top = bandForZoom(z).maxOrder;
+    for (let order = 1; order <= top; order++)
+      assert.equal(widthFor(order, z), riverLineWidth(order, top));
+  }
+  // The NETWORK styles Earth Engine draws: the ink, a 1 px line at the
+  // width's share of the ink's alpha under a pixel, the width above it.
+  for (const variant of RIVER_BANDS)
+    for (const ink of ['light', 'dark']) {
+      const styles = styleFn(mapRequestFor(RIVERS, variant, ink, 'network'))
+        .functionInvocationValue.arguments.value.functionInvocationValue
+        .arguments.list.constantValue;
+      assert.equal(styles.length, 10);
+      styles.forEach((style, i) => {
+        const width = riverLineWidth(i + 1, variant.maxOrder ?? 10);
+        assert.equal(style.color.slice(0, 6), RIVER_INKS[ink].slice(0, 6));
+        if (width < 1) {
+          assert.equal(style.width, 1);
+          assert.equal(style.color, scaleAlpha(RIVER_INKS[ink], width));
+        } else {
+          assert.equal(style.width, Math.round(width * 100) / 100);
+          assert.equal(style.color, RIVER_INKS[ink]);
+        }
+      });
+    }
+  assert.equal(scaleAlpha('1a1a1acc', 0.75), '1a1a1a99');
+});
+
 test('each mode is one style per reach: a colour by its property in the ink, a width by RIV_ORD', () => {
-  assert.deepEqual(layerModes(RIVERS), ['network', 'free-flowing', 'pressure']);
+  assert.deepEqual(layerModes(RIVERS), [
+    'network',
+    'network-rest',
+    'free-flowing',
+    'pressure',
+  ]);
   assert.deepEqual(layerInks(RIVERS), ['light', 'dark']);
   for (const mode of layerModes(RIVERS))
     for (const ink of layerInks(RIVERS)) {
@@ -116,35 +214,30 @@ test('each mode is one style per reach: a colour by its property in the ink, a w
       assert.match(json(outer.arguments.index), /"RIV_ORD"/);
       assert.doesNotMatch(json(request), /Number\.format|"Dictionary"/);
       const record = modeRecord(RIVERS, mode);
-      const tables =
-        mode === 'network'
-          ? [outer.arguments.list.constantValue]
-          : (() => {
-              const inner = outer.arguments.list.functionInvocationValue;
-              assert.match(json(inner), new RegExp(`"${record.property}"`));
-              const table = inner.arguments.list?.constantValue ?? {
-                ...inner.arguments.dictionary.constantValue,
-              };
-              return Object.values(table);
-            })();
+      const tables = record.inInk
+        ? [outer.arguments.list.constantValue]
+        : (() => {
+            const inner = outer.arguments.list.functionInvocationValue;
+            assert.match(json(inner), new RegExp(`"${record.property}"`));
+            const table = inner.arguments.list?.constantValue ?? {
+              ...inner.arguments.dictionary.constantValue,
+            };
+            return Object.values(table);
+          })();
       for (const styles of tables) {
         assert.equal(styles.length, 10, 'one style per RIV_ORD');
         // Wider the larger the flow.
         for (let i = 1; i < 10; i++)
           assert.ok(styles[i].width <= styles[i - 1].width);
       }
-      const colours = new Set(tables.flat().map((style) => style.color));
-      for (const colour of Object.values(record.colors[ink]))
-        assert.ok(colours.has(colour), colour);
+      const colours = new Set(
+        tables.flat().map((style) => style.color.slice(0, 6)),
+      );
+      for (const colour of Object.values(
+        record.inInk ? { ink: RIVER_INKS[ink] } : record.colors[ink],
+      ))
+        assert.ok(colours.has(colour.slice(0, 6)), colour);
     }
-  // NETWORK: the ink, more opaque the larger the flow.
-  const network = modeRecord(RIVERS, 'network').colors;
-  assert.equal(network.light[1], '9fd8ffff');
-  assert.equal(network.dark[1], '08519cff');
-  assert.ok(
-    parseInt(network.light[10].slice(6), 16) <
-      parseInt(network.light[4].slice(6), 16),
-  );
   // FREE-FLOWING: three colours by CSI_FF2 (a number: a list by its value).
   const free = modeRecord(RIVERS, 'free-flowing');
   assert.equal(free.property, 'CSI_FF2');
@@ -197,9 +290,8 @@ test('each mode is one style per reach: a colour by its property in the ink, a w
     for (const mode of layerModes(RIVERS))
       for (const ink of layerInks(RIVERS))
         hashes.add(mapRequestHash(RIVERS, variant, ink, mode));
-  assert.equal(hashes.size, 6 * 3 * 2);
+  assert.equal(hashes.size, 6 * 4 * 2);
 });
-
 test('a band filters RIV_ORD; the widest band draws every reach', () => {
   const filter = featureFilter(RIVERS, band('o5')).functionInvocationValue;
   assert.equal(filter.functionName, 'Filter.lessThanOrEquals');
@@ -406,7 +498,7 @@ test('names are world-overlay labels in the ink, published on each view and clea
   const [entry] = set.entries;
   assert.equal(entry.variant, 'label');
   assert.equal(entry.title, 'Amazonas');
-  assert.equal(entry.accent, '#08519c', 'dark ink on a light map');
+  assert.equal(entry.accent, '#1a1a1a', 'dark ink on a light map');
   assert.equal(entry.interactive, false);
   // The overlay host takes it as it is.
   const normalized = normalizeOverlayEntry(RIVER_NAMES_SOURCE, entry);
@@ -419,7 +511,7 @@ test('names are world-overlay labels in the ink, published on each view and clea
     closer.entries.map((e) => e.title),
     ['Lahn'],
   );
-  assert.equal(closer.entries[0].accent, '#9fd8ff');
+  assert.equal(closer.entries[0].accent, '#ffffff');
   names.disable();
   assert.deepEqual(calls.slice(-2), [
     { op: 'clear', source: RIVER_NAMES_SOURCE },
@@ -458,7 +550,12 @@ test('the row: mode and ink chips, the mode kept as gev.rivers.mode, the legend 
   const { body, made } = await riversCatalog(t);
   assert.deepEqual(made, [], 'lazy: the catalog makes no Rivers map');
   const row = body.layers[0];
-  assert.deepEqual(row.modes, ['network', 'free-flowing', 'pressure']);
+  assert.deepEqual(row.modes, [
+    'network',
+    'network-rest',
+    'free-flowing',
+    'pressure',
+  ]);
   assert.match(
     row.tileUrl,
     /\/tile\/ee-rivers\/\{mode\}\/\{variant\}\/\{ink\}\//,
@@ -572,7 +669,7 @@ test('the row: mode and ink chips, the mode kept as gev.rivers.mode, the legend 
   assert.equal(named.at(-1), 'update 20000 dark');
 
   // In: a band with more orders, from its own first level.
-  height = 300_000;
+  height = 600_000;
   listeners.forEach((fn) => fn());
   assert.match(layers[0].imageryProvider.url, /\/free-flowing\/o6\/dark\//);
   assert.equal(layers[0].imageryProvider.minimumLevel, 5, 'o6 from z 5');
@@ -609,4 +706,315 @@ test('the mode chips exist only on a layer with modes', () => {
     tileTemplate('ee-forest-loss', 'default', 'default', undefined, 'default'),
     '/api/earth-engine/tile/ee-forest-loss/default/default/{z}/{x}/{y}',
   );
+});
+
+test('network-rest leaves out the Americas but where HydroSHEDS v2 has no data: Greenland, west of 169.72° W, north of 83.13° N', () => {
+  const rest = modeRecord(RIVERS, 'network-rest');
+  assert.equal(rest.omitAmericas, true);
+  assert.equal(rest.hidden, true);
+  assert.deepEqual(
+    AMERICAS_KEEP.map((place) => place.equals || place.box.join(',')),
+    ['Greenland', '-180,-90,-169.72,90', '-180,83.13,180,90'],
+  );
+  for (const variant of RIVER_BANDS) {
+    const filter = featureFilter(RIVERS, variant, 'network-rest');
+    const nodes =
+      filter.functionInvocationValue.functionName === 'Filter.and'
+        ? filter.functionInvocationValue.arguments.filters.arrayValue.values
+        : [filter];
+    const americas = nodes.at(-1).functionInvocationValue;
+    // Drawn: outside the Americas, or in Greenland, or in one of the boxes.
+    assert.equal(americas.functionName, 'Filter.or');
+    const [outside, greenland, west, north] =
+      americas.arguments.filters.arrayValue.values.map(
+        (node) => node.functionInvocationValue,
+      );
+    assert.equal(outside.functionName, 'Filter.not', 'cheap test first');
+    assert.match(json(outside), /"CON_ID".*"CON_ID"/);
+    assert.deepEqual(
+      [
+        greenland.functionName,
+        greenland.arguments.leftField.constantValue,
+        greenland.arguments.rightValue.constantValue,
+      ],
+      ['Filter.eq', 'COUNTRY', 'Greenland'],
+    );
+    for (const [box, expected] of [
+      [west, [-180, -90, -169.72, 90]],
+      [north, [-180, 83.13, 180, 90]],
+    ]) {
+      assert.equal(box.functionName, 'Filter.intersects');
+      assert.equal(box.arguments.leftField.constantValue, '.geo');
+      const bbox = box.arguments.rightValue.functionInvocationValue;
+      assert.equal(bbox.functionName, 'GeometryConstructors.BBox');
+      assert.deepEqual(
+        ['west', 'south', 'east', 'north'].map(
+          (side) => bbox.arguments[side].constantValue,
+        ),
+        expected,
+      );
+    }
+  }
+  // Only network-rest omits: NETWORK, FREE-FLOWING and PRESSURE draw v1
+  // everywhere (their scores exist only for v1).
+  for (const mode of ['network', 'free-flowing', 'pressure'])
+    assert.doesNotMatch(
+      json(mapRequestFor(RIVERS, band('o4'), 'light', mode)),
+      /CON_ID|Greenland/,
+      mode,
+    );
+  // Its styles are NETWORK's.
+  assert.deepEqual(
+    styleFn(mapRequestFor(RIVERS, band('o5'), 'dark', 'network-rest')),
+    styleFn(mapRequestFor(RIVERS, band('o5'), 'dark', 'network')),
+  );
+  assert.notEqual(
+    mapRequestHash(RIVERS, band('o5'), 'dark', 'network-rest'),
+    mapRequestHash(RIVERS, band('o5'), 'dark', 'network'),
+  );
+});
+
+const V2_EXTENT = { west: -169.72, south: -55.96, east: -32.41, north: 83.13 };
+const v2Ready = () => ({
+  configured: true,
+  attribution:
+    'HydroSHEDS v2 (Lehner et al. 2022; WWF, DLR, Confluvio), CC BY 4.0',
+  minZoom: 0,
+  maxZoom: 14,
+  versions: { light: '00000000000a', dark: '00000000000b' },
+  extent: V2_EXTENT,
+  bands: [],
+});
+
+/** A Rivers layer on a fake viewer with the real catalog and a v2 status. */
+async function riversLayer(
+  t,
+  { v2 = v2Ready(), mode = 'network', lon = -90 } = {},
+) {
+  const { body } = await riversCatalog(t);
+  const source = createEarthEngineSource({
+    fetchImpl: async () => Response.json(body),
+  });
+  const layers = [];
+  const listeners = [];
+  const state = { height: 20_000_000, lat: 35, lon };
+  const viewer = {
+    imageryLayers: {
+      add: (layer) => (layers.push(layer), layer),
+      remove: (layer) => {
+        const i = layers.indexOf(layer);
+        if (i >= 0) layers.splice(i, 1);
+        return i >= 0;
+      },
+    },
+    camera: {
+      get positionCartographic() {
+        return Cesium.Cartographic.fromDegrees(
+          state.lon,
+          state.lat,
+          state.height,
+        );
+      },
+      moveEnd: { addEventListener: (fn) => (listeners.push(fn), () => {}) },
+    },
+  };
+  const credited = [];
+  const asked = [];
+  const layer = createEarthEngineLayer({
+    record: RIVERS,
+    source,
+    storage: memoryStorage({ 'gev.rivers.mode': mode }),
+    credits: { register: (_, credit) => credited.push(credit.key) },
+    v2Source: {
+      status: async ({ refresh } = {}) => {
+        asked.push(refresh ? 'refresh' : 'status');
+        if (v2 instanceof Error) throw v2;
+        return v2;
+      },
+      last: () => null,
+    },
+    v2Credit: { key: 'hydrosheds-v2', html: 'HydroSHEDS v2' },
+  });
+  layer.init(viewer);
+  layer.enable(viewer);
+  for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+  const move = (next) => {
+    Object.assign(state, next);
+    listeners.forEach((fn) => fn());
+  };
+  return { layer, layers, credited, asked, move };
+}
+
+test('NETWORK in the Americas is HydroSHEDS v2 while it is built, with Earth Engine’s network-rest for the rest of the world', async (t) => {
+  const { layer, layers, credited, move } = await riversLayer(t);
+  assert.equal(layers.length, 2, 'Earth Engine, then v2 above it');
+  const [ee, v2] = layers;
+  assert.match(
+    ee.imageryProvider.url,
+    /\/ee-rivers\/network-rest\/o3\/light\//,
+  );
+  assert.match(
+    v2.imageryProvider.url,
+    /^\/api\/rivers\/v2\/tile\/light\/\{z\}\/\{x\}\/\{y\}\?v=00000000000a$/,
+  );
+  assert.equal(v2.imageryProvider.maximumLevel, 14);
+  // Inside v2's extent (orbit: the whole extent).
+  const degrees = (r) => Cesium.Math.toDegrees(r);
+  assert.equal(degrees(v2.rectangle.west).toFixed(2), '-169.72');
+  assert.equal(degrees(v2.rectangle.north).toFixed(2), '83.13');
+  assert.equal(v2.alpha, ee.alpha, 'one opacity');
+  assert.ok(credited.includes('hydrosheds-v2'));
+  assert.match(layer.getRowControls().info, /The Americas from HydroSHEDS v2/);
+  // The chip still says NETWORK.
+  assert.deepEqual(
+    layer
+      .getRowControls()
+      .chips.filter((chip) => chip.active)
+      .map((chip) => chip.id),
+    ['mode-network', 'ink-auto'],
+  );
+  // DARK INK: v2's own version for the ink.
+  layer
+    .getRowControls()
+    .chips.find((chip) => chip.id === 'ink-dark')
+    .onClick();
+  assert.match(
+    layers[1].imageryProvider.url,
+    /\/tile\/dark\/.*\?v=00000000000b$/,
+  );
+  assert.match(layers[0].imageryProvider.url, /\/network-rest\/o3\/dark\//);
+  // Opacity moves both.
+  layer.getRowControls().slider.onInput(40);
+  assert.deepEqual(
+    layers.map((l) => l.alpha),
+    [0.4, 0.4],
+  );
+  // Close in over the Americas: v2 inside the view's square.
+  move({ height: 300_000, lat: 38.6, lon: -90.2 });
+  assert.match(layers[0].imageryProvider.url, /\/network-rest\/o7\/dark\//);
+  assert.ok(
+    degrees(layers[1].rectangle.west) > -105 &&
+      degrees(layers[1].rectangle.west) < -95,
+    'clipped to the view square',
+  );
+  // Over Europe the view square misses v2's extent: Earth Engine only.
+  move({ height: 300_000, lat: 50, lon: 8 });
+  assert.equal(layers.length, 1);
+  assert.match(layers[0].imageryProvider.url, /\/network-rest\/o7\/dark\//);
+  // FREE-FLOWING and PRESSURE: v1 everywhere, nothing omitted.
+  layer
+    .getRowControls()
+    .chips.find((chip) => chip.id === 'mode-pressure')
+    .onClick();
+  move({ height: 20_000_000, lat: 35, lon: -90 });
+  assert.equal(layers.length, 1);
+  assert.match(
+    layers[0].imageryProvider.url,
+    /\/ee-rivers\/pressure\/o3\/dark\//,
+  );
+  assert.doesNotMatch(layer.getRowControls().info, /HydroSHEDS v2/);
+  layer
+    .getRowControls()
+    .chips.find((chip) => chip.id === 'mode-network')
+    .onClick();
+  assert.equal(layers.length, 2);
+  layer.disable();
+  assert.equal(layers.length, 0);
+});
+
+test('without a v2 build (503) or its status, NETWORK is v1 everywhere, quietly', async (t) => {
+  for (const v2 of [
+    {
+      ...v2Ready(),
+      configured: false,
+      versions: {},
+      message: 'Run npm run rivers:build',
+    },
+    new Error('HTTP 503'),
+    { ...v2Ready(), versions: { dark: '00000000000b' } },
+  ]) {
+    const { layer, layers } = await riversLayer(t, { v2 });
+    assert.equal(layers.length, 1, String(v2?.message || 'no light ink'));
+    assert.match(
+      layers[0].imageryProvider.url,
+      /\/ee-rivers\/network\/o3\/light\//,
+    );
+    const info = layer.getRowControls().info;
+    assert.doesNotMatch(info, /HydroSHEDS|rivers:build|503/);
+    layer.disable();
+  }
+  // A refresh of the layer asks v2 again: a build that lands is drawn.
+  const { layer, layers, asked } = await riversLayer(t, {
+    v2: { ...v2Ready(), configured: false, versions: {} },
+  });
+  assert.equal(layers.length, 1);
+  await layer.update();
+  assert.ok(asked.includes('refresh'));
+  layer.disable();
+});
+
+test('clicks: attached while the layer is on, at most the orders drawn at the height, gone when it is off', async () => {
+  const calls = [];
+  const highlight = { detach: () => calls.push('detach highlight') };
+  let maxOrder = null;
+  const clicks = createRiverClicks({
+    overlayHost: { name: 'overlays' },
+    picking: { name: 'picking' },
+    isPointerFree: () => true,
+    credits: { register: (_, credit) => calls.push(`credit ${credit.key}`) },
+    credit: { key: 'river-reach', html: 'x' },
+    attachHighlight: (services) => {
+      calls.push(
+        `highlight ${services.overlays.name} ${services.picking.name}`,
+      );
+      return highlight;
+    },
+    attachClicks: (options) => {
+      assert.equal(options.highlight, highlight);
+      maxOrder = options.maxOrder;
+      calls.push('clicks');
+      return () => calls.push('detach clicks');
+    },
+  });
+  const viewer = { scene: {} };
+  clicks.enable(viewer);
+  clicks.enable(viewer);
+  assert.deepEqual(calls, [
+    'highlight overlays picking',
+    'clicks',
+    'credit river-reach',
+  ]);
+  assert.equal(clicks.attached(), true);
+  // The orders the layer draws there.
+  assert.equal(maxOrder(20_000_000), 3);
+  assert.equal(maxOrder(3_000_000), 4);
+  assert.equal(maxOrder(1_000_000), 5);
+  assert.equal(maxOrder(600_000), 6);
+  assert.equal(maxOrder(200_000), 7);
+  assert.equal(maxOrder(50_000), 10);
+  for (let height = 60_000; height < 30_000_000; height *= 1.3)
+    assert.equal(
+      maxOrder(height),
+      variantForHeight(RIVERS, height).maxOrder ?? 10,
+    );
+  clicks.disable();
+  assert.deepEqual(calls.slice(-2), ['detach clicks', 'detach highlight']);
+  assert.equal(clicks.attached(), false);
+  clicks.disable();
+  assert.equal(calls.length, 5);
+
+  // The layer drives it.
+  const seen = [];
+  const layer = createEarthEngineLayer({
+    record: RIVERS,
+    source: { catalog: async () => ({ configured: false, layers: new Map() }) },
+    clicks: {
+      enable: (v) => seen.push(v === viewer ? 'enable' : 'enable?'),
+      disable: () => seen.push('disable'),
+    },
+  });
+  layer.init(viewer);
+  layer.enable(viewer);
+  layer.disable();
+  assert.deepEqual(seen, ['enable', 'disable']);
 });

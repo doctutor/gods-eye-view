@@ -9,6 +9,7 @@ import { resolveImageryHost } from '../../maps/imageryHost.js';
 import { activeLuminance, readInkSetting, resolveInk } from '../../maps/ink.js';
 import { SLOW_DISTRICTS_ABOVE_M, rowControls } from './presentation.js';
 import { tileTemplate } from './source.js';
+import { riversV2ImageryOptions, riversV2Ready } from '../riversV2/source.js';
 
 /**
  * Personal fork: one Earth Engine overlay (src/data/earthEngineLayers.js) as
@@ -141,9 +142,15 @@ export function readLevel(storage, record) {
   }
 }
 
-/** The mode stored for a layer with modes (one of its keys), else its first. */
+/** A layer's modes a chip can pick: all but the hidden ones (network-rest). */
+export function chipModes(record) {
+  const shown = (record?.modes || []).filter((mode) => !mode.hidden);
+  return shown.length ? shown.map((mode) => mode.key) : layerModes(record);
+}
+
+/** The mode stored for a layer with modes (one a chip can pick), else its first. */
 export function readMode(storage, record) {
-  const modes = layerModes(record);
+  const modes = chipModes(record);
   try {
     const value = record.modeStorageKey
       ? storage?.getItem(record.modeStorageKey)
@@ -173,8 +180,16 @@ export function attributionCredit(record) {
  * @param {{record: object, source: {catalog: Function, last?: Function},
  *   cesium?: object, requestRender?: (reason: string) => void,
  *   storage?: Storage|null, credits?: {register?: Function},
- *   names?: {enable: Function, update: Function, disable: Function}|null}} options
- *   `names`: the record's names companion (riverNames.js), if it has one.
+ *   names?: {enable: Function, update: Function, disable: Function}|null,
+ *   clicks?: {enable: Function, disable: Function}|null,
+ *   v2Source?: {status: Function, last?: Function}|null,
+ *   v2Credit?: {key: string, html: string}|null}} options
+ *   `names`: the record's names companion (riverNames.js), if it has one;
+ *   `clicks`: its click companion (riverClicks.js), attached while it is
+ *   on; `v2Source`: for a record with `americasV2`, the HydroSHEDS v2
+ *   status (src/layers/riversV2/source.js): while it is ready, NETWORK draws
+ *   the Americas from v2's tiles and the rest from Earth Engine's
+ *   `network-rest` maps, and `v2Credit` is registered.
  */
 export function createEarthEngineLayer({
   record,
@@ -184,6 +199,9 @@ export function createEarthEngineLayer({
   storage,
   credits,
   names = null,
+  clicks = null,
+  v2Source = null,
+  v2Credit = null,
 }) {
   const store = storageOf(storage);
   let _viewer = null;
@@ -212,6 +230,9 @@ export function createEarthEngineLayer({
   /** The view the mounted rectangle was made for. */
   let _madeFor = null;
   let _aboveCeiling = false;
+  /** HydroSHEDS v2's status, and its imagery over the Americas when drawn. */
+  let _v2Status = null;
+  let _v2Imagery = null;
   const notify = () => {
     try {
       _rowListener?.();
@@ -292,14 +313,27 @@ export function createEarthEngineLayer({
     });
   }
 
+  /** Whether NETWORK draws the Americas from HydroSHEDS v2 in an ink. */
+  function v2Drawn(ink) {
+    return Boolean(
+      record.americasV2 &&
+      v2Source &&
+      hasModes &&
+      _mode === 'network' &&
+      riversV2Ready(_v2Status, ink),
+    );
+  }
+
   function unmount() {
     if (!_imagery) return;
     try {
       _collection?.remove(_imagery, true);
+      if (_v2Imagery) _collection?.remove(_v2Imagery, true);
     } catch {
       /* already gone with its tileset or the viewer */
     }
     _imagery = null;
+    _v2Imagery = null;
     _collection = null;
     _mountedKey = '';
     _madeFor = null;
@@ -326,13 +360,16 @@ export function createEarthEngineLayer({
     }
     const variant = wantedVariant();
     const ink = wantedInk();
-    const mode = hasModes ? _mode : 'default';
+    const useV2 = v2Drawn(ink);
+    // While v2 draws the Americas, Earth Engine draws the rest of the world.
+    const mode = hasModes ? (useV2 ? 'network-rest' : _mode) : 'default';
+    const v2Version = useV2 ? _v2Status.versions[ink] : '';
     const served = layer.variants?.find?.((entry) => entry.key === variant);
     const version =
       (hasModes
         ? served?.modeVersions?.[mode]?.[ink]
         : served?.versions?.[ink]) || '';
-    const key = `${variant}|${ink}|${version}|${mode}`;
+    const key = `${variant}|${ink}|${version}|${mode}|${v2Version}`;
     if (
       _imagery &&
       _mountedKey === key &&
@@ -368,10 +405,62 @@ export function createEarthEngineLayer({
         : {}),
     });
     host.collection.add(_imagery);
+    if (useV2) mountV2(host.collection, ink, box);
     _collection = host.collection;
     _mountedKey = key;
     _madeFor = view;
     requestRender('earth-engine-show');
+    notify();
+  }
+
+  /**
+   * HydroSHEDS v2 over the Americas: its tiles in the ink, inside its
+   * extent (and the view's square, as the Earth Engine overlay), at the
+   * same opacity, above the Earth Engine overlay.
+   */
+  function mountV2(collection, ink, box) {
+    const options = riversV2ImageryOptions(_v2Status, ink);
+    if (!options) return;
+    const { rectangleDegrees: extent, ...rest } = options;
+    const extentRectangle = extent
+      ? cesium.Rectangle.fromDegrees(
+          extent.west,
+          extent.south,
+          extent.east,
+          extent.north,
+        )
+      : undefined;
+    const viewRectangle = box
+      ? cesium.Rectangle.fromDegrees(box.west, box.south, box.east, box.north)
+      : undefined;
+    const clip =
+      extentRectangle && viewRectangle
+        ? cesium.Rectangle.intersection(extentRectangle, viewRectangle)
+        : extentRectangle || viewRectangle;
+    // The view is away from the Americas: nothing of v2 to drape.
+    if (extentRectangle && viewRectangle && !clip) return;
+    const provider = new cesium.UrlTemplateImageryProvider({
+      ...rest,
+      tilingScheme: new cesium.WebMercatorTilingScheme(),
+      ...(extentRectangle ? { rectangle: extentRectangle } : {}),
+    });
+    _v2Imagery = new cesium.ImageryLayer(provider, {
+      alpha: _opacity,
+      ...(clip ? { rectangle: clip } : {}),
+    });
+    collection.add(_v2Imagery);
+    if (v2Credit) credits?.register?.(_viewer, v2Credit);
+  }
+
+  /** HydroSHEDS v2's status: a failure reads as not built (v1 everywhere). */
+  async function loadV2({ refresh = false } = {}) {
+    if (!record.americasV2 || !v2Source) return;
+    try {
+      _v2Status = await v2Source.status({ refresh });
+    } catch {
+      _v2Status = null;
+    }
+    if (_enabled) sync();
     notify();
   }
 
@@ -442,7 +531,7 @@ export function createEarthEngineLayer({
 
   /** A mode chip: kept as the record's modeStorageKey, drawn at once. */
   function setMode(key) {
-    if (!hasModes || !layerModes(record).includes(key) || key === _mode) return;
+    if (!hasModes || !chipModes(record).includes(key) || key === _mode) return;
     _mode = key;
     try {
       if (record.modeStorageKey) store?.setItem(record.modeStorageKey, key);
@@ -460,6 +549,7 @@ export function createEarthEngineLayer({
     } catch {
       /* private mode: kept for this page only */
     }
+    if (_v2Imagery) _v2Imagery.alpha = _opacity;
     if (_imagery) {
       _imagery.alpha = _opacity;
       requestRender('earth-engine-opacity');
@@ -485,9 +575,12 @@ export function createEarthEngineLayer({
       if (_viewer?.camera?.moveEnd && !_removeMoveListener)
         _removeMoveListener = _viewer.camera.moveEnd.addEventListener(onMoved);
       _catalog = source.last?.() || _catalog;
+      _v2Status = v2Source?.last?.() || _v2Status;
       names?.enable();
+      clicks?.enable(_viewer);
       sync();
       void loadCatalog();
+      void loadV2();
     },
 
     disable() {
@@ -496,11 +589,13 @@ export function createEarthEngineLayer({
       _removeMoveListener = null;
       unmount();
       names?.disable();
+      clicks?.disable();
       notify();
     },
 
     async update() {
       if (!_enabled) return false;
+      void loadV2({ refresh: true });
       return loadCatalog({ refresh: true });
     },
 
@@ -546,6 +641,7 @@ export function createEarthEngineLayer({
         slowDistricts: _enabled && slowDistricts(),
         mode: _mode,
         onMode: setMode,
+        americasV2: _enabled && Boolean(_v2Imagery),
       });
     },
 
@@ -575,6 +671,13 @@ export function createEarthEngineLayer({
       mode: _mountedKey ? _mountedKey.split('|')[3] : '',
       modeSetting: _mode,
       minimumLevel: _imagery?.imageryProvider?.minimumLevel ?? null,
+      v2: _v2Imagery
+        ? {
+            url: _v2Imagery.imageryProvider.url,
+            rectangle: _v2Imagery.rectangle,
+            alpha: _v2Imagery.alpha,
+          }
+        : null,
       level: _level,
       inkSetting: _inkSetting,
       opacity: _opacity,
