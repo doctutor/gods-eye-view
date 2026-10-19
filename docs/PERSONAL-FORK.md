@@ -1600,7 +1600,8 @@ with stand-in incomes; drawn tiles are then read from disk.)
 each tract's summer land surface temperature, the June–August 2018–2023
 mean of Landsat 8 and 9 Collection 2 Level-2 `ST_B10` (×0.00341802 + 149,
 in °C), clear pixels only (QA_PIXEL's dilated cloud, cirrus, cloud and
-shadow bits off), averaged over the tract (`reduceRegions`, mean) at 300 m,
+shadow bits off), on land only (JRC Global Surface Water 1.4 occurrence
+under 50%), averaged over the tract (`reduceRegions`, mean) at 300 m,
 in seven classes (under 25 °C to 50 °C+, RdYlBu reversed). It is the
 ground's temperature, not the air's: summer roofs and roads are often over
 50 °C. Google Earth's layer shows the same kind of value per tract.
@@ -1610,10 +1611,13 @@ with the server's Earth Engine service account; the owner approved the
 cost (about an hour of Earth Engine time at 300 m; 10 hours at 90 m,
 estimated from Maricopa County's 1,009 tracts, which took 90.7 s at 90 m).
 
-- **Resumable.** Each state's answer is written to `lst/<state>.json` as it
-  comes, and a state already there is skipped, so a crash repeats nothing
-  finished. A state that one request cannot answer is asked county by
-  county, each county kept the same way.
+- **Resumable.** Each state's answer is written to `lst-v<rules>/<state>.json`
+  as it comes, and a state already there is skipped, so a crash repeats
+  nothing finished. A dropped connection or an Earth Engine 5xx is asked
+  again twice (10 s, then 20 s later); a state that one request still
+  cannot answer is asked county by county, each county kept the same way.
+  The directory is named by the rules (`LST_RULES`), so a run under new
+  rules starts afresh and the build's values change only when it ends.
 - **The run** (2026-10-19, four requests at a time): 56 states and
   territories in about 19 minutes. Only Nevada went county by county (its
   statewide request failed in transit). California's 9,129 tracts came in
@@ -1626,10 +1630,26 @@ estimated from Maricopa County's 1,009 tracts, which took 90.7 s at 90 m).
   without are in the territories, Hawaii and Puerto Rico. Connecticut's
   tracts are keyed across its 2022 county renumbering by their tract code,
   unique in the state (all 879 matched).
-- **Known limit:** TIGER 2020's tracts include their water area, so a
-  shoreline tract's mean includes river or sea pixels and reads cooler
-  (along Manhattan's rivers). Masking Landsat's water bit would fix it, at
-  the cost of computing the step again.
+- **Water (rules 3, 2026-10-19).** TIGER 2020's tracts include their
+  water, so a shoreline tract's mean took in river and sea pixels and read
+  cooler (along Manhattan's rivers). Masking Landsat's per-scene water bit
+  (rules 2) made it worse: in cities it is set on about half of the clear
+  summer scenes (inland Harlem: 26.7 of 52.6 a pixel), and those are the
+  warm ones, so what was left was the hazy, cold scenes (a Harlem tract
+  29.4 → 17.2 °C, Randall's Island 26.5 → 8.1 °C). The step now masks
+  water from a fixed map instead: pixels whose JRC Global Surface Water 1.4
+  occurrence (1984–2021) is 50% or more are left out of the mean. Checked
+  on Manhattan at 300 m and 30 m (they agree): shoreline tracts warm by 5
+  to 10 °C, inland ones do not move.
+- **Result (rules 3):** 85,150 TIGER 2020 tracts (7.8 to 60.7 °C, median
+  37.3 °C); the 267 without a value are water: 255 are the `99xxxx`
+  water-only tracts. Manhattan's 309 tracts: mean 36.0 → 37.6 °C; 88 warmed
+  by over 1 °C (72 by over 3 °C: tract 002400 28.6 → 38.3, 006200 27.7 →
+  37.3, 008602 26.8 → 36.3, 012902 32.8 → 40.8), 211 moved under 0.15 °C,
+  none cooled. Nationwide 5,686 tracts warmed by over 1 °C, 7 cooled by
+  over 0.5 °C. The run took 31 minutes of Earth Engine (two sittings: the
+  first stopped on dropped connections while a large download shared the
+  line, which is why the step now retries).
 
 `--skip-lst` leaves the step out; `--env-root DIR` reads `.env` and the
 Earth Engine key path from another checkout (a worktree's build reads the

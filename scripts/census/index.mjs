@@ -8,7 +8,13 @@ import { fileURLToPath } from 'node:url';
 import { listZipEntries, readZipEntry } from '../rivers/zip.mjs';
 import { readDbf, readPolygons } from './shapefile.mjs';
 import { writeTracts } from '../../server/providers/census/tractsFile.js';
-import { LST, LST_SCALE_M, computeLst, earthEngineCompute } from './lst.mjs';
+import {
+  LST,
+  LST_RULES,
+  LST_SCALE_M,
+  computeLst,
+  earthEngineCompute,
+} from './lst.mjs';
 import {
   EE_API,
   createServiceAccountAuth,
@@ -263,7 +269,12 @@ async function build(dir, flags) {
     console.log(
       '[census] surface temperature skipped: set EARTH_ENGINE_KEY_FILE and EARTH_ENGINE_PROJECT (or pass --env-root)',
     );
-  else if (flags.force || !lst || lst.scale !== LST_SCALE_M) {
+  else if (
+    flags.force ||
+    !lst ||
+    lst.scale !== LST_SCALE_M ||
+    (lst.rules || 1) !== LST_RULES
+  ) {
     const geoids = JSON.parse(
       fs.readFileSync(path.join(buildDir, 'tracts.json'), 'utf8'),
     ).geoids;
@@ -283,6 +294,8 @@ async function build(dir, flags) {
     const known = Object.values(values.lst).filter((v) => v !== null).length;
     lst = {
       scale: LST_SCALE_M,
+      rules: LST_RULES,
+      water: 'JRC GSW occurrence >= 50% masked',
       years: `${LST.start.slice(0, 4)}–${Number(LST.end.slice(0, 4)) - 1}`,
       months: 'June–August',
       tracts: Object.keys(values.lst).length,

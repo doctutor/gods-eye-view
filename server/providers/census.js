@@ -50,7 +50,7 @@ import {
 export const CENSUS_MIN_ZOOM = 7;
 export const CENSUS_MAX_ZOOM = 14;
 export const ATTRIBUTION =
-  'U.S. Census Bureau: 2024 cartographic boundary tracts; ACS 5-year 2020–2024 B19013 median household income (public domain); summer surface temperature from Landsat 8 and 9 Collection 2 (USGS) via Google Earth Engine. This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau';
+  'U.S. Census Bureau: 2024 cartographic boundary tracts; ACS 5-year 2020–2024 B19013 median household income (public domain); summer surface temperature from Landsat 8 and 9 Collection 2 (USGS), on land by JRC Global Surface Water 1.4 (Source: EC JRC/Google), via Google Earth Engine. This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau';
 /** The manifest is stat'ed at most this often. */
 const STAT_EVERY_MS = 5000;
 
