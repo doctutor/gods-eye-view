@@ -478,3 +478,39 @@ test('inside Open Buildings boxes, the land Google has no data for is Overtureâ€
   );
   assert.ok(sanDiegoBox);
 });
+
+test('tiles drawn in worker threads are the tiles drawn here', async (t) => {
+  const polygons = wkbPolygons(square(-76.61, 39.29, 0.0002));
+  const dir = service(
+    t,
+    Array.from({ length: 5 }, () => ({ height: 9, polygons })),
+  );
+  const here = createOvertureService({ dir: path.join(dir, 'here') });
+  const pooled = createOvertureService({ dir, tileWorkers: 2 });
+  t.after(() => pooled.close());
+  const inline = createBuildingsTiles({ dir });
+  t.after(() => inline.close());
+  for (const [mode, z] of [
+    ['count', 3],
+    ['cover', 12],
+    ['height', 15],
+  ]) {
+    const [x, y] = tileOf(-76.61, 39.29, z);
+    // Asked twice at once: drawn once, the same answer.
+    const [a, b] = await Promise.all([
+      pooled.buildingTile(mode, 'light', z, x, y),
+      pooled.buildingTile(mode, 'light', z, x, y),
+    ]);
+    const direct = inline.tile(mode, 'light', z, x, y);
+    assert.equal(a.status, 200);
+    assert.ok(a.body.equals(b.body));
+    assert.ok(
+      direct.body ? a.body.equals(direct.body) : a.empty,
+      `${mode} z ${z}`,
+    );
+  }
+  assert.equal(
+    (await here.buildingTile('count', 'light', 12, 1, 1)).status,
+    503,
+  );
+});

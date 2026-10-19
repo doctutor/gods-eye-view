@@ -1558,6 +1558,24 @@ than a z 11 pixel (76 m at the equator, 58 m at Baltimore; at z 15 a cell is
 under the build's version (`buildings/tiles/<version>/`; the ink only in
 footprint tiles' paths), and the browser keeps one a day under its `?v=`.
 
+_Serving._ The dev server draws the tiles in worker threads (up to four,
+`server/providers/overture/buildingsTilePool.js`), so a tile being drawn
+never holds the server's other routes, and a tile asked twice while
+drawing is drawn once. Drawn on the server's own thread, a view loading
+held everything: a San Diego z 12 tile that draws in 75 ms answered in 24
+to 30 s on the live server (2026-10-19, with the test suite running), and
+`/api/overture/layers` waited 650 ms behind a 24-tile burst (12 ms now).
+Two costs went with it. A bucket's index (tens of thousands of blocks in a
+dense one) is searched in a natively sorted typed array instead of being
+built into a Map on every open: opening all 191 buckets, as a z 0 tile
+does, went from about 2.8 s to 0.57 s. Tiles z 0–4 read each bucket's own
+cells summed to 64 × 64 once and kept (64 KB a bucket, the same pixels:
+42 tiles compared byte for byte). Measured on a server of its own with a
+fresh tile cache: a burst of 64 tiles from orbit and close in (21 at z 0–6,
+40 at z 11), then the Baltimore, Paris and San Diego tiles, took 9.3 s
+before and 2.5 s after, the asked tiles answering in 2.3 to 2.4 s instead
+of 8.8 to 9.1 s; alone each is 4 to 17 ms from the disk cache.
+
 Measured, the conterminous US (2026-10-19): 8,061 row groups, 14.4 GB of
 column chunks fetched in 603 s (12 connections); decoded in 6.6 min (14
 workers) and merged in 2.7 min. **152,795,749 buildings** in 60 buckets,
