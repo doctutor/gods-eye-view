@@ -1,5 +1,5 @@
 {
-  "about": "Personal fork: the exact map requests server/providers/earthEngine.js sends to POST https://earthengine.googleapis.com/v1/projects/<project>/maps, one per layer variant and ink (and mode) (and mode) (and mode) (and mode) (and mode) (and mode) (src/data/earthEngineLayers.js). Regenerate with the test in src/data/earthEngine.test.mjs when a layer changes.",
+  "about": "Personal fork: the exact map requests server/providers/earthEngine.js sends to POST https://earthengine.googleapis.com/v1/projects/<project>/maps, one per layer variant and ink (and mode) (src/data/earthEngineLayers.js). Regenerate with the test in src/data/earthEngine.test.mjs when a layer changes.",
   "requests": {
     "ee-terrain-slope/far/default": {
       "expression": {
@@ -14627,6 +14627,493 @@
         "result": "0"
       },
       "fileFormat": "PNG"
+    },
+    "ee-surface-water/occurrence/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.selfMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.updateMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.load",
+                                "arguments": {
+                                  "id": {
+                                    "constantValue": "JRC/GSW1_4/GlobalSurfaceWater"
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "occurrence"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "mask": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.load",
+                                "arguments": {
+                                  "id": {
+                                    "constantValue": "JRC/GSW1_4/GlobalSurfaceWater"
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "max_extent"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 1,
+            "max": 100
+          }
+        ],
+        "paletteColors": [
+          "d4f0ff",
+          "8cc8f0",
+          "3d8fd6",
+          "0b4fa8",
+          "08306b"
+        ]
+      }
+    },
+    "ee-surface-water/change/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.updateMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.load",
+                                "arguments": {
+                                  "id": {
+                                    "constantValue": "JRC/GSW1_4/GlobalSurfaceWater"
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "change_abs"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "mask": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.load",
+                                "arguments": {
+                                  "id": {
+                                    "constantValue": "JRC/GSW1_4/GlobalSurfaceWater"
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "max_extent"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.neq",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.updateMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.load",
+                                      "arguments": {
+                                        "id": {
+                                          "constantValue": "JRC/GSW1_4/GlobalSurfaceWater"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "change_abs"
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "mask": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.load",
+                                      "arguments": {
+                                        "id": {
+                                          "constantValue": "JRC/GSW1_4/GlobalSurfaceWater"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "max_extent"
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 0
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": -50,
+            "max": 50
+          }
+        ],
+        "paletteColors": [
+          "b2182b",
+          "ef8a62",
+          "fddbc7",
+          "d1e5f0",
+          "67a9cf",
+          "2166ac"
+        ]
+      }
+    },
+    "ee-surface-water/seasonality/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.selfMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.updateMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.load",
+                                "arguments": {
+                                  "id": {
+                                    "constantValue": "JRC/GSW1_4/GlobalSurfaceWater"
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "seasonality"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "mask": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.load",
+                                "arguments": {
+                                  "id": {
+                                    "constantValue": "JRC/GSW1_4/GlobalSurfaceWater"
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "max_extent"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 1,
+            "max": 12
+          }
+        ],
+        "paletteColors": [
+          "b9f2e6",
+          "5fc4d8",
+          "1f78b4",
+          "0b2f7a"
+        ]
+      }
+    },
+    "ee-land-cover/v200/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.remap",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.select",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.load",
+                          "arguments": {
+                            "id": {
+                              "constantValue": "ESA/WorldCover/v200/2021"
+                            }
+                          }
+                        }
+                      },
+                      "bandSelectors": {
+                        "constantValue": [
+                          "Map"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "from": {
+                  "constantValue": [
+                    10,
+                    20,
+                    30,
+                    40,
+                    50,
+                    60,
+                    70,
+                    80,
+                    90,
+                    95,
+                    100
+                  ]
+                },
+                "to": {
+                  "constantValue": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 10
+          }
+        ],
+        "paletteColors": [
+          "006400",
+          "ffbb22",
+          "ffff4c",
+          "f096ff",
+          "fa0000",
+          "b4b4b4",
+          "f0f0f0",
+          "0064c8",
+          "0096a0",
+          "00cf75",
+          "fae6a0"
+        ]
+      }
+    },
+    "ee-land-cover/v100/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.remap",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.select",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.load",
+                          "arguments": {
+                            "id": {
+                              "constantValue": "ESA/WorldCover/v100/2020"
+                            }
+                          }
+                        }
+                      },
+                      "bandSelectors": {
+                        "constantValue": [
+                          "Map"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "from": {
+                  "constantValue": [
+                    10,
+                    20,
+                    30,
+                    40,
+                    50,
+                    60,
+                    70,
+                    80,
+                    90,
+                    95,
+                    100
+                  ]
+                },
+                "to": {
+                  "constantValue": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 10
+          }
+        ],
+        "paletteColors": [
+          "006400",
+          "ffbb22",
+          "ffff4c",
+          "f096ff",
+          "fa0000",
+          "b4b4b4",
+          "f0f0f0",
+          "0064c8",
+          "0096a0",
+          "00cf75",
+          "fae6a0"
+        ]
+      }
     },
     "ee-elevation-contours/c500/light": {
       "expression": {

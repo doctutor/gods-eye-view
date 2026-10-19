@@ -12,6 +12,7 @@ import {
   attributionCredit,
   createEarthEngineLayer,
   readLevel,
+  readMode,
   readOpacity,
   viewMoved,
   viewRectangleDegrees,
@@ -22,7 +23,7 @@ import {
   tileTemplate,
   toCatalogLayer,
 } from './source.js';
-import { legendLabel, statusText } from './presentation.js';
+import { legendLabel, rowControls, statusText } from './presentation.js';
 
 const record = (id) => EARTH_ENGINE_LAYERS.find((layer) => layer.id === id);
 
@@ -947,4 +948,59 @@ test('the level chips force countries, regions or districts, kept in the browser
     'auto',
   );
   assert.equal(readLevel(memoryStorage(), record('ee-forest-loss')), 'auto');
+});
+
+// Personal fork: Surface water and Land cover in the panel.
+test('Surface water and Land cover rows: their mode chips, the mode kept, its legend, Land cover’s ceiling', () => {
+  const water = EARTH_ENGINE_LAYERS.find((l) => l.id === 'ee-surface-water');
+  const cover = EARTH_ENGINE_LAYERS.find((l) => l.id === 'ee-land-cover');
+  const storage = (value) => ({ getItem: () => value });
+  assert.equal(readMode(storage(null), water), 'occurrence');
+  assert.equal(readMode(storage('change'), water), 'change');
+  assert.equal(
+    readMode(storage('network'), water),
+    'occurrence',
+    'not its mode',
+  );
+  assert.equal(readMode(storage('v100'), cover), 'v100');
+  const row = rowControls({
+    record: water,
+    opacity: 0.8,
+    onOpacity() {},
+    mode: 'change',
+  });
+  assert.deepEqual(
+    row.chips.map((chip) => [chip.id, chip.active]),
+    [
+      ['mode-occurrence', false],
+      ['mode-change', true],
+      ['mode-seasonality', false],
+    ],
+  );
+  assert.deepEqual(
+    row.legend.map((entry) => [entry.label, entry.color]),
+    [
+      ['Water lost', '#b2182b'],
+      ['Little change', '#f3e4e4'],
+      ['Water gained', '#2166ac'],
+    ],
+  );
+  const coverRow = rowControls({
+    record: cover,
+    opacity: 0.8,
+    onOpacity() {},
+    mode: 'v200',
+    catalog: { configured: true, tiles: {} },
+    ceilingM: cover.maxHeightM,
+  });
+  assert.deepEqual(
+    coverRow.chips.map((chip) => chip.label),
+    ['2021', '2020'],
+  );
+  assert.equal(coverRow.legend.length, 11);
+  assert.deepEqual(coverRow.legend[0], {
+    label: 'Tree cover',
+    color: '#006400',
+  });
+  assert.match(coverRow.info, /Zoom in below 10000 km to draw it/);
 });

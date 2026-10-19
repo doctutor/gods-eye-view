@@ -31,6 +31,8 @@ unless its switch is set to `0`.
 - [Earth Engine layers (ANALYSIS)](#earth-engine-layers-analysis)
   - [Elevation contours](#elevation-contours)
   - [Rivers](#rivers)
+  - [Surface water](#surface-water)
+  - [Land cover](#land-cover)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
 - [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
@@ -510,13 +512,15 @@ an opacity slider (kept per layer in this browser as
 `gev.earthEngine.opacity.<id>`), and a status line. The boundaries row also
 has level and ink chips (below).
 
-| Layer                                     | Dataset (Earth Engine id)                                                                                                        | Licence                                                                  |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Terrain slope, Terrain aspect, Hillshade  | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`); above 3,000 km GMTED2010, `USGS/GMTED2010_FULL`, band `mea` | Copernicus DEM licence; notice required (GMTED2010: USGS, public domain) |
-| Elevation contours                        | The terrain layers' DEMs: GMTED2010 to z 9, Copernicus DEM GLO-30 from z 10                                                      | As the terrain layers                                                    |
-| Forest loss (2001–2025, coloured by year) | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                 | CC BY 4.0                                                                |
-| Administrative boundaries                 | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from LSIB 2017, `USDOS/LSIB/2017`           | CC BY 4.0 (LSIB: US public domain)                                       |
-| Rivers (see [Rivers](#rivers))            | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth          | HydroSHEDS licence, attribution (Natural Earth: public domain)           |
+| Layer                                               | Dataset (Earth Engine id)                                                                                                                                | Licence                                                                  |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Terrain slope, Terrain aspect, Hillshade            | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`); above 3,000 km GMTED2010, `USGS/GMTED2010_FULL`, band `mea`                         | Copernicus DEM licence; notice required (GMTED2010: USGS, public domain) |
+| Elevation contours                                  | The terrain layers' DEMs: GMTED2010 to z 9, Copernicus DEM GLO-30 from z 10                                                                              | As the terrain layers                                                    |
+| Forest loss (2001–2025, coloured by year)           | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                                         | CC BY 4.0                                                                |
+| Administrative boundaries                           | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from LSIB 2017, `USDOS/LSIB/2017`                                   | CC BY 4.0 (LSIB: US public domain)                                       |
+| Rivers (see [Rivers](#rivers))                      | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth                                  | HydroSHEDS licence, attribution (Natural Earth: public domain)           |
+| Surface water (see [Surface water](#surface-water)) | JRC Global Surface Water 1.4 (1984–2021, 30 m), `JRC/GSW1_4/GlobalSurfaceWater`, bands `occurrence`, `change_abs`, `seasonality`, masked by `max_extent` | Copernicus, free without restriction; "Source: EC JRC/Google"            |
+| Land cover (see [Land cover](#land-cover))          | ESA WorldCover 10 m, 2021 `ESA/WorldCover/v200/2021` and 2020 `ESA/WorldCover/v100/2020`, band `Map`                                                     | CC BY 4.0, "© ESA WorldCover project" notice                             |
 
 The ids were taken from Earth Engine's catalog records on 2026-10-17. The
 older ids, `COPERNICUS/DEM/GLO30` and `FAO/GAUL/2015/*`, are deprecated, and
@@ -1189,6 +1193,95 @@ and detach and their `maxOrder` by height, the names' thinning and labels,
 the pack, the chips and `gev.rivers.mode`) and the Rivers tests in
 `src/data/earthEngine.test.mjs` (lazy maps, the mode route, the transparent
 tile, the cache path per mode).
+
+### Surface water
+
+**Surface water** (`ee-surface-water`, ANALYSIS) draws JRC's Global Surface
+Water 1.4: where water was seen in 38 years of Landsat (1984–2021, 30 m).
+Three chips pick the band, kept as `gev.surfaceWater.mode`:
+
+- **OCCURRENCE** (the default): how often water was there, 1% (pale) to
+  100% (deep blue).
+- **CHANGE**: `change_abs`, the change in occurrence from 1984–1999 to
+  2000–2021, red where water was lost and blue where it was gained (−50 to
+  +50 points; beyond is the end colour). No change (0) is transparent.
+- **SEASONALITY**: months a year with water, 1 (pale) to 12 (deep blue).
+
+Land is transparent: the dataset masks pixels where water was never seen,
+and zero is masked here (`selfMask`, or `≠ 0` for the signed CHANGE).
+
+**Level of detail: masked by the water's own extent.** Every mode is also
+masked by the dataset's `max_extent` band (1 wherever water was ever seen).
+Without it, the far view was wrong: Earth Engine's coarse pyramid of a
+band averages only its unmasked pixels and keeps the coarse pixel wherever
+any of them is, so at z 3 Europe drew as one blue sheet, every land pixel
+holding some pond. `max_extent` is pyramided by MODE (read from the asset),
+so a coarse pixel is water only where most of it is: from orbit the layer
+shows the large lakes, the big rivers and the coasts, and more water as the
+view comes in. At the data's own 30 m the mask is the water itself. The
+other bands are pyramided by MEAN, which suits them (a lake's coarse pixel
+is its mean occurrence). So it draws from orbit with no ceiling and no far
+variant.
+
+Timed live on 2026-10-19 (map made in 0.5 to 0.8 s; tiles over Europe,
+Africa and Asia, then Finland's lakes):
+
+| Mode        | z 0    | z 1 (4 tiles) | z 2 (3)     | z 3 (4)     | z 6, 9, 12  |
+| ----------- | ------ | ------------- | ----------- | ----------- | ----------- |
+| OCCURRENCE  | 0.19 s | 0.20–0.39 s   | 0.11–0.17 s | 0.16–0.22 s | 0.11–0.26 s |
+| CHANGE      | 0.24 s | 0.11–0.23 s   | 0.12–0.19 s | 0.11–0.27 s | 0.12–0.42 s |
+| SEASONALITY | 0.13 s | 0.17–0.30 s   | 0.10–0.22 s | 0.11–0.36 s | 0.12–0.32 s |
+
+`maxZoom` is 13 (30 m pixels are about 19 m at z 13 at the equator).
+
+### Land cover
+
+**Land cover** (`ee-land-cover`, ANALYSIS) draws ESA WorldCover's 11
+classes at 10 m in the dataset's own colours (the STAC record's
+`gee:classes`): tree cover, shrubland, grassland, cropland, built-up, bare
+or sparse vegetation, snow and ice, permanent water, herbaceous wetland,
+mangroves, moss and lichen. The class codes (10 to 100, with 95) are
+remapped to 0–10 so one palette draws them. Two chips pick the year, kept
+as `gev.landCover.mode`: **2021** (v200, the default) and **2020** (v100),
+for comparison; ESA changed the method between them, so not every
+difference is a change on the ground, and the chip's title says so. Each
+year is one global image (`ESA/WorldCover/v200/2021`, `…/v100/2020`), loaded
+directly rather than as a mosaic.
+
+**Level of detail: categorical, pyramided by MODE, with a high ceiling.**
+The `Map` band is pyramided by MODE (read from the asset on 2026-10-19), so
+a coarse pixel is the class most of it holds: every level shows real
+classes, as a small-scale land cover map would (minority classes, such as
+small towns, fall out from far away). That is unlike forest loss, whose
+coarse pixels are years of loss averaged into years that never were. Every
+level drew in under a second (below), so time sets no limit either. The
+ceiling, `maxHeightM` 10,000 km (`LAND_COVER_MAX_HEIGHT_M`), is for the one
+level that misleads: the z 0 world tile, which a view of the whole disc
+drapes on the photoreal tiles, draws the Arctic as blocky stripes and every
+coast as a thick band of water. From z 1 the map reads well. Above the
+ceiling the row says to zoom in below 10,000 km.
+
+Timed live on 2026-10-19 (2021 map made in 0.6 s; tiles over Germany, the
+Amazon and the Great Plains; 2020 sampled at z 0, 1, 3, 6, 10):
+
+| Level | 2021 (v200) | 2020 (v100)  |
+| ----- | ----------- | ------------ |
+| z 0   | 0.13 s      | 0.16 s       |
+| z 1   | 0.10–0.34 s | 0.22 s       |
+| z 2   | 0.14–0.40 s |              |
+| z 3   | 0.19–0.99 s | 0.18 s       |
+| z 4–8 | 0.14–0.95 s | 0.22 s (z 6) |
+| z 10  | 0.13–0.25 s | 0.23 s       |
+
+`maxZoom` is 14 (10 m pixels are about 10 m at z 14 at the equator).
+
+Both layers are colour rasters, so they have no inks; their colours were
+chosen to read on the photoreal tiles, Positron and the black globe alike
+(not yet checked live). Tests: `src/data/earthEngine.test.mjs` (each mode's
+expression, mask and colours, the class remap and palette, the ceiling, a
+mode with digits on the tile route, the fixture) and
+`src/layers/earthEngine/earthEngine.test.mjs` (the chips, the stored mode,
+the legends, the ceiling's status line).
 
 ## Grid (REFERENCE)
 
@@ -2196,10 +2289,19 @@ drowning the view. There are four ways to do it, by the kind of data:
   averaged to its scale, with a step that follows the zoom (500 m from
   orbit to 20 m at street scale; see
   [Elevation contours](#elevation-contours)).
-- **Categorical rasters keep a cap.** Forest loss pixels are years of loss:
-  averaged, they mean nothing, and a sampled pyramid level is noise from
-  far away. It stays dark above its `maxHeightM` (3,000 km), and its row
-  says how low to go.
+- **Categorical rasters keep a cap where their pyramid cannot keep their
+  meaning.** Forest loss pixels are years of loss: averaged, they mean
+  nothing, and a sampled pyramid level is noise from far away. It stays
+  dark above its `maxHeightM` (3,000 km), and its row says how low to go.
+  Land cover's classes are pyramided by MODE, so every level shows real
+  classes; its ceiling (10,000 km) only keeps the z 0 world tile, blocky
+  in the Arctic, off the view (see [Land cover](#land-cover)).
+- **Masked rasters: mask by a band pyramided for the mask.** A band whose
+  unmasked pixels are only some of the ground (Surface water's) averages
+  just those pixels at coarse levels and keeps every coarse pixel any of
+  them touches, so from far out it floods the land. Surface water masks
+  every mode by `max_extent`, pyramided by MODE, so a coarse pixel shows
+  only where most of it is water (see [Surface water](#surface-water)).
 - **Points: H3 rollups.** A point layer too dense for the view is counted
   into H3 cells at the resolution the height picks (see
   [H3 hexes](#h3-hexes-resolution-by-perspective)): Wikipedia coverage's
@@ -2289,9 +2391,9 @@ git merge origin/main
 - `src/data/dataCredits.js`, `.env.example` and `DATA_SOURCES.md`.
 - **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (two
   places) and `src/app/sourceComposition.test.mjs` assert `layers.length`.
-  The fork's count is upstream's plus 12 (the two Baltimore layers, Recorded
-  Video, the seven Earth Engine overlays, the Grid and Wikipedia coverage):
-  44 since Elevation contours (2026-10-19). A record added to `src/data/earthEngineLayers.js` or an
+  The fork's count is upstream's plus 14 (the two Baltimore layers, Recorded
+  Video, the nine Earth Engine overlays, the Grid and Wikipedia coverage):
+  46 since Surface water, Land cover and Elevation contours (2026-10-19). A record added to `src/data/earthEngineLayers.js` or an
   upstream layer added later changes the number.
 - **Translations.** Upstream checks that every UI string is marked for
   translation (`npm run i18n`). Fork UI text goes through `t()`, `tn()` and

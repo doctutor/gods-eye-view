@@ -28,6 +28,25 @@ export const LEGEND_WORDS = Object.freeze({
   'Road density': msg('Road density'),
   'Urban areas': msg('Urban areas'),
   'No dominant pressure': msg('No dominant pressure'),
+  // Surface water's legends.
+  'Water lost': msg('Water lost'),
+  'Little change': msg('Little change'),
+  'Water gained': msg('Water gained'),
+  '1 month a year': msg('1 month a year'),
+  '6 months a year': msg('6 months a year'),
+  'All year': msg('All year'),
+  // Land cover's classes (ESA WorldCover).
+  'Tree cover': msg('Tree cover'),
+  Shrubland: msg('Shrubland'),
+  Grassland: msg('Grassland'),
+  Cropland: msg('Cropland'),
+  'Built-up': msg('Built-up'),
+  'Bare / sparse vegetation': msg('Bare / sparse vegetation'),
+  'Snow and ice': msg('Snow and ice'),
+  'Permanent water bodies': msg('Permanent water bodies'),
+  'Herbaceous wetland': msg('Herbaceous wetland'),
+  Mangroves: msg('Mangroves'),
+  'Moss and lichen': msg('Moss and lichen'),
   // Elevation contours.
   Contour: msg('Contour'),
   'Index contour': msg('Index contour'),
@@ -69,7 +88,7 @@ export function variantLabel(variant) {
   return VARIANT_LABELS[variant] ? t(VARIANT_LABELS[variant]) : '';
 }
 
-/** The mode chips of a layer with modes (the Rivers). */
+/** The mode chips of a layer with modes (the Rivers, Surface water, Land cover). */
 export const MODE_CHIPS = Object.freeze([
   Object.freeze({
     key: 'network',
@@ -90,6 +109,37 @@ export const MODE_CHIPS = Object.freeze([
     label: msg('PRESSURE'),
     title: msg(
       'The pressure that most lowers each reach’s connectivity: dams, flow regulation, sediment trapping, water use, roads, cities',
+    ),
+  }),
+  // Surface water (JRC Global Surface Water 1.4).
+  Object.freeze({
+    key: 'occurrence',
+    label: msg('OCCURRENCE'),
+    title: msg('How often water was there, 1984–2021'),
+  }),
+  Object.freeze({
+    key: 'change',
+    label: msg('CHANGE'),
+    title: msg(
+      'Water lost (red) or gained (blue): 1984–1999 against 2000–2021',
+    ),
+  }),
+  Object.freeze({
+    key: 'seasonality',
+    label: msg('SEASONALITY'),
+    title: msg('How many months a year water is there'),
+  }),
+  // Land cover (ESA WorldCover): the map's year.
+  Object.freeze({
+    key: 'v200',
+    label: msg('2021'),
+    title: msg('ESA WorldCover 2021 (v200)'),
+  }),
+  Object.freeze({
+    key: 'v100',
+    label: msg('2020'),
+    title: msg(
+      'ESA WorldCover 2020 (v100), to compare; its method differs, so not every change is real',
     ),
   }),
 ]);

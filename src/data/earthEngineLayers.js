@@ -23,7 +23,13 @@
  * - WWF/HydroSHEDS/v1/FreeFlowingRivers (table, 8,477,883 reaches: the
  *   HydroRIVERS v1 network with Grill et al. 2019's connectivity
  *   attributes; HydroSHEDS licence, free with attribution), the Rivers
- *   layer since 2026-10-18.
+ *   layer since 2026-10-18;
+ * - JRC/GSW1_4/GlobalSurfaceWater (image, 30 m, 1984–2021; bands
+ *   occurrence, change_abs, seasonality; never-water pixels are masked;
+ *   Copernicus, free, "Source: EC JRC/Google"), checked 2026-10-19;
+ * - ESA/WorldCover/v200/2021 and ESA/WorldCover/v100/2020 (the one image
+ *   of each collection, 10 m; band Map, 11 classes, pyramided by MODE;
+ *   CC-BY-4.0), checked 2026-10-19.
  *
  * A record:
  *   id          layer id ('ee-' prefix), also the tile route's name
@@ -49,9 +55,17 @@
  *               it). `minZoom`: the variant's tiles start at that level
  *               (the client asks for nothing coarser, the server answers a
  *               coarser tile with a transparent one)
- *   modes       [{key, property, numeric?, colors: {ink: {value: RRGGBBAA}},
- *               fallback: {ink: RRGGBBAA}, legend}] for a features layer
- *               drawn per feature: one map per (variant, ink, mode), each
+ *   modes       for an image layer (Surface water, Land cover): [{key,
+ *               band?, asset?, maskBand?, mask?, remap?, vis, legend}], one
+ *               map per (variant, mode): the mode's band of the variant's
+ *               asset (or its own asset), masked by `maskBand` of the same
+ *               asset, `mask` 'self' (zero transparent) or
+ *               'nonzero' (zero transparent where values are signed),
+ *               `remap` {from, to} for class codes, drawn with its own vis;
+ *               a chip picks the mode, kept as `modeStorageKey`.
+ *               Or [{key, property, numeric?, colors: {ink: {value:
+ *               RRGGBBAA}}, fallback: {ink: RRGGBBAA}, legend}] for a
+ *               features layer drawn per feature: one map per (variant, ink, mode), each
  *               reach coloured by its `property` through the ink's table
  *               (`numeric`: the property is an integer 1, 2, 3… that every
  *               feature has, so it indexes a list; otherwise text, with
@@ -79,7 +93,8 @@
  *               `resample` ('bilinear') (ELEVATION_CONTOURS below)
  *   maxHeightM  no tiles are asked for while the camera is higher than this
  *               (optional; only for a quantity that means nothing once
- *               averaged down, like forest-loss years. Elevation averages
+ *               averaged down, like forest-loss years, or a level that
+ *               misleads, like Land cover's z 0 tile. Elevation averages
  *               sensibly and Earth Engine derives slope, aspect and
  *               hillshade at the tile's scale, so the terrain layers draw
  *               from orbit: docs/PERSONAL-FORK.md, "Level of detail")
@@ -406,6 +421,164 @@ export const RIVER_MODES = Object.freeze([
   }),
 ]);
 
+// --- Surface water and land cover ---------------------------------------------
+
+const SURFACE_WATER = Object.freeze({ image: 'JRC/GSW1_4/GlobalSurfaceWater' });
+/** The attribution the dataset's terms ask a published map for, and its paper. */
+const SURFACE_WATER_NOTICE =
+  'Source: EC JRC/Google. Global Surface Water 1.4, 1984–2021 (Pekel et al. 2016, Nature 540:418)';
+const LAND_COVER_NOTICE =
+  '© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium (CC BY 4.0). 2020: © ESA WorldCover project / Contains modified Copernicus Sentinel data (2020) processed by ESA WorldCover consortium';
+/**
+ * No land cover tiles above this height. WorldCover's Map band is pyramided
+ * by MODE (read from the asset, 2026-10-19): a coarse pixel is the class
+ * most of it holds, so unlike forest loss (MEAN of loss years, a year that
+ * never was) every level shows real classes, and every level drew in under
+ * 1 s (z 0 to 10, 2026-10-19; docs/PERSONAL-FORK.md, "Land cover"). The
+ * ceiling is for the one level that misleads: the z 0 world tile, which a
+ * view of the whole disc drapes on the photoreal tiles, draws the Arctic as
+ * blocky stripes and every coast as a thick band of water. From z 1 the map
+ * reads as a small-scale land cover map (minority classes such as built-up
+ * areas fall out, as on any small-scale map).
+ */
+export const LAND_COVER_MAX_HEIGHT_M = 10_000_000;
+
+/**
+ * The Surface water modes (chips OCCURRENCE / CHANGE / SEASONALITY), three
+ * bands of JRC's Global Surface Water 1.4. Pixels where water was never
+ * seen are masked in the dataset, so land is transparent; zero (no change,
+ * no month) is masked here too.
+ *
+ * Every mode is also masked by max_extent (1 wherever water was ever seen).
+ * Earth Engine's coarse pyramid of a band averages only its unmasked pixels
+ * and keeps the pixel wherever any is, so from orbit a country of small
+ * ponds drew as one blue sheet (z 3 over Europe, 2026-10-19). max_extent's
+ * coarse pixels are water only where most of the pixel is, so from far out
+ * the layer shows the large lakes, rivers and coasts, and more as the view
+ * comes in; at the data's own 30 m the mask is the water itself.
+ */
+export const SURFACE_WATER_MODES = Object.freeze([
+  Object.freeze({
+    key: 'occurrence',
+    band: 'occurrence',
+    maskBand: 'max_extent',
+    mask: 'self',
+    // How often water was there, 1984–2021: pale for rarely, deep blue for always.
+    vis: Object.freeze({
+      min: 1,
+      max: 100,
+      palette: Object.freeze([
+        'd4f0ff',
+        '8cc8f0',
+        '3d8fd6',
+        '0b4fa8',
+        '08306b',
+      ]),
+    }),
+    legend: Object.freeze([
+      Object.freeze({ label: '1%', color: '#d4f0ff' }),
+      Object.freeze({ label: '25%', color: '#8cc8f0' }),
+      Object.freeze({ label: '50%', color: '#3d8fd6' }),
+      Object.freeze({ label: '75%', color: '#0b4fa8' }),
+      Object.freeze({ label: '100%', color: '#08306b' }),
+    ]),
+  }),
+  Object.freeze({
+    key: 'change',
+    band: 'change_abs',
+    maskBand: 'max_extent',
+    // Signed: −100 (all water lost) to 100 (all gained); 0 is no change.
+    mask: 'nonzero',
+    vis: Object.freeze({
+      min: -50,
+      max: 50,
+      palette: Object.freeze([
+        'b2182b',
+        'ef8a62',
+        'fddbc7',
+        'd1e5f0',
+        '67a9cf',
+        '2166ac',
+      ]),
+    }),
+    legend: Object.freeze([
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      Object.freeze({ label: 'Water lost', color: '#b2182b' }),
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      Object.freeze({ label: 'Little change', color: '#f3e4e4' }),
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      Object.freeze({ label: 'Water gained', color: '#2166ac' }),
+    ]),
+  }),
+  Object.freeze({
+    key: 'seasonality',
+    band: 'seasonality',
+    maskBand: 'max_extent',
+    mask: 'self',
+    vis: Object.freeze({
+      min: 1,
+      max: 12,
+      palette: Object.freeze(['b9f2e6', '5fc4d8', '1f78b4', '0b2f7a']),
+    }),
+    legend: Object.freeze([
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      Object.freeze({ label: '1 month a year', color: '#b9f2e6' }),
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      Object.freeze({ label: '6 months a year', color: '#3a9ec6' }),
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      Object.freeze({ label: 'All year', color: '#0b2f7a' }),
+    ]),
+  }),
+]);
+
+/**
+ * ESA WorldCover's 11 classes, their codes and the dataset's own colours
+ * (the STAC record's gee:classes). Remapped to 0–10 so one palette draws them.
+ */
+const landClass = (value, color, label) =>
+  Object.freeze({ value, color, label });
+// The labels are translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js).
+export const LAND_COVER_CLASSES = Object.freeze([
+  landClass(10, '006400', 'Tree cover'),
+  landClass(20, 'ffbb22', 'Shrubland'),
+  landClass(30, 'ffff4c', 'Grassland'),
+  landClass(40, 'f096ff', 'Cropland'),
+  landClass(50, 'fa0000', 'Built-up'),
+  landClass(60, 'b4b4b4', 'Bare / sparse vegetation'),
+  landClass(70, 'f0f0f0', 'Snow and ice'),
+  landClass(80, '0064c8', 'Permanent water bodies'),
+  landClass(90, '0096a0', 'Herbaceous wetland'),
+  landClass(95, '00cf75', 'Mangroves'),
+  landClass(100, 'fae6a0', 'Moss and lichen'),
+]);
+const LAND_COVER_REMAP = Object.freeze({
+  from: Object.freeze(LAND_COVER_CLASSES.map((entry) => entry.value)),
+  to: Object.freeze(LAND_COVER_CLASSES.map((_, i) => i)),
+});
+const LAND_COVER_VIS = Object.freeze({
+  min: 0,
+  max: LAND_COVER_CLASSES.length - 1,
+  palette: Object.freeze(LAND_COVER_CLASSES.map((entry) => entry.color)),
+});
+const LAND_COVER_LEGEND = Object.freeze(
+  LAND_COVER_CLASSES.map((entry) =>
+    Object.freeze({ label: entry.label, color: `#${entry.color}` }),
+  ),
+);
+const landCoverMode = (key, image) =>
+  Object.freeze({
+    key,
+    asset: Object.freeze({ image, band: 'Map' }),
+    remap: LAND_COVER_REMAP,
+    vis: LAND_COVER_VIS,
+    legend: LAND_COVER_LEGEND,
+  });
+/** The Land cover modes: 2021 (v200) and, for comparison, 2020 (v100). */
+export const LAND_COVER_MODES = Object.freeze([
+  landCoverMode('v200', 'ESA/WorldCover/v200/2021'),
+  landCoverMode('v100', 'ESA/WorldCover/v100/2020'),
+]);
+
 const RIVERS_NOTICE =
   'HydroSHEDS/WWF: HydroRIVERS v1 (Lehner, Verdin & Jarvis 2008, Eos 89:93) and the Free-Flowing Rivers attributes (Grill et al. 2019, Nature 569:215); names from Natural Earth (public domain)';
 
@@ -656,6 +829,32 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     legend: RIVER_MODES[0].legend,
     attribution: RIVERS_NOTICE,
     maxZoom: 11,
+  }),
+  // Surface water: JRC's 38-year record of where water was, one image band
+  // per mode; occurrence averages sensibly, so it draws from orbit.
+  Object.freeze({
+    id: 'ee-surface-water',
+    name: 'Surface water',
+    kind: 'image',
+    asset: SURFACE_WATER,
+    modes: SURFACE_WATER_MODES,
+    modeStorageKey: 'gev.surfaceWater.mode',
+    legend: SURFACE_WATER_MODES[0].legend,
+    attribution: SURFACE_WATER_NOTICE,
+    maxZoom: 13,
+  }),
+  // Land cover: ESA WorldCover's classes; categorical, so it keeps a ceiling.
+  Object.freeze({
+    id: 'ee-land-cover',
+    name: 'Land cover',
+    kind: 'image',
+    asset: LAND_COVER_MODES[0].asset,
+    modes: LAND_COVER_MODES,
+    modeStorageKey: 'gev.landCover.mode',
+    legend: LAND_COVER_LEGEND,
+    attribution: LAND_COVER_NOTICE,
+    maxZoom: 14,
+    maxHeightM: LAND_COVER_MAX_HEIGHT_M,
   }),
   ELEVATION_CONTOURS,
 ]);

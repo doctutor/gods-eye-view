@@ -41,10 +41,10 @@ test('catalogs construct distinct layers and classification from their supplied 
     surface: fixtureSurface(b.signal),
   });
   // Personal fork: upstream's 32 plus the two Baltimore camera layers, the
-  // Recorded Video layer, the six Earth Engine overlays
-  // (src/data/earthEngineLayers.js), the Grid and the Wikipedia coverage
-  // layer.
-  assert.equal(first.layers.length, 44);
+  // Recorded Video layer, the nine Earth Engine overlays
+  // (src/data/earthEngineLayers.js; Surface water, Land cover and Elevation
+  // contours since 2026-10-19), the Grid and the Wikipedia coverage layer.
+  assert.equal(first.layers.length, 46);
   assert.ok(first.get('local-adsb'), 'Local ADS-B is registered');
   assert.deepEqual(
     first.metadata.find(({ id }) => id === 'local-adsb'),
@@ -161,10 +161,10 @@ test('Mapillary can be omitted or replaced without changing catalog membership',
   };
   const catalog = createApplicationCatalog(options);
   // Personal fork: upstream's 32 plus the two Baltimore camera layers, the
-  // Recorded Video layer, the six Earth Engine overlays
-  // (src/data/earthEngineLayers.js), the Grid and the Wikipedia coverage
-  // layer.
-  assert.equal(catalog.layers.length, 44);
+  // Recorded Video layer, the nine Earth Engine overlays
+  // (src/data/earthEngineLayers.js; Surface water, Land cover and Elevation
+  // contours since 2026-10-19), the Grid and the Wikipedia coverage layer.
+  assert.equal(catalog.layers.length, 46);
   assert.deepEqual(catalog.get('street-level').providerIds, []);
   assert.equal(
     catalogControlServices(catalog).streetLevelLayer,
