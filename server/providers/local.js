@@ -29,6 +29,8 @@ import { recordedVideoProxy } from './recordedVideo.js';
 import { earthEngineProxy } from './earthEngine.js';
 // Personal fork: the Wikipedia coverage layer.
 import { wikipediaCoverageProxy } from './wikipediaCoverage.js';
+// Personal fork: clicking a river reach (the Rivers layer).
+import { riverReachProxy } from './riverReach.js';
 import { keySetupEndpoint } from '../standalone/key-setup.js';
 import { weatherProxy } from './weather.js';
 import { firePerimetersProxy } from './firePerimeters.js';
@@ -72,6 +74,7 @@ function localProviderPlugins({ realtime } = {}) {
     recordedVideoProxy({ sourceRoot: defaultSourceRoot }),
     earthEngineProxy({ sourceRoot: defaultSourceRoot }),
     wikipediaCoverageProxy({ sourceRoot: defaultSourceRoot }),
+    riverReachProxy({ sourceRoot: defaultSourceRoot }),
     firePerimetersProxy(),
     gnssIntegrityProxy(),
     keySetupEndpoint(),

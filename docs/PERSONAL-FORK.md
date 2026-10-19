@@ -31,6 +31,7 @@ unless its switch is set to `0`.
 - [Earth Engine layers (ANALYSIS)](#earth-engine-layers-analysis)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
+- [Rivers: click a reach](#rivers-click-a-reach)
 - [Level of detail](#level-of-detail)
 
 - [Keyless basemaps (MAP SOURCE)](#keyless-basemaps-map-source)
@@ -1007,6 +1008,169 @@ fixture `src/data/fixtures/wikipedia-coverage-h3-europe.json` (resolution
 2 over Europe, synthetic densities) and drawn with real Cesium in headless
 Chrome from that fixture; the live route (server/providers/
 wikipediaCoverage.js, from local-fixes `181f947a`) answers the same shape.
+
+## Rivers: click a reach
+
+With the Rivers layer on, a click on the map finds the river reach nearest
+it and draws three things on the ground. The clicked reach is thick amber.
+The path its water takes to the sea, or to an inland sink, is a cyan line.
+The network above it is thin pale dashes, thinner for smaller rivers. The
+reach and the path sit on a dark casing, so they read on light and dark
+maps, and the three differ by width and pattern as well as colour. They are
+`GroundPolylinePrimitive`s with classification BOTH, so they lie on terrain
+and on the photoreal tiles alike, as the Grid draws; without depth textures
+they are drawn at sea level. A card at the reach, published through the
+world-overlay host (no Cesium labels), gives:
+
+- the river's name and basin, with the country (an unnamed creek is called
+  a tributary of the first named river below it);
+- its size, in plain words from `RIV_ORD`, and its average flow;
+- its Free-Flowing Rivers status (`CSI_FF2`: free-flowing, good
+  connectivity or impacted) with the connectivity index;
+- the pressure that lowers that index most (`CSI_D`: dams fragmenting it,
+  reservoirs regulating its flow, sediment trapped, water withdrawn, roads
+  or towns);
+- the distance from the click to the mouth along the path.
+
+A label marks the path's end ("Mouth" or "Inland sink"). Escape, another
+click, a click on the sky, or turning the layer off clears it all. A miss
+says "No river here" for 3 seconds.
+
+**Data.** HydroRIVERS v1 with the Free-Flowing Rivers attributes (Grill et
+al. 2019, _Nature_ 569: 215), Earth Engine table
+`WWF/HydroSHEDS/v1/FreeFlowingRivers`, with the same service account as the
+Earth Engine layers (see above). Each reach has `NOID`, its downstream
+neighbour `NDOID` (0 at a terminal reach) and its backbone `BB_ID`: a
+backbone is one contiguous flow path, from a source to where it joins a
+bigger river or ends. `BB_OCEAN` is 1 when the backbone reaches the ocean.
+HydroSHEDS counts the Caspian as ocean, so the Volga ends "to the sea";
+the Okavango and the Amu Darya end inland.
+
+**The endpoint** (`server/providers/riverReach.js`, registered in
+`server/providers/local.js`, same-site, GET only):
+
+```
+GET /api/rivers/reach?lat=&lon=&heightM=[&maxOrder=][&upstream=1]
+GET /api/rivers/reach/<source>/<id>[?upstream=1]
+GET /api/rivers/reach/<source>/<id>/upstream
+```
+
+It answers 400 for bad parameters, 404 when no river is within the
+tolerance, 429 past the minute's budget, 502 when Earth Engine fails and 503
+when Earth Engine is not set up. The tolerance grows with the camera height
+(`src/data/riverReach.js`): 0.014 × height, about twelve screen pixels,
+never under 100 m nor over 50 km. The size limit (`maxOrder`) shrinks with
+height, so a click on a big river seen from far away is not taken by a
+creek beside it: every order up to 20 km, ≤ 8 to 80 km, ≤ 7 to 250 km, ≤ 6
+to 800 km, ≤ 5 to 2,500 km, ≤ 4 to 8,000 km, then ≤ 3. A layer that draws
+fewer orders at some height passes its own `maxOrder`.
+
+**Method: three Earth Engine requests at most, each one `value:compute`.**
+
+1. _The nearest reach._ A `withinDistance` filter (spatially indexed) and
+   `RIV_ORD ≤ maxOrder`, each candidate's distance set, sorted, limit 1.
+   0.4 to 1.3 s.
+2. _The downstream path, in one request however long._ The reaches below
+   the clicked one on its backbone are `BB_ID = b and UPLAND_SKM ≥ u`
+   (upstream area only grows downstream). The lowest of them has the next
+   backbone's entry as its `NDOID`. Sixteen such hops are nested in one
+   expression graph, with every node a shared value, so the graph stays
+   linear. Hops past the terminal reach are empty and cost almost nothing:
+   3, 6, 12 and 20 hops all took 3.4 to 4.2 s from a creek. In use, 1 to
+   3.4 s for requests 1 and 2 together.
+3. _The upstream network, in one request._ The clicked backbone above the
+   reach, then up to 4 levels of tributary backbones, all within 2 orders
+   of the clicked one, the 2,500 largest kept by upstream area. A kept
+   reach's downstream neighbours are always kept, so the network stays
+   connected. The client asks for it after drawing the path. Each level
+   costs about 1.1 to 2.5 s: 3 levels took 3.6 s, 6 took 8.5 s and 10 took
+   10.2 s, finding 441, 460 and 468 reaches above the Meramec. That is why
+   4 is the default.
+
+What was tried and dropped:
+
+- A client-side walk of `NDOID` costs one request per reach, hundreds to
+  the Gulf.
+- `table:computeFeatures` pages its answer and computes the whole graph
+  again for each page. The Danube above Budapest took 24.7 s that way and
+  11.1 s through one `value:compute`.
+- `Filter.inList` does not match a numeric field against a list over REST.
+  `Filter.listContains` with the list on the left does; it is the JS
+  client's own `inList`.
+- Id lists of tens of thousands are refused as "Filter is too complex". The
+  Danube's and the Okavango's networks hit this until each level was cut to
+  its 2,500 largest before the next was found. That loses nothing the final
+  cut keeps, because a tributary is smaller than the reach it joins.
+- `Join.simple` and `Join.inverted` instead of the lists ran past 60 s.
+
+**Measured** on 2026-10-18 through the handler, with a cold cache and live
+Earth Engine. "First" is requests 1 and 2; the upstream request is separate.
+
+| Click (camera height)                 | Reach found                                  | Downstream                                               | First                              | Upstream                        |
+| ------------------------------------- | -------------------------------------------- | -------------------------------------------------------- | ---------------------------------- | ------------------------------- |
+| St. Louis creek, Mississippi (250 km) | unnamed, order 7, 0.13 m³/s, 1.6 km off      | 467 reaches, 1,891 km, 3 backbones (… > Missouri), ocean | 3.4 s, 2 req                       | none (a headwater), 1.5 s       |
+| Meramec at Valley Park (100 km)       | Meramec, order 5, 75 m³/s                    | 462 reaches, 1,889 km, Meramec > Missouri, ocean         | 2.5 s, 2 req                       | 454 reaches, 215 lines, 4.0 s   |
+| Danube at Budapest (50 km)            | Danube, order 3, 2,311 m³/s, impacted (dams) | 400 reaches, 1,764 km, ocean                             | 1.4 s, 2 req                       | 1,685 reaches, 62 lines, 9.9 s  |
+| Madeira at Porto Velho (300 km)       | Madeira, order 2, 19,545 m³/s                | 741 reaches, 2,255 km, Madeira > Amazon, ocean           | 1.0 s, 2 req                       | 2,500 (capped), 26 lines, 9.8 s |
+| Okavango at Rundu (50 km)             | Okavango, order 4, free-flowing              | 283 reaches, 1,134 km, inland (the delta)                | 1.6 s, 2 req                       | 1,195 reaches, 49 lines, 12.3 s |
+| Amu Darya at Nukus (300 km)           | Amudar'ya, order 3, impacted (reservoirs)    | 54 reaches, 357 km, inland (the Aral)                    | 1.1 s, 2 req                       | 2,500 (capped), 52 lines, 7.9 s |
+| Volga at Astrakhan (1,000 km)         | unnamed in the data, order 3, 8,103 m³/s     | 17 reaches, 110 km, ocean (the Caspian)                  | 3 req with upstream, 17.0 s in all | 2,500 (capped), 25 lines        |
+
+The Mississippi path ends at the bird's foot (89.26°W, 29.11°N), the
+Danube's at its delta (29.70°E, 45.25°N), the Amazon's off Macapá. The
+answers are 8 to 45 KB without the network and 75 to 300 KB with it, the
+coordinates rounded to 1e-5°.
+
+**Caching and limits.** Answers are kept on disk by reach id under
+`.gev-cache/rivers/reach/` for 180 days: `<id>.json` holds the reach and its
+path, and `<id>.upstream.json` its network. The data is static, and a
+version number in the file drops older layouts. A click's rounded place and
+rule are remembered in memory with the id they found (up to 1,000), so the
+same click again asks nothing: 2 to 15 ms. After a restart it is the
+nearest-reach request only, 0.4 to 0.8 s. The same lookup asked twice at
+once is done once. At most 3 Earth Engine requests run at once and 40 start
+in any minute; past that the answer is 429. The client waits 150 ms before
+asking, so a double click asks once, and it drops any answer to a click
+that a newer one replaced.
+
+**The answer's shape** (`river-reach/1`, documented in
+`src/data/riverReach.js`) is one any source can give: `schema`, `source`
+`{id, name, attribution}`, `query` (a click's `lat`, `lon`, `heightM`,
+`toleranceM` and `maxOrder`), and then:
+
+- `reach`: `id`, `distanceM`, `properties` (`RIV_ORD`, `DIS_AV_CMS`,
+  `LENGTH_KM`, `UPLAND_SKM`, `CSI`, `CSI_FF`, `CSI_FF2`, `CSI_D`, `BB_ID`,
+  `BB_NAME`, `BB_OCEAN`, `BB_LEN_KM`, `BAS_ID`, `BAS_NAME`, `COUNTRY`,
+  `CONTINENT`, `NOID`, `NDOID`, `REACH_ID`) and a GeoJSON `geometry`
+  LineString;
+- `downstream`: `complete`, `terminal` (`ocean`, `inland` or `unknown`),
+  `reaches`, `lengthKm`, `distanceToMouthKm`, `mouth` and `segments`
+  `[{backboneId, name, order, lengthKm, coordinates}]`;
+- `upstream`: null, or `{reaches, lengthKm, maxOrder, levels, truncated,
+lines: [{backboneId, name, order, coordinates}]}`;
+- `links`: `{self, upstream}`, then `cached` and `timing {ms, requests}`.
+
+Coordinates run with the flow, from source to mouth.
+
+**HydroSHEDS v2 later.** The handler takes a list of sources and asks the
+first whose `covers(lat, lon)` is true. The id routes are named by source
+(`/api/rivers/reach/<source>/<id>`), and an answer's `links.upstream` says
+where its network is. A self-hosted v2 network for the Americas is one more
+object, `{source, covers, atPoint, byId, upstream}`, answering this shape
+and put ahead of the v1 service in `riverReachProxy({sources})`. The client
+can also point at another server (`attachReachHighlight(…, {endpoint})`),
+whose relative links it resolves against that server.
+
+**The client** (`src/layers/rivers/reachHighlight.js`, with the card's words
+in `reachCard.js`). `attachReachHighlight({viewer, overlays, cesium,
+picking, requestRender}, {endpoint, upstream, debounceMs})` returns
+`{select(lat, lon, heightM, {maxOrder}), clear(), detach(), state()}`.
+`attachReachClicks({viewer, highlight, picking, isPointerFree, maxOrder})`
+routes the viewer's left clicks to it. A click on the map or on the
+highlight selects there; a click on another layer's object is left to that
+layer; a click on the sky clears; a tool holding the pointer gets the click
+first. The highlight's pick ids start with `river-reach:` and are registered
+with the pick registry. Strings are translated into Spanish and Russian.
 
 ## Keyless basemaps (MAP SOURCE)
 
