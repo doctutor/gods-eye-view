@@ -2,14 +2,15 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Worker } from 'node:worker_threads';
 import {
+  fetchBytes,
   fileFooter,
   listBuildingFiles,
   planRowGroups,
   rowGroupFile,
 } from './buildingsPlan.mjs';
 import { checkRawDir } from '../rawDir.mjs';
+import { createWorkerPool } from './workerPool.mjs';
 import { readPartHeader } from './buildingsParts.mjs';
 import { gapBoxes } from './openBuildingsGaps.mjs';
 import { BUCKET_ZOOM } from '../../server/providers/overture/buildingsFile.js';
@@ -59,42 +60,6 @@ export function currentBuildings(dir) {
   if (!/^manifest-[0-9a-f]{12}\.json$/.test(pointer?.manifest || ''))
     return null;
   return readJson(path.join(dir, 'buildings', pointer.manifest));
-}
-
-function pool(size) {
-  const workers = Array.from(
-    { length: size },
-    () => new Worker(new URL('./buildingsWorker.mjs', import.meta.url)),
-  );
-  const waiting = new Map();
-  let nextId = 0;
-  const idle = [...workers];
-  const queue = [];
-  for (const worker of workers)
-    worker.on('message', ({ id, result, error }) => {
-      const { resolve, reject } = waiting.get(id);
-      waiting.delete(id);
-      idle.push(worker);
-      pump();
-      if (error) reject(new Error(error));
-      else resolve(result);
-    });
-  function pump() {
-    while (idle.length && queue.length) {
-      const worker = idle.pop();
-      const { message, resolve, reject } = queue.shift();
-      waiting.set(message.id, { resolve, reject });
-      worker.postMessage(message);
-    }
-  }
-  return {
-    run: (type, job) =>
-      new Promise((resolve, reject) => {
-        queue.push({ message: { id: nextId++, type, job }, resolve, reject });
-        pump();
-      }),
-    close: () => Promise.all(workers.map((worker) => worker.terminate())),
-  };
 }
 
 /**
@@ -195,7 +160,7 @@ export async function buildBuildings({
           !fs.existsSync(partFile) &&
           !fs.existsSync(rowGroupFile(rawDir, entry))
         )
-          toFetch += entry.bytes;
+          toFetch += fetchBytes(entry);
         tasks.push({
           region: name,
           pass: pass.key,
@@ -214,7 +179,7 @@ export async function buildBuildings({
   );
   if (toFetch > capBytes)
     throw new Error(
-      `The buildings need ${(toFetch / 1e9).toFixed(1)} GB of column chunks, past the ${(capBytes / 1e9).toFixed(1)} GB cap (--cap-gb)`,
+      `The buildings need ${(toFetch / 1e9).toFixed(1)} GB of downloads, past the ${(capBytes / 1e9).toFixed(1)} GB cap (--cap-gb)`,
     );
   if (!tasks.length && previous) {
     log('[overture] buildings: nothing new to add');
@@ -222,7 +187,7 @@ export async function buildBuildings({
   }
 
   // 2. Parts.
-  const workerPool = pool(workers);
+  const workerPool = createWorkerPool(workers);
   const t1 = Date.now();
   let fetched = 0;
   let finished = 0;

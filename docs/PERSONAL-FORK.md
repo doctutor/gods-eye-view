@@ -43,6 +43,7 @@ unless its switch is set to `0`.
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
 - [Localities (REFERENCE)](#localities-reference)
 - [Street assets (ANALYSIS)](#street-assets-analysis)
+- [Places (ANALYSIS)](#places-analysis)
 - [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
 - [Rivers: click a reach](#rivers-click-a-reach)
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
@@ -3158,6 +3159,17 @@ the same paced `/api/overpass` client as Localities (and the same
 charging stations need no key. Attribution © OpenStreetMap contributors
 (ODbL).
 
+**EV CHARGING from Overture, when built.** With the Places layer's index
+built (`npm run overture:build -- --places`, see Places), EV CHARGING
+draws Overture's charging stations at 50% confidence or more instead,
+with no Overpass query. Pins come from `/api/overture/places` (the box
+clipped to 1° around the view) and counts per hexagon from
+`/api/overture/places/counts`, at the same heights. The chip's title and
+the row say "Overture Maps". Without the build, or if it goes away while
+the layer is on, the type asks OpenStreetMap as before. Coverage differs
+by country (see Places): Overture has more around Baltimore, far fewer
+around Paris.
+
 **Level of detail: pins, then counts, then nothing.** These are dense, so
 each type has two heights:
 
@@ -3198,6 +3210,161 @@ The signals' first pin height (10 km) filled the limit in Baltimore's
 20 km box, so their pins start at 5 km (a 4 km box held 544). OpenStreetMap
 coverage varies by city: Baltimore has only 25 hydrants mapped in a 4 km
 box.
+
+## Places (ANALYSIS)
+
+Points of interest from Overture Maps' places theme
+(`src/layers/places/`), read from a local index built once
+(`npm run overture:build -- --places`, below): 64.7 million named places
+world-wide, each at least 50% likely to exist by Overture's confidence.
+One category at a time, a chip each (kept as `gev.places.category`):
+**ALL**, **FOOD & DRINK**, **SHOPPING**, **HEALTH**, **EDUCATION**,
+**TRANSPORT**, **ACCOMMODATION**, **PUBLIC SERVICES**, **RELIGION**,
+**ARTS & RECREATION** and **EV CHARGING**. A second pair of chips sets
+the confidence floor: **≥80%** (the default) or **≥50%**
+(`gev.places.confidence`). Without the build, the row says how to make it.
+
+**Level of detail: counts, then pins.** Above 20 km the shared point
+rollup (`src/layers/pointRollup/`, through its new `getCounts` option)
+draws the server's counts per H3 hexagon. The resolution follows the
+height, from 0 at orbit to 7 below 60 km, and a click on a hexagon flies
+the camera in. Below 20 km the layer draws the view's places as points
+coloured by category, at most 1,500. The box is the ground a nadir view
+sees (half-side one camera height, at least 1.5 km), snapped outward to
+0.02°.
+
+A view holding more than 1,500 keeps the most confident places, and the
+row says so ("the most confident; zoom in for more"). Most of a city is
+at 100%, so ties are broken by a hash of the position: the kept places
+spread over the view and stay put as it pans. A click on a pin opens its
+card: the name, the category and Overture's own kind (`basic_category`),
+the brand, the website (as text, not a link) and phone, the source
+dataset and the confidence.
+
+**The routes.**
+
+- `GET /api/overture/places?west&south&east&north&category&minConfidence`
+  answers a box of at most 1° that does not cross the antimeridian. The
+  answer is `{count, candidates, saturated, places: [{id, name, category,
+basic, website, phone, brand, source, confidence, at}]}`, with at most
+  1,500 places.
+- `GET /api/overture/places/counts?res&category&minConfidence[&west&south&east&north]`
+  answers `{res, total, cells: [[h3, count]]}` for resolutions 0–7. With
+  a window it returns only the window's cells.
+
+`category` is `all` or a chip's key. `minConfidence` is 0.8 or 0.5;
+other values snap down to the nearer floor, and the default is 0.8. Both
+routes answer from two worker threads (the tile pool's `overture-places`
+drawer) and are cached for a day under the build's version.
+`/api/overture/layers` says whether the build is there (its `poi`).
+
+**The places build.** `npm run overture:build -- --places` reads release
+**2026-09-23.1** (schema v2.0.0, `theme=places/type=place`) from the
+public `overturemaps-us-west-2` bucket over HTTPS: 16 GeoParquet files,
+11 GB in all, holding 81,455,423 places in 4,864 row groups.
+
+- **Columns.** It reads only `geometry`, `confidence`, `names.primary`,
+  `basic_category`, `taxonomy.hierarchy`, `websites`, `phones`,
+  `brand.names.primary`, `sources[].dataset` and `operating_status`, by
+  HTTP range.
+- **Raw files.** Each row group's chunks are kept under
+  `GEV_RAW_DIR/overture/raw/<release>/places`, else the cache's `raw/`.
+  `--drop-raw` deletes them once decoded.
+- **Index.** The build writes it to `.gev-cache/overture/places`.
+- **What it keeps.** Places at 50% confidence or more, open (not
+  `permanently_closed`) and named.
+- **Resumable.** Each row group writes its own part, and the parts are
+  merged once all are there.
+- **Cap.** It refuses to start if the download would pass 15 GB
+  (`--cap-gb` changes the cap).
+
+`npm run overture:status` reports the build.
+
+Measured on 2026-10-19 with 4 workers:
+
+- **Download and decode:** 7.91 GB in 12.1 min. The ranges between the
+  wanted chunks come along; 4.0 GB of chunks are kept on the archive.
+- **Merge:** 3.5 min, for 16 min in all.
+- **Kept:** 64,735,759 of 81.5 M places. 15.8 M were under 50% and
+  0.96 M were permanently closed.
+- **Size:** 2.42 GB in 1,284 buckets (one per z6 tile), plus a 6.9 MB
+  counts file for resolutions 0–5 (313,917 cells).
+
+| Category          | Places | Overture's top level, or the place's kinds                                 |
+| ----------------- | ------ | -------------------------------------------------------------------------- |
+| Food & drink      | 8.66 M | `food_and_drink`                                                           |
+| Shopping          | 11.1 M | `shopping`                                                                 |
+| Health            | 4.42 M | `health_care`                                                              |
+| Education         | 3.04 M | `education`                                                                |
+| Transport         | 3.44 M | `travel_and_transportation`                                                |
+| Accommodation     | 2.44 M | `lodging`                                                                  |
+| Public services   | 2.30 M | `community_and_government`                                                 |
+| Religion          | 1.80 M | any kind naming `place_of_worship` or `religious_organization`             |
+| Arts & recreation | 4.90 M | `arts_and_entertainment`, `sports_and_recreation`, `cultural_and_historic` |
+| EV charging       | 56,410 | any kind with `charging` in it                                             |
+| Other (ALL only)  | 22.6 M | services and businesses, and the rest                                      |
+
+By source: Meta 43.2 M, BrightQuery 9.14 M, Microsoft 6.13 M, Foursquare
+4.14 M, AllThePlaces 1.81 M, PinMeTo 163 k, DAC 149 k, Krick 13.5 k and
+RenderSEO 3.3 k. Of the kept places, 39.2 M have a website and 53.2 M a
+phone.
+
+**The index format** (`server/providers/overture/placesFile.js`) is the
+buildings' bucket file format:
+
+- **Per z12 tile:** a block of 12-byte places sorted by confidence (x and
+  y on a 2^28 Web Mercator grid, the confidence in 250ths, the category),
+  and a block of their texts (name, kind, website, phone, brand, source).
+- **Per bucket:** the H3 counts at resolutions 0–7, per category and
+  confidence floor.
+- **Global counts:** resolutions 0–5 are also summed into one file, so a
+  view from orbit reads one block.
+
+Timings on this machine, through the route with 4 tile workers (warm
+unless marked cold):
+
+| View                            | Answer                                 | Time             |
+| ------------------------------- | -------------------------------------- | ---------------- |
+| Baltimore downtown, 3 km, ALL   | 1,500 of 11,798 (≥80%), 385 KB         | 46 ms (163 cold) |
+| Columbia MD (suburb), 5 km, ALL | 1,500 of 6,207; FOOD 500 of 500        | 34 ms            |
+| Naperville IL (suburb), 5 km    | 1,500 of 7,936; FOOD 838; EV 10        | 35 ms            |
+| Paris, 5 km, FOOD & DRINK       | 1,500 of 15,646, 338 KB                | 190 ms           |
+| Paris, 5 km, ALL ≥50%           | 1,500 of 109,592                       | 115 ms           |
+| Europe from 6,000 km, res 2     | 2,219 cells (the visible globe), 53 KB | 2 ms (15 cold)   |
+| Baltimore 200 km, res 6         | 24,895 cells, 3.9 M places             | 80 ms            |
+| Eight pin boxes at once         |                                        | 311 ms           |
+
+**Street assets' EV CHARGING** draws from this index when it is built
+(see Street assets). Overture's charging stations are uneven by country:
+12,455 in the conterminous US, 11,058 in Germany and 10,284 in the UK,
+but only 37 around Paris (24 within 25 km of the centre, none within
+5 km). OpenStreetMap maps many more there.
+
+**Licences.** The places are Overture's, drawn from several sources with
+their own licences. Each place keeps its `sources[].dataset`, shown on
+its card:
+
+- **CDLA-Permissive 2.0** ([text](https://cdla.dev/permissive-2-0/)):
+  Meta, Microsoft, BrightQuery, PinMeTo, DAC, Krick and RenderSEO.
+- **Apache License 2.0**
+  ([text](https://www.apache.org/licenses/LICENSE-2.0)): Foursquare.
+- **CC0 1.0**
+  ([text](https://creativecommons.org/publicdomain/zero/1.0/)):
+  AllThePlaces.
+
+The credit reads "Overture Maps Foundation" with the sources, linked to
+docs.overturemaps.org/attribution. The app serves the places from the
+local index and bundles none.
+
+Foursquare's [NOTICE](https://opensource.foursquare.com/places-notice-txt/)
+must travel in full with any distribution of its data; for an API, it
+goes in the developer documentation. It names Foursquare Labs, Inc. as
+the copyright holder and the Apache License 2.0 as the licence, asks that
+changes be marked prominently, and disclaims all warranties. Two kinds of
+change apply here: Overture transformed the data to its schema, and this
+build keeps a subset of its columns and places. Overture's attribution
+page adds "Foursquare data was transformed to the Overture schema" to the
+release.
 
 ## H3 hexes (resolution by perspective)
 

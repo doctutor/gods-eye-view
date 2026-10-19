@@ -8,6 +8,8 @@ import {
 } from './buildingsPlan.mjs';
 import { decodeRowGroup, writePart } from './buildingsParts.mjs';
 import { mergeBucket } from './buildingsMerge.mjs';
+import { decodePlacesRowGroup } from './placesParts.mjs';
+import { mergePlacesBucket } from './placesMerge.mjs';
 
 /**
  * A worker of the Overture buildings step: fetches and decodes row groups
@@ -63,9 +65,52 @@ async function part({
   return { fetched, bytes, stats };
 }
 
+/** A places row group: fetched (kept on the raw archive) and decoded into a part. */
+async function placesPart({ entry, rawDir, partFile, dropRaw, userAgent }) {
+  let fetched = 0;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      fetched = await fetchRowGroup(entry, rawDir, { userAgent });
+      break;
+    } catch (error) {
+      if (attempt >= 4) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 2000 * (attempt + 1)));
+    }
+  }
+  const rawFile = rowGroupFile(rawDir, entry);
+  let footer = footers.get(entry.file);
+  if (!footer) {
+    footer = await fileFooter(
+      { name: entry.file, key: entry.key, size: entry.size },
+      rawDir,
+      { userAgent },
+    );
+    footers.clear();
+    footers.set(entry.file, footer);
+  }
+  const { buckets, stats } = decodePlacesRowGroup(
+    readRowGroupFile(rawFile),
+    footer,
+  );
+  const bytes = writePart(
+    partFile,
+    { file: entry.file, group: entry.group, stats },
+    buckets,
+  );
+  if (dropRaw) fs.rmSync(rawFile, { force: true });
+  return { fetched, bytes, stats };
+}
+
 parentPort.on('message', async ({ id, type, job }) => {
   try {
-    const result = type === 'part' ? await part(job) : mergeBucket(job);
+    const result =
+      type === 'part'
+        ? await part(job)
+        : type === 'places-part'
+          ? await placesPart(job)
+          : type === 'places-merge'
+            ? mergePlacesBucket(job)
+            : mergeBucket(job);
     parentPort.postMessage({ id, result });
   } catch (error) {
     parentPort.postMessage({ id, error: String(error?.stack || error) });

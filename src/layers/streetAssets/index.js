@@ -15,6 +15,11 @@ import {
   buildAssetQuery,
 } from './assets.js';
 import { rowControls } from './presentation.js';
+import { createPlacesSource } from '../places/source.js';
+import { PLACES_CREDIT } from '../places/index.js';
+import { viewWindow } from '../../maps/h3Cells.js';
+import { h3ResolutionForHeight } from '../../maps/h3Resolution.js';
+import { PLACE_MAX_SPAN_DEGREES } from '../../data/overturePlaces.js';
 
 /**
  * Personal fork: the Street assets layer (ANALYSIS in the DATA LAYERS
@@ -29,6 +34,12 @@ import { rowControls } from './presentation.js';
  * (src/layers/pointRollup/), whose hexes fly the camera in on a click.
  * The pins are point primitives (no Cesium labels); the lines are clamped
  * to the ground and the 3D tiles. Rebuilt when the camera settles.
+ *
+ * EV CHARGING comes from the local Overture places index instead when it
+ * is built (`npm run overture:build -- --places`, the Places layer's): its
+ * charging stations at 50% confidence or more, pins from
+ * /api/overture/places and counts from /api/overture/places/counts, so it
+ * needs no Overpass; without the build, OpenStreetMap as before.
  */
 
 export const STREET_ASSETS_LAYER_ID = 'street-assets';
@@ -75,6 +86,7 @@ export function createStreetAssetsLayer({
   requestRender = () => {},
   credits = null,
   overpass = createOverpassViewClient(),
+  places = createPlacesSource(),
   storage,
   picking = null,
   attachRollup = attachPointRollup,
@@ -97,6 +109,8 @@ export function createStreetAssetsLayer({
   let _held = null;
   /** {mode, state, count, saturated} for the row. */
   let _status = null;
+  /** The Overture places index: null until asked, false when not built. */
+  let _overture = null;
 
   const notify = () => _rowListener?.();
 
@@ -165,6 +179,13 @@ export function createStreetAssetsLayer({
       },
       {
         getPoints: () => (_held?.mode === 'counts' ? _held.features : []),
+        // Overture's charging stations: the server's counts.
+        getCounts: (res) =>
+          _held?.mode === 'counts' && _held.cells
+            ? _held.cells.res === res
+              ? _held.cells.map
+              : new Map()
+            : null,
         accent: type.color || LINE_COLORS.light,
         threshold: {
           enter: type.pinLimit,
@@ -281,12 +302,88 @@ export function createStreetAssetsLayer({
     notify();
   }
 
+  /** Whether this type draws from Overture's places (EV charging, when built). */
+  const fromOverture = (type) => type.key === 'charging' && Boolean(_overture);
+
+  /** Overture's charging stations for the view: pins, or counts per cell. */
+  async function fetchOverture(type, mode, box, view) {
+    _status = { mode, state: 'loading', count: 0, overture: true };
+    notify();
+    try {
+      if (mode === 'pins') {
+        const answer = await places.pins({
+          box: clipBox(box, view),
+          category: 'charging',
+          minConfidence: 0.5,
+          version: _overture.version,
+        });
+        if (!_enabled || type.key !== _asset) return;
+        const features = answer.places.map((place) => ({
+          id: place.id,
+          lon: place.at[0],
+          lat: place.at[1],
+        }));
+        _held = { type, mode, box, features, saturated: answer.saturated };
+      } else {
+        const res = h3ResolutionForHeight(view.height);
+        const window = viewWindow(view.lat, view.lon, view.height);
+        const map = await places.counts({
+          res,
+          bounds: window,
+          category: 'charging',
+          minConfidence: 0.5,
+          version: _overture.version,
+        });
+        if (!_enabled || type.key !== _asset) return;
+        _held = {
+          type,
+          mode,
+          box,
+          features: [],
+          cells: { res, map },
+          saturated: false,
+        };
+      }
+      const count = _held.cells
+        ? [..._held.cells.map.values()].reduce((sum, n) => sum + n, 0)
+        : _held.features.length;
+      _status = {
+        mode,
+        state: 'ready',
+        count,
+        saturated: _held.saturated,
+        overture: true,
+      };
+      drawPins();
+      _rollup?.refresh?.({ force: true });
+      requestRender('street-assets');
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+      if (error?.code === 'unconfigured') {
+        // The build went away: OpenStreetMap from here on.
+        _overture = false;
+        _held = null;
+        return settle();
+      }
+      _status = { mode, state: 'failed', count: 0, overture: true };
+    }
+    notify();
+  }
+
   /** The camera settled: ask for the type's features or counts for the view. */
   function settle() {
     if (!_enabled) return;
     clearTimeoutImpl(_debounce);
     _debounce = null;
     const type = assetTypeOf(_asset);
+    if (type.key === 'charging' && _overture === null) {
+      places.status().then((status) => {
+        _overture = status?.configured ? status : false;
+        if (_overture) credits?.register?.(_viewer, PLACES_CREDIT);
+        if (_enabled) settle();
+      });
+      return;
+    }
     const view = viewNow();
     const mode = assetModeForHeight(type, view.height);
     if (mode === 'none') {
@@ -299,7 +396,8 @@ export function createStreetAssetsLayer({
       notify();
       return;
     }
-    if (_status?.state === 'unconfigured') return notify();
+    if (_status?.state === 'unconfigured' && !fromOverture(type))
+      return notify();
     const box = assetQueryBox(view);
     if (
       _held &&
@@ -318,8 +416,20 @@ export function createStreetAssetsLayer({
     }
     _debounce = setTimeoutImpl(() => {
       _debounce = null;
-      fetchFor(type, mode, box);
+      if (fromOverture(type)) fetchOverture(type, mode, box, view);
+      else fetchFor(type, mode, box);
     }, ASSET_DEBOUNCE_MS);
+  }
+
+  /** A pins box no wider than the places route answers, around the view. */
+  function clipBox(box, view) {
+    const half = PLACE_MAX_SPAN_DEGREES / 2 - 0.001;
+    return {
+      west: Math.max(box.west, view.lon - half),
+      east: Math.min(box.east, view.lon + half),
+      south: Math.max(box.south, view.lat - half),
+      north: Math.min(box.north, view.lat + half),
+    };
   }
 
   function setAsset(key) {
@@ -370,6 +480,8 @@ export function createStreetAssetsLayer({
       clearTimeoutImpl(_debounce);
       _debounce = null;
       overpass.abort?.();
+      places.abort?.();
+      _overture = null;
       _removeMove?.();
       _removeMove = null;
       stopRollup();
@@ -412,6 +524,7 @@ export function createStreetAssetsLayer({
         inkColor: LINE_COLORS[ink()] || LINE_COLORS.light,
         status: _status,
         enabled: _enabled,
+        overture: _asset === 'charging' && Boolean(_overture),
       });
     },
 

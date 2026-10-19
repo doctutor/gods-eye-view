@@ -21,6 +21,28 @@ export const BUILDINGS = Object.freeze({
   type: 'building',
   prefix: `release/${OVERTURE_RELEASE}/theme=buildings/type=building/`,
 });
+/** The places theme's points of interest: 16 GeoParquet files (11 GB) in this release. */
+export const PLACES = Object.freeze({
+  release: OVERTURE_RELEASE,
+  theme: 'places',
+  type: 'place',
+  prefix: `release/${OVERTURE_RELEASE}/theme=places/type=place/`,
+});
+/** The places step's fetched column chunks may not add up to more than this. */
+export const PLACES_CAP_BYTES = 15 * 1024 ** 3;
+/** The columns the places step reads. */
+export const PLACE_COLUMNS = Object.freeze([
+  'geometry',
+  'confidence',
+  'names.primary',
+  'basic_category',
+  'taxonomy.hierarchy.list.element',
+  'websites.list.element',
+  'phones.list.element',
+  'brand.names.primary',
+  'sources.list.element.dataset',
+  'operating_status',
+]);
 /** The buildings step's fetched column chunks may not add up to more than this. */
 export const BUILDINGS_CAP_BYTES = 25 * 1024 ** 3;
 /** The downloads may not add up to more than this. */

@@ -7,6 +7,8 @@ const DRAWERS = Object.freeze({
   'overture-buildings': () =>
     import('../overture/buildingsTiles.js').then((m) => m.createBuildingsTiles),
   census: () => import('../census.js').then((m) => m.createCensusService),
+  'overture-places': () =>
+    import('../overture/placesIndex.js').then((m) => m.createPlacesIndex),
   'rivers-v2': () =>
     import('../riversV2.js').then((m) => m.createRiversV2Service),
 });

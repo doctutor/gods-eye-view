@@ -48,7 +48,10 @@ export const ROLLUP_FLY_SECONDS = 1.2;
  * @param {(reason: string) => void} [layer.requestRender]
  * @param {(box: object) => void} [layer.flyTo] Replaces the camera flight (tests).
  * @param {object} options
- * @param {() => Array<{lat: number, lon: number, id?: string}>} options.getPoints
+ * @param {() => Array<{lat: number, lon: number, id?: string}>} [options.getPoints]
+ * @param {(res: number, window: object|null) => Map<string, number>|null} [options.getCounts]
+ *   Counts already made per cell (a server's, for points too many to send):
+ *   used in place of binning getPoints' points; null draws nothing.
  * @param {string} [options.accent]
  * @param {{ enter?: number, exit?: number, enterHeightM?: number, exitHeightM?: number, minHeightM?: number }} [options.threshold]
  * @param {(active: boolean) => void} [options.onModeChange]
@@ -66,7 +69,8 @@ export function attachPointRollup(
     flyTo = null,
   },
   {
-    getPoints,
+    getPoints = null,
+    getCounts = null,
     accent = DEFAULT_ROLLUP_ACCENT,
     threshold = {},
     onModeChange = () => {},
@@ -74,8 +78,13 @@ export function attachPointRollup(
     enabled = true,
   },
 ) {
-  if (!id || typeof getPoints !== 'function')
-    throw new TypeError('A point rollup needs a layer id and getPoints');
+  if (
+    !id ||
+    (typeof getPoints !== 'function' && typeof getCounts !== 'function')
+  )
+    throw new TypeError(
+      'A point rollup needs a layer id and getPoints or getCounts',
+    );
   const sourceId = `${id}-rollup`;
   const pickPrefix = `rollup:${id}:`;
   let _enabled = enabled !== false;
@@ -180,8 +189,8 @@ export function attachPointRollup(
     });
   }
 
-  function build(points, window, res, view) {
-    const bins = binPoints(points, res, window);
+  function build(points, window, res, view, counts = null) {
+    const bins = counts || binPoints(points, res, window);
     let max = 0;
     for (const count of bins.values()) if (count > max) max = count;
     const base = cesium.Color.fromCssColorString(accent);
@@ -215,7 +224,7 @@ export function attachPointRollup(
     } catch (error) {
       console.warn(`[PointRollup] ${id} labels failed:`, error);
     }
-    _madeFor = { ...view, res, points: points.length };
+    _madeFor = { ...view, res, points: counts ? counts : points.length };
     setActive(true);
     requestRender('point-rollup');
     notifyUpdate();
@@ -234,9 +243,14 @@ export function attachPointRollup(
       deactivate();
       return;
     }
-    const points = getPoints() || [];
     const window = viewWindow(view.lat, view.lon, view.heightM);
-    _inView = countInWindow(points, window);
+    const res = h3ResolutionForHeight(view.heightM);
+    const counts = getCounts ? getCounts(res, window) : null;
+    const points = counts ? [] : getPoints?.() || [];
+    if (counts) {
+      _inView = 0;
+      for (const count of counts.values()) _inView += count;
+    } else _inView = countInWindow(points, window);
     if (
       !rollupWanted(
         { heightM: view.heightM, inView: _inView, active: _active },
@@ -246,16 +260,15 @@ export function attachPointRollup(
       deactivate();
       return;
     }
-    const res = h3ResolutionForHeight(view.heightM);
     if (
       !force &&
       _madeFor &&
       _madeFor.res === res &&
-      _madeFor.points === points.length &&
+      _madeFor.points === (counts ? counts : points.length) &&
       !viewMoved(_madeFor, view)
     )
       return;
-    build(points, window, res, view);
+    build(points, window, res, view, counts);
   }
 
   /** A click's pick id: true when it was one of this rollup's hexes. */
@@ -310,7 +323,7 @@ export function attachPointRollup(
         active: _active,
         res: _madeFor?.res ?? null,
         cells: _cells.size,
-        points: _madeFor?.points ?? null,
+        points: typeof _madeFor?.points === 'number' ? _madeFor.points : null,
         inView: _inView,
         madeFor: _madeFor,
         primitive: _surface?.primitive || null,

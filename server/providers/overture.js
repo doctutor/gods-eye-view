@@ -10,6 +10,15 @@ import { defaultSourceRoot } from './common/source-root.js';
 import { openIndex } from './overture/divisionsFile.js';
 import { NEEDS_BUILD, overtureCacheDir } from './overture/sources.js';
 import { createBuildingsTiles } from './overture/buildingsTiles.js';
+import { createPlacesIndex } from './overture/placesIndex.js';
+import { createTilePool as createSharedPool } from './common/tilePool.js';
+import {
+  PLACE_CATEGORIES,
+  PLACE_CONFIDENCE_CHOICES,
+  PLACE_COUNT_RESOLUTIONS,
+  PLACE_MAX_SPAN_DEGREES,
+  PLACE_PIN_LIMIT,
+} from '../../src/data/overturePlaces.js';
 import { createTilePool } from './overture/buildingsTilePool.js';
 import { keepTile } from './common/tileCache.js';
 
@@ -43,6 +52,11 @@ import {
  *       COUNT, COVER or HEIGHT from Overture's footprints, their outlines
  *       in the ink from z 15 (server/providers/overture/buildingsTiles.js),
  *       kept on disk under the buildings' version
+ *   GET /api/overture/places?west=&south=&east=&north=[&category=&minConfidence=]
+ *       the Places layer's pins in a box under a degree: the most
+ *       confident first, at most 1,500, `saturated` when more matched
+ *   GET /api/overture/places/counts?res=[&west=&south=&east=&north=&category=&minConfidence=]
+ *       the same places counted per H3 cell of a resolution (0–7)
  *   GET /api/overture/divisions?west=&south=&east=&north=&zoom=[&v=]
  *       the places named at `zoom` in the box: those whose zoom (the
  *       build's, from prominence and kind) the view reaches, the most
@@ -125,6 +139,21 @@ export function createOvertureService({
   const buildings = createBuildingsTiles({ dir, now });
   const pool =
     tileWorkers > 0 ? createTilePool({ dir, size: tileWorkers }) : null;
+  // The Places layer's answers, off this thread too (they read and unpack
+  // a few dozen blocks a view).
+  const places = createPlacesIndex({ dir, now });
+  const placesPool =
+    tileWorkers > 0
+      ? createSharedPool({
+          drawer: 'overture-places',
+          options: { dir },
+          size: Math.min(2, tileWorkers),
+        })
+      : null;
+  const askPlaces = (method, query) =>
+    placesPool
+      ? placesPool.render(method, [query], `${method}/${JSON.stringify(query)}`)
+      : places[method](query);
   /** Tile file → the draw (and write) in flight. */
   const drawingTiles = new Map();
   let held = null;
@@ -184,6 +213,7 @@ export function createOvertureService({
           attribution: OVERTURE_ATTRIBUTION,
           license: OVERTURE_LICENSE,
           buildings: buildings.status(),
+          poi: places.status(),
         };
       const { manifest } = build;
       return {
@@ -198,6 +228,7 @@ export function createOvertureService({
         limit: OVERTURE_PLACE_LIMIT,
         maxSpanDegrees: OVERTURE_MAX_SPAN_DEGREES,
         buildings: buildings.status(),
+        poi: places.status(),
       };
     },
 
@@ -281,10 +312,18 @@ export function createOvertureService({
           };
     },
 
+    /** The Places layer's pins for a box; `query` from parsePlacesQuery. */
+    placePins: (query) => askPlaces('pins', query),
+
+    /** The Places layer's H3 counts; `query` from parseCountsQuery. */
+    placeCounts: (query) => askPlaces('counts', query),
+
     /** Stop the tile workers and close the open files. */
     async close() {
       await pool?.close();
+      await placesPool?.close();
       buildings.close();
+      places.close();
     },
 
     /** The places of a view; `query` from parseDivisionsQuery. */
@@ -318,6 +357,76 @@ function sendJson(res, status, payload, cache = 'no-store') {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', cache);
   res.end(JSON.stringify(payload));
+}
+
+const CATEGORY_KEYS = new Set(['all', ...PLACE_CATEGORIES.map((c) => c.key)]);
+
+/** The Places pins query (a box under PLACE_MAX_SPAN_DEGREES), checked; or {error}. */
+export function parsePlacesQuery(params) {
+  const box = parseBox(params);
+  if (box.error) return box;
+  const span =
+    box.west <= box.east ? box.east - box.west : 360 - box.west + box.east;
+  if (
+    box.north - box.south > PLACE_MAX_SPAN_DEGREES ||
+    span > PLACE_MAX_SPAN_DEGREES
+  )
+    return { error: `The box is wider than ${PLACE_MAX_SPAN_DEGREES} degree` };
+  if (box.west > box.east) return { error: 'The box crosses the antimeridian' };
+  const filters = parseFilters(params);
+  if (filters.error) return filters;
+  return { ...box, ...filters, limit: PLACE_PIN_LIMIT };
+}
+
+/** The Places counts query (a resolution, an optional window), checked; or {error}. */
+export function parseCountsQuery(params) {
+  const res = Number(params.get('res'));
+  if (!PLACE_COUNT_RESOLUTIONS.includes(res)) return { error: 'res is 0 to 7' };
+  let window = null;
+  if (params.has('west')) {
+    const box = parseBox(params);
+    if (box.error) return box;
+    window = box;
+  }
+  const filters = parseFilters(params);
+  if (filters.error) return filters;
+  return { res, window, ...filters };
+}
+
+function parseBox(params) {
+  const number = (name) => {
+    const raw = params.get(name);
+    return raw === null || raw.trim() === '' ? NaN : Number(raw);
+  };
+  const [west, south, east, north] = ['west', 'south', 'east', 'north'].map(
+    number,
+  );
+  if (![west, south, east, north].every(Number.isFinite))
+    return { error: 'west, south, east and north are numbers' };
+  if (
+    Math.abs(west) > 180 ||
+    Math.abs(east) > 180 ||
+    south < -90 ||
+    north > 90 ||
+    south >= north
+  )
+    return { error: 'The box is out of range' };
+  return { west, south, east, north };
+}
+
+function parseFilters(params) {
+  const category = params.get('category') || 'all';
+  if (!CATEGORY_KEYS.has(category)) return { error: 'No such category' };
+  const asked = Number(
+    params.get('minConfidence') ?? PLACE_CONFIDENCE_CHOICES[0],
+  );
+  if (!Number.isFinite(asked)) return { error: 'minConfidence is a number' };
+  // The thresholds the index keeps: 0.8 and up, else 0.5.
+  const minConfidence =
+    asked >= PLACE_CONFIDENCE_CHOICES[0]
+      ? PLACE_CONFIDENCE_CHOICES[0]
+      : PLACE_CONFIDENCE_CHOICES[1];
+  return { category, minConfidence };
 }
 
 const BUILDING_TILE =
@@ -358,6 +467,25 @@ export function createOvertureHandler({ service }) {
         res.setHeader('Content-Length', String(answer.body.length));
         res.end(answer.body);
         return;
+      }
+      if (route === '/places' || route === '/places/counts') {
+        const query =
+          route === '/places'
+            ? parsePlacesQuery(url.searchParams)
+            : parseCountsQuery(url.searchParams);
+        if (query.error) return sendJson(res, 400, { error: query.error });
+        const answer = await (route === '/places'
+          ? service.placePins(query)
+          : service.placeCounts(query));
+        if (answer.status !== 200)
+          return sendJson(res, answer.status, { error: answer.error });
+        const asked = url.searchParams.get('v');
+        return sendJson(
+          res,
+          200,
+          { version: answer.version, ...answer.body },
+          asked === answer.version ? 'private, max-age=86400' : 'no-store',
+        );
       }
       if (route === '/divisions') {
         const query = parseDivisionsQuery(url.searchParams);

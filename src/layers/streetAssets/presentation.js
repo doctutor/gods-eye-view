@@ -65,6 +65,7 @@ export function statusText({
   state,
   count = 0,
   saturated = false,
+  overture = false,
 }) {
   if (mode === 'none')
     return t('Zoom in below {height} km to draw them', {
@@ -75,7 +76,10 @@ export function statusText({
   if (state === 'limited')
     return t('OpenStreetMap is busy; trying again shortly');
   if (state === 'failed') return t('Street assets unavailable');
-  if (state === 'loading') return t('Asking OpenStreetMap…');
+  if (state === 'loading')
+    return overture
+      ? t('Reading the Overture places…')
+      : t('Asking OpenStreetMap…');
   if (state !== 'ready') return '';
   const parts = [assetCountText(type.key, count)];
   if (saturated) parts.push(t('more than the view can show; zoom in for all'));
@@ -96,14 +100,24 @@ export function statusText({
  * @param {{asset: string, onAsset: (key: string) => void, inkColor: string,
  *   status: object|null, enabled: boolean}} input
  */
-export function rowControls({ asset, onAsset, inkColor, status, enabled }) {
+export function rowControls({
+  asset,
+  onAsset,
+  inkColor,
+  status,
+  enabled,
+  overture = false,
+}) {
   const type =
     ASSET_TYPES.find((entry) => entry.key === asset) || ASSET_TYPES[0];
   return {
     chips: ASSET_TYPES.map((entry) => ({
       id: `asset-${entry.key}`,
       label: t(ASSET_WORDS[entry.key].chip),
-      title: t(ASSET_WORDS[entry.key].title),
+      title:
+        overture && entry.key === 'charging'
+          ? t('Electric vehicle charging stations (Overture Maps)')
+          : t(ASSET_WORDS[entry.key].title),
       active: asset === entry.key,
       onClick: () => onAsset(entry.key),
     })),
@@ -113,6 +127,14 @@ export function rowControls({ asset, onAsset, inkColor, status, enabled }) {
         color: type.color || inkColor,
       },
     ],
-    info: enabled && status ? statusText({ type, ...status }) : '',
+    info:
+      enabled && status
+        ? [
+            statusText({ type, ...status }),
+            ...(overture && status.state === 'ready'
+              ? [t('from Overture Maps')]
+              : []),
+          ].join(' · ')
+        : '',
   };
 }

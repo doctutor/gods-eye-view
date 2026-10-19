@@ -392,3 +392,79 @@ test('a newer query aborts the one in flight', async () => {
   await assert.rejects(a, (error) => error.name === 'AbortError');
   assert.deepEqual((await b).elements, []);
 });
+
+test('EV charging from the Overture places index when it is built, OpenStreetMap when not', async () => {
+  const queries = [];
+  const overpass = {
+    query: async (q) => (queries.push(q), { elements: [] }),
+    abort: () => {},
+  };
+  const asked = [];
+  let configured = true;
+  const places = {
+    status: async () =>
+      configured
+        ? { configured: true, version: 'abcdef012345', places: 9 }
+        : { configured: false },
+    pins: async (q) => {
+      asked.push(['pins', q.category, q.minConfidence, q.box]);
+      return {
+        places: [{ id: 'pl:1:2:3', at: [-76.61, 39.29] }],
+        count: 1,
+        saturated: false,
+      };
+    },
+    counts: async (q) => {
+      asked.push(['counts', q.res, q.category]);
+      return new Map([['872a1072bffffff', 7]]);
+    },
+    abort: () => {},
+  };
+  const credits = [];
+  let rollup = null;
+  const make = () =>
+    createStreetAssetsLayer({
+      overpass,
+      places,
+      credits: { register: (_viewer, credit) => credits.push(credit) },
+      storage: { getItem: () => 'charging', setItem() {} },
+      setTimeoutImpl: (fn) => (fn(), 0),
+      clearTimeoutImpl: () => {},
+      attachRollup: (_owner, options) =>
+        (rollup = {
+          options,
+          refresh() {},
+          detach() {},
+          isActive: () => false,
+        }),
+    });
+  const layer = make();
+  const viewer = fakeViewer(4_000);
+  layer.init(viewer);
+  layer.enable(viewer);
+  await flush();
+  assert.equal(queries.length, 0, 'no Overpass');
+  const [kind, category, floor, box] = asked.at(-1);
+  assert.deepEqual([kind, category, floor], ['pins', 'charging', 0.5]);
+  assert.ok(box.east - box.west < 1 && box.north - box.south < 1);
+  assert.equal(layer._state().held.features.length, 1);
+  assert.ok(credits.some((credit) => /Overture/.test(JSON.stringify(credit))));
+  assert.match(layer.getRowControls().info, /from Overture Maps/);
+  // Above the pin height: the server's counts through the rollup.
+  viewer.camera.positionCartographic.height = 60_000;
+  layer._settle();
+  await flush();
+  const [, res] = asked.at(-1);
+  assert.equal(rollup.options.getCounts(res).get('872a1072bffffff'), 7);
+  assert.equal(rollup.options.getCounts(res + 1).size, 0);
+  layer.disable();
+  // Not built: Overpass as before.
+  configured = false;
+  const fallback = make();
+  const second = fakeViewer(4_000);
+  fallback.init(second);
+  fallback.enable(second);
+  await flush();
+  assert.match(queries.at(-1), /amenity"="charging_station"/);
+  fallback.disable();
+});
