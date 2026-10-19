@@ -37,7 +37,7 @@ import {
  *       layer with inks, 'default' otherwise
  *   GET /api/earth-engine/tile/<layer>/<mode>/<variant>/<ink>/<z>/<x>/<y>
  *       the same for a layer with modes (the Rivers' network, free-flowing
- *       and pressure colourings)
+ *       and pressure colourings; Population's epochs, density-2020 …)
  *
  * A tile coarser than its variant's `minZoom` is a transparent PNG, made
  * here: no Earth Engine request, nothing counted.
@@ -291,7 +291,13 @@ export function expressionFor(
   ink = layerInks(layer)[0],
   mode = layerModes(layer)[0],
 ) {
-  let node = assetNode(variant.asset);
+  // An image layer's mode may draw its own asset (Population's epochs)
+  // with its own steps (imageSteps).
+  const imageMode =
+    layer.kind !== 'features' && layer.modes?.length
+      ? modeRecord(layer, mode)
+      : null;
+  let node = assetNode(imageMode?.asset || variant.asset);
   if (layer.kind === 'features') {
     const filter = featureFilter(layer, variant, mode);
     if (filter)
@@ -326,9 +332,46 @@ export function expressionFor(
               { input: node },
             );
     }
-    if (layer.selfMask) node = invoke('Image.selfMask', { image: node });
+    const steps = { ...layer, ...imageMode };
+    if (steps.selfMask) node = invoke('Image.selfMask', { image: node });
+    node = imageSteps(node, steps);
   }
   return { values: { 0: node }, result: '0' };
+}
+
+/** An Earth Engine image of one constant value. */
+const constantImage = (value) =>
+  invoke('Image.constant', { value: constant(value) });
+
+/**
+ * A categorical or quantity image's own steps, from its record (or its
+ * mode's, which wins): `remap` {from, to} turns class codes into palette
+ * indices (Forest types' 1 / 10 / 20 into 1 / 2 / 3; anything else is
+ * masked); `scale` multiplies (a count per equal-area cell into a count per
+ * km²); `atLeast` masks values below it; `log10` draws the logarithm.
+ */
+function imageSteps(node, steps) {
+  if (steps.remap)
+    node = invoke('Image.remap', {
+      image: node,
+      from: constant(steps.remap.from),
+      to: constant(steps.remap.to),
+    });
+  if (Number.isFinite(steps.scale))
+    node = invoke('Image.multiply', {
+      image1: node,
+      image2: constantImage(steps.scale),
+    });
+  if (Number.isFinite(steps.atLeast))
+    node = invoke('Image.updateMask', {
+      image: node,
+      mask: invoke('Image.gte', {
+        image1: node,
+        image2: constantImage(steps.atLeast),
+      }),
+    });
+  if (steps.log10) node = invoke('Image.log10', { value: node });
+  return node;
 }
 
 /**
@@ -360,10 +403,15 @@ export function mapRequestFor(
     expression: expressionFor(layer, variant, ink, mode),
     fileFormat: 'PNG',
   };
-  if (layer.kind !== 'features' && layer.vis)
+  // An image layer's mode may carry its own visualization.
+  const vis =
+    layer.kind !== 'features'
+      ? (layer.modes?.length ? modeRecord(layer, mode)?.vis : null) || layer.vis
+      : null;
+  if (vis)
     body.visualizationOptions = {
-      ranges: [{ min: layer.vis.min, max: layer.vis.max }],
-      paletteColors: [...(layer.vis.palette || [])],
+      ranges: [{ min: vis.min, max: vis.max }],
+      paletteColors: [...(vis.palette || [])],
     };
   return body;
 }
@@ -575,7 +623,7 @@ const TILE_PATH =
   /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
 /** The same with a mode after the layer (a layer with `modes`). */
 const MODE_TILE_PATH =
-  /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z-]{1,20})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
+  /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z0-9-]{1,20})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
 
 /**
  * The variant that draws a tile coarser than `variant`'s minZoom, or null

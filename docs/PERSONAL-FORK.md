@@ -29,6 +29,7 @@ unless its switch is set to `0`.
 - [Google indoor views (Street Level)](#google-indoor-views-street-level)
 - [Baltimore enforcement and CitiWatch cameras](#baltimore-enforcement-and-citiwatch-cameras)
 - [Earth Engine layers (ANALYSIS)](#earth-engine-layers-analysis)
+  - [Forest types and Population](#forest-types-and-population)
   - [Rivers](#rivers)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
@@ -509,12 +510,14 @@ an opacity slider (kept per layer in this browser as
 `gev.earthEngine.opacity.<id>`), and a status line. The boundaries row also
 has level and ink chips (below).
 
-| Layer                                     | Dataset (Earth Engine id)                                                                                                        | Licence                                                                  |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Terrain slope, Terrain aspect, Hillshade  | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`); above 3,000 km GMTED2010, `USGS/GMTED2010_FULL`, band `mea` | Copernicus DEM licence; notice required (GMTED2010: USGS, public domain) |
-| Forest loss (2001–2025, coloured by year) | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                 | CC BY 4.0                                                                |
-| Administrative boundaries                 | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from LSIB 2017, `USDOS/LSIB/2017`           | CC BY 4.0 (LSIB: US public domain)                                       |
-| Rivers (see [Rivers](#rivers))            | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth          | HydroSHEDS licence, attribution (Natural Earth: public domain)           |
+| Layer                                                    | Dataset (Earth Engine id)                                                                                                        | Licence                                                                  |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Terrain slope, Terrain aspect, Hillshade                 | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`); above 3,000 km GMTED2010, `USGS/GMTED2010_FULL`, band `mea` | Copernicus DEM licence; notice required (GMTED2010: USGS, public domain) |
+| Forest loss (2001–2025, coloured by year)                | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                 | CC BY 4.0                                                                |
+| Forest types (see [below](#forest-types-and-population)) | JRC global map of forest types 2020 v1, `JRC/GFC2020_subtypes/V1`, band `Map` (1 naturally regenerating, 10 primary, 20 planted) | Free to use; citation requested                                          |
+| Population (see [below](#forest-types-and-population))   | GHSL population P2023A, `JRC/GHSL/P2023A/GHS_POP`, band `population_count`, epochs 2020 (default), 2000, 1990, 1975              | Reuse authorised with acknowledgement (EC reuse notice)                  |
+| Administrative boundaries                                | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from LSIB 2017, `USDOS/LSIB/2017`           | CC BY 4.0 (LSIB: US public domain)                                       |
+| Rivers (see [Rivers](#rivers))                           | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth          | HydroSHEDS licence, attribution (Natural Earth: public domain)           |
 
 The ids were taken from Earth Engine's catalog records on 2026-10-17. The
 older ids, `COPERNICUS/DEM/GLO30` and `FAO/GAUL/2015/*`, are deprecated, and
@@ -724,6 +727,93 @@ sensibly (elevation and what is derived from it) should draw from orbit.
 
 Anything else Earth Engine can compute needs a small addition to
 `expressionFor`. Use the REST names from the project's `algorithms` list.
+An image layer (or one of its modes) can already `remap` class codes to
+palette indices, `scale` by a factor, mask values below `atLeast`, and draw
+the `log10` (Forest types and Population use them).
+
+### Forest types and Population
+
+Two ANALYSIS layers added 2026-10-19. Each map is one pyramided image,
+every tile measured came back in about a second, and both draw from orbit
+(no `maxHeightM`).
+
+**Forest types** (`ee-forest-types`) draws JRC's global map of forest types
+2020 v1 (`JRC/GFC2020_subtypes/V1`, 10 m, `maxZoom` 14): naturally
+regenerating forest, primary forest and planted forest (plantations
+included), the EUDR's categories, cut from the extent of JRC's forest
+cover map. `Image.remap` turns the codes 1, 10 and 20 into 1, 2 and 3 for a
+three-colour palette; anything else is masked. The colours are Brewer's
+Dark2 (`b8e186` natural, `1b9e77` primary, `d95f02` planted), not the
+dataset's own: its dark green for primary forest (`006837`) all but
+vanished on forest imagery and on black.
+
+_Why it has no ceiling._ The asset's pyramid policy is **MODE** (its band
+metadata, read with the API on 2026-10-19), so a coarser pixel is the
+commonest type beneath it, a fair summary of a category. Its mask is
+averaged, so a pixel is as opaque as the share of forest under it: sparse
+forest fades rather than filling in. From orbit it reads as the dominant
+type, with forest density as opacity (boreal primary forest, European
+planted and naturally regenerating forest, tropical primary forest);
+minority types inside a large forest appear only as the view comes in, as
+with any mode. Forest loss differs: its `lossyear` pyramid is MODE too, but
+"no loss" there is the value 0, not a mask, so loss, a rare class, loses
+the vote to 0 from far away and vanishes. It keeps its 3,000 km ceiling.
+
+_No FOREST COVER chip._ JRC's binary cover map (latest version
+`JRC/GFC2020/V4`; V2 and V3 are deprecated) is just as cheap, but its
+pyramid drew nearly all land as forest at z 0 to 2 (the steppe, the Sahel,
+most of India), so it was dropped. The types map is cut from the cover
+map's extent and already shows it.
+
+Tile times (first fetch from Earth Engine, in seconds, 2026-10-19; z 0 is
+a single tile, so later rows' z 0 may come from Earth Engine's cache):
+
+| Forest types | z0  | z1  | z2  | z3  | z4  | z5  | z6  | z7  | z8  | z9  | z10 |
+| ------------ | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Amazon       | 0.3 | 0.2 | 0.2 | 0.2 | 0.3 | 0.4 | 0.3 | 0.2 | 0.2 | 0.1 | 0.1 |
+| Borneo       | 0.1 | 0.1 | 0.2 | 0.2 | 0.4 | 0.2 | 0.1 | 0.2 | 0.3 | 0.3 | 0.2 |
+| Germany      | 0.3 | 0.2 | 3.8 | 0.5 | 0.3 | 0.2 | 0.3 | 0.6 | 0.3 | 0.2 | 0.2 |
+| Baltimore    | 0.1 | 0.4 | 0.5 | 0.1 | 0.4 | 0.3 | 0.4 | 0.2 | 0.3 | 0.2 | 0.2 |
+
+**Population** (`ee-population`) draws GHSL's residential population
+(`JRC/GHSL/P2023A/GHS_POP`, `maxZoom` 12) as **people per km²**, on a
+log ramp from 1 to 10,000 and more (YlOrRd, `fed976` to `bd0026`); fewer
+than one person per km² is left clear. Chips pick the epoch: **2020** (the
+default, the latest estimate; 2025 and 2030 are projections), 2000, 1990
+or 1975, kept as `gev.population.mode`. Each epoch is its own map
+(`density-<year>`), made only when a tile asks for it (`lazyMaps`). The
+status line says "People per km² in <year> (GHSL)".
+
+_Why a density, and why it is scale-invariant._ Each epoch is one image
+of 100 m cells on the equal-area World Mollweide grid, 0.01 km² each, and
+its pyramid policy is **MEAN** (checked 2026-10-19). A count would not
+survive that: a coarser pixel holds the mean count of the cells beneath
+it, not their sum. But the mean count × 100 is their mean density, the
+same quantity at every level. So the expression is `log10` of
+`population_count × 100`, masked below 1, and it draws from orbit with no
+far variant. `populationDataset(epoch)` (`src/data/earthEngineLayers.js`)
+returns the image id, band, cell size and that factor, ready for a later
+"Wikipedia articles per capita" join.
+
+| Population 2020 | z0  | z1  | z2  | z3  | z4  | z5  | z6  | z7  | z8  |
+| --------------- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Delhi           | 0.1 | 0.4 | 0.2 | 0.2 | 0.2 | 1.2 | 0.4 | 0.4 | 0.3 |
+| Lagos           | 0.3 | 0.1 | 0.1 | 0.2 | 0.2 | 0.2 | 0.3 | 0.2 | 0.4 |
+| Germany         | 0.1 | 0.1 | 0.2 | 0.2 | 0.2 | 0.2 | 0.4 | 0.3 | 0.3 |
+| Amazon          | 3.0 | 0.3 | 0.2 | 0.2 | 0.2 | 0.2 | 0.2 | 0.1 | 0.1 |
+
+The other epochs matched (1975, 1990 and 2000: 0.1 to 0.6 s for z 0 to
+6), except one 1975 z 0 tile that hit the 30 s timeout on its first
+request and took 0.1 s on the next.
+
+**Readability.** Tiles were composited at the default 70% opacity over
+satellite imagery (Esri World Imagery, standing in for the photoreal
+tiles), CARTO Positron and black. Forest types: all three colours read on
+imagery and black; on Positron naturally regenerating forest is the
+faintest. Population: cities read on all three; on imagery and black the
+countryside's 1 to 100 per km² forms a broad yellow-orange wash (that is
+where people live), and on Positron the lowest class is faint. The opacity
+slider tones either one down.
 
 ### Rivers
 
@@ -2103,10 +2193,15 @@ drowning the view. There are four ways to do it, by the kind of data:
   quantity. Earth Engine cannot compute it on the fly for a coarse tile,
   because each one would read every 30 m pixel beneath it; it would need a
   precomputed pyramid (an exported asset) of its own.
-- **Categorical rasters keep a cap.** Forest loss pixels are years of loss:
-  averaged, they mean nothing, and a sampled pyramid level is noise from
+- **Categorical rasters keep a cap, unless their pyramid keeps the
+  category.** Forest loss pixels are years of loss: averaged, they mean
+  nothing, and its MODE pyramid lets "no loss" (0) outvote the loss from
   far away. It stays dark above its `maxHeightM` (3,000 km), and its row
-  says how low to go.
+  says how low to go. Forest types draws from orbit: its pyramid is MODE
+  (the commonest type) with an averaged mask (opacity as the share of
+  forest), so a far pixel still says something true (see
+  [Forest types and Population](#forest-types-and-population)). Population
+  is drawn as a density, which a MEAN pyramid keeps.
 - **Points: H3 rollups.** A point layer too dense for the view is counted
   into H3 cells at the resolution the height picks (see
   [H3 hexes](#h3-hexes-resolution-by-perspective)): Wikipedia coverage's
@@ -2140,6 +2235,11 @@ drowning the view. There are four ways to do it, by the kind of data:
 - [ ] It draws from orbit unless the aggregated quantity is meaningless
       (categories, years); only then does it get a `maxHeightM`, and the
       record says why.
+- [ ] An Earth Engine image's pyramid policy was read from its asset
+      (`GET /v1/projects/earthengine-public/assets/<id>`: MEAN, MODE,
+      SAMPLE…) and the drawn quantity survives it: a density, not a count,
+      under MEAN; a class under MODE, with "none" masked rather than a
+      value that outvotes it.
 - [ ] Its coarsest tiles were timed against the live source (z 0 to 2),
       and a slow source has a far variant, a cache in front of it, or
       variants that start at a level it answers in seconds (`minZoom`, the

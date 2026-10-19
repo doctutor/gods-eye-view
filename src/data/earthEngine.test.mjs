@@ -388,7 +388,7 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
   const [first] = await Promise.all([service.layers(), service.layers()]);
   assert.equal(
     backend.made.length,
-    13,
+    14,
     'one map per variant and ink, one request each',
   );
   assert.ok(backend.made.includes('ee-admin-boundaries/level0/dark'));
@@ -424,11 +424,11 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
     ['light', 'dark'],
   );
   await service.layers();
-  assert.equal(backend.made.length, 13, 'kept');
+  assert.equal(backend.made.length, 14, 'kept');
   clock += MAP_TTL_MS + 1;
   failing = true;
   const stale = await service.layers();
-  assert.equal(backend.made.length, 26, 'asked again');
+  assert.equal(backend.made.length, 28, 'asked again');
   const staleSlope = stale.layers.find(
     (layer) => layer.id === 'ee-terrain-slope',
   );
@@ -740,6 +740,8 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     'ee-terrain-hillshade': 0,
     'ee-forest-loss': 6,
     'ee-admin-boundaries': 0,
+    'ee-forest-types': 0,
+    'ee-population': 0,
     'ee-rivers': 0,
   });
   assert.deepEqual(catalog.tiles, { used: 10, budget: 10 });

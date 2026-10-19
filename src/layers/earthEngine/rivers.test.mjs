@@ -694,7 +694,16 @@ test('the row: mode and ink chips, the mode kept as gev.rivers.mode, the legend 
 test('the mode chips exist only on a layer with modes', () => {
   assert.deepEqual(
     MODE_CHIPS.map((chip) => chip.key),
-    ['network', 'free-flowing', 'pressure'],
+    [
+      'network',
+      'free-flowing',
+      'pressure',
+      // Population's epochs (src/data/forestPopulation.test.mjs).
+      'density-2020',
+      'density-2000',
+      'density-1990',
+      'density-1975',
+    ],
   );
   const boundaries = EARTH_ENGINE_LAYERS.find(
     (layer) => layer.id === 'ee-admin-boundaries',

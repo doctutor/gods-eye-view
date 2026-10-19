@@ -3314,5 +3314,13 @@
   "Too many river lookups; try again shortly": "Слишком много запросов о реках; повторите чуть позже",
   "The river could not be traced": "Не удалось проследить реку",
   "A river of the {basin} basin": "Река бассейна: {basin}",
-  "The Americas from HydroSHEDS v2": "Америка — по HydroSHEDS v2"
+  "The Americas from HydroSHEDS v2": "Америка — по HydroSHEDS v2",
+  "Naturally regenerating forest": "Естественно возобновляющийся лес",
+  "Primary forest": "Первичный лес",
+  "Planted forest": "Лесные культуры",
+  "1,000": "1 000",
+  "10,000+ per km²": "10 000+ на км²",
+  "People per km² in {year} (GHSL)": "Жителей на км² в {year} году (GHSL)",
+  "Forest types": "Типы лесов",
+  "Population": "Население"
 }

@@ -60,6 +60,8 @@ const FORK_LAYER_NAMES = [
   'Terrain aspect',
   'Hillshade',
   'Forest loss',
+  'Forest types',
+  'Population',
   'Administrative boundaries',
   'Rivers',
   'Wikipedia coverage',
