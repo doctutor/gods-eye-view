@@ -27,6 +27,7 @@ import {
   NEEDS_KEY,
   censusCacheDir,
 } from '../../server/providers/census/sources.js';
+import { checkRawDir, rawDirFor, rawDirLabel } from '../rawDir.mjs';
 
 /**
  * US census tracts for the Census tracts layer's HOUSEHOLD INCOME mode:
@@ -204,15 +205,22 @@ export async function fetchIncome(
   return values;
 }
 
-export function statusOf(dir) {
+/** The census downloads: raw/ in the cache, or GEV_RAW_DIR/census/raw (the CLI's). */
+export const censusRawDir = (dir, env) =>
+  rawDirFor('census', path.join(dir, 'raw'), env);
+
+export function statusOf(dir, rawDir = path.join(dir, 'raw')) {
+  const raw = rawDirLabel(rawDir);
   const manifestFile = path.join(dir, 'build', 'manifest.json');
-  if (!fs.existsSync(manifestFile)) return { built: false };
+  if (!fs.existsSync(manifestFile)) return { built: false, raw };
   const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
-  return { built: true, ...manifest };
+  return { built: true, raw, ...manifest };
 }
 
 async function build(dir, flags) {
-  const zipFile = path.join(dir, 'raw', BOUNDARIES.file);
+  const rawDir = censusRawDir(dir);
+  checkRawDir(rawDir);
+  const zipFile = path.join(rawDir, BOUNDARIES.file);
   const buildDir = path.join(dir, 'build');
   console.log(`[census] boundaries: ${BOUNDARIES.url}`);
   if (await download(BOUNDARIES.url, zipFile))
@@ -335,7 +343,7 @@ async function main() {
         : `[census] tracts ready; income needs ${CENSUS_KEY_ENV}`,
     );
   } else if (flags.command === 'status') {
-    const status = statusOf(dir);
+    const status = statusOf(dir, censusRawDir(dir));
     const key = Boolean(
       await censusKey(
         process.env,
@@ -345,7 +353,9 @@ async function main() {
     if (flags.json)
       console.log(JSON.stringify({ ...status, keySet: key }, null, 2));
     else if (!status.built)
-      console.log(`[census] not built: run npm run census:build (${dir})`);
+      console.log(
+        `[census] not built: run npm run census:build (${dir}; raw ${status.raw})`,
+      );
     else
       console.log(
         `[census] built ${status.builtAt}: ${status.boundaries?.count} tracts (${status.boundaries?.year}); income ${

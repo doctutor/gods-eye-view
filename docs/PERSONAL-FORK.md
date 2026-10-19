@@ -45,6 +45,7 @@ unless its switch is set to `0`.
 - [Street assets (ANALYSIS)](#street-assets-analysis)
 - [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
 - [Rivers: click a reach](#rivers-click-a-reach)
+- [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
 - [Level of detail](#level-of-detail)
 
 - [Keyless basemaps (MAP SOURCE)](#keyless-basemaps-map-source)
@@ -3310,6 +3311,48 @@ threshold and with the rollup off) and `src/layers/cctv/rollup.test.mjs`
 and the real world-overlay host in headless Chrome over a synthetic
 3,000-pin catalog: hexes with painted counts from orbit and at 2,500 km,
 pins at 100 km.
+
+## Raw downloads on an archive (GEV_RAW_DIR)
+
+The builds that download large inputs keep them, by default, in their
+cache directory: `.gev-cache/rivers/raw` (the HydroSHEDS v2 ZIPs, 4.8 GB),
+`.gev-cache/overture/raw` (the divisions file and the buildings footers,
+1.0 GB, and any `--keep-raw` row groups), `.gev-cache/census/raw` (the
+boundaries ZIP) and the Wikipedia dump beside its grid. With
+**`GEV_RAW_DIR`** set (in the environment or `.env`; `.env.local` wins, as
+in Vite), they keep them under `GEV_RAW_DIR/<build>/raw` instead
+(`scripts/rawDir.mjs`), say a NAS share, so a rebuild or a new region on
+another disk reuses what was downloaded once. The derived builds (level
+files, indexes, tiles) stay in `.gev-cache`.
+
+- **Never a hang.** Before it reads or writes there, each build checks the
+  directory in a child process with a 20 s limit (make it, write a file,
+  rename it, read it back, remove it; a `status` only lists it), and a slow
+  or absent share stops the build with a message saying to connect it or
+  unset `GEV_RAW_DIR` (an unknown server answered in 2.5 s:
+  "cannot be read (UNKNOWN …)"). Downloads are written to a temp file
+  beside their destination and renamed, as before, so a dropped share
+  leaves no half file under the final name.
+- **Status.** `rivers:status`, `census:status`, `overture:status` and
+  `wikipedia:status` name the raw directory they read (marked
+  `(GEV_RAW_DIR)` when it comes from there).
+- **Tests** never read `GEV_RAW_DIR`: the builds' functions take the raw
+  directory from their command line entry, else the cache's own.
+
+**`npm run raw:archive`** moves the raw downloads already in the cache to
+the archive (`--to DIR`, else `GEV_RAW_DIR`), leaving the builds where they
+are (`scripts/raw-archive.mjs`): each file copied to a temp name beside its
+destination, its size checked, renamed into place with its time kept, then
+removed from the cache, and the emptied folders with it. A file already
+there at its size is not copied again, so a stopped or repeated run picks
+up where it was; a copy that moves no bytes for 60 s is abandoned; the
+archive is checked first, so nothing moves if it cannot be written; files
+being written (`*.partial`, `*.tmp`) are left alone. `--dry-run` lists
+what would move; `--only rivers,overture` limits it. Planned on
+2026-10-19 (dry run): 519 files, 5.96 GB, to `X:\gev-data` (rivers 3
+files, 4.82 GB; overture 513, 1.02 GB; census 1, 0.06 GB; wikipedia the
+dump and its metadata, 0.05 GB). After moving, set `GEV_RAW_DIR` to the
+archive in `.env`, or the builds will download again.
 
 ## Level of detail
 

@@ -6,6 +6,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openParquet, rowsOfFlat, rowsOfRepeated } from './parquet.mjs';
+import { checkRawDir, rawDirFor, rawDirLabel } from '../rawDir.mjs';
 import { buildBuildings, buildingsStatus } from './buildings.mjs';
 import {
   INDEX_FORMAT,
@@ -55,6 +56,21 @@ import {
  *
  * Personal fork tooling; not part of upstream God's Eye View.
  */
+
+/**
+ * The Overture downloads (the divisions file, the buildings footers and any
+ * --keep-raw row groups): raw/ in the cache, or GEV_RAW_DIR/overture/raw.
+ */
+export const overtureRawDir = (dir, env) =>
+  rawDirFor('overture', path.join(dir, 'raw'), env);
+
+/** A file's path for the manifest: relative inside the cache, else absolute. */
+export function cachePath(dir, file) {
+  const relative = path.relative(dir, file);
+  return relative && !relative.startsWith('..') && !path.isAbsolute(relative)
+    ? relative.split(path.sep).join('/')
+    : path.resolve(file);
+}
 
 const ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -321,6 +337,7 @@ export function currentBuild(dir) {
 
 export async function build({
   dir,
+  rawDir = null,
   force = false,
   regions = 'world',
   log = console.log,
@@ -333,10 +350,14 @@ export async function build({
     throw new Error(
       `The division files add up to ${(total / 1e9).toFixed(2)} GB, past the ${(DOWNLOAD_CAP_BYTES / 1024 ** 3).toFixed(0)} GB cap`,
     );
-  const rawDir = path.join(dir, 'raw', DIVISIONS.release);
+  const releaseDir = path.join(
+    rawDir || path.join(dir, 'raw'),
+    DIVISIONS.release,
+  );
+  checkRawDir(releaseDir);
   const inputs = [];
   for (const file of files) {
-    const target = path.join(rawDir, `${DIVISIONS.type}.${file.name}`);
+    const target = path.join(releaseDir, `${DIVISIONS.type}.${file.name}`);
     const t0 = Date.now();
     const fetched = await download(file, target, log);
     if (fetched)
@@ -344,7 +365,7 @@ export async function build({
         `[overture] ${file.name}: ${((Date.now() - t0) / 1000).toFixed(0)} s`,
       );
     inputs.push({
-      file: path.relative(dir, target).split(path.sep).join('/'),
+      file: cachePath(dir, target),
       url: `${OVERTURE_BUCKET}/${file.key}`,
       size: file.size,
       etag: file.etag,
@@ -374,7 +395,7 @@ export async function build({
   const t1 = Date.now();
   let columns = null;
   for (const input of inputs)
-    columns = readDivisions(path.join(dir, input.file), {
+    columns = readDivisions(path.resolve(dir, input.file), {
       boxes,
       into: columns,
       log,
@@ -448,18 +469,21 @@ export async function build({
   return { ...manifest, dir: buildDir };
 }
 
-export function status(dir) {
+export function status(dir, rawDir = path.join(dir, 'raw')) {
   const current = currentBuild(dir);
+  const raw = rawDirLabel(rawDir);
   if (!current)
     return {
       built: false,
       dir,
+      raw,
       release: DIVISIONS.release,
       buildings: buildingsStatus(dir),
     };
   return {
     built: true,
     dir,
+    raw,
     buildId: current.buildId,
     builtAt: current.builtAt,
     release: current.release,
@@ -478,8 +502,10 @@ async function main() {
     ? path.resolve(ROOT, flags.dir)
     : overtureCacheDir(process.env, ROOT);
   if (flags.command === 'build') {
+    const rawDir = overtureRawDir(dir);
     await build({
       dir,
+      rawDir,
       force: flags.force,
       regions: flags.regions || process.env.OVERTURE_REGIONS || 'world',
     });
@@ -496,6 +522,7 @@ async function main() {
         throw new Error('--cap-gb takes a number of GB');
       await buildBuildings({
         dir,
+        rawRoot: rawDir,
         regions: names,
         keepRaw: Boolean(flags.keepRaw),
         ...(flags.capGb ? { capBytes: flags.capGb * 1e9 } : {}),
@@ -509,11 +536,12 @@ async function main() {
     if (flags.json) return console.log(JSON.stringify(answer, null, 2));
     if (!answer.built)
       return console.log(
-        `Overture divisions: not built (${dir}). Run npm run overture:build.`,
+        `Overture divisions: not built (${dir}; raw ${answer.raw}). Run npm run overture:build.`,
       );
     console.log(
       `Overture divisions ${answer.release}: build ${answer.buildId} of ${answer.builtAt}, ${answer.points.toLocaleString('en')} places (${answer.regions.join(', ')})`,
     );
+    console.log(`  raw downloads: ${answer.raw}`);
     for (const [kind, n] of Object.entries(answer.byKind))
       console.log(`  ${kind}: ${n.toLocaleString('en')}`);
     for (const input of answer.inputs)

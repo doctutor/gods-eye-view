@@ -55,12 +55,16 @@ export const DOWNLOADS = Object.freeze([
 
 export const USER_AGENT = 'gods-eye-view-personal-fork/0.1 rivers';
 
-/** The layout of the rivers cache. */
-export function buildPaths(cacheDir) {
+/**
+ * The layout of the rivers cache. The downloads are under raw/ unless
+ * `rawDir` says otherwise (the CLI's GEV_RAW_DIR/rivers/raw,
+ * scripts/rawDir.mjs).
+ */
+export function buildPaths(cacheDir, rawDir = null) {
   const v2 = path.join(cacheDir, 'v2');
   return {
     cacheDir,
-    raw: path.join(cacheDir, 'raw'),
+    raw: rawDir || path.join(cacheDir, 'raw'),
     v2,
     manifest: path.join(v2, 'manifest.json'),
     runs: path.join(v2, 'runs.jsonl'),
@@ -291,6 +295,7 @@ const elapsed = (start, now) => Math.round(now() - start);
  */
 export async function runBuild({
   cacheDir,
+  rawDir,
   force = false,
   limit = Infinity,
   log = () => {},
@@ -298,7 +303,7 @@ export async function runBuild({
   inputs,
   bands = BANDS,
 }) {
-  const paths = buildPaths(cacheDir);
+  const paths = buildPaths(cacheDir, rawDir);
   const found = inputs || findRiverInputs(paths.raw);
   if (!found.length)
     throw new Error(
