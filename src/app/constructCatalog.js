@@ -46,6 +46,15 @@ import {
   WIKIPEDIA_COVERAGE_LAYER_ID,
   createApplicationWikipediaCoverage,
 } from './layers/wikipediaCoverage.js';
+// Personal fork: Localities and Street assets (local-only, not upstream).
+import {
+  LOCALITIES_ID,
+  createApplicationLocalities,
+} from './layers/localities.js';
+import {
+  STREET_ASSETS_ID,
+  createApplicationStreetAssets,
+} from './layers/streetAssets.js';
 import { localGeoJsonServices } from './localGeojsonServices.js';
 import { createBhoteKoshiEventLayer } from '../data/bhoteKoshiEvent.js';
 import { createBhoteKoshiLocatorLayer } from '../data/bhoteKoshiLocator.js';
@@ -71,6 +80,8 @@ export const LOCAL_ONLY_LAYER_METADATA = Object.freeze([
     Object.freeze({ id, disposition: 'local-only' }),
   ),
   Object.freeze({ id: WIKIPEDIA_COVERAGE_LAYER_ID, disposition: 'local-only' }),
+  Object.freeze({ id: LOCALITIES_ID, disposition: 'local-only' }),
+  Object.freeze({ id: STREET_ASSETS_ID, disposition: 'local-only' }),
 ]);
 
 /** Serialization metadata for every layer the application catalog constructs. */
@@ -171,6 +182,8 @@ export function createApplicationCatalog({
         ...createApplicationEarthEngineLayers(),
         createApplicationGrid(),
         createApplicationWikipediaCoverage(),
+        createApplicationLocalities(),
+        createApplicationStreetAssets(),
         satellites,
         createApplicationLaunches({ source: sources.launches, satellites }),
         createApplicationTraffic({ source: sources.traffic, surface }),

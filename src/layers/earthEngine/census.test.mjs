@@ -12,6 +12,7 @@ import { createEarthEngineService } from '../../../server/providers/earthEngine.
 import { NEEDS_KEY } from '../../../server/providers/census/sources.js';
 import { createEarthEngineLayer } from './index.js';
 import { createEarthEngineSource } from './source.js';
+import { rowControls } from './presentation.js';
 import {
   censusImageryOptions,
   createCensusSource,
@@ -169,4 +170,25 @@ test('the census status is checked on the way in', () => {
   assert.equal(status.modes.other, undefined);
   assert.equal(censusImageryOptions(status, 'income'), null);
   assert.ok(censusImageryOptions(toCensusStatus(BUILT), 'income'));
+});
+
+test('Inundation and Buildings each show their own COUNT chip', () => {
+  const chips = (id) =>
+    rowControls({
+      record: EARTH_ENGINE_LAYERS.find((l) => l.id === id),
+      opacity: 1,
+      onOpacity: () => {},
+      mode: 'count',
+    })
+      .chips.filter((c) => c.id.startsWith('mode-'))
+      .map((c) => [c.id, c.label]);
+  assert.deepEqual(chips('ee-inundation'), [
+    ['mode-count', 'FLOOD COUNT'],
+    ['mode-duration', 'FLOODED DURATION'],
+  ]);
+  assert.deepEqual(chips('ee-buildings'), [
+    ['mode-count', 'COUNT'],
+    ['mode-cover', 'COVER'],
+    ['mode-height', 'HEIGHT'],
+  ]);
 });

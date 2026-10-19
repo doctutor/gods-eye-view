@@ -35490,6 +35490,2689 @@
         "opacity": 0.8
       }
     },
+    "ee-buildings/count/raster/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.log10",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.updateMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.mosaic",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Collection.filter",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.load",
+                                                  "arguments": {
+                                                    "id": {
+                                                      "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "filter": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Filter.calendarRange",
+                                                  "arguments": {
+                                                    "start": {
+                                                      "constantValue": 2023
+                                                    },
+                                                    "end": {
+                                                      "constantValue": 2023
+                                                    },
+                                                    "field": {
+                                                      "constantValue": "year"
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "building_fractional_count"
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 4000000
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "mask": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.gte",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.multiply",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.mosaic",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Collection.filter",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    "filter": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "Filter.calendarRange",
+                                                        "arguments": {
+                                                          "start": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "end": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "field": {
+                                                            "constantValue": "year"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "building_fractional_count"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 4000000
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 1
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 4
+          }
+        ],
+        "paletteColors": [
+          "fcc5c0",
+          "fa9fb5",
+          "f768a1",
+          "c51b8a",
+          "7a0177"
+        ]
+      }
+    },
+    "ee-buildings/count/raster/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.log10",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.updateMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.mosaic",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Collection.filter",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.load",
+                                                  "arguments": {
+                                                    "id": {
+                                                      "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "filter": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Filter.calendarRange",
+                                                  "arguments": {
+                                                    "start": {
+                                                      "constantValue": 2023
+                                                    },
+                                                    "end": {
+                                                      "constantValue": 2023
+                                                    },
+                                                    "field": {
+                                                      "constantValue": "year"
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "building_fractional_count"
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 4000000
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "mask": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.gte",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.multiply",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.mosaic",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Collection.filter",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    "filter": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "Filter.calendarRange",
+                                                        "arguments": {
+                                                          "start": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "end": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "field": {
+                                                            "constantValue": "year"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "building_fractional_count"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 4000000
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 1
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 4
+          }
+        ],
+        "paletteColors": [
+          "fcc5c0",
+          "fa9fb5",
+          "f768a1",
+          "c51b8a",
+          "7a0177"
+        ]
+      }
+    },
+    "ee-buildings/count/footprints/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.blend",
+              "arguments": {
+                "bottom": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.visualize",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.log10",
+                          "arguments": {
+                            "value": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.updateMask",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.multiply",
+                                      "arguments": {
+                                        "image1": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.mosaic",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "Collection.filter",
+                                                        "arguments": {
+                                                          "collection": {
+                                                            "functionInvocationValue": {
+                                                              "functionName": "ImageCollection.load",
+                                                              "arguments": {
+                                                                "id": {
+                                                                  "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                                }
+                                                              }
+                                                            }
+                                                          },
+                                                          "filter": {
+                                                            "functionInvocationValue": {
+                                                              "functionName": "Filter.calendarRange",
+                                                              "arguments": {
+                                                                "start": {
+                                                                  "constantValue": 2023
+                                                                },
+                                                                "end": {
+                                                                  "constantValue": 2023
+                                                                },
+                                                                "field": {
+                                                                  "constantValue": "year"
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "building_fractional_count"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 4000000
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "mask": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.gte",
+                                      "arguments": {
+                                        "image1": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.multiply",
+                                            "arguments": {
+                                              "image1": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Image.select",
+                                                  "arguments": {
+                                                    "input": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.mosaic",
+                                                        "arguments": {
+                                                          "collection": {
+                                                            "functionInvocationValue": {
+                                                              "functionName": "Collection.filter",
+                                                              "arguments": {
+                                                                "collection": {
+                                                                  "functionInvocationValue": {
+                                                                    "functionName": "ImageCollection.load",
+                                                                    "arguments": {
+                                                                      "id": {
+                                                                        "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                },
+                                                                "filter": {
+                                                                  "functionInvocationValue": {
+                                                                    "functionName": "Filter.calendarRange",
+                                                                    "arguments": {
+                                                                      "start": {
+                                                                        "constantValue": 2023
+                                                                      },
+                                                                      "end": {
+                                                                        "constantValue": 2023
+                                                                      },
+                                                                      "field": {
+                                                                        "constantValue": "year"
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    "bandSelectors": {
+                                                      "constantValue": [
+                                                        "building_fractional_count"
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "image2": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Image.constant",
+                                                  "arguments": {
+                                                    "value": {
+                                                      "constantValue": 4000000
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 1
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "min": {
+                        "constantValue": 0
+                      },
+                      "max": {
+                        "constantValue": 4
+                      },
+                      "palette": {
+                        "constantValue": [
+                          "fcc5c0",
+                          "fa9fb5",
+                          "f768a1",
+                          "c51b8a",
+                          "7a0177"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "top": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.style",
+                    "arguments": {
+                      "collection": {
+                        "functionInvocationValue": {
+                          "functionName": "Collection.filter",
+                          "arguments": {
+                            "collection": {
+                              "functionInvocationValue": {
+                                "functionName": "Collection.loadTable",
+                                "arguments": {
+                                  "tableId": {
+                                    "constantValue": "GOOGLE/Research/open-buildings/v3/polygons"
+                                  }
+                                }
+                              }
+                            },
+                            "filter": {
+                              "functionInvocationValue": {
+                                "functionName": "Filter.gte",
+                                "arguments": {
+                                  "leftField": {
+                                    "constantValue": "confidence"
+                                  },
+                                  "rightValue": {
+                                    "constantValue": 0.7
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "color": {
+                        "constantValue": "ffffffcc"
+                      },
+                      "fillColor": {
+                        "constantValue": "00000000"
+                      },
+                      "width": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-buildings/count/footprints/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.blend",
+              "arguments": {
+                "bottom": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.visualize",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.log10",
+                          "arguments": {
+                            "value": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.updateMask",
+                                "arguments": {
+                                  "image": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.multiply",
+                                      "arguments": {
+                                        "image1": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.mosaic",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "Collection.filter",
+                                                        "arguments": {
+                                                          "collection": {
+                                                            "functionInvocationValue": {
+                                                              "functionName": "ImageCollection.load",
+                                                              "arguments": {
+                                                                "id": {
+                                                                  "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                                }
+                                                              }
+                                                            }
+                                                          },
+                                                          "filter": {
+                                                            "functionInvocationValue": {
+                                                              "functionName": "Filter.calendarRange",
+                                                              "arguments": {
+                                                                "start": {
+                                                                  "constantValue": 2023
+                                                                },
+                                                                "end": {
+                                                                  "constantValue": 2023
+                                                                },
+                                                                "field": {
+                                                                  "constantValue": "year"
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "building_fractional_count"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 4000000
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "mask": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.gte",
+                                      "arguments": {
+                                        "image1": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.multiply",
+                                            "arguments": {
+                                              "image1": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Image.select",
+                                                  "arguments": {
+                                                    "input": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.mosaic",
+                                                        "arguments": {
+                                                          "collection": {
+                                                            "functionInvocationValue": {
+                                                              "functionName": "Collection.filter",
+                                                              "arguments": {
+                                                                "collection": {
+                                                                  "functionInvocationValue": {
+                                                                    "functionName": "ImageCollection.load",
+                                                                    "arguments": {
+                                                                      "id": {
+                                                                        "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                },
+                                                                "filter": {
+                                                                  "functionInvocationValue": {
+                                                                    "functionName": "Filter.calendarRange",
+                                                                    "arguments": {
+                                                                      "start": {
+                                                                        "constantValue": 2023
+                                                                      },
+                                                                      "end": {
+                                                                        "constantValue": 2023
+                                                                      },
+                                                                      "field": {
+                                                                        "constantValue": "year"
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    "bandSelectors": {
+                                                      "constantValue": [
+                                                        "building_fractional_count"
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "image2": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Image.constant",
+                                                  "arguments": {
+                                                    "value": {
+                                                      "constantValue": 4000000
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 1
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "min": {
+                        "constantValue": 0
+                      },
+                      "max": {
+                        "constantValue": 4
+                      },
+                      "palette": {
+                        "constantValue": [
+                          "fcc5c0",
+                          "fa9fb5",
+                          "f768a1",
+                          "c51b8a",
+                          "7a0177"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "top": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.style",
+                    "arguments": {
+                      "collection": {
+                        "functionInvocationValue": {
+                          "functionName": "Collection.filter",
+                          "arguments": {
+                            "collection": {
+                              "functionInvocationValue": {
+                                "functionName": "Collection.loadTable",
+                                "arguments": {
+                                  "tableId": {
+                                    "constantValue": "GOOGLE/Research/open-buildings/v3/polygons"
+                                  }
+                                }
+                              }
+                            },
+                            "filter": {
+                              "functionInvocationValue": {
+                                "functionName": "Filter.gte",
+                                "arguments": {
+                                  "leftField": {
+                                    "constantValue": "confidence"
+                                  },
+                                  "rightValue": {
+                                    "constantValue": 0.7
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "color": {
+                        "constantValue": "1a1a1acc"
+                      },
+                      "fillColor": {
+                        "constantValue": "00000000"
+                      },
+                      "width": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-buildings/cover/raster/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.select",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "ImageCollection.mosaic",
+                          "arguments": {
+                            "collection": {
+                              "functionInvocationValue": {
+                                "functionName": "Collection.filter",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.load",
+                                      "arguments": {
+                                        "id": {
+                                          "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "filter": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Filter.calendarRange",
+                                      "arguments": {
+                                        "start": {
+                                          "constantValue": 2023
+                                        },
+                                        "end": {
+                                          "constantValue": 2023
+                                        },
+                                        "field": {
+                                          "constantValue": "year"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "bandSelectors": {
+                        "constantValue": [
+                          "building_presence"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.gte",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.mosaic",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Collection.filter",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "filter": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Filter.calendarRange",
+                                            "arguments": {
+                                              "start": {
+                                                "constantValue": 2023
+                                              },
+                                              "end": {
+                                                "constantValue": 2023
+                                              },
+                                              "field": {
+                                                "constantValue": "year"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "building_presence"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 0.02
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 0.5
+          }
+        ],
+        "paletteColors": [
+          "fcc5c0",
+          "fa9fb5",
+          "f768a1",
+          "c51b8a",
+          "7a0177"
+        ]
+      }
+    },
+    "ee-buildings/cover/raster/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.select",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "ImageCollection.mosaic",
+                          "arguments": {
+                            "collection": {
+                              "functionInvocationValue": {
+                                "functionName": "Collection.filter",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.load",
+                                      "arguments": {
+                                        "id": {
+                                          "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "filter": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Filter.calendarRange",
+                                      "arguments": {
+                                        "start": {
+                                          "constantValue": 2023
+                                        },
+                                        "end": {
+                                          "constantValue": 2023
+                                        },
+                                        "field": {
+                                          "constantValue": "year"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "bandSelectors": {
+                        "constantValue": [
+                          "building_presence"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.gte",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.mosaic",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Collection.filter",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "filter": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Filter.calendarRange",
+                                            "arguments": {
+                                              "start": {
+                                                "constantValue": 2023
+                                              },
+                                              "end": {
+                                                "constantValue": 2023
+                                              },
+                                              "field": {
+                                                "constantValue": "year"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "building_presence"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 0.02
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 0.5
+          }
+        ],
+        "paletteColors": [
+          "fcc5c0",
+          "fa9fb5",
+          "f768a1",
+          "c51b8a",
+          "7a0177"
+        ]
+      }
+    },
+    "ee-buildings/cover/footprints/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.blend",
+              "arguments": {
+                "bottom": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.visualize",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.updateMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.mosaic",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Collection.filter",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.load",
+                                                  "arguments": {
+                                                    "id": {
+                                                      "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "filter": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Filter.calendarRange",
+                                                  "arguments": {
+                                                    "start": {
+                                                      "constantValue": 2023
+                                                    },
+                                                    "end": {
+                                                      "constantValue": 2023
+                                                    },
+                                                    "field": {
+                                                      "constantValue": "year"
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "building_presence"
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "mask": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.gte",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.mosaic",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Collection.filter",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    "filter": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "Filter.calendarRange",
+                                                        "arguments": {
+                                                          "start": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "end": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "field": {
+                                                            "constantValue": "year"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "building_presence"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 0.02
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "min": {
+                        "constantValue": 0
+                      },
+                      "max": {
+                        "constantValue": 0.5
+                      },
+                      "palette": {
+                        "constantValue": [
+                          "fcc5c0",
+                          "fa9fb5",
+                          "f768a1",
+                          "c51b8a",
+                          "7a0177"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "top": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.style",
+                    "arguments": {
+                      "collection": {
+                        "functionInvocationValue": {
+                          "functionName": "Collection.filter",
+                          "arguments": {
+                            "collection": {
+                              "functionInvocationValue": {
+                                "functionName": "Collection.loadTable",
+                                "arguments": {
+                                  "tableId": {
+                                    "constantValue": "GOOGLE/Research/open-buildings/v3/polygons"
+                                  }
+                                }
+                              }
+                            },
+                            "filter": {
+                              "functionInvocationValue": {
+                                "functionName": "Filter.gte",
+                                "arguments": {
+                                  "leftField": {
+                                    "constantValue": "confidence"
+                                  },
+                                  "rightValue": {
+                                    "constantValue": 0.7
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "color": {
+                        "constantValue": "ffffffcc"
+                      },
+                      "fillColor": {
+                        "constantValue": "00000000"
+                      },
+                      "width": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-buildings/cover/footprints/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.blend",
+              "arguments": {
+                "bottom": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.visualize",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.updateMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.mosaic",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Collection.filter",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.load",
+                                                  "arguments": {
+                                                    "id": {
+                                                      "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "filter": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Filter.calendarRange",
+                                                  "arguments": {
+                                                    "start": {
+                                                      "constantValue": 2023
+                                                    },
+                                                    "end": {
+                                                      "constantValue": 2023
+                                                    },
+                                                    "field": {
+                                                      "constantValue": "year"
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "building_presence"
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "mask": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.gte",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.mosaic",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Collection.filter",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    "filter": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "Filter.calendarRange",
+                                                        "arguments": {
+                                                          "start": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "end": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "field": {
+                                                            "constantValue": "year"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "building_presence"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 0.02
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "min": {
+                        "constantValue": 0
+                      },
+                      "max": {
+                        "constantValue": 0.5
+                      },
+                      "palette": {
+                        "constantValue": [
+                          "fcc5c0",
+                          "fa9fb5",
+                          "f768a1",
+                          "c51b8a",
+                          "7a0177"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "top": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.style",
+                    "arguments": {
+                      "collection": {
+                        "functionInvocationValue": {
+                          "functionName": "Collection.filter",
+                          "arguments": {
+                            "collection": {
+                              "functionInvocationValue": {
+                                "functionName": "Collection.loadTable",
+                                "arguments": {
+                                  "tableId": {
+                                    "constantValue": "GOOGLE/Research/open-buildings/v3/polygons"
+                                  }
+                                }
+                              }
+                            },
+                            "filter": {
+                              "functionInvocationValue": {
+                                "functionName": "Filter.gte",
+                                "arguments": {
+                                  "leftField": {
+                                    "constantValue": "confidence"
+                                  },
+                                  "rightValue": {
+                                    "constantValue": 0.7
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "color": {
+                        "constantValue": "1a1a1acc"
+                      },
+                      "fillColor": {
+                        "constantValue": "00000000"
+                      },
+                      "width": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-buildings/height/raster/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.divide",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.mosaic",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Collection.filter",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "filter": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Filter.calendarRange",
+                                            "arguments": {
+                                              "start": {
+                                                "constantValue": 2023
+                                              },
+                                              "end": {
+                                                "constantValue": 2023
+                                              },
+                                              "field": {
+                                                "constantValue": "year"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "building_height"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.mosaic",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Collection.filter",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "filter": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Filter.calendarRange",
+                                            "arguments": {
+                                              "start": {
+                                                "constantValue": 2023
+                                              },
+                                              "end": {
+                                                "constantValue": 2023
+                                              },
+                                              "field": {
+                                                "constantValue": "year"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "building_presence"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.gte",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.mosaic",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Collection.filter",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "filter": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Filter.calendarRange",
+                                            "arguments": {
+                                              "start": {
+                                                "constantValue": 2023
+                                              },
+                                              "end": {
+                                                "constantValue": 2023
+                                              },
+                                              "field": {
+                                                "constantValue": "year"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "building_presence"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 0.05
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 30
+          }
+        ],
+        "paletteColors": [
+          "440154",
+          "3b528b",
+          "21918c",
+          "5ec962",
+          "fde725"
+        ]
+      }
+    },
+    "ee-buildings/height/raster/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.divide",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.mosaic",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Collection.filter",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "filter": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Filter.calendarRange",
+                                            "arguments": {
+                                              "start": {
+                                                "constantValue": 2023
+                                              },
+                                              "end": {
+                                                "constantValue": 2023
+                                              },
+                                              "field": {
+                                                "constantValue": "year"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "building_height"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.mosaic",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Collection.filter",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "filter": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Filter.calendarRange",
+                                            "arguments": {
+                                              "start": {
+                                                "constantValue": 2023
+                                              },
+                                              "end": {
+                                                "constantValue": 2023
+                                              },
+                                              "field": {
+                                                "constantValue": "year"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "building_presence"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.gte",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.mosaic",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Collection.filter",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "filter": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Filter.calendarRange",
+                                            "arguments": {
+                                              "start": {
+                                                "constantValue": 2023
+                                              },
+                                              "end": {
+                                                "constantValue": 2023
+                                              },
+                                              "field": {
+                                                "constantValue": "year"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "building_presence"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 0.05
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 30
+          }
+        ],
+        "paletteColors": [
+          "440154",
+          "3b528b",
+          "21918c",
+          "5ec962",
+          "fde725"
+        ]
+      }
+    },
+    "ee-buildings/height/footprints/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.blend",
+              "arguments": {
+                "bottom": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.visualize",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.updateMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.divide",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.mosaic",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Collection.filter",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    "filter": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "Filter.calendarRange",
+                                                        "arguments": {
+                                                          "start": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "end": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "field": {
+                                                            "constantValue": "year"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "building_height"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.mosaic",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Collection.filter",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    "filter": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "Filter.calendarRange",
+                                                        "arguments": {
+                                                          "start": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "end": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "field": {
+                                                            "constantValue": "year"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "building_presence"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "mask": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.gte",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.mosaic",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Collection.filter",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    "filter": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "Filter.calendarRange",
+                                                        "arguments": {
+                                                          "start": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "end": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "field": {
+                                                            "constantValue": "year"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "building_presence"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 0.05
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "min": {
+                        "constantValue": 0
+                      },
+                      "max": {
+                        "constantValue": 30
+                      },
+                      "palette": {
+                        "constantValue": [
+                          "440154",
+                          "3b528b",
+                          "21918c",
+                          "5ec962",
+                          "fde725"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "top": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.style",
+                    "arguments": {
+                      "collection": {
+                        "functionInvocationValue": {
+                          "functionName": "Collection.filter",
+                          "arguments": {
+                            "collection": {
+                              "functionInvocationValue": {
+                                "functionName": "Collection.loadTable",
+                                "arguments": {
+                                  "tableId": {
+                                    "constantValue": "GOOGLE/Research/open-buildings/v3/polygons"
+                                  }
+                                }
+                              }
+                            },
+                            "filter": {
+                              "functionInvocationValue": {
+                                "functionName": "Filter.gte",
+                                "arguments": {
+                                  "leftField": {
+                                    "constantValue": "confidence"
+                                  },
+                                  "rightValue": {
+                                    "constantValue": 0.7
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "color": {
+                        "constantValue": "ffffffcc"
+                      },
+                      "fillColor": {
+                        "constantValue": "00000000"
+                      },
+                      "width": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-buildings/height/footprints/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.blend",
+              "arguments": {
+                "bottom": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.visualize",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.updateMask",
+                          "arguments": {
+                            "image": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.divide",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.mosaic",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Collection.filter",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    "filter": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "Filter.calendarRange",
+                                                        "arguments": {
+                                                          "start": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "end": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "field": {
+                                                            "constantValue": "year"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "building_height"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.mosaic",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Collection.filter",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    "filter": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "Filter.calendarRange",
+                                                        "arguments": {
+                                                          "start": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "end": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "field": {
+                                                            "constantValue": "year"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "building_presence"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "mask": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.gte",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.mosaic",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Collection.filter",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "GOOGLE/Research/open-buildings-temporal/v1"
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    "filter": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "Filter.calendarRange",
+                                                        "arguments": {
+                                                          "start": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "end": {
+                                                            "constantValue": 2023
+                                                          },
+                                                          "field": {
+                                                            "constantValue": "year"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "building_presence"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 0.05
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "min": {
+                        "constantValue": 0
+                      },
+                      "max": {
+                        "constantValue": 30
+                      },
+                      "palette": {
+                        "constantValue": [
+                          "440154",
+                          "3b528b",
+                          "21918c",
+                          "5ec962",
+                          "fde725"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "top": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.style",
+                    "arguments": {
+                      "collection": {
+                        "functionInvocationValue": {
+                          "functionName": "Collection.filter",
+                          "arguments": {
+                            "collection": {
+                              "functionInvocationValue": {
+                                "functionName": "Collection.loadTable",
+                                "arguments": {
+                                  "tableId": {
+                                    "constantValue": "GOOGLE/Research/open-buildings/v3/polygons"
+                                  }
+                                }
+                              }
+                            },
+                            "filter": {
+                              "functionInvocationValue": {
+                                "functionName": "Filter.gte",
+                                "arguments": {
+                                  "leftField": {
+                                    "constantValue": "confidence"
+                                  },
+                                  "rightValue": {
+                                    "constantValue": 0.7
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "color": {
+                        "constantValue": "1a1a1acc"
+                      },
+                      "fillColor": {
+                        "constantValue": "00000000"
+                      },
+                      "width": {
+                        "constantValue": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-tree-canopy/meta/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.selfMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.select",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "ImageCollection.mosaic",
+                          "arguments": {
+                            "collection": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.load",
+                                "arguments": {
+                                  "id": {
+                                    "constantValue": "projects/meta-forest-monitoring-okw37/assets/CanopyHeight"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "bandSelectors": {
+                        "constantValue": [
+                          "cover_code"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 40
+          }
+        ],
+        "paletteColors": [
+          "f7fcb9",
+          "addd8e",
+          "41ab5d",
+          "006837",
+          "00321a"
+        ]
+      }
+    },
+    "ee-tree-canopy/eth/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.selfMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.select",
+                    "arguments": {
+                      "input": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.load",
+                          "arguments": {
+                            "id": {
+                              "constantValue": "users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1"
+                            }
+                          }
+                        }
+                      },
+                      "bandSelectors": {
+                        "constantValue": [
+                          "b1"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 40
+          }
+        ],
+        "paletteColors": [
+          "f7fcb9",
+          "addd8e",
+          "41ab5d",
+          "006837",
+          "00321a"
+        ]
+      }
+    },
     "ee-census-tracts/tracts/tracts/light": {
       "expression": {
         "values": {

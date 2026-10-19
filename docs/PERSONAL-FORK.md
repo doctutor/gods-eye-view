@@ -34,11 +34,15 @@ unless its switch is set to `0`.
   - [Rivers](#rivers)
   - [Surface water](#surface-water)
   - [Land cover](#land-cover)
+  - [Buildings](#buildings)
+  - [Tree canopy](#tree-canopy)
   - [Census tracts](#census-tracts)
   - [Inundation history](#inundation-history)
 - [Elevation: the DEM stack](#elevation-the-dem-stack)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
+- [Localities (REFERENCE)](#localities-reference)
+- [Street assets (ANALYSIS)](#street-assets-analysis)
 - [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
 - [Rivers: click a reach](#rivers-click-a-reach)
 - [Level of detail](#level-of-detail)
@@ -527,6 +531,8 @@ has level and ink chips (below).
 | Rivers (see [Rivers](#rivers))                                     | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth                                                                                  | HydroSHEDS licence, attribution (Natural Earth: public domain)                                                                                   |
 | Surface water (see [Surface water](#surface-water))                | JRC Global Surface Water 1.4 (1984–2021, 30 m), `JRC/GSW1_4/GlobalSurfaceWater`, bands `occurrence`, `change_abs`, `seasonality`, masked by `max_extent`                                                 | Copernicus, free without restriction; "Source: EC JRC/Google"                                                                                    |
 | Land cover (see [Land cover](#land-cover))                         | ESA WorldCover 10 m, 2021 `ESA/WorldCover/v200/2021` and 2020 `ESA/WorldCover/v100/2020`, band `Map`                                                                                                     | CC BY 4.0, "© ESA WorldCover project" notice                                                                                                     |
+| Buildings (see [Buildings](#buildings))                            | Google Open Buildings 2.5D Temporal v1, 2023, `GOOGLE/Research/open-buildings-temporal/v1`; footprints from Open Buildings v3, `GOOGLE/Research/open-buildings/v3/polygons`                              | CC BY 4.0 (the temporal set: or ODbL 1.0)                                                                                                        |
+| Tree canopy (see [Tree canopy](#tree-canopy))                      | Meta and WRI canopy height 1 m, `projects/meta-forest-monitoring-okw37/assets/CanopyHeight`; ETH Global Canopy Height 2020 10 m, `users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1`                        | CC BY 4.0                                                                                                                                        |
 | Census tracts (see [Census tracts](#census-tracts))                | TRACTS: TIGER/Line 2020 tracts, `TIGER/2020/TRACT`; HOUSEHOLD INCOME: the Census Bureau's 2024 cartographic boundary tracts and ACS 5-year 2020–2024 B19013, drawn by the local server                   | US public domain                                                                                                                                 |
 | Inundation history (see [Inundation history](#inundation-history)) | Global Flood Database v1, `GLOBAL_FLOOD_DB/MODIS_EVENTS/V1` (913 events, 2000–2018, 250 m)                                                                                                               | CC BY-NC 4.0                                                                                                                                     |
 
@@ -1405,6 +1411,115 @@ expression, mask and colours, the class remap and palette, the ceiling, a
 mode with digits on the tile route, the fixture) and
 `src/layers/earthEngine/earthEngine.test.mjs` (the chips, the stored mode,
 the legends, the ceiling's status line).
+
+### Buildings
+
+**Buildings** (`ee-buildings`, ANALYSIS) draws Google's Open Buildings 2.5D
+Temporal v1 for 2023: one image per S2 cell and year (2016 to 2023), on a
+0.5 m grid of 4 m effective resolution, with three bands, all pyramided by
+MEAN (read from the assets on 2026-10-19). It covers Africa, South and
+Southeast Asia, Latin America and the Caribbean: 46 S2 cells, 151 images in 2023. There is no data for the United States, Europe, China, Japan or
+Australia. There, the row says **"No Open Buildings data here"** rather than
+drawing nothing: the point under the view is tested against the 46 cells'
+boxes (`src/data/openBuildingsCoverage.js`). The boxes are coarse, so inside
+one there may still be no data, but outside them there surely is none.
+
+Three chips, kept as `gev.buildings.mode`:
+
+- **COUNT** (the default): buildings per km², on a log scale from 1 to
+  10,000+. The fractional count per 0.25 m² pixel × 4,000,000; with a MEAN
+  pyramid that is the same density at every zoom (a 1 km box in Lagos:
+  about 2,400 per km²). It reads well from orbit.
+- **COVER**: the share of the ground built on (building_presence), 2% to
+  50%+ (35% in that Lagos box). From orbit only cities show: a z 3 pixel
+  (20 km) is under 2% built almost everywhere else.
+- **HEIGHT**: metres, building_height ÷ building_presence. Both are MEAN
+  pyramids, so at every zoom a pixel is Σ height / Σ presence over it:
+  roughly the mean height of what is built. Height is predicted off
+  buildings too: 11 to 22% of the pixels with presence under 0.1 had some,
+  in 1 km boxes. So this reads 28 to 50% above the mean height of the
+  pixels with presence over 0.5: Lagos 10.1 m against 7.9 m, Jakarta 24.9 m
+  against 16.6 m, São Paulo 31.8 m against 23.7 m. The plain mean over the
+  ground (3.5, 5.8 and 10.5 m) would be half the buildings' height. Pixels
+  under 5% built are clear.
+
+**Footprints from z 15.** The layer's two bands go through the server's
+`zoom` variant, as the Rivers' do:
+
+- **Raster** (z 0–14): the mode alone.
+- **Footprints** (z 15–17): the mode, visualized (`Image.visualize`), with
+  Open Buildings v3's polygons blended over it as 1 px outlines in the ink
+  (`Image.blend`; `overlayExpression` in `server/providers/earthEngine.js`).
+  Only polygons with a confidence of at least 0.7 are drawn; the dataset
+  suggests 0.65 to 0.75.
+
+The row then says "With building footprints (Open Buildings v3)", and the
+ink chips (AUTO / LIGHT / DARK) choose the outlines' colour. The v3 table
+is huge (some 1.8 billion buildings), and its tiles cost seconds whatever
+the zoom. z 15 is where a 4.8 m pixel shows a house's shape. Maps are made
+when a tile asks for them (`lazyMaps`: 2 bands × 3 modes × 2 inks).
+
+Timed live on 2026-10-19, first answers, over Lagos, Jakarta and São Paulo
+(maps made in 0.3 to 1.9 s):
+
+| Tiles                          | z 0–4       | z 5–9       | z 10–14                                                                | z 15–17                  |
+| ------------------------------ | ----------- | ----------- | ---------------------------------------------------------------------- | ------------------------ |
+| COVER                          | 0.30–1.75 s | 0.20–1.13 s | 0.18–1.52 s                                                            | raster alone 0.21–0.50 s |
+| COUNT                          | 0.45–0.74 s | 0.21–1.57 s | 0.14–0.78 s                                                            |                          |
+| HEIGHT                         | 0.27–0.64 s | 0.16–2.11 s | 0.28–0.51 s                                                            | raster alone 0.31–0.45 s |
+| Footprints alone (v3, ≥ 0.7)   |             |             | z 11: 7.2 s and over 30 s (Jakarta); z 13: 4.9–10.9 s; z 14: 3.0–4.3 s | 3.0–7.6 s                |
+| Footprints over COVER (drawn)  |             |             |                                                                        | 3.5–7.1 s                |
+| Footprints over HEIGHT (drawn) |             |             |                                                                        | 2.8–8.6 s                |
+
+The slowest tile drawn, 8.6 s, is under a third of the proxy's 30 s.
+`maxZoom` is 17. Outside the coverage the raster's tiles are empty
+(Baltimore: 334 B a tile).
+
+### Tree canopy
+
+**Tree canopy** (`ee-tree-canopy`, ANALYSIS) draws canopy height in metres,
+from 2 m to 40+ m, light to dark green, where there is none clear. Two
+chips, kept as `gev.treeCanopy.mode`:
+
+- **META 1 M** (the default): Meta and WRI's High Resolution Canopy Height
+  Maps (Tolan et al. 2024). The Earth Engine community catalog's
+  `projects/meta-forest-monitoring-okw37/assets/CanopyHeight` is 170 tiles,
+  band `cover_code` (height in m), 1.19 m cells in EPSG:3857, MEAN
+  pyramid.
+- **ETH 10 M**: ETH Zürich's Global Canopy Height 2020 (Lang et al. 2023),
+  `users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1`, band `b1`, 10 m, MEAN
+  pyramid. It is there to compare: Meta's reads lower in tall forest (a
+  1 km box in the Congo basin: 22.6 m mean against 32.7 m; the Pacific
+  Northwest: 10.3 m against 20.0 m), so the two are not blended.
+
+Both assets are readable by the service account (checked 2026-10-19).
+
+**Level of detail: a mean pyramid, from orbit.** Zero (no canopy) is part
+of the mean, so a coarse pixel is the mean height over all the ground
+beneath it, gaps included: a forest reads lower from far out than its trees
+are. Meta's band is an integer, so a coarse pixel whose mean is under 1 m
+(dry savanna; East Africa at z 2) is 0 and clear. **Canopy cover** (the
+share of ground above a height) is not offered. A mean pyramid of heights
+cannot give it, and deriving it from the 1 m pixels for a coarse tile would
+read every pixel under it: that needs a precomputed pyramid of its own.
+
+Every tile was fast, so Meta's 1 m map draws from orbit with no far
+fallback. Timed live on 2026-10-19 over the Congo basin and the Pacific
+Northwest (maps made in 0.3 to 0.9 s):
+
+| Tiles    | z 0–3       | z 4–6       | z 8–10      | z 12–14     |
+| -------- | ----------- | ----------- | ----------- | ----------- |
+| META 1 M | 0.19–0.67 s | 0.18–0.34 s | 0.18–0.34 s | 0.21–0.34 s |
+| ETH 10 M | 0.11–0.36 s | 0.10–0.41 s | 0.15–0.44 s | 0.14–0.43 s |
+
+`maxZoom` is 16 (2.4 m pixels). The optional US NLCD tree canopy mode was
+not added.
+
+Tests: `src/data/earthEngineBuildingsCanopy.test.mjs` (the records, each
+mode's expression, the year filter, the footprints' blend, the zoom
+variant's maps, the coverage boxes) and
+`src/layers/earthEngine/buildingsCanopy.test.mjs` (the rows: coverage
+words, chips, legends, the footprints' words).
 
 ### Census tracts
 
@@ -2653,6 +2768,137 @@ packs. The wiring (share links, voice enum and aliases such as "hex map",
 "countries", "subdivisions"; cable classification; the first-key hash
 strip) follows the keyless basemaps' lists.
 
+## Localities (REFERENCE)
+
+Populated places with their names at every height
+(`src/layers/localities/`), under **REFERENCE** beside the Grid: names
+are a base reference to read other layers against, not a quantity to
+analyse.
+
+**From orbit to regional scale: Natural Earth.** The 7,342 places of
+Natural Earth's 10m populated places (public domain), bundled as
+`src/data/local_data/natural_earth/populated_places.json` (802 KB, 228 KB
+gzipped: names in English, Spanish and Russian, scalerank, Natural Earth's
+own label `min_zoom`, largest population, capital class, country, at about
+100 m). It is built by `scripts/build-populated-places-pack.mjs` from the
+official download (SHA-256 pinned; see the pack README), like the river
+names.
+
+_Thinning._ A place is named once the imagery level the camera height
+drapes at the middle of the view (the Rivers' `riverZoomForHeight`, a
+1,600 px canvas: z 3 from 20,000 km, z 6 from 3,000 km, z 12 from 50 km)
+reaches its `min_zoom`, the zoom Natural Earth itself gives it from its
+scalerank and population. Within that, national capitals first, then lower
+`min_zoom`, scalerank and larger population; at most 180 labels, in the
+view window (the H3 window rule; from orbit, the side of the Earth the
+camera sees); the overlay's collision solver drops what overlaps, larger
+places winning. Measured on the pack: 41 names from orbit (Moscow, not
+Baltimore), 180 of the 992 eligible from 3,000 km over Europe (every
+capital in view), and the 15 Natural Earth places in the window of a 50 km
+view of Baltimore (Baltimore, Annapolis, Washington, Philadelphia and the
+towns between).
+
+**Close in: OpenStreetMap.** Below 60 km the layer also asks Overpass
+for the view's named `place` nodes, the kinds widening as the camera comes
+in: `city` and `town` below 60 km; `village` and `suburb` too below 20 km;
+`hamlet` and `neighbourhood` too below 6 km. The box is the ground a nadir
+view sees (half-side one camera height, at least 3 km), snapped outward
+to 0.05° so a small pan reuses the answer; at most 800 places. Natural
+Earth's place gives way where OpenStreetMap has one of the same name
+within 5 km.
+
+**Overpass.** Both this layer and [Street assets](#street-assets-analysis)
+go through the app's own `/api/overpass` proxy (its query bounds, its 24 h
+memory and 7-day disk cache) with a client that paces them
+(`src/sources/overpassView.js`): one request at a time, at least 1.5 s
+apart, nothing until a refusal's Retry-After has passed, a newer view
+aborting the request in flight. The proxy queries only the instances in
+**`OVERPASS_UPSTREAMS`**, and uses no public instance unless told to.
+Without it the row says "OpenStreetMap places need OVERPASS_UPSTREAMS in
+.env" and Natural Earth keeps naming. To turn it on, add to `.env` and
+restart the dev server, for example:
+
+```
+OVERPASS_UPSTREAMS=https://overpass-api.de/api/interpreter,https://overpass.private.coffee/api/interpreter
+```
+
+**On screen.** Names are world-overlay labels (never Cesium labels),
+white on imagery and dark maps, near-black on light ones (the basemap's
+luminance). **DOTS** (on by default, kept as `gev.localities.dots`) adds a
+point at each named place, larger for capitals. A click on a name or a dot
+opens a card beside it: its kind (City, Town, Village, Hamlet, Suburb,
+Neighbourhood; or National capital, Regional capital, Populated place) and
+country, population, its local name when OpenStreetMap's English one
+differs, and the source; a click elsewhere closes it. Attribution: Natural
+Earth (public domain) and © OpenStreetMap contributors (ODbL), registered
+when the layer is on.
+
+Overpass times for the layer's own queries (2026-10-19, through the public
+`maps.mail.ru` mirror, the only one that answered from this machine that
+day: overpass-api.de refused it with 406 and the others timed out; a
+configured upstream should be faster):
+
+| Query                         | Box         | Answer             | Time   |
+| ----------------------------- | ----------- | ------------------ | ------ |
+| city, town @ 55 km, Baltimore | 1.0° × 1.3° | 111 places, 46 KB  | 18.3 s |
+| city, town @ 55 km, Paris     | 1.0° × 1.5° | 276 places, 158 KB | 25.8 s |
+| village, suburb @ 15 km       | 0.3° × 0.4° | (mirror 504)       | n/a    |
+
+## Street assets (ANALYSIS)
+
+The infrastructure Google Earth shows, from OpenStreetMap
+(`src/layers/streetAssets/`): **EV CHARGING** (`amenity=charging_station`,
+nodes and areas), **BIKE LANES** (`highway=cycleway`, and roads with
+`cycleway`, `cycleway:both`, `cycleway:left` or `cycleway:right` = lane or
+track), **HYDRANTS** (`emergency=fire_hydrant`), **STREET LIGHTS**
+(`highway=street_lamp`) and **SIGNALS** (`highway=traffic_signals`). One
+type at a time, a chip each (kept as `gev.streetAssets.type`), through
+the same paced `/api/overpass` client as Localities (and the same
+`OVERPASS_UPSTREAMS` need). OpenChargeMap was not used: OpenStreetMap's
+charging stations need no key. Attribution © OpenStreetMap contributors
+(ODbL).
+
+**Level of detail: pins, then counts, then nothing.** These are dense, so
+each type has two heights:
+
+| Type          | Pins below | Counts below | Pin limit | Count limit |
+| ------------- | ---------- | ------------ | --------- | ----------- |
+| EV charging   | 40 km      | 150 km       | 1,500     | 8,000       |
+| Bike lanes    | 8 km       | 30 km        | 2,500     | 10,000      |
+| Hydrants      | 5 km       | 25 km        | 2,000     | 12,000      |
+| Street lights | 3 km       | 15 km        | 2,000     | 12,000      |
+| Signals       | 5 km       | 40 km        | 2,000     | 12,000      |
+
+Below its pin height a type draws its features for the view: points
+(coloured by type, outlined in the ink), or for bike lanes lines in the ink
+clamped to the ground and the 3D tiles. From there to its count height the
+same features come as bare coordinates (`out skel`, or `out center` for
+ways and areas) and the shared point rollup (`src/layers/pointRollup/`)
+draws their counts per H3 hexagon, a click flying the camera in. Above it
+nothing is asked for and the row says how low to go: a wider box would ask
+Overpass for a city's worth of features. The rollup also takes over below
+the pin height if a view holds more than the pin limit. The box is the
+ground a nadir view sees (half-side one camera height), snapped to 0.05°,
+inside the proxy's 12° bound at every cap (tested at 70° N). An answer at
+its limit says so ("more than the view can show; zoom in for all").
+
+Overpass times for the layer's own queries at the caps (2026-10-19,
+Baltimore, through `maps.mail.ru` as above; several timed out at the mirror,
+which says more about the mirror that day than about the queries):
+
+| Query                                | Answer                    | Time   |
+| ------------------------------------ | ------------------------- | ------ |
+| Signals, pins @ 10 km (then the cap) | 2,000 (the limit), 341 KB | 13.4 s |
+| EV charging, pins @ 38 km            | 413, 175 KB               | 15.8 s |
+| Hydrants, counts @ 24 km             | 4,426 points, 368 KB      | 20.5 s |
+| Street lights, count @ 20 km box     | 1,112 (count only)        | 54.7 s |
+| Signals, count @ 20 km box           | 2,347 (count only)        | 22.6 s |
+
+The signals' first pin height (10 km) filled the limit in Baltimore's
+20 km box, so their pins start at 5 km (a 4 km box held 544). OpenStreetMap
+coverage varies by city: Baltimore has only 25 hydrants mapped in a 4 km
+box.
+
 ## H3 hexes (resolution by perspective)
 
 Every hex surface in the fork (the Countries basemap's hex style, the
@@ -2825,7 +3071,10 @@ drowning the view. There are four ways to do it, by the kind of data:
   MODE (the commonest type) with an averaged mask (opacity as the share of
   forest), so a far pixel still says something true (see
   [Forest types and Population](#forest-types-and-population)). Population
-  is drawn as a density, which a MEAN pyramid keeps.
+  is drawn as a density, which a MEAN pyramid keeps, and so are Buildings'
+  COUNT and COVER; Buildings' HEIGHT is a ratio of two MEAN pyramids (Σ
+  height / Σ presence) and Tree canopy a mean height over the ground (see
+  [Buildings](#buildings), [Tree canopy](#tree-canopy)).
 - **Masked rasters: mask by a band pyramided for the mask.** A band whose
   unmasked pixels are only some of the ground (Surface water's) averages
   just those pixels at coarse levels and keeps every coarse pixel any of
@@ -2837,7 +3086,15 @@ drowning the view. There are four ways to do it, by the kind of data:
   [H3 hexes](#h3-hexes-resolution-by-perspective)): Wikipedia coverage's
   Hexes mode, from resolution 0 at orbit to 7 at city scale, and the
   Cameras layer's counts per hex that give way to pins as the view comes in
-  (see [Point rollups](#point-rollups-camera-counts-per-hex)).
+  (see [Point rollups](#point-rollups-camera-counts-per-hex)), and Street
+  assets' counts between each type's pin and count heights (see
+  [Street assets](#street-assets-analysis)).
+- **Names: thinned by their own importance.** Localities names Natural
+  Earth's places from the zoom Natural Earth gives each (its `min_zoom`,
+  from scalerank and population), at most 180 at once, and adds
+  OpenStreetMap's places below 60 km, the kinds widening as the camera
+  comes in (see [Localities](#localities-reference)); the river names thin
+  by scalerank the same way.
 - **Boundaries: level switching.** The administrative boundaries' AUTO
   chip draws states and provinces above 800 km and districts below;
   COUNTRIES, REGIONS and DISTRICTS force one level (LSIB 2017 countries,
@@ -2926,9 +3183,10 @@ git merge origin/main
 - `src/data/dataCredits.js`, `.env.example` and `DATA_SOURCES.md`.
 - **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (two
   places) and `src/app/sourceComposition.test.mjs` assert `layers.length`.
-  The fork's count is upstream's plus 19 (the two Baltimore layers, Recorded
-  Video, the fourteen Earth Engine overlays, the Grid and Wikipedia
-  coverage): 51 since Census tracts and Inundation history (2026-10-19). A record added to `src/data/earthEngineLayers.js` or an
+  The fork's count is upstream's plus 23 (the two Baltimore layers, Recorded
+  Video, the sixteen Earth Engine overlays, the Grid, Wikipedia
+  coverage, Localities and Street assets): 55 since Census tracts and
+  Inundation history (2026-10-19). A record added to `src/data/earthEngineLayers.js` or an
   upstream layer added later changes the number.
 - **Translations.** Upstream checks that every UI string is marked for
   translation (`npm run i18n`). Fork UI text goes through `t()`, `tn()` and

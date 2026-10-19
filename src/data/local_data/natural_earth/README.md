@@ -129,3 +129,28 @@ and `at` ([lon, lat] label points). No line geometry.
 stretches; a point within 500 km of a kept point of the same name is
 dropped (larger rivers first); coordinates rounded to 2 decimals. Result:
 1,097 names, 1,202 label points, 87,793 bytes.
+
+## Populated places (`populated_places.json`)
+
+Personal fork: the places the Localities layer names from orbit to
+regional scale (`src/layers/localities/`). Natural Earth 10m populated
+places, public domain under the terms above. Source: the official download
+`https://naciscdn.org/naturalearth/10m/cultural/ne_10m_populated_places.zip`
+(SHA-256 `cd149186f03d2603e0410da399b980a4357d0ac32d3a2305a49ed3dffcc41d7b`),
+fetched 2026-10-19.
+
+**Regenerate:** download that zip into an empty directory, then
+`node scripts/build-populated-places-pack.mjs --zip <dir>/ne_10m_populated_places.zip`.
+The script checks the SHA-256 and fetches nothing; a rerun rewrites the pack
+byte for byte.
+
+**Schema:** `meta` (source, URL, hash, licence, curation), `countries[]`
+(the `ADM0NAME` values, sorted) and `places[]` with `name` (`NAME_EN`, else
+`NAME`), `es` (`NAME_ES`) and `ru` (`NAME_RU`) when they differ, `rank`
+(`SCALERANK`), `z` (`MIN_ZOOM`, Natural Earth's label zoom), `pop`
+(`POP_MAX`), `cap` (`country` or `region`, from `ADM0CAP` and `FEATURECLA`),
+`c` (index into `countries`) and `at` ([lon, lat], 3 decimals), most
+prominent first (`z`, then scalerank, then population).
+
+**Curation:** all 7,342 records; nothing dropped. Result: 801,702 bytes
+(228 KB gzipped).
