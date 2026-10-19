@@ -19,6 +19,7 @@ import {
   TRANSPARENT_TILE,
   ZOOM_VARIANT,
   coarseVariant,
+  contourExpression,
   variantForZoom,
   zoomMatched,
   earthEngineSettings,
@@ -29,6 +30,9 @@ import {
 } from '../../server/providers/earthEngine.js';
 import {
   AMERICAS_CON_IDS,
+  CONTOUR_BANDS,
+  CONTOUR_INDEX_EVERY,
+  contourStepForZoom,
   EARTH_ENGINE_LAYERS,
   RIVER_BANDS,
   RIVER_MODES,
@@ -741,6 +745,7 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     'ee-forest-loss': 6,
     'ee-admin-boundaries': 0,
     'ee-rivers': 0,
+    'ee-elevation-contours': 0,
   });
   assert.deepEqual(catalog.tiles, { used: 10, budget: 10 });
   // A new day starts from nothing, with its own warnings.
@@ -1081,4 +1086,228 @@ test('the Rivers record: AUTO by height, the Americas switch off, both citations
   assert.match(rivers.attribution, /Lehner.*2008/);
   assert.match(rivers.attribution, /Grill et al\. 2019, Nature 569:215/);
   assert.match(rivers.attribution, /Natural Earth/);
+});
+
+// --- Elevation contours ---------------------------------------------------------
+
+/** Every functionInvocationValue in a node, depth first. */
+function invocations(node, out = []) {
+  if (Array.isArray(node)) node.forEach((entry) => invocations(entry, out));
+  else if (node && typeof node === 'object') {
+    if (node.functionInvocationValue) out.push(node.functionInvocationValue);
+    for (const value of Object.values(node)) invocations(value, out);
+  }
+  return out;
+}
+
+test('contours: the step follows the zoom, 500 m from orbit to 20 m at street scale', () => {
+  const layer = byId('ee-elevation-contours');
+  assert.equal(layer.kind, 'image');
+  assert.equal(zoomMatched(layer), true, 'drawn through the zoom variant');
+  // Every zoom 0 to maxZoom belongs to exactly one band, in order.
+  const covered = CONTOUR_BANDS.flatMap((band) =>
+    Array.from(
+      { length: band.zooms[1] - band.zooms[0] + 1 },
+      (_, i) => band.zooms[0] + i,
+    ),
+  );
+  assert.deepEqual(
+    covered,
+    Array.from({ length: layer.maxZoom + 1 }, (_, z) => z),
+  );
+  assert.deepEqual(
+    Array.from({ length: 15 }, (_, z) => contourStepForZoom(z)),
+    [500, 500, 500, 500, 500, 500, 500, 500, 200, 200, 100, 100, 40, 20, 20],
+  );
+  assert.equal(contourStepForZoom(20), 20, 'past the last band: its step');
+  for (const z of [0, 7, 8, 10, 12, 13, 14])
+    assert.equal(variantForZoom(layer, z).step, contourStepForZoom(z));
+  // Steps shrink as the view comes in; the far DEM to z 9, the near from 10.
+  const steps = CONTOUR_BANDS.map((band) => band.step);
+  assert.deepEqual(
+    [...steps].sort((a, b) => b - a),
+    steps,
+  );
+  for (const band of CONTOUR_BANDS)
+    assert.equal(
+      band.asset,
+      band.zooms[1] <= 9
+        ? byId('ee-terrain-slope').variants[0].asset
+        : byId('ee-terrain-slope').variants[1].asset,
+      `${band.key}: the terrain layers' own DEM records`,
+    );
+  // On AUTO the camera height names the band (the row's words): the
+  // heights at which a 1,600 px view drapes each band's zooms.
+  for (const [height, key] of [
+    [20_000_000, 'c500'],
+    [834_375, 'c500'],
+    [834_374, 'c200'],
+    [300_000, 'c200'],
+    [100_000, 'c100'],
+    [40_000, 'c40'],
+    [10_000, 'c20'],
+    [100, 'c20'],
+  ])
+    assert.equal(variantForHeight(layer, height).key, key, String(height));
+  // Drawn from orbit: elevation averages sensibly (aggregate, then derive).
+  assert.equal(layer.maxHeightM, undefined);
+  assert.equal(CONTOUR_INDEX_EVERY, 5);
+  assert.deepEqual(layerInks(layer), ['light', 'dark']);
+  assert.match(layer.attribution, /Copernicus DEM GLO-30.*GMTED2010/);
+});
+
+test('contours: lines are where the elevation quantised to the step changes, one pixel wide', () => {
+  const layer = byId('ee-elevation-contours');
+  const near = CONTOUR_BANDS.find((band) => band.key === 'c20');
+  const request = mapRequestFor(layer, near, 'dark');
+  const calls = invocations(request.expression);
+  const named = (name) => calls.filter((call) => call.functionName === name);
+  // The result is a constant image whose mask is the line's alpha.
+  const root = request.expression.values['0'].functionInvocationValue;
+  assert.equal(root.functionName, 'Image.updateMask');
+  // floor(dem / 20) for the level, floor(level / 5) for the index level.
+  const divisors = named('Image.divide').map(
+    (call) =>
+      call.arguments.image2.functionInvocationValue.arguments.value
+        .constantValue,
+  );
+  assert.deepEqual(
+    [...new Set(divisors)].sort((a, b) => a - b),
+    [CONTOUR_INDEX_EVERY, 20],
+  );
+  assert.equal(
+    named('Image.floor').length,
+    3,
+    'the level and two index levels',
+  );
+  // Edges against the 3 × 3 minimum, in the tile's own pixels.
+  const focal = named('Image.focalMin');
+  assert.equal(focal.length, 1, 'one shared focal minimum');
+  for (const call of focal) {
+    assert.equal(call.arguments.radius.constantValue, 1);
+    assert.equal(call.arguments.kernelType.constantValue, 'square');
+    assert.equal(call.arguments.units.constantValue, 'pixels');
+  }
+  assert.equal(named('Image.neq').length, 2, 'a line and an index line');
+  // Minor lines at 0.55 of the ink's alpha, index lines at all of it.
+  const where = named('Image.where')[0];
+  assert.equal(
+    where.arguments.value.functionInvocationValue.arguments.value.constantValue,
+    1,
+  );
+  assert.equal(
+    where.arguments.input.functionInvocationValue.arguments.image2
+      .functionInvocationValue.arguments.value.constantValue,
+    0.55,
+  );
+  // Sea masked; the mosaic given its 30 m cells, then read bilinearly.
+  assert.equal(named('Image.selfMask').length, 1);
+  assert.equal(
+    named('Image.resample')[0].arguments.mode.constantValue,
+    'bilinear',
+  );
+  assert.equal(
+    named('Image.setDefaultProjection')[0].arguments.scale.constantValue,
+    30,
+  );
+  assert.match(JSON.stringify(request), /COPERNICUS\/DEM\/GLO30_2024_1/);
+  // The ink's colour and alpha.
+  assert.deepEqual(request.visualizationOptions, {
+    ranges: [{ min: 0, max: 1 }],
+    paletteColors: ['1a1a1a', '1a1a1a'],
+    opacity: 0.8,
+  });
+  assert.deepEqual(
+    mapRequestFor(layer, near, 'light').visualizationOptions.paletteColors,
+    ['ffffff', 'ffffff'],
+  );
+  // The far DEM is one image: no default projection to give; its sea (0)
+  // is masked by its record (seaIsZero) and again here.
+  const far = mapRequestFor(layer, CONTOUR_BANDS[0], 'light');
+  const farCalls = invocations(far.expression);
+  assert.equal(
+    farCalls.filter(
+      (call) => call.functionName === 'Image.setDefaultProjection',
+    ).length,
+    0,
+  );
+  assert.match(JSON.stringify(far), /USGS\/GMTED2010_FULL/);
+  assert.ok(
+    farCalls.some(
+      (call) =>
+        call.functionName === 'Image.divide' &&
+        call.arguments.image2.functionInvocationValue.arguments.value
+          .constantValue === 500,
+    ),
+    'the far band quantises to 500 m',
+  );
+  // The class and its focal minimum are shared values, sent once each.
+  assert.deepEqual(Object.keys(request.expression.values), ['0', '1', '2']);
+  assert.match(
+    JSON.stringify(request.expression.values['0']),
+    /"valueReference":"2"/,
+  );
+  // Without resampling the DEM is quantised as it is.
+  const plain = invocations(
+    contourExpression({ constantValue: 'dem' }, 40, { indexEvery: 5 }),
+  );
+  assert.equal(
+    plain.filter((call) => call.functionName === 'Image.resample').length,
+    0,
+  );
+});
+
+test('contours: the zoom variant draws each tile with its zoom’s step, one map per (band, ink)', async (t) => {
+  const root = await tempRoot(t);
+  const layer = byId('ee-elevation-contours');
+  const made = [];
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    layers: [layer],
+    backend: {
+      async createMap(record, variant, ink) {
+        made.push(mapKey(record, variant, ink));
+        return { name: `projects/p/maps/${variant.key}-${ink}` };
+      },
+      async fetchTile(name, z, x, y) {
+        return {
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from(`${name}/${z}/${x}/${y}`),
+        };
+      },
+    },
+  });
+  for (const [z, band] of [
+    [0, 'c500'],
+    [7, 'c500'],
+    [8, 'c200'],
+    [11, 'c100'],
+    [12, 'c40'],
+    [14, 'c20'],
+  ]) {
+    const tile = await service.tile(layer.id, ZOOM_VARIANT, 'light', z, 0, 0);
+    assert.equal(tile.status, 200, String(z));
+    assert.equal(String(tile.body), `projects/p/maps/${band}-light/${z}/0/0`);
+  }
+  assert.equal(
+    (await service.tile(layer.id, ZOOM_VARIANT, 'light', 15, 0, 0)).status,
+    400,
+    'no deeper than maxZoom',
+  );
+  const catalog = (await service.layers()).layers[0];
+  assert.deepEqual(catalog.inks, ['light', 'dark']);
+  assert.deepEqual(
+    catalog.variants.map((variant) => variant.key),
+    ['c500', 'c200', 'c100', 'c40', 'c20', ZOOM_VARIANT],
+  );
+  // Maps are made when a tile asks (lazyMaps): one per band drawn here.
+  assert.deepEqual(made, [
+    'ee-elevation-contours/c500/light',
+    'ee-elevation-contours/c200/light',
+    'ee-elevation-contours/c100/light',
+    'ee-elevation-contours/c40/light',
+    'ee-elevation-contours/c20/light',
+  ]);
 });

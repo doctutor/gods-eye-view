@@ -49,6 +49,7 @@ export const LAYER_NAME_KEYS = Object.freeze({
   'ee-terrain-slope': msg('Terrain slope'),
   'ee-terrain-aspect': msg('Terrain aspect'),
   'ee-terrain-hillshade': msg('Hillshade'),
+  'ee-elevation-contours': msg('Elevation contours'),
   'ee-forest-loss': msg('Forest loss'),
   'ee-admin-boundaries': msg('Administrative boundaries'),
   'ee-rivers': msg('Rivers'),

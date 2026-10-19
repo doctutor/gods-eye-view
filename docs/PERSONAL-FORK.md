@@ -29,6 +29,7 @@ unless its switch is set to `0`.
 - [Google indoor views (Street Level)](#google-indoor-views-street-level)
 - [Baltimore enforcement and CitiWatch cameras](#baltimore-enforcement-and-citiwatch-cameras)
 - [Earth Engine layers (ANALYSIS)](#earth-engine-layers-analysis)
+  - [Elevation contours](#elevation-contours)
   - [Rivers](#rivers)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
@@ -512,6 +513,7 @@ has level and ink chips (below).
 | Layer                                     | Dataset (Earth Engine id)                                                                                                        | Licence                                                                  |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | Terrain slope, Terrain aspect, Hillshade  | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`); above 3,000 km GMTED2010, `USGS/GMTED2010_FULL`, band `mea` | Copernicus DEM licence; notice required (GMTED2010: USGS, public domain) |
+| Elevation contours                        | The terrain layers' DEMs: GMTED2010 to z 9, Copernicus DEM GLO-30 from z 10                                                      | As the terrain layers                                                    |
 | Forest loss (2001–2025, coloured by year) | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                 | CC BY 4.0                                                                |
 | Administrative boundaries                 | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from LSIB 2017, `USDOS/LSIB/2017`           | CC BY 4.0 (LSIB: US public domain)                                       |
 | Rivers (see [Rivers](#rivers))            | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth          | HydroSHEDS licence, attribution (Natural Earth: public domain)           |
@@ -724,6 +726,93 @@ sensibly (elevation and what is derived from it) should draw from orbit.
 
 Anything else Earth Engine can compute needs a small addition to
 `expressionFor`. Use the REST names from the project's `algorithms` list.
+
+### Elevation contours
+
+**Elevation contours** (ANALYSIS, `ee-elevation-contours`) draws contour
+lines of the terrain layers' elevation in the boundaries' inks: white
+(`ffffffcc`) on imagery and dark maps, near-black (`1a1a1acc`) on light ones,
+with AUTO / LIGHT / DARK ink chips. Every fifth line is an index contour,
+drawn at the ink's full alpha; the others are at 55% of it.
+
+**Why ANALYSIS, not REFERENCE.** It is an Earth Engine raster computed from
+the DEM, like slope, aspect and hillshade, with their row (legend, opacity,
+ink chips, tile count) and the same daily tile budget. The Grid in
+REFERENCE is drawn by the client from arithmetic and costs nothing.
+
+**Method** (`contourExpression`, `server/providers/earthEngine.js`). Earth
+Engine draws each tile from:
+
+1. the elevation, its sea (stored as 0) masked, read bilinearly. The
+   Copernicus mosaic is first given its 30 m cells (EPSG:3857, as for
+   terrain): its default projection is 1°, and resampled over 1° cells the
+   lines came out as straight diagonal ramps;
+2. the level, `floor(dem / step)`;
+3. a line wherever the level differs from its `Image.focalMin` over the
+   3 × 3 pixels about it: one pixel wide, on the upper side of each level,
+   in the tile's own pixels;
+4. an index line where `floor(level / 5)` differs the same way;
+5. a constant image whose mask is the line's alpha (0.55 or 1), coloured in
+   the ink; the ink's alpha is the map's opacity.
+
+The level and its focal minimum are shared values in the request
+(`valueReference`), each sent once.
+
+**Level of detail: the step follows the zoom.** Each band names the zooms it
+draws (`zooms`, as the Rivers' bands do), so the server's `zoom` variant
+draws every tile with its own zoom's step and source, on the globe and on
+the photoreal tiles alike, from level 0 (no primitive needs more than
+Cesium's 10 draped textures). On AUTO the camera's height names the band in
+the row ("Contours every 100 m"): the heights at which the middle of a
+1,600 px view drapes those zooms.
+
+| Band   | Zooms | Step  | Index lines | Source     | Height (1,600 px view) | Cold tile times (Himalaya, Alps, Nebraska)                |
+| ------ | ----- | ----- | ----------- | ---------- | ---------------------- | --------------------------------------------------------- |
+| `c500` | 0–7   | 500 m | 2,500 m     | GMTED2010  | above 834 km           | 0.12–0.72 s (z 0–5), 0.33–0.50 s (z 6), 0.26–0.42 s (z 7) |
+| `c200` | 8–9   | 200 m | 1,000 m     | GMTED2010  | 209–834 km             | 0.17–0.35 s; 0.24–1.06 s with shared values (z 9)         |
+| `c100` | 10–11 | 100 m | 500 m       | Copernicus | 52–209 km              | 1.4–4.9 s; 3.6–7.9 s with shared values (z 11)            |
+| `c40`  | 12    | 40 m  | 200 m       | Copernicus | 26–52 km               | 1.4–2.7 s; 1.5–4.7 s with shared values                   |
+| `c20`  | 13–14 | 20 m  | 100 m       | Copernicus | below 26 km            | 0.5–4.0 s; 0.3–0.6 s with shared values (z 14)            |
+
+The times are Earth Engine's first answer for each tile (measured
+2026-10-19, through the server's own expression code, one tile each over
+Everest, the Matterhorn and Nebraska per zoom; the map itself took 0.3 to
+1.0 s to make). Repeated tiles are much faster: Earth Engine keeps them. The
+slowest tile measured, 7.9 s, is a quarter of the proxy's 30 s.
+
+**Choosing the steps.** On a slope θ, lines `step` apart in height are
+`step / tan θ` apart on the ground. On a 20° to 25° slope (tan θ about 0.4),
+a step of about one pixel's ground size puts them 2 to 3 pixels apart:
+306 m at z 9 → 200 m, 76 m at z 11 → 100 m, 38 m at z 12 → 40 m, 19 m at
+z 13 → 20 m. The first trial (500 m to z 4, 200 m to z 7, 100 m at z 8–9,
+40 m at z 10–11) filled the Alps almost solid at z 9 and z 11. These match
+the usual map-scale practice too: z 9 is about 1:1,000,000 (200 to 500 m
+intervals), z 13 about 1:70,000 (20 m). Steep mountains still crowd the
+lines, as on any contour map; plains show few.
+
+**Sources.** The bands use the terrain layers' own DEM records (`DEM_FAR`,
+`DEM`), so a change of DEM there re-points the contours too. GMTED2010 draws
+to z 9: its 7.5″ cells (about 230 m) still resolve a z 9 tile's 306 m
+pixels, and it answered every tile in under 1.1 s. The Copernicus mosaic
+took 12.8 s for a z 4 tile, about 3 s at z 5 and 1.3 to 4.9 s at z 6 to 9
+(nearest-neighbour, 2026-10-19), where GMTED2010 took 0.2 to 0.6 s.
+
+**From orbit: aggregate, then derive.** Earth Engine computes a coarse tile
+from the elevation already averaged to that tile's scale (GMTED2010's mean
+pyramid), and draws the contours of that. So a z 2 tile shows the true
+coarse shape of the land at 500 m, not the 30 m lines thinned out. There is
+no ceiling: the layer draws from orbit.
+
+**Bilinear.** Read nearest-neighbour, the 30 m Copernicus cells drew
+staircase lines at z 13 and 14 (19 and 10 m pixels). Read bilinearly, they
+are smooth, and the tiles are no slower.
+
+**Maps.** One map per (band, ink), ten in all, made only when a tile asks
+for one (`lazyMaps`, as the Rivers'), so the catalog request makes none.
+
+**Labels.** Contour values are not labelled. Cesium labels are forbidden
+(`src/noCesiumLabels.test.mjs`), and labels through the world-overlay host
+would need elevations sampled along the lines on the client: not cheap.
 
 ### Rivers
 
@@ -2102,7 +2191,11 @@ drowning the view. There are four ways to do it, by the kind of data:
   ground is, even where its average shape is flat), is a different
   quantity. Earth Engine cannot compute it on the fly for a coarse tile,
   because each one would read every 30 m pixel beneath it; it would need a
-  precomputed pyramid (an exported asset) of its own.
+  precomputed pyramid (an exported asset) of its own. Elevation contours
+  are derived the same way: each tile's lines are those of the elevation
+  averaged to its scale, with a step that follows the zoom (500 m from
+  orbit to 20 m at street scale; see
+  [Elevation contours](#elevation-contours)).
 - **Categorical rasters keep a cap.** Forest loss pixels are years of loss:
   averaged, they mean nothing, and a sampled pyramid level is noise from
   far away. It stays dark above its `maxHeightM` (3,000 km), and its row
@@ -2196,9 +2289,9 @@ git merge origin/main
 - `src/data/dataCredits.js`, `.env.example` and `DATA_SOURCES.md`.
 - **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (two
   places) and `src/app/sourceComposition.test.mjs` assert `layers.length`.
-  The fork's count is upstream's plus 11 (the two Baltimore layers, Recorded
-  Video, the six Earth Engine overlays, the Grid and Wikipedia coverage):
-  43 since the Rivers layer (2026-10-18). A record added to `src/data/earthEngineLayers.js` or an
+  The fork's count is upstream's plus 12 (the two Baltimore layers, Recorded
+  Video, the seven Earth Engine overlays, the Grid and Wikipedia coverage):
+  44 since Elevation contours (2026-10-19). A record added to `src/data/earthEngineLayers.js` or an
   upstream layer added later changes the number.
 - **Translations.** Upstream checks that every UI string is marked for
   translation (`npm run i18n`). Fork UI text goes through `t()`, `tn()` and

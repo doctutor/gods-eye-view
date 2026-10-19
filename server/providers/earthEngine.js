@@ -281,6 +281,91 @@ function styledFeatures(layer, variant, collection, ink, modeKey) {
   };
 }
 
+const imageConstant = (value) =>
+  invoke('Image.constant', { value: constant(value) });
+const reference = (key) => ({ valueReference: key });
+
+/**
+ * The expression of contour lines of an elevation every `step` metres (a
+ * `contour` layer): the elevation, its sea (stored as 0) masked, is
+ * quantised to the step (floor(dem / step)), and a pixel is on a line where
+ * a neighbour's class is lower (the class differs from Image.focalMin over
+ * the 3 × 3 pixels about it): lines one pixel wide, on the upper side of
+ * each level, in the tile's own pixels. Every `indexEvery`-th level
+ * (floor(class / indexEvery) changes too) is an index contour. The result
+ * is a constant image whose mask is the line's alpha: `minorShare` for a
+ * line, 1 for an index line, 0 elsewhere; the visualization colours it in
+ * the ink, and the ink's own alpha (cc) scales both. The class and its
+ * focal minimum are each one shared value (valueReference), as Earth
+ * Engine's own clients send a value used more than once.
+ */
+export function contourExpression(
+  dem,
+  step,
+  { indexEvery = 5, minorShare = 0.55, resample = '' },
+  { mosaic = false } = {},
+) {
+  // Bilinear: a tile finer than the DEM's cells reads a smooth surface, not
+  // nearest-neighbour steps (staircase lines at z 13 and 14 on 30 m cells).
+  // A mosaic's default projection is 1°, so it is given its cells' first,
+  // as for terrain: resampled over 1° cells, the lines were straight ramps.
+  const surface = resample
+    ? invoke('Image.resample', {
+        image: mosaic
+          ? invoke('Image.setDefaultProjection', {
+              image: dem,
+              crs: invoke('Projection', { crs: constant('EPSG:3857') }),
+              scale: constant(30),
+            })
+          : dem,
+        mode: constant(resample),
+      })
+    : dem;
+  const level = invoke('Image.floor', {
+    value: invoke('Image.divide', {
+      image1: invoke('Image.selfMask', { image: surface }),
+      image2: imageConstant(step),
+    }),
+  });
+  const lowest = invoke('Image.focalMin', {
+    image: reference('1'),
+    radius: constant(1),
+    kernelType: constant('square'),
+    units: constant('pixels'),
+  });
+  const indexOf = (image) =>
+    invoke('Image.floor', {
+      value: invoke('Image.divide', {
+        image1: image,
+        image2: imageConstant(indexEvery),
+      }),
+    });
+  const line = invoke('Image.neq', {
+    image1: reference('1'),
+    image2: reference('2'),
+  });
+  const index = invoke('Image.neq', {
+    image1: indexOf(reference('1')),
+    image2: indexOf(reference('2')),
+  });
+  const alpha = invoke('Image.where', {
+    input: invoke('Image.multiply', {
+      image1: line,
+      image2: imageConstant(minorShare),
+    }),
+    test: index,
+    value: imageConstant(1),
+  });
+  return {
+    values: {
+      0: invoke('Image.updateMask', { image: imageConstant(1), mask: alpha }),
+      1: level,
+      2: lowest,
+    },
+    result: '0',
+  };
+}
+
 /**
  * A layer variant's expression in an ink (and mode), as the REST API takes
  * it: {values: {0: <value node>, …}, result: '0'}.
@@ -304,6 +389,10 @@ export function expressionFor(
       color: constant(inkColor(layer, ink)),
       fillColor: constant(style.fillColor || '00000000'),
       width: constant(style.width ?? 1),
+    });
+  } else if (layer.contour) {
+    return contourExpression(node, variant.step, layer.contour, {
+      mosaic: Boolean(variant.asset?.collection),
     });
   } else {
     if (layer.terrain) {
@@ -360,7 +449,16 @@ export function mapRequestFor(
     expression: expressionFor(layer, variant, ink, mode),
     fileFormat: 'PNG',
   };
-  if (layer.kind !== 'features' && layer.vis)
+  if (layer.contour) {
+    // The lines in the ink; the ink's alpha (RRGGBBAA) is the map's opacity.
+    const color = inkColor(layer, ink);
+    const alpha = parseInt(String(color).slice(6, 8) || 'ff', 16) / 255;
+    body.visualizationOptions = {
+      ranges: [{ min: 0, max: 1 }],
+      paletteColors: [color.slice(0, 6), color.slice(0, 6)],
+      opacity: Math.round(alpha * 1000) / 1000,
+    };
+  } else if (layer.kind !== 'features' && layer.vis)
     body.visualizationOptions = {
       ranges: [{ min: layer.vis.min, max: layer.vis.max }],
       paletteColors: [...(layer.vis.palette || [])],
