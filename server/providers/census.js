@@ -2,8 +2,11 @@
 // `npm run census:build` writes. Not part of upstream God's Eye View.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { admitSameSite } from './common/same-site.js';
+import { keepTile } from './common/tileCache.js';
+import { createTilePool } from './common/tilePool.js';
 import { defaultSourceRoot } from './common/source-root.js';
 import { openTracts } from './census/tractsFile.js';
 import { EMPTY_PNG } from './riversV2/render.js';
@@ -72,14 +75,27 @@ export function censusTileVersion(mode, buildId) {
 
 /**
  * @param {{sourceRoot?: string, env?: object, now?: () => number,
- *   dir?: string}} [options]
+ *   dir?: string, tileWorkers?: number}} [options] `tileWorkers`: draw
+ *   tiles in that many worker threads (../common/tilePool.js); 0 draws them
+ *   on this thread.
  */
 export function createCensusService({
   sourceRoot = defaultSourceRoot,
   env = process.env,
   now = () => Date.now(),
   dir = censusCacheDir(env, sourceRoot),
+  tileWorkers = 0,
 } = {}) {
+  const pool =
+    tileWorkers > 0
+      ? createTilePool({
+          drawer: 'census',
+          options: { dir, env: {} },
+          size: tileWorkers,
+        })
+      : null;
+  /** Tile file → the draw (and write) in flight. */
+  const drawingTiles = new Map();
   const buildDir = path.join(dir, 'build');
   const manifestFile = path.join(buildDir, 'manifest.json');
   let held = null;
@@ -218,6 +234,41 @@ export function createCensusService({
       } catch {
         /* not on disk */
       }
+      // One draw and one write per tile, however many ask for it at once.
+      let drawing = drawingTiles.get(file);
+      if (!drawing) {
+        drawing = (async () => {
+          const drawn = pool
+            ? await pool.render('draw', [mode, z, x, y])
+            : this.draw(mode, z, x, y);
+          if (drawn.status === 200 && drawn.body)
+            keepTile(file, drawn.body, { label: 'Census', empty: false });
+          return drawn;
+        })().finally(() => drawingTiles.delete(file));
+        drawingTiles.set(file, drawing);
+      }
+      const drawn = await drawing;
+      if (drawn.status !== 200) return drawn;
+      return drawn.body
+        ? { status: 200, contentType: 'image/png', body: drawn.body, version }
+        : {
+            status: 200,
+            contentType: 'image/png',
+            body: EMPTY_PNG,
+            empty: true,
+            version,
+          };
+    },
+
+    /**
+     * Draw a tile (no disk cache): {status, version, body: Buffer|null}, a
+     * null body for an empty tile. What a worker thread runs.
+     */
+    draw(mode, z, x, y) {
+      const open = build();
+      const status = modeStatus(open, mode);
+      if (!status.ready) return { status: 503, error: status.message };
+      const version = censusTileVersion(mode, open.manifest.buildId);
       const project = tileProjector(z, x, y);
       const values = open.values[mode] || {};
       const { color } = CENSUS_MODE_STYLES[mode];
@@ -237,24 +288,13 @@ export function createCensusService({
         // Outlines from z 10, where tracts are tens of pixels across.
         outlineWidth: z >= 10 ? 0.6 : 0,
       });
-      if (raster.empty)
-        return {
-          status: 200,
-          contentType: 'image/png',
-          body: EMPTY_PNG,
-          empty: true,
-          version,
-        };
-      const body = encodeRgba(raster);
-      try {
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        const temporary = `${file}.${process.pid}.tmp`;
-        fs.writeFileSync(temporary, body);
-        fs.renameSync(temporary, file);
-      } catch {
-        /* serving matters more than keeping */
-      }
-      return { status: 200, contentType: 'image/png', body, version };
+      if (raster.empty) return { status: 200, version, body: null };
+      return { status: 200, version, body: encodeRgba(raster) };
+    },
+
+    /** Stop the tile workers. */
+    async close() {
+      await pool?.close();
     },
   };
 }
@@ -315,11 +355,16 @@ export function createCensusHandler({ service }) {
 }
 
 let shared = null;
+/** The dev server draws census tiles in this many worker threads. */
+const CENSUS_TILE_WORKERS = Math.max(1, Math.min(3, os.cpus().length - 4));
 
 /** Vite plugin: /api/census for the Census tracts layer's local modes. */
 export function censusProxy({ sourceRoot = defaultSourceRoot, service } = {}) {
   function install(middlewares) {
-    shared ||= createCensusService({ sourceRoot });
+    shared ||= createCensusService({
+      sourceRoot,
+      tileWorkers: CENSUS_TILE_WORKERS,
+    });
     middlewares.use(
       CENSUS_ENDPOINT,
       createCensusHandler({ service: service || shared }),

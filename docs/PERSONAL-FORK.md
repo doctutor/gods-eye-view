@@ -1584,6 +1584,22 @@ a rename tried again when Windows refuses it (EPERM while another reader
 holds the file: refused 100 times in 100 here); a tile that cannot be kept
 is logged, once a minute, where it was silently dropped before.
 
+The census tracts' and the HydroSHEDS v2 rivers' tiles go the same way
+(one pool implementation, `server/providers/common/tilePool.js`: a worker
+imports the provider's own module and calls its service's `draw`, while
+the cache read, the one-draw-per-tile rule and the atomic write,
+`server/providers/common/tileCache.js`, stay on the server's thread):
+three workers for census tiles (20 ms to 1.9 s each to draw), two for the
+rivers (7 to 30 ms). Wikipedia coverage stays on the server's thread: its
+tiles take 1 to 2 ms from a 264 MB grid in memory, which every worker
+would hold again. Measured on a server of its own with the four providers
+wired by their Vite plugins (fresh tiles, warm builds), a burst of 96
+tiles (48 census, 32 rivers, 16 Wikipedia) took 1.07 to 1.14 s before and
+0.50 to 0.56 s after; census tiles answered in a median 367 to 396 ms
+(581 to 592 before), rivers 218 to 243 ms (877 to 933), Wikipedia 147 to
+190 ms (984 to 1,038), and `/api/overture/layers` during the burst 168
+to 205 ms (973 to 1,038).
+
 Measured, the conterminous US (2026-10-19): 8,061 row groups, 14.4 GB of
 column chunks fetched in 603 s (12 connections); decoded in 6.6 min (14
 workers) and merged in 2.7 min. **152,795,749 buildings** in 60 buckets,
