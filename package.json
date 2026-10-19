@@ -57,6 +57,9 @@
     "camindex:status": "node scripts/camindex/index.mjs status",
     "wikipedia:build": "node scripts/wikipedia/index.mjs build",
     "wikipedia:status": "node scripts/wikipedia/index.mjs status",
+    "rivers:fetch": "node scripts/rivers/index.mjs fetch",
+    "rivers:build": "node scripts/rivers/index.mjs build",
+    "rivers:status": "node scripts/rivers/index.mjs status",
     "qa:transit": "node scripts/qa-transit.mjs",
     "mcp": "node server/mcp/stdio.js"
   },
