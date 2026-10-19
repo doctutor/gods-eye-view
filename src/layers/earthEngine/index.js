@@ -10,12 +10,16 @@ import {
   DEM_BANDS,
   demBand,
   maxZoomInRect,
-  sourceNameAt,
+  sourceNamesAt,
   sourcesInRect,
 } from '../../data/demStack.js';
 import { resolveImageryHost } from '../../maps/imageryHost.js';
 import { activeLuminance, readInkSetting, resolveInk } from '../../maps/ink.js';
-import { SLOW_DISTRICTS_ABOVE_M, rowControls } from './presentation.js';
+import {
+  SLOW_DISTRICTS_ABOVE_M,
+  demSourceText,
+  rowControls,
+} from './presentation.js';
 import { ZOOM_VARIANT, tileTemplate } from './source.js';
 import { riversV2ImageryOptions, riversV2Ready } from '../riversV2/source.js';
 
@@ -378,13 +382,10 @@ export function createEarthEngineLayer({
   /** A terrain layer: what the row calls the elevation under the view. */
   function demSourceName() {
     const view = viewNow();
-    return sourceNameAt(
-      view.lat,
-      view.lon,
-      bandByKey(record, wantedVariant()),
-      {
+    return demSourceText(
+      sourceNamesAt(view.lat, view.lon, bandByKey(record, wantedVariant()), {
         heights: layerVariants(record).some((variant) => variant.heights),
-      },
+      }),
     );
   }
 

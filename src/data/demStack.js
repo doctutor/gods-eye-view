@@ -384,14 +384,30 @@ export function sourcesAt(lat, lon, band, { heights = false } = {}) {
 
 /**
  * What the row calls the elevation at a point: the top source there, and
- * for a patchy one (3DEP 1 m lidar) the one beneath it too ("USGS 3DEP
- * 1 m / USGS 3DEP 10 m").
+ * for a patchy one (3DEP 1 m lidar, which a box cannot say is there) the
+ * one beneath it as its fallback, without the words they share ("USGS 3DEP
+ * 1 m" and "10 m": the row says "USGS 3DEP 1 m where lidar exists, else
+ * 10 m").
+ * @returns {{name: string, fallback: string|null}}
  */
-export function sourceNameAt(lat, lon, band, options) {
+export function sourceNamesAt(lat, lon, band, options) {
   const [top, next] = sourcesAt(lat, lon, band, options);
-  if (!top) return '';
-  return top.patchy && next ? `${top.name} / ${next.name}` : top.name;
+  if (!top) return { name: '', fallback: null };
+  if (!top.patchy || !next) return { name: top.name, fallback: null };
+  const own = top.name.split(' ');
+  const words = next.name.split(' ');
+  let shared = 0;
+  while (shared < words.length - 1 && words[shared] === own[shared]) shared++;
+  return { name: top.name, fallback: words.slice(shared).join(' ') };
 }
+
+/**
+ * How every source is read where a tile's pixels are finer than its cells:
+ * bilinearly, so terrain and heights magnified past a source's resolution
+ * (10 m 3DEP at z 16 and 17 where there is no 1 m lidar) shade and tint
+ * smoothly instead of in blocks of one cell each.
+ */
+export const DEM_RESAMPLE = 'bilinear';
 
 const boxesMeet = (a, b) =>
   a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];

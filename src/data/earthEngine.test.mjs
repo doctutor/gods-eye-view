@@ -94,17 +94,27 @@ test('every map request is exactly the committed fixture', async () => {
   assert.match(text, /projects\/sat-io\/open-datasets\/FABDEM/);
   assert.match(text, /"crsTransform"/);
   assert.doesNotMatch(JSON.stringify(requests), /COPERNICUS\/DEM\/GLO30/);
-  const top = layersOf(slope).at(-1).functionInvocationValue;
+  // Each source read bilinearly, the terrain operation's result resampled
+  // too (DEM_RESAMPLE): magnified, it shades smoothly.
+  const resampled = layersOf(slope).at(-1).functionInvocationValue;
+  assert.equal(resampled.functionName, 'Image.resample');
+  assert.equal(resampled.arguments.mode.constantValue, 'bilinear');
+  const top = resampled.arguments.image.functionInvocationValue;
   assert.equal(top.functionName, 'Terrain.slope');
+  const masked = top.arguments.input.functionInvocationValue;
+  assert.equal(masked.functionName, 'Image.selfMask');
   assert.equal(
-    top.arguments.input.functionInvocationValue.functionName,
-    'Image.selfMask',
+    masked.arguments.image.functionInvocationValue.functionName,
+    'Image.resample',
   );
   // Far views: GMTED2010 on top, its zero sea masked, ArcticDEM and REMA
   // beneath it (Greenland, Antarctica), clipped to their boxes.
   const far = requests['ee-terrain-hillshade/far/default'];
   const farLayers = layersOf(far).map((node) => node.functionInvocationValue);
-  assert.equal(farLayers[2].functionName, 'Terrain.hillshade');
+  assert.equal(
+    farLayers[2].arguments.image.functionInvocationValue.functionName,
+    'Terrain.hillshade',
+  );
   assert.deepEqual(
     farLayers.slice(0, 2).map((node) => node.functionName),
     ['Image.clip', 'Image.clip'],

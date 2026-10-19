@@ -3286,5 +3286,6 @@
   "Forest types": "Tipos de bosque",
   "Population": "Población",
   "Elevation": "Elevación",
-  "Elevation: {source}": "Elevación: {source}"
+  "Elevation: {source}": "Elevación: {source}",
+  "{source} where lidar exists, else {fallback}": "{source} donde hay lidar; si no, {fallback}"
 }

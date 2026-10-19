@@ -21,7 +21,7 @@ import {
   drapeZoomForHeight,
   maxZoomInRect,
   sourceCovers,
-  sourceNameAt,
+  sourceNamesAt,
   sourcesAt,
   sourcesInRect,
   tilePixelM,
@@ -196,8 +196,10 @@ test('bands by zoom and by height agree with Cesium’s drape zoom', () => {
 });
 
 test('the source named at a point: the top one whose region holds it', () => {
-  const at = (lat, lon, key, options) =>
-    sourceNameAt(lat, lon, band(key), options);
+  const at = (lat, lon, key, options) => {
+    const { name, fallback } = sourceNamesAt(lat, lon, band(key), options);
+    return fallback ? `${name} | ${fallback}` : name;
+  };
   // A US view (Mount Rainier), an Arctic one (Tromsø), elsewhere (the Alps),
   // Antarctica (McMurdo), Greenland.
   assert.equal(at(46.85, -121.76, 'far'), 'GMTED2010 230 m');
@@ -206,8 +208,8 @@ test('the source named at a point: the top one whose region holds it', () => {
   assert.equal(at(46.85, -121.76, 'fine'), 'USGS 3DEP 10 m');
   assert.equal(
     at(46.85, -121.76, 'finest'),
-    'USGS 3DEP 1 m / USGS 3DEP 10 m',
-    'lidar is patchy: the source beneath is named too',
+    'USGS 3DEP 1 m | 10 m',
+    'lidar is patchy: the source beneath is its fallback, without the shared words',
   );
   assert.equal(at(69.65, 18.96, 'base'), 'FABDEM 30 m');
   assert.equal(at(69.65, 18.96, 'polar'), 'ArcticDEM 2 m');

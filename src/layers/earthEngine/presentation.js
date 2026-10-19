@@ -240,6 +240,22 @@ export function inkSwatch(record, ink) {
 }
 
 /**
+ * A terrain layer's elevation source as the row says it: its name, and for
+ * patchy lidar its fallback ("USGS 3DEP 1 m where lidar exists, else 10 m").
+ * @param {{name: string, fallback?: string|null}} names - demStack.js
+ *   sourceNamesAt.
+ */
+export function demSourceText({ name = '', fallback = null } = {}) {
+  if (!name) return '';
+  return fallback
+    ? t('{source} where lidar exists, else {fallback}', {
+        source: name,
+        fallback,
+      })
+    : name;
+}
+
+/**
  * The status line.
  * @param {{catalog?: object|null, layer?: object|null, variant?: string,
  *   loading?: boolean, failure?: string|null, hostless?: boolean,

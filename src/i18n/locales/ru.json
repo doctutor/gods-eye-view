@@ -3357,5 +3357,6 @@
   "Forest types": "Типы лесов",
   "Population": "Население",
   "Elevation": "Высота рельефа",
-  "Elevation: {source}": "Высоты: {source}"
+  "Elevation: {source}": "Высоты: {source}",
+  "{source} where lidar exists, else {fallback}": "{source} там, где есть лидар, иначе {fallback}"
 }

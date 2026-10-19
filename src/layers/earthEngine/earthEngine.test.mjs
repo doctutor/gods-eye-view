@@ -23,7 +23,12 @@ import {
   tileTemplate,
   toCatalogLayer,
 } from './source.js';
-import { legendLabel, rowControls, statusText } from './presentation.js';
+import {
+  demSourceText,
+  legendLabel,
+  rowControls,
+  statusText,
+} from './presentation.js';
 import { demSourceCredit } from '../../data/dataCredits.js';
 
 const record = (id) => EARTH_ENGINE_LAYERS.find((layer) => layer.id === id);
@@ -1082,7 +1087,7 @@ test('the terrain layers: each tile by the DEM stack band of its zoom, the row n
   fake.settle();
   assert.match(
     layer.getRowControls().info,
-    /^Elevation: USGS 3DEP 1 m \/ USGS 3DEP 10 m · /,
+    /^Elevation: USGS 3DEP 1 m where lidar exists, else 10 m · /,
   );
   // The Alps: FABDEM, no deeper than z 14, the US sources no longer credited.
   fake.setCentre(46.5, 8.0);
@@ -1132,4 +1137,17 @@ test('Elevation: the same stack, its polar sources only beneath, in its own tint
   assert.equal(`#${elevation.vis.palette[8]}`, elevation.legend[4].color);
   assert.match(attributionCredit(elevation).html, /^Elevation: <a href=/);
   assert.match(attributionCredit(elevation).html, /credited below$/);
+});
+
+// Personal fork: patchy lidar names its fallback (demStack.js sourceNamesAt).
+test('the row says where 3DEP 1 m lidar draws and what draws where it has none', () => {
+  assert.equal(
+    demSourceText({ name: 'USGS 3DEP 1 m', fallback: '10 m' }),
+    'USGS 3DEP 1 m where lidar exists, else 10 m',
+  );
+  assert.equal(
+    demSourceText({ name: 'FABDEM 30 m', fallback: null }),
+    'FABDEM 30 m',
+  );
+  assert.equal(demSourceText({ name: '' }), '');
 });

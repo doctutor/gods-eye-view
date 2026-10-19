@@ -1495,7 +1495,10 @@ since a box to the pole cannot be put into Web Mercator: "Can't transform
 The row's status line says which source draws under the middle of the
 view ("Elevation: USGS 3DEP 10 m", "Elevation: FABDEM 30 m", "Elevation:
 ArcticDEM 2 m", "Elevation: REMA 8 m", "Elevation: GMTED2010 230 m"); for
-3DEP 1 m, which is patchy, "USGS 3DEP 1 m / USGS 3DEP 10 m". The credit
+3DEP 1 m, which is patchy, "USGS 3DEP 1 m where lidar exists, else 10 m"
+(a box cannot say where the lidar is: Mount Rainier National Park has none,
+0 of the collection's images at the summit, Paradise or the west flank,
+counted live 2026-10-19). The credit
 line names the sources the view's square can show (the band at the middle
 and the finer ones down to the deepest level asked for), and the provider
 is made again when they change; each source's own entry
@@ -1544,6 +1547,19 @@ each one's projection), then mosaicked; the tiles overlap by 6 m, so their
 edges leave no gap. Slope is right in every projection tried (the same
 tiles' mean slopes agreed within about 1° between the native image, EPSG:4326 and
 EPSG:3857, at 47° N and 70° N).
+
+**Bilinear, before and after the terrain operation** (`DEM_RESAMPLE`).
+The client asks for tiles as deep as the deepest source in the view goes
+(3DEP 1 m: z 17), but where there is no lidar the 10 m beneath draws,
+magnified: at z 17 a 10 m cell is about 12 × 12 tile pixels. Read
+nearest-neighbour, the hillshade was a mosaic of flat grey squares (Mount
+Rainier's west flank, 46.9176, −121.9049, z 17, 2026-10-19). Every source
+is now read bilinearly on its own grid, and because Earth Engine computes a
+terrain operation on the source's own grid, its result is resampled
+bilinearly too: magnified, slope, aspect and hillshade shade smoothly.
+Elevation's heights are read bilinearly as well, and the contours were
+already. Tile times did not change (0.19 to 1.65 s at z 3 to 17 over Rainier,
+the Alps and Tromsø, three layers).
 
 **How it is drawn** (`server/providers/earthEngine.js`
 `demStackExpression`). One map per (layer, band): 5 × 4 = 20, made when a
@@ -1600,8 +1616,8 @@ z 2 to 16 0.2 to 1.8; REMA z 1 to 14 0.2 to 0.4.
 **Check it live** (lat, lon, camera height):
 
 - United States: Mount Rainier, 46.853, −121.760 at 20 km ("USGS 3DEP 10
-  m") and 5 km ("USGS 3DEP 1 m / USGS 3DEP 10 m"; Denver, 39.70, −105.25 at
-  3 km, has lidar).
+  m") and 5 km ("USGS 3DEP 1 m where lidar exists, else 10 m": no lidar
+  there, so 10 m, smooth; Denver, 39.70, −105.25 at 3 km, has lidar).
 - The Arctic: the Lyngen Alps, 69.60, 20.20 at 60 km ("ArcticDEM 2 m").
 - Elsewhere: the Jungfrau, 46.54, 7.96 at 20 km ("FABDEM 30 m").
 - Seams: the 49th parallel at Chilliwack Lake, 49.00, −121.40 at 20 km

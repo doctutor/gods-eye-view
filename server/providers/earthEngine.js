@@ -20,7 +20,12 @@ import {
   layerVariants,
   modeRecord,
 } from '../../src/data/earthEngineLayers.js';
-import { bandLayers, demBand, demSource } from '../../src/data/demStack.js';
+import {
+  DEM_RESAMPLE,
+  bandLayers,
+  demBand,
+  demSource,
+} from '../../src/data/demStack.js';
 
 /**
  * The Cloud project is registered for noncommercial Earth Engine use, and
@@ -541,7 +546,7 @@ const DEM_IMAGE = '_dem';
  * body a value too), each drawn in its own projection, then mosaicked. The
  * Elevation layer (`heights`) mosaics the heights themselves.
  */
-function demStackExpression(layer, variant, { resample = '' } = {}) {
+function demStackExpression(layer, variant, { resample = DEM_RESAMPLE } = {}) {
   const band = demBand(variant.stack);
   const values = {};
   const refs = new Map();
@@ -569,8 +574,9 @@ function demStackExpression(layer, variant, { resample = '' } = {}) {
     });
   /** What every source goes through: its masks, then terrain or a rename. */
   const pipeline = (entry, mask, input) => {
-    // Contours: each source read as a smooth surface on its own grid, before
-    // the mosaic (whose default projection, 1°, would resample it to ramps).
+    // Each source read as a smooth surface on its own grid (DEM_RESAMPLE;
+    // the contours' own `resample`), before the mosaic, whose default
+    // projection (1°) would resample it to ramps.
     let node = resample
       ? invoke('Image.resample', { image: input, mode: constant(resample) })
       : input;
@@ -585,8 +591,15 @@ function demStackExpression(layer, variant, { resample = '' } = {}) {
       });
     // A mosaic wants one band name and type: the terrain operations name
     // theirs; heights are renamed (FABDEM's is b1, GMTED2010's an integer).
+    // Earth Engine computes a terrain operation on the source's own grid,
+    // so its result is resampled too: magnified, it shades smoothly.
     return layer.terrain
-      ? terrainNode(layer.terrain, node)
+      ? resample
+        ? invoke('Image.resample', {
+            image: terrainNode(layer.terrain, node),
+            mode: constant(resample),
+          })
+        : terrainNode(layer.terrain, node)
       : invoke('Image.rename', {
           input: invoke('Image.toFloat', { value: node }),
           names: constant(['elevation']),
