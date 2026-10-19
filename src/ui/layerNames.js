@@ -54,6 +54,8 @@ export const LAYER_NAME_KEYS = Object.freeze({
   'ee-population': msg('Population'),
   'ee-admin-boundaries': msg('Administrative boundaries'),
   'ee-rivers': msg('Rivers'),
+  'ee-surface-water': msg('Surface water'),
+  'ee-land-cover': msg('Land cover'),
   grid: msg('Grid'),
   'wikipedia-coverage': msg('Wikipedia coverage'),
 });

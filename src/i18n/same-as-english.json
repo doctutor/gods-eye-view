@@ -1,6 +1,8 @@
 {
   "es": [
     "1090 MHz",
+    "2020",
+    "2021",
     "978 MHz UAT",
     "AIS: --",
     "AIS: {name}",
@@ -25,6 +27,7 @@
     "Dance",
     "ENE",
     "ERROR",
+    "ESA WorldCover 2021 (v200)",
     "ESE",
     "Earth Engine: {error}",
     "Error: {message}",
@@ -128,10 +131,13 @@
     "▲ {frp} MW"
   ],
   "ru": [
+    "2020",
+    "2021",
     "AIS: --",
     "AIS: {name}",
     "CCTV",
     "CRT",
+    "ESA WorldCover 2021 (v200)",
     "Earth Engine: {error}",
     "FLIR",
     "GEO",

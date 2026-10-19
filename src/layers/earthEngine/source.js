@@ -32,7 +32,7 @@ function versionsOf(versions) {
 /** {modeVersions: {mode: {ink: hash}}} for the well-formed entries, or nothing. */
 function modeVersionsOf(modeVersions) {
   const kept = Object.entries(modeVersions || {})
-    .filter(([mode]) => /^[a-z0-9-]{1,20}$/.test(mode))
+    .filter(([mode]) => /^[a-z][a-z0-9-]{0,19}$/.test(mode))
     .map(([mode, versions]) => [mode, versionsOf(versions).versions])
     .filter(([, versions]) => versions);
   return kept.length ? { modeVersions: Object.fromEntries(kept) } : {};
@@ -67,7 +67,7 @@ export function toCatalogLayer(row) {
     /^[a-z]{1,10}$/.test(String(ink)),
   );
   const modes = (Array.isArray(row.modes) ? row.modes : []).filter((mode) =>
-    /^[a-z0-9-]{1,20}$/.test(String(mode)),
+    /^[a-z][a-z0-9-]{0,19}$/.test(String(mode)),
   );
   return {
     id,

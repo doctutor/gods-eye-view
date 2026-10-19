@@ -8,7 +8,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  createEarthEngineHandler,
   createEarthEngineService,
   mapKey,
   mapRequestFor,
@@ -146,7 +145,7 @@ test('population: log10 of people per km², under one left clear, one map per ep
   );
 });
 
-test('an epoch mode goes through the tile route and the server makes its own map', async (t) => {
+test('an epoch makes its own map when a tile asks, and the client keeps every mode key', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-ee-pop-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const made = [];
@@ -169,44 +168,76 @@ test('an epoch mode goes through the tile route and the server makes its own map
     layers: [POPULATION],
     backend,
   });
-  const handler = createEarthEngineHandler({ service });
-  const get = async (url) => {
-    const res = {
-      statusCode: 200,
-      headers: {},
-      setHeader(name, value) {
-        this.headers[name.toLowerCase()] = value;
-      },
-      end(body) {
-        this.body = Buffer.isBuffer(body) ? body.toString() : JSON.parse(body);
-      },
-    };
-    await handler(
-      { url, method: 'GET', headers: { host: 'localhost:4176' }, socket: {} },
-      res,
-      () => (res.nexted = true),
-    );
-    return res;
-  };
-  const tile = await get(
-    '/tile/ee-population/density-1990/default/default/3/2/1',
+  // Lazy: the catalog makes no map; a tile makes its epoch's.
+  const listed = (await service.layers()).layers[0];
+  assert.deepEqual(made, []);
+  const tile = await service.tile(
+    'ee-population',
+    'default',
+    'default',
+    3,
+    2,
+    1,
+    'density-1990',
   );
-  assert.equal(tile.statusCode, 200);
-  assert.equal(tile.body, 'projects/p/maps/ee-population-density-1990:3/2/1');
+  assert.equal(tile.status, 200);
+  assert.equal(
+    String(tile.body),
+    'projects/p/maps/ee-population-density-1990:3/2/1',
+  );
   assert.deepEqual(made, ['ee-population/density-1990/default/default']);
   assert.equal(
-    (await get('/tile/ee-population/density-1985/default/default/3/2/1'))
-      .statusCode,
+    (
+      await service.tile(
+        'ee-population',
+        'default',
+        'default',
+        3,
+        2,
+        1,
+        'density-1985',
+      )
+    ).status,
     404,
   );
-  // The catalog names the epochs, and the client keeps them.
-  const listed = (await service.layers()).layers[0];
+  // The catalog names the epochs, and the client keeps them, as it keeps
+  // Land cover's v200: a mode key starts with a letter and may hold digits.
   assert.deepEqual(listed.modes, layerModes(POPULATION));
   const kept = toCatalogLayer(listed);
   assert.deepEqual(kept.modes, layerModes(POPULATION));
   assert.deepEqual(
     Object.keys(kept.variants[0].modeVersions),
     layerModes(POPULATION),
+  );
+  const versions = { default: '0123456789ab' };
+  assert.deepEqual(
+    toCatalogLayer({
+      id: 'ee-land-cover',
+      modes: ['v200', 'v100', '2021'],
+      variants: [
+        {
+          key: 'default',
+          ready: true,
+          modeVersions: { v200: versions, 2021: versions },
+        },
+      ],
+    }),
+    {
+      ...toCatalogLayer({
+        id: 'ee-land-cover',
+        variants: [{ key: 'default', ready: true }],
+      }),
+      modes: ['v200', 'v100'],
+      variants: [
+        {
+          ...toCatalogLayer({
+            id: 'ee-land-cover',
+            variants: [{ key: 'default', ready: true }],
+          }).variants[0],
+          modeVersions: { v200: versions },
+        },
+      ],
+    },
   );
 });
 

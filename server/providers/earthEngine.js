@@ -37,7 +37,8 @@ import {
  *       layer with inks, 'default' otherwise
  *   GET /api/earth-engine/tile/<layer>/<mode>/<variant>/<ink>/<z>/<x>/<y>
  *       the same for a layer with modes (the Rivers' network, free-flowing
- *       and pressure colourings; Population's epochs, density-2020 …)
+ *       and pressure colourings; Surface water's bands; Land cover's
+ *       years; Population's epochs)
  *
  * A tile coarser than its variant's `minZoom` is a transparent PNG, made
  * here: no Earth Engine request, nothing counted.
@@ -281,81 +282,71 @@ function styledFeatures(layer, variant, collection, ink, modeKey) {
   };
 }
 
-/**
- * A layer variant's expression in an ink (and mode), as the REST API takes
- * it: {values: {0: <value node>, …}, result: '0'}.
- */
-export function expressionFor(
-  layer,
-  variant = layerVariants(layer)[0],
-  ink = layerInks(layer)[0],
-  mode = layerModes(layer)[0],
-) {
-  // An image layer's mode may draw its own asset (Population's epochs)
-  // with its own steps (imageSteps).
-  const imageMode =
-    layer.kind !== 'features' && layer.modes?.length
-      ? modeRecord(layer, mode)
-      : null;
-  let node = assetNode(imageMode?.asset || variant.asset);
-  if (layer.kind === 'features') {
-    const filter = featureFilter(layer, variant, mode);
-    if (filter)
-      node = invoke('Collection.filter', { collection: node, filter });
-    if (layer.modes?.length)
-      return styledFeatures(layer, variant, node, ink, mode);
-    const style = layer.style || {};
-    node = invoke('Collection.style', {
-      collection: node,
-      color: constant(inkColor(layer, ink)),
-      fillColor: constant(style.fillColor || '00000000'),
-      width: constant(style.width ?? 1),
-    });
-  } else {
-    if (layer.terrain) {
-      // A mosaic has no native projection; terrain needs one in metres.
-      if (variant.asset?.collection)
-        node = invoke('Image.setDefaultProjection', {
-          image: node,
-          crs: invoke('Projection', { crs: constant('EPSG:3857') }),
-          scale: constant(30),
-        });
-      node =
-        layer.terrain === 'hillshade'
-          ? invoke('Terrain.hillshade', {
-              input: node,
-              azimuth: constant(315),
-              elevation: constant(45),
-            })
-          : invoke(
-              layer.terrain === 'aspect' ? 'Terrain.aspect' : 'Terrain.slope',
-              { input: node },
-            );
-    }
-    const steps = { ...layer, ...imageMode };
-    if (steps.selfMask) node = invoke('Image.selfMask', { image: node });
-    node = imageSteps(node, steps);
-  }
-  return { values: { 0: node }, result: '0' };
-}
-
 /** An Earth Engine image of one constant value. */
 const constantImage = (value) =>
   invoke('Image.constant', { value: constant(value) });
 
 /**
- * A categorical or quantity image's own steps, from its record (or its
- * mode's, which wins): `remap` {from, to} turns class codes into palette
- * indices (Forest types' 1 / 10 / 20 into 1 / 2 / 3; anything else is
- * masked); `scale` multiplies (a count per equal-area cell into a count per
- * km²); `atLeast` masks values below it; `log10` draws the logarithm.
+ * An image layer's picture, from its record and, for a layer with modes,
+ * its mode's (whose fields win; one map per mode), step by step:
+ * - the asset: the mode's own `asset` (Land cover's years, Population's
+ *   epochs), else the variant's with the mode's `band` (Surface water's
+ *   bands), else the variant's;
+ * - `terrain` (the layer's): slope, aspect or hillshade (ee.Terrain);
+ * - `maskBand`: masked by another band of the variant's asset (Surface
+ *   water's max_extent, whose coarse pyramid is water only where most of a
+ *   pixel is);
+ * - `remap` {from, to}: class codes to palette indices, anything else
+ *   masked (Land cover, Forest types);
+ * - zero masked: `mask` 'self' (or the layer's `selfMask`), or 'nonzero'
+ *   for signed values (Surface water's change);
+ * - `scale`: × a factor (Population: a count per equal-area cell to one
+ *   per km²); `atLeast`: values below it masked; `log10`: the logarithm.
  */
-function imageSteps(node, steps) {
+function imageNode(layer, variant, modeKey) {
+  const mode = layer.modes?.length ? modeRecord(layer, modeKey) : null;
+  const steps = { ...layer, ...mode };
+  let node = assetNode(
+    mode?.asset ||
+      (mode?.band ? { ...variant.asset, band: mode.band } : variant.asset),
+  );
+  if (layer.terrain) {
+    // A mosaic has no native projection; terrain needs one in metres.
+    if (variant.asset?.collection)
+      node = invoke('Image.setDefaultProjection', {
+        image: node,
+        crs: invoke('Projection', { crs: constant('EPSG:3857') }),
+        scale: constant(30),
+      });
+    node =
+      layer.terrain === 'hillshade'
+        ? invoke('Terrain.hillshade', {
+            input: node,
+            azimuth: constant(315),
+            elevation: constant(45),
+          })
+        : invoke(
+            layer.terrain === 'aspect' ? 'Terrain.aspect' : 'Terrain.slope',
+            { input: node },
+          );
+  }
+  if (steps.maskBand)
+    node = invoke('Image.updateMask', {
+      image: node,
+      mask: assetNode({ ...variant.asset, band: steps.maskBand }),
+    });
   if (steps.remap)
     node = invoke('Image.remap', {
       image: node,
-      from: constant(steps.remap.from),
-      to: constant(steps.remap.to),
+      from: constant([...steps.remap.from]),
+      to: constant([...steps.remap.to]),
+    });
+  const zero = steps.mask || (steps.selfMask ? 'self' : null);
+  if (zero === 'self') node = invoke('Image.selfMask', { image: node });
+  else if (zero === 'nonzero')
+    node = invoke('Image.updateMask', {
+      image: node,
+      mask: invoke('Image.neq', { image1: node, image2: constantImage(0) }),
     });
   if (Number.isFinite(steps.scale))
     node = invoke('Image.multiply', {
@@ -372,6 +363,40 @@ function imageSteps(node, steps) {
     });
   if (steps.log10) node = invoke('Image.log10', { value: node });
   return node;
+}
+
+/** The colours a map draws with: the mode's for an image layer with modes, else the layer's. */
+export function visFor(layer, modeKey) {
+  if (layer.kind === 'features') return null;
+  const mode = layer.modes?.length ? modeRecord(layer, modeKey) : null;
+  return mode?.vis || layer.vis || null;
+}
+
+/**
+ * A layer variant's expression in an ink (and mode), as the REST API takes
+ * it: {values: {0: <value node>, …}, result: '0'}.
+ */
+export function expressionFor(
+  layer,
+  variant = layerVariants(layer)[0],
+  ink = layerInks(layer)[0],
+  mode = layerModes(layer)[0],
+) {
+  if (layer.kind !== 'features')
+    return { values: { 0: imageNode(layer, variant, mode) }, result: '0' };
+  let node = assetNode(variant.asset);
+  const filter = featureFilter(layer, variant, mode);
+  if (filter) node = invoke('Collection.filter', { collection: node, filter });
+  if (layer.modes?.length)
+    return styledFeatures(layer, variant, node, ink, mode);
+  const style = layer.style || {};
+  node = invoke('Collection.style', {
+    collection: node,
+    color: constant(inkColor(layer, ink)),
+    fillColor: constant(style.fillColor || '00000000'),
+    width: constant(style.width ?? 1),
+  });
+  return { values: { 0: node }, result: '0' };
 }
 
 /**
@@ -403,11 +428,7 @@ export function mapRequestFor(
     expression: expressionFor(layer, variant, ink, mode),
     fileFormat: 'PNG',
   };
-  // An image layer's mode may carry its own visualization.
-  const vis =
-    layer.kind !== 'features'
-      ? (layer.modes?.length ? modeRecord(layer, mode)?.vis : null) || layer.vis
-      : null;
+  const vis = visFor(layer, mode);
   if (vis)
     body.visualizationOptions = {
       ranges: [{ min: vis.min, max: vis.max }],
@@ -623,7 +644,7 @@ const TILE_PATH =
   /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
 /** The same with a mode after the layer (a layer with `modes`). */
 const MODE_TILE_PATH =
-  /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z0-9-]{1,20})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
+  /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z][a-z0-9-]{0,19})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
 
 /**
  * The variant that draws a tile coarser than `variant`'s minZoom, or null

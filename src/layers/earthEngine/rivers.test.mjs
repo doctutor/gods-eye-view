@@ -698,6 +698,12 @@ test('the mode chips exist only on a layer with modes', () => {
       'network',
       'free-flowing',
       'pressure',
+      // Surface water and Land cover (image layers with modes).
+      'occurrence',
+      'change',
+      'seasonality',
+      'v200',
+      'v100',
       // Population's epochs (src/data/forestPopulation.test.mjs).
       'density-2020',
       'density-2000',

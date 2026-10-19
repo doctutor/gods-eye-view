@@ -64,6 +64,8 @@ const FORK_LAYER_NAMES = [
   'Population',
   'Administrative boundaries',
   'Rivers',
+  'Surface water',
+  'Land cover',
   'Wikipedia coverage',
   'Analysis',
   'Grid',
