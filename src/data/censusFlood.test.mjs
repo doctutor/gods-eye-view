@@ -260,6 +260,18 @@ test('the income step asks the ACS per state with the key, and keeps no-estimate
     }),
     /refused the key/,
   );
+  // A territory without ACS tract data answers 204 with an empty body.
+  const sparse = await fetchIncome(['60', '36'], 'test-key', {
+    pace: 0,
+    fetchImpl: async (url) =>
+      new URL(url).searchParams.get('in') === 'state:60'
+        ? new Response(null, { status: 204 })
+        : Response.json([
+            ['B19013_001E', 'state', 'county', 'tract'],
+            ['87500', '36', '061', '000100'],
+          ]),
+  });
+  assert.deepEqual(sparse, { 36061000100: 87500 });
 });
 
 test('a polygon fills its area, its hole left out, edges antialiased', () => {

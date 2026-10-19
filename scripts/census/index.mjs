@@ -179,6 +179,13 @@ export async function fetchIncome(
       );
     if (!response.ok)
       throw new Error(`ACS state ${state}: HTTP ${response.status}`);
+    // A territory without ACS tract data (American Samoa, Guam, the
+    // Northern Marianas, the Virgin Islands) answers 204 with an empty
+    // body: no values, not an error.
+    if (response.status === 204) {
+      await sleep(pace);
+      continue;
+    }
     const [header, ...rows] = await response.json();
     const column = (name) => header.indexOf(name);
     const [v, s, c, t] = [ACS.variable, 'state', 'county', 'tract'].map(column);
