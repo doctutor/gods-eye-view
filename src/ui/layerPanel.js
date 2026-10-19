@@ -121,6 +121,8 @@ const PANEL_GROUPS = [
       'wikipedia-coverage',
       // Personal fork: OpenStreetMap street assets (src/layers/streetAssets/).
       'street-assets',
+      // Personal fork: Overture Maps places (src/layers/places/).
+      'places',
     ],
   },
 ];

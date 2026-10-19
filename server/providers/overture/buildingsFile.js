@@ -37,6 +37,8 @@ const VERSION = 1;
 const ENTRY_BYTES = 24;
 /** Blocks a bucket may hold (an index position fits under it). */
 const POSITION = 2 ** 18;
+/** A block's key must be under this (the index packs kind and key in one number). */
+const KEY_LIMIT = 2 ** 24;
 const CELL_BYTES = 18;
 const MAX_LATITUDE = 85.05112877980659;
 /** Metres per unit at the equator. */
@@ -333,6 +335,8 @@ export function bucketWriter(file, blockCount) {
   return {
     add(kind, key, raw, count) {
       if (n >= blockCount) throw new Error('More blocks than announced');
+      if (!(key >= 0 && key < KEY_LIMIT))
+        throw new Error(`block key ${key} out of range`);
       const body = zlib.zstdCompressSync(raw, {
         params: { [zlib.constants.ZSTD_c_compressionLevel]: 6 },
       });
@@ -370,7 +374,8 @@ export function bucketWriter(file, blockCount) {
 /**
  * Open a bucket file: its blocks by kind and key, read on demand. The index
  * stays a buffer, found through one natively sorted Float64Array of
- * (kind × 2^32 + key) × 2^18 + position (under 2^53, exact): a dense bucket has tens of
+ * (kind × 2^24 + key) × 2^18 + position (under 2^50, exact for every kind
+ * byte and key under KEY_LIMIT): a dense bucket has tens of
  * thousands of blocks, and building a Map of them for every open cost more
  * than the tile (2.8 s to open the 191 buckets of a world tile).
  */
@@ -389,7 +394,7 @@ export function openBucket(file) {
     for (let i = 0; i < count; i++) {
       const at = i * ENTRY_BYTES;
       sorted[i] =
-        (index.readUInt8(at) * 2 ** 32 + index.readUInt32LE(at + 4)) *
+        (index.readUInt8(at) * KEY_LIMIT + index.readUInt32LE(at + 4)) *
           POSITION +
         i;
     }
@@ -407,7 +412,7 @@ export function openBucket(file) {
     };
     /** The position of a block in the index, or -1. */
     const find = (kind, key) => {
-      const want = kind * 2 ** 32 + key;
+      const want = kind * KEY_LIMIT + key;
       let lo = 0;
       let hi = count - 1;
       while (lo <= hi) {

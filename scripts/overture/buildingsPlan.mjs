@@ -33,25 +33,29 @@ export const BUILDING_COLUMNS = Object.freeze([
 const FILE_NAME = /^part-[0-9]{5}-[0-9a-f-]{36}-c000\.zstd\.parquet$/;
 
 /** Every file under the buildings prefix (the listing is paged). */
-export async function listBuildingFiles({ fetchImpl = fetch, userAgent } = {}) {
+export async function listBuildingFiles({
+  fetchImpl = fetch,
+  userAgent,
+  prefix = BUILDINGS.prefix,
+} = {}) {
   const files = [];
   let token = '';
   for (let page = 0; page < 20; page++) {
-    const url = `${OVERTURE_BUCKET}/?list-type=2&prefix=${encodeURIComponent(BUILDINGS.prefix)}${
+    const url = `${OVERTURE_BUCKET}/?list-type=2&prefix=${encodeURIComponent(prefix)}${
       token ? `&continuation-token=${encodeURIComponent(token)}` : ''
     }`;
     const response = await fetchImpl(url, {
       headers: { 'User-Agent': userAgent },
     });
     if (!response.ok)
-      throw new Error(`Listing ${BUILDINGS.prefix}: HTTP ${response.status}`);
+      throw new Error(`Listing ${prefix}: HTTP ${response.status}`);
     const xml = await response.text();
     for (const [, body] of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
       const key = /<Key>([^<]*)<\/Key>/.exec(body)?.[1] || '';
       const size = Number(/<Size>(\d+)<\/Size>/.exec(body)?.[1]);
-      const name = key.slice(BUILDINGS.prefix.length);
+      const name = key.slice(prefix.length);
       if (
-        key.startsWith(BUILDINGS.prefix) &&
+        key.startsWith(prefix) &&
         FILE_NAME.test(name) &&
         Number.isSafeInteger(size) &&
         size > 0
@@ -151,6 +155,7 @@ export function planRowGroups(
   regionBoxes,
   {
     openBuildings = OPEN_BUILDINGS_BOXES,
+    columns = BUILDING_COLUMNS,
     gapBoxes = [],
     gapsOnly = false,
   } = {},
@@ -166,7 +171,7 @@ export function planRowGroups(
       // Wholly inside an Open Buildings box: Google's, unless the box holds
       // land it has no data for (openBuildingsGaps.mjs).
       if (openBuildings.some((ob) => within(box, ob) && !isGap(ob))) return;
-      const chunks = BUILDING_COLUMNS.map((p) => {
+      const chunks = columns.map((p) => {
         const chunk = group.columns.find((c) => c.path === p);
         if (!chunk) throw new Error(`${file.name}: no column ${p}`);
         return { path: p, start: chunk.start, size: chunk.compressedSize };
@@ -194,15 +199,11 @@ export const rowGroupFile = (dir, entry) =>
   );
 
 /**
- * Fetch a planned row group's column chunks (adjacent ones in one range)
- * into one file: a 4-byte header length, the JSON header (file, group,
- * rows, chunks with their offsets in the body), then the chunks' bytes.
- * Skipped when the file is there. Returns the bytes fetched.
+ * A row group's chunks as the ranges asked for: chunks less than 512 KiB
+ * apart share one, so the unwanted columns between them come along.
  */
-export async function fetchRowGroup(entry, dir, options = {}) {
-  const target = rowGroupFile(dir, entry);
-  if (fs.existsSync(target)) return 0;
-  const sorted = [...entry.chunks].sort((a, b) => a.start - b.start);
+export function chunkRanges(chunks) {
+  const sorted = [...chunks].sort((a, b) => a.start - b.start);
   const ranges = [];
   for (const chunk of sorted) {
     const last = ranges.at(-1);
@@ -216,6 +217,23 @@ export async function fetchRowGroup(entry, dir, options = {}) {
         chunks: [chunk],
       });
   }
+  return ranges;
+}
+
+/** The bytes a row group's fetch downloads (its ranges, gaps and all). */
+export const fetchBytes = (entry) =>
+  chunkRanges(entry.chunks).reduce((sum, r) => sum + r.end - r.start, 0);
+
+/**
+ * Fetch a planned row group's column chunks (adjacent ones in one range)
+ * into one file: a 4-byte header length, the JSON header (file, group,
+ * rows, chunks with their offsets in the body), then the chunks' bytes.
+ * Skipped when the file is there. Returns the bytes fetched.
+ */
+export async function fetchRowGroup(entry, dir, options = {}) {
+  const target = rowGroupFile(dir, entry);
+  if (fs.existsSync(target)) return 0;
+  const ranges = chunkRanges(entry.chunks);
   const parts = [];
   const header = {
     file: entry.file,

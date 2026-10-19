@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openParquet, rowsOfFlat, rowsOfRepeated } from './parquet.mjs';
 import { checkRawDir, rawDirFor, rawDirLabel } from '../rawDir.mjs';
 import { buildBuildings, buildingsStatus } from './buildings.mjs';
+import { buildPlaces, placesStatus } from './places.mjs';
 import {
   INDEX_FORMAT,
   CELL_DEGREES,
@@ -94,6 +95,8 @@ export function parseArgs(argv) {
     else if (argv[i] === '--building-regions')
       flags.buildingRegions = argv[++i];
     else if (argv[i] === '--keep-raw') flags.keepRaw = true;
+    else if (argv[i] === '--places') flags.places = true;
+    else if (argv[i] === '--drop-raw') flags.dropRaw = true;
     else if (argv[i] === '--cap-gb') flags.capGb = Number(argv[++i]);
     else throw new Error(`unknown option ${argv[i]}`);
   }
@@ -479,6 +482,7 @@ export function status(dir, rawDir = path.join(dir, 'raw')) {
       raw,
       release: DIVISIONS.release,
       buildings: buildingsStatus(dir),
+      places: placesStatus(dir),
     };
   return {
     built: true,
@@ -493,6 +497,7 @@ export function status(dir, rawDir = path.join(dir, 'raw')) {
     inputs: current.inputs.map(({ file, size }) => ({ file, size })),
     bytes: current.bytes,
     buildings: buildingsStatus(dir),
+    places: placesStatus(dir),
   };
 }
 
@@ -529,6 +534,15 @@ async function main() {
         userAgent: USER_AGENT,
       });
     }
+    if (flags.places)
+      await buildPlaces({
+        dir,
+        rawRoot: rawDir,
+        keepRaw: !flags.dropRaw,
+        force: flags.force,
+        ...(flags.capGb ? { capBytes: flags.capGb * 1e9 } : {}),
+        userAgent: USER_AGENT,
+      });
     return;
   }
   if (flags.command === 'status') {
@@ -555,6 +569,12 @@ async function main() {
       console.log(
         `Overture buildings ${buildings.version} of ${buildings.builtAt}: ${buildings.buildings.toLocaleString('en')} buildings (${buildings.regions.join(', ')}), ${(buildings.bytes / 1e9).toFixed(2)} GB in ${buildings.buckets} buckets; ${buildings.withHeight.toLocaleString('en')} with a height`,
       );
+    const { places } = answer;
+    console.log(
+      places.built
+        ? `Overture places ${places.version} of ${places.builtAt}: ${places.places.toLocaleString('en')} places, ${(places.bytes / 1e9).toFixed(2)} GB in ${places.buckets} buckets; raw ${places.rawDir}`
+        : 'Overture places: not built. Run npm run overture:build -- --places.',
+    );
     return;
   }
   throw new Error(`unknown command ${flags.command} (build, status)`);

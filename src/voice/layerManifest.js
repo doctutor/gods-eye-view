@@ -433,6 +433,7 @@ export const VOICE_OFF_LAYERS = Object.freeze({
   'wikipedia-coverage': 'personal fork layer',
   localities: 'personal fork layer',
   'street-assets': 'personal fork layer',
+  places: 'personal fork layer',
 });
 
 const TYPE_NAMES = Object.freeze({
