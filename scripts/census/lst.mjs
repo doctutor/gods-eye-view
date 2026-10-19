@@ -6,16 +6,20 @@ import path from 'node:path';
  * Engine for `npm run census:build`: the mean of the June–August
  * 2018–2023 Landsat 8 and 9 Collection 2 Level-2 surface temperature
  * (ST_B10 × 0.00341802 + 149, in °C), clear pixels only (QA_PIXEL cloud,
- * cirrus, shadow and dilated cloud bits off), averaged over each tract
+ * cirrus, shadow and dilated cloud bits off), on land only (JRC Global
+ * Surface Water occurrence under 50%: TIGER's tracts take in their rivers
+ * and sea, which read cooler), averaged over each tract
  * (`reduceRegions`, mean) at 300 m. Measured 2026-10-19: Maricopa County's
  * 1,009 tracts took 90.7 s at 90 m, so about 1 hour of Earth Engine time
  * for the country at 300 m, approved once by the owner.
  *
- * Resumable: each state's answer is written to lst/<state>.json as it
- * comes, and a state already there is skipped, so a crash or a stopped
- * build repeats nothing finished. A state too large for one request (Earth
- * Engine's time or memory limit) is asked county by county, each county
- * kept as lst/<state><county>.json, then joined into the state's file.
+ * Resumable: each state's answer is written to lst-v<rules>/<state>.json
+ * as it comes, and a state already there is skipped, so a crash or a
+ * stopped build repeats nothing finished. A state too large for one request
+ * (Earth Engine's time or memory limit) is asked county by county, each
+ * county kept as lst-v<rules>/<state><county>.json, then joined into the
+ * state's file. The directory is named by LST_RULES, so a run under new
+ * rules starts afresh and the build's values change only when it ends.
  *
  * Personal fork tooling; not part of upstream God's Eye View.
  */
@@ -31,8 +35,30 @@ export const LST = Object.freeze({
   months: Object.freeze([6, 8]),
   scale: LST_SCALE_M,
 });
-/** QA_PIXEL bits 1 (dilated cloud), 2 (cirrus), 3 (cloud), 4 (shadow). */
-const CLOUDY_BITS = 0b11110;
+/**
+ * QA_PIXEL bits 1 (dilated cloud), 2 (cirrus), 3 (cloud), 4 (shadow): a
+ * pixel with any of them is left out of that scene. Not bit 7 (water): in
+ * cities it is set on about half of the clear summer scenes (Harlem: 26.7
+ * of 52.6 a pixel), and those are the warm ones, so masking it left the
+ * hazy, cold scenes (a Harlem tract read 19.7 °C, from 29.5).
+ */
+export const MASKED_BITS = 0b11110;
+/** Water, from a fixed map: JRC Global Surface Water 1.4, % of months 1984–2021. */
+export const WATER = Object.freeze({
+  image: 'JRC/GSW1_4/GlobalSurfaceWater',
+  band: 'occurrence',
+  /** A pixel water this often or more is left out of the mean. */
+  atLeast: 50,
+});
+/**
+ * The rules a run computes under: 1 masked clouds and shadows (2026-10-19,
+ * kept in lst/); 2 the QA water bit as well (rejected, see MASKED_BITS);
+ * 3 clouds and shadows per scene, and JRC's water under the mean.
+ */
+export const LST_RULES = 3;
+/** A transient failure is retried this many times, waiting longer each time. */
+const RETRIES = 2;
+const RETRY_WAIT_MS = 10_000;
 /** Requests in flight at once. */
 const CONCURRENCY = 4;
 /** One request may take this long before it is treated as too large. */
@@ -92,11 +118,22 @@ export function lstRequest(state, county = '') {
         ? filters[0]
         : f('Filter.and', { filters: { arrayValue: { values: filters } } }),
   });
-  // A tract with no clear summer pixel (open water, cloud every time:
+  // Land only: JRC's occurrence (masked where never water) under WATER.atLeast.
+  const land = f('Image.lt', {
+    image1: f('Image.unmask', {
+      input: f('Image.select', {
+        input: f('Image.load', { id: c(WATER.image) }),
+        bandSelectors: c([WATER.band]),
+      }),
+      value: f('Image.constant', { value: c(0) }),
+    }),
+    image2: f('Image.constant', { value: c(WATER.atLeast) }),
+  });
+  // A tract with no clear summer land pixel (open water, cloud every time:
   // Hawaii's) has no mean; it is left out, and drawn as no value.
   const reduced = f('Collection.filter', {
     collection: f('Image.reduceRegions', {
-      image: mean,
+      image: f('Image.updateMask', { image: mean, mask: land }),
       collection: tracts,
       reducer: f('Reducer.mean', {}),
       scale: c(LST.scale),
@@ -110,7 +147,7 @@ export function lstRequest(state, county = '') {
   const clear = f('Image.eq', {
     image1: f('Image.bitwiseAnd', {
       image1: qa,
-      image2: f('Image.constant', { value: c(CLOUDY_BITS) }),
+      image2: f('Image.constant', { value: c(MASKED_BITS) }),
     }),
     image2: f('Image.constant', { value: c(0) }),
   });
@@ -189,8 +226,27 @@ export async function computeLst({
   compute,
   log = () => {},
   concurrency = CONCURRENCY,
+  retryWaitMs = RETRY_WAIT_MS,
 }) {
-  const lstDir = path.join(dir, 'lst');
+  const lstDir = path.join(dir, `lst-v${LST_RULES}`);
+  // A dropped connection or an Earth Engine 5xx is asked again, twice,
+  // before a state goes county by county (or the build stops).
+  const ask = async (body) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await compute(body);
+      } catch (error) {
+        const transient =
+          /fetch failed|Earth Engine 5\d\d|timeout|aborted|ECONNRESET/i.test(
+            String(error?.message || error),
+          );
+        if (!transient || attempt >= RETRIES) throw error;
+        await new Promise((resolve) =>
+          setTimeout(resolve, retryWaitMs * (attempt + 1)),
+        );
+      }
+    }
+  };
   const counties = new Map();
   for (const geoid of geoids) {
     const state = geoid.slice(0, 2);
@@ -212,7 +268,7 @@ export async function computeLst({
       if (readJson(stateFile)) return;
       let values;
       try {
-        values = lstValues(await compute(lstRequest(state)));
+        values = lstValues(await ask(lstRequest(state)));
       } catch (error) {
         // Too large in one request: county by county, each kept.
         byCounty.push(state);
@@ -224,7 +280,7 @@ export async function computeLst({
           const countyFile = path.join(lstDir, `${state}${county}.json`);
           let part = readJson(countyFile);
           if (!part) {
-            part = lstValues(await compute(lstRequest(state, county)));
+            part = lstValues(await ask(lstRequest(state, county)));
             writeJson(countyFile, part);
           }
           Object.assign(values, part);

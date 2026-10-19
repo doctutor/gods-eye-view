@@ -413,6 +413,11 @@ test('the surface temperature request: summer Landsat 8 and 9, clear pixels, °C
   assert.match(text, /"ST_B10"/);
   assert.match(text, /"QA_PIXEL"/);
   assert.match(text, /0\.00341802/);
+  // Clouds, cirrus and shadow masked per scene (QA_PIXEL bits 1-4, not the
+  // water bit), and JRC's water (occurrence 50% or more) under the mean.
+  assert.match(text, /"value":\{"constantValue":30\}/);
+  assert.match(text, /JRC\/GSW1_4\/GlobalSurfaceWater/);
+  assert.match(text, /"occurrence"/);
   assert.match(
     text,
     /"start":\{"constantValue":6\},"end":\{"constantValue":8\}/,
@@ -456,6 +461,27 @@ test('the surface temperature step resumes: finished states are not asked again;
     ]),
     { '09190010101': 29.1, '04013000100': 40 },
   );
+});
+
+test('the surface temperature step asks again after a dropped connection', async (t) => {
+  const dir = tempDir(t);
+  let calls = 0;
+  const compute = async () => {
+    calls += 1;
+    if (calls === 1) throw new Error('fetch failed');
+    if (calls === 2) throw new Error('Earth Engine 502: ');
+    return { '04013000100': 41.5 };
+  };
+  const result = await computeLst({
+    dir,
+    geoids: ['04013000100'],
+    compute,
+    concurrency: 1,
+    retryWaitMs: 0,
+  });
+  assert.equal(calls, 3);
+  assert.deepEqual(result.byCounty, [], 'not county by county');
+  assert.deepEqual(result.values, { '04013000100': 41.5 });
 });
 
 test('the census server draws surface temperature once it is computed, and says how before', async (t) => {

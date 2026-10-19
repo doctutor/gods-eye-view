@@ -1464,7 +1464,7 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     inks: TRACT_INKS,
     legend: CENSUS_TRACT_MODES[0].legend,
     attribution:
-      'U.S. Census Bureau: TIGER/Line 2020 census tracts; income from the ACS 5-year 2020–2024 estimates and the 2024 cartographic boundaries (public domain); summer surface temperature from Landsat 8 and 9 Collection 2 (USGS). This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau',
+      'U.S. Census Bureau: TIGER/Line 2020 census tracts; income from the ACS 5-year 2020–2024 estimates and the 2024 cartographic boundaries (public domain); summer surface temperature from Landsat 8 and 9 Collection 2 (USGS), on land by JRC Global Surface Water 1.4 (Source: EC JRC/Google). This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau',
     maxZoom: 14,
     maxHeightM: TRACT_MAX_HEIGHT_M,
   }),
