@@ -56,11 +56,18 @@
  *               (`numeric`: the property is an integer 1, 2, 3… that every
  *               feature has, so it indexes a list; otherwise text, with
  *               `fallback` for values not in the table) and as wide as
- *               `widths` says for its `widthProperty`; a chip picks the
+ *               riverLineWidth gives its `widthProperty` in the band; a chip picks the
  *               mode, kept as `modeStorageKey`. The catalog makes these
  *               maps only when a tile asks for one (`lazyMaps`)
  *   omitAmericas  rivers: true leaves out the reaches with CON_ID 1 and 2
- *               (AMERICAS_CON_IDS), so another source can draw the Americas
+ *               (AMERICAS_CON_IDS) in every mode, so another source can
+ *               draw the Americas; a mode with `omitAmericas` (network-rest)
+ *               does so but for AMERICAS_KEEP. A mode can be `inInk` (the
+ *               layer's ink, no colour table) and `hidden` (no chip)
+ *   americasV2  rivers: NETWORK over the Americas from the self-hosted
+ *               HydroSHEDS v2 tiles when built (src/layers/riversV2/source.js)
+ *   lineWidth   rivers: {base, step, max}, the widths by order in a band
+ *               (riverLineWidth), shared with v2
  *   legend      [{label, color}] (labels are English UI text)
  *   attribution the notice the dataset's terms require
  *   maxZoom     the deepest tile level asked for
@@ -118,56 +125,67 @@ const RIVERS_TABLE = Object.freeze({
  * (every reach has one, 1 to 6, none missing or 0): 1 is North America
  * with Greenland and the Canadian Arctic; 2 is South America with Central
  * America, the Caribbean islands and most of Mexico (northern Baja is 1).
- * Hawaii has no reaches. Alaska's Near Islands west of 180° are 5 (Asia).
+ * Hawaii and Easter Island have no reaches. Alaska's Near Islands west of
+ * 180° are 5 (Asia).
  */
 export const AMERICAS_CON_IDS = Object.freeze([1, 2]);
 
 /**
- * Line width (px) by RIV_ORD, the order of the reach's long-term average
- * discharge (1: over 100,000 m³/s, the Amazon; each order a tenth of the
- * one before; 10: under 0.001 m³/s): the larger the flow, the wider.
+ * The Americas reaches v1 keeps drawing while HydroSHEDS v2 draws the rest
+ * of the Americas (the `omitAmericas` NETWORK maps): where v2 has no data.
+ * v2's extent is 169.72° W to 32.41° W, 55.96° S to 83.13° N, without
+ * Greenland (server/providers/riversV2.js; docs/PERSONAL-FORK.md). Counted
+ * live on 2026-10-18:
+ * - COUNTRY = 'Greenland': 137,088 reaches, all CON_ID 1, none outside
+ *   Greenland (the Canadian Arctic islands next to it are 'Canada');
+ * - west of 169.72° W: 734 CON_ID 1 reaches (United States: the Aleutians
+ *   past Umnak, the Pribilofs, St. Lawrence Island);
+ * - north of 83.13° N: 28 Canadian reaches at Ellesmere's north tip.
+ * Nothing else of CON_ID 1 or 2 lies outside v2's extent (none south of
+ * 55.96° S, none east of 32.41° W but Greenland's), and Easter Island has
+ * no v1 reach.
  */
-const RIVER_WIDTHS = Object.freeze({
-  1: 3,
-  2: 2.6,
-  3: 2.2,
-  4: 1.8,
-  5: 1.5,
-  6: 1.25,
-  7: 1.1,
-  8: 1,
-  9: 1,
-  10: 1,
-});
+export const AMERICAS_KEEP = Object.freeze([
+  Object.freeze({ property: 'COUNTRY', equals: 'Greenland' }),
+  Object.freeze({ box: Object.freeze([-180, -90, -169.72, 90]) }),
+  Object.freeze({ box: Object.freeze([-180, 83.13, 180, 90]) }),
+]);
 
-/** NETWORK: the ink, more opaque the larger the flow. */
-const NETWORK_ALPHAS = Object.freeze({
-  1: 'ff',
-  2: 'ff',
-  3: 'ff',
-  4: 'f2',
-  5: 'e0',
-  6: 'cc',
-  7: 'b3',
-  8: '99',
-  9: '88',
-  10: '77',
-});
 /**
- * The rivers' inks: a pale blue on imagery and dark maps, a deep blue on
- * the light ones (contrast about 12:1 on #111 and 8:1 on white).
+ * Line widths, shared with HydroSHEDS v2's renderer
+ * (server/providers/riversV2/bands.js) so the two match at the Americas'
+ * edge: the smallest order a band draws is 0.75 px, each order larger adds
+ * 0.55 px, up to 4 px. Under a pixel a line is drawn a pixel wide and that
+ * much fainter (0.75 px: a 1 px line at 75% of the ink's alpha), as v2's
+ * coverage raster does.
  */
-const RIVER_INKS = Object.freeze({ light: '9fd8ffff', dark: '08519cff' });
+export const RIVER_LINE = Object.freeze({ base: 0.75, step: 0.55, max: 4 });
+/** The smallest order v2 holds (a 1 km² basin); v1's 8 to 10 draw as it. */
+export const RIVER_SMALLEST_ORDER = 8;
 
-const networkColors = (ink) =>
-  Object.freeze(
-    Object.fromEntries(
-      Object.entries(NETWORK_ALPHAS).map(([order, alpha]) => [
-        order,
-        `${RIVER_INKS[ink].slice(0, 6)}${alpha}`,
-      ]),
-    ),
-  );
+/** A reach's line width (px) in a band drawing orders up to `bandMaxOrder`. */
+export function riverLineWidth(order, bandMaxOrder = RIVER_SMALLEST_ORDER) {
+  const top = Math.min(RIVER_SMALLEST_ORDER, bandMaxOrder);
+  const steps = Math.max(0, top - Math.min(Number(order) || top, top));
+  const width = RIVER_LINE.base + RIVER_LINE.step * steps;
+  return Math.round(Math.min(RIVER_LINE.max, width) * 100) / 100;
+}
+
+/**
+ * The rivers' inks, v2's too: white on imagery and dark maps, near-black on
+ * the light ones (the boundaries' and the Grid's choice), both at 80%.
+ */
+export const RIVER_INKS = Object.freeze({
+  light: 'ffffffcc',
+  dark: '1a1a1acc',
+});
+
+/** 'rrggbbaa' with its alpha scaled (a sub-pixel line's coverage). */
+export function scaleAlpha(color, factor) {
+  const alpha = parseInt(String(color).slice(6, 8) || 'ff', 16);
+  const scaled = Math.round(alpha * Math.min(1, Math.max(0, factor)));
+  return `${String(color).slice(0, 6)}${scaled.toString(16).padStart(2, '0')}`;
+}
 
 /**
  * Categorical colours: the Okabe–Ito hues (distinct with the common colour
@@ -244,43 +262,92 @@ const legendOf = (colors, labels) =>
  * measured 2026-10-18, docs/PERSONAL-FORK.md, "Rivers"). A band drawn
  * above 1,667 km, where the overlay covers the whole world, starts no
  * deeper than z 3 (64 tiles).
+ *
+ * The heights are where the imagery level Cesium picks at the middle of
+ * the view steps (riverZoomForHeight), so each band is the one HydroSHEDS
+ * v2's zoom bands (server/providers/riversV2/bands.js) draw at that
+ * height: `zooms` names them.
  */
-const riverBand = (key, maxOrder, minZoom, heights) =>
+const riverBand = (key, maxOrder, minZoom, zooms, heights) =>
   Object.freeze({
     key,
     asset: RIVERS_TABLE,
     ...(maxOrder ? { maxOrder } : {}),
     minZoom,
+    zooms: Object.freeze(zooms),
     auto: true,
     ...heights,
   });
+
+/**
+ * The imagery level (Web Mercator zoom) Cesium 1.138's globe drapes at the
+ * middle of a view looking down from `heightM`. A terrain tile of level L
+ * (geometric error e0 / 2^L, e0 = 77,067 m for a 65-sample heightmap over
+ * two level-0 tiles) is refined until e·drawingBufferHeight /
+ * (distance · sseDenominator) ≤ 2 px, and sseDenominator is 2·tan(30°) /
+ * aspect for the 60° frustum, so e ≤ 2.309 · distance / canvas width; the
+ * tile then takes the imagery level round(L + log2(2.03 · cos latitude)),
+ * L + 1 between the equator and about 50°. With a 1,600 px wide canvas
+ * that is z = ceil(log2(5.34e7 / height)) + 1. A wider canvas shifts every
+ * step to a greater height (2,560 px: by 1.6×).
+ */
+export const RIVER_ZOOM_K_M = 5.34e7;
+export function riverZoomForHeight(heightM, k = RIVER_ZOOM_K_M) {
+  const height = Math.max(1, Number(heightM) || 1);
+  return Math.max(0, Math.ceil(Math.log2(k / height)) + 1);
+}
+/** The height below which the middle of the view is at zoom n + 2: K / 2^n. */
+const STEP = (n) => RIVER_ZOOM_K_M / 2 ** n;
+
 export const RIVER_BANDS = Object.freeze([
-  riverBand('o3', 3, 2, { minHeightM: 6_000_000 }),
-  riverBand('o4', 4, 3, { minHeightM: 1_600_000, maxHeightM: 6_000_000 }),
-  riverBand('o5', 5, 4, { minHeightM: 700_000, maxHeightM: 1_600_000 }),
-  riverBand('o6', 6, 5, { minHeightM: 250_000, maxHeightM: 700_000 }),
-  riverBand('o7', 7, 6, { minHeightM: 80_000, maxHeightM: 250_000 }),
-  riverBand('all', null, 7, { maxHeightM: 80_000 }),
+  riverBand('o3', 3, 2, [0, 4], { minHeightM: STEP(3) }),
+  // Up to 1,666 km, not K / 32 = 1,669 km (z 6/7): o5's square must not be the world.
+  riverBand('o4', 4, 3, [5, 6], {
+    minHeightM: 1_666_000,
+    maxHeightM: STEP(3),
+  }),
+  riverBand('o5', 5, 4, [7, 7], { minHeightM: STEP(6), maxHeightM: 1_666_000 }),
+  riverBand('o6', 6, 5, [8, 8], { minHeightM: STEP(7), maxHeightM: STEP(6) }),
+  riverBand('o7', 7, 6, [9, 10], { minHeightM: STEP(9), maxHeightM: STEP(7) }),
+  riverBand('all', null, 7, [11, 14], { maxHeightM: STEP(9) }),
 ]);
 
-/** The Rivers modes (chips NETWORK / FREE-FLOWING / PRESSURE). */
+/** The largest order the Rivers draw at a camera height (10: every order). */
+export function riverOrdersAt(heightM) {
+  const band = RIVER_BANDS.find(
+    (variant) =>
+      !(Number(heightM) < (variant.minHeightM ?? -Infinity)) &&
+      !(Number(heightM) >= (variant.maxHeightM ?? Infinity)),
+  );
+  return (band || RIVER_BANDS[RIVER_BANDS.length - 1]).maxOrder ?? 10;
+}
+
+const NETWORK_LEGEND = Object.freeze([
+  // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+  Object.freeze({ label: 'Large river', color: '#ffffff', ink: true }),
+  // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+  Object.freeze({ label: 'Stream', color: '#ffffff', ink: true }),
+]);
+
+/**
+ * The Rivers modes (chips NETWORK / FREE-FLOWING / PRESSURE). NETWORK is
+ * in the ink; `network-rest` is NETWORK without the Americas (but
+ * AMERICAS_KEEP), drawn while HydroSHEDS v2 draws them, and has no chip.
+ */
 export const RIVER_MODES = Object.freeze([
   Object.freeze({
     key: 'network',
     property: 'RIV_ORD',
-    numeric: true,
-    colors: Object.freeze({
-      light: networkColors('light'),
-      dark: networkColors('dark'),
-    }),
-    fallback: Object.freeze({
-      light: `${RIVER_INKS.light.slice(0, 6)}77`,
-      dark: `${RIVER_INKS.dark.slice(0, 6)}77`,
-    }),
-    legend: legendOf(
-      { light: { 1: RIVER_INKS.light, 7: networkColors('light')[7] } },
-      { 1: 'Large river', 7: 'Stream' },
-    ),
+    inInk: true,
+    legend: NETWORK_LEGEND,
+  }),
+  Object.freeze({
+    key: 'network-rest',
+    property: 'RIV_ORD',
+    inInk: true,
+    omitAmericas: true,
+    hidden: true,
+    legend: NETWORK_LEGEND,
   }),
   Object.freeze({
     key: 'free-flowing',
@@ -470,7 +537,7 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
   // RIV_ORD band with the camera height (level switching), each band's
   // tiles starting at a level Earth Engine answers in seconds; the names
   // are Natural Earth's, drawn by the client (src/layers/earthEngine/
-  // riverNames.js). Lines stay one to three pixels at every zoom.
+  // riverNames.js). Lines are 0.75 to 4 px at every zoom, as HydroSHEDS v2 draws them.
   Object.freeze({
     id: 'ee-rivers',
     name: 'Rivers',
@@ -480,7 +547,11 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     modeStorageKey: 'gev.rivers.mode',
     lazyMaps: true,
     widthProperty: 'RIV_ORD',
-    widths: RIVER_WIDTHS,
+    // Widths by order within the band (riverLineWidth), as v2 draws them.
+    lineWidth: RIVER_LINE,
+    // NETWORK over the Americas from the self-hosted HydroSHEDS v2 tiles
+    // when they are built (src/layers/riversV2/source.js), v1 elsewhere.
+    americasV2: true,
     // Off: every continent. On: the Americas (CON_ID 1 and 2) left out, for
     // another source to draw there.
     omitAmericas: false,

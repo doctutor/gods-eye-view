@@ -945,7 +945,7 @@ test('the Rivers record: AUTO by height, the Americas switch off, both citations
   assert.equal(modeRecord(rivers, 'nope').key, 'network');
   assert.deepEqual(
     RIVER_MODES.map((mode) => mode.key),
-    ['network', 'free-flowing', 'pressure'],
+    ['network', 'network-rest', 'free-flowing', 'pressure'],
   );
   assert.match(rivers.attribution, /HydroSHEDS\/WWF/);
   assert.match(rivers.attribution, /Lehner.*2008/);

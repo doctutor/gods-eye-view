@@ -41,10 +41,10 @@ export const NAME_BANDS = Object.freeze([
 ]);
 /** The most labels published at once. */
 export const MAX_NAME_LABELS = 160;
-/** The label colour per ink (the rivers' own blues). */
+/** The label colour per ink: the rivers' own inks (RIVER_INKS), opaque. */
 export const NAME_COLORS = Object.freeze({
-  light: '#9fd8ff',
-  dark: '#08519c',
+  light: '#ffffff',
+  dark: '#1a1a1a',
 });
 
 /** The largest scalerank shown at a camera height, or null for none. */
