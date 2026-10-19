@@ -6,6 +6,13 @@ import {
   riverHeightForCanvas,
   variantForHeight,
 } from '../../data/earthEngineLayers.js';
+import {
+  DEM_BANDS,
+  demBand,
+  maxZoomInRect,
+  sourceNameAt,
+  sourcesInRect,
+} from '../../data/demStack.js';
 import { resolveImageryHost } from '../../maps/imageryHost.js';
 import { activeLuminance, readInkSetting, resolveInk } from '../../maps/ink.js';
 import { SLOW_DISTRICTS_ABOVE_M, rowControls } from './presentation.js';
@@ -53,6 +60,18 @@ import { riversV2ImageryOptions, riversV2Ready } from '../riversV2/source.js';
  *   drawn by the band of its own zoom, every zoom quick), at minimumLevel 0
  *   on the globe and on a tileset alike; only a band asked for by name
  *   (an older server) keeps its `minZoom` on the globe.
+ *
+ * The terrain layers (`demStack`: slope, aspect, hillshade, Elevation and
+ * Elevation contours) are drawn the same way, through the server's `zoom`
+ * variant, each tile by the DEM stack's band for its zoom (src/data/
+ * demStack.js; a contour band names its stack band in `stack`). The row names the
+ * source under the middle of the view at the band the height picks
+ * ("FABDEM 30 m", "USGS 3DEP 10 m", "ArcticDEM 2 m"…); the credit line
+ * names the sources the view's square can show (the provider is made again
+ * when they change) and each one's notice joins the data-attribution
+ * popover the first time it draws (`demCredit`); and the overlay asks as
+ * deep as the deepest source in the square goes (FABDEM z 14, 3DEP 1 m
+ * z 17: maxZoomInRect).
  *
  * A layer with `modes` (the Rivers: NETWORK, FREE-FLOWING, PRESSURE;
  * Population: one per epoch) draws the mode a chip picks, kept as the
@@ -172,13 +191,57 @@ const escapeHtml = (value) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
-/** The data-attribution popover's entry for a layer (Earth Engine, then the dataset). */
+/**
+ * The data-attribution popover's entry for a layer (Earth Engine, then the
+ * dataset). A terrain layer's elevation sources have entries of their own,
+ * added as each first draws (`demCredit`).
+ */
 export function attributionCredit(record) {
   return {
     key: `earth-engine-${record.id}`,
-    html: `${escapeHtml(record.name)}: <a href="https://earthengine.google.com/" target="_blank" rel="noopener">Google Earth Engine</a> · ${escapeHtml(record.attribution)}`,
+    html: record.demStack
+      ? `${escapeHtml(record.name)}: <a href="https://earthengine.google.com/" target="_blank" rel="noopener">Google Earth Engine</a> · elevation from the sources credited below`
+      : `${escapeHtml(record.name)}: <a href="https://earthengine.google.com/" target="_blank" rel="noopener">Google Earth Engine</a> · ${escapeHtml(record.attribution)}`,
   };
 }
+
+/**
+ * The DEM stack band a terrain layer draws at the middle of the view, by
+ * its variant's key: the variant's `stack` (a contour band's, 'c100-polar'
+ * → 'polar'), else the key itself.
+ */
+const bandByKey = (record, key) =>
+  demBand(
+    layerVariants(record).find((variant) => variant.key === key)?.stack ?? key,
+  ) || DEM_BANDS[DEM_BANDS.length - 1];
+
+/**
+ * The elevation sources a terrain view can show: those of the band at the
+ * middle of the view and of each finer band down to the deepest level asked
+ * for (a tilted view drapes finer tiles in front), inside the view's square
+ * (null: the world), bottom first.
+ */
+export function demSourcesInView(record, bandKey, box, maximumLevel) {
+  const from = DEM_BANDS.indexOf(bandByKey(record, bandKey));
+  const seen = new Set();
+  const out = [];
+  for (const band of DEM_BANDS.slice(Math.max(0, from)))
+    if (band.zooms[0] <= maximumLevel || band === DEM_BANDS[from])
+      for (const entry of sourcesInRect(box, band, {
+        heights: record.variants?.some?.((variant) => variant.heights),
+      }))
+        if (!seen.has(entry.key)) {
+          seen.add(entry.key);
+          out.push(entry);
+        }
+  return out;
+}
+
+/** A terrain view's credit line: Earth Engine, then each source's notice. */
+export const demCreditText = (sources) =>
+  ['Google Earth Engine', ...sources.map((s) => `${s.name}: ${s.credit}`)].join(
+    ' · ',
+  );
 
 /**
  * @param {{record: object, source: {catalog: Function, last?: Function},
@@ -187,13 +250,16 @@ export function attributionCredit(record) {
  *   names?: {enable: Function, update: Function, disable: Function}|null,
  *   clicks?: {enable: Function, disable: Function}|null,
  *   v2Source?: {status: Function, last?: Function}|null,
- *   v2Credit?: {key: string, html: string}|null}} options
+ *   v2Credit?: {key: string, html: string}|null,
+ *   demCredit?: ((source: object) => {key: string, html: string})|null}} options
  *   `names`: the record's names companion (riverNames.js), if it has one;
  *   `clicks`: its click companion (riverClicks.js), attached while it is
  *   on; `v2Source`: for a record with `americasV2`, the HydroSHEDS v2
  *   status (src/layers/riversV2/source.js): while it is ready, NETWORK draws
  *   the Americas from v2's tiles and the rest from Earth Engine's
- *   `network-rest` maps, and `v2Credit` is registered.
+ *   `network-rest` maps, and `v2Credit` is registered; `demCredit`: for a
+ *   terrain layer, a DEM source's popover entry (src/data/dataCredits.js
+ *   demSourceCredit), registered when the source first draws.
  */
 export function createEarthEngineLayer({
   record,
@@ -206,6 +272,7 @@ export function createEarthEngineLayer({
   clicks = null,
   v2Source = null,
   v2Credit = null,
+  demCredit = null,
 }) {
   const store = storageOf(storage);
   let _viewer = null;
@@ -235,6 +302,8 @@ export function createEarthEngineLayer({
   /** The view the mounted rectangle was made for. */
   let _madeFor = null;
   let _aboveCeiling = false;
+  /** A terrain layer: the elevation sources the mounted overlay credits. */
+  let _demSources = [];
   /** HydroSHEDS v2's status, and its imagery over the Americas when drawn. */
   let _v2Status = null;
   let _v2Imagery = null;
@@ -303,6 +372,19 @@ export function createEarthEngineLayer({
       height,
       canvas?.clientWidth,
       canvas?.clientHeight,
+    );
+  }
+
+  /** A terrain layer: what the row calls the elevation under the view. */
+  function demSourceName() {
+    const view = viewNow();
+    return sourceNameAt(
+      view.lat,
+      view.lon,
+      bandByKey(record, wantedVariant()),
+      {
+        heights: layerVariants(record).some((variant) => variant.heights),
+      },
     );
   }
 
@@ -399,7 +481,17 @@ export function createEarthEngineLayer({
       (hasModes
         ? served?.modeVersions?.[mode]?.[ink]
         : served?.versions?.[ink]) || '';
-    const key = `${variant}|${ink}|${version}|${mode}|${v2Version}`;
+    const box = viewRectangleDegrees(view.lat, view.lon, view.height);
+    const layerMax = layer.maxZoom ?? record.maxZoom ?? 12;
+    // A terrain layer asks as deep as the deepest elevation source in the
+    // view's square goes, and credits the sources the square can show.
+    const maximumLevel = record.demStack
+      ? Math.min(layerMax, maxZoomInRect(box, record.maxZoom ?? layerMax))
+      : layerMax;
+    const demSources = record.demStack
+      ? demSourcesInView(record, wantedVariant(), box, maximumLevel)
+      : [];
+    const key = `${variant}|${ink}|${version}|${mode}|${v2Version}|${maximumLevel}|${demSources.map((entry) => entry.key).join(',')}`;
     if (
       _imagery &&
       _mountedKey === key &&
@@ -408,7 +500,6 @@ export function createEarthEngineLayer({
     )
       return;
     unmount();
-    const box = viewRectangleDegrees(view.lat, view.lon, view.height);
     // The levels Cesium asks for. On a 3D tileset it drapes about one
     // imagery tile on each loaded primitive at the level that spans it,
     // clamped up to minimumLevel, and keeps at most 10 draped textures per
@@ -426,13 +517,14 @@ export function createEarthEngineLayer({
           layerVariants(record).find((entry) => entry.key === variant)
             ?.minZoom ??
           0);
-    const maximumLevel = layer.maxZoom ?? record.maxZoom ?? 12;
     const provider = new cesium.UrlTemplateImageryProvider({
       url: tileTemplate(record.id, variant, ink, version, mode),
       tilingScheme: new cesium.WebMercatorTilingScheme(),
       minimumLevel,
       maximumLevel,
-      credit: layer.attribution || record.attribution,
+      credit: record.demStack
+        ? demCreditText(demSources)
+        : layer.attribution || record.attribution,
       hasAlphaChannel: true,
     });
     _imagery = new cesium.ImageryLayer(provider, {
@@ -451,6 +543,10 @@ export function createEarthEngineLayer({
     host.collection.add(_imagery);
     if (useV2)
       mountV2(host.collection, ink, box, { minimumLevel, maximumLevel });
+    _demSources = demSources;
+    if (demCredit)
+      for (const entry of demSources)
+        credits?.register?.(_viewer, demCredit(entry));
     _collection = host.collection;
     _mountedKey = key;
     _madeFor = view;
@@ -692,6 +788,11 @@ export function createEarthEngineLayer({
         mode: _mode,
         onMode: setMode,
         americasV2: _enabled && Boolean(_v2Imagery),
+        demSource: _enabled && record.demStack ? demSourceName() : '',
+        creditTitle:
+          record.demStack && _demSources.length
+            ? demCreditText(_demSources)
+            : '',
       });
     },
 

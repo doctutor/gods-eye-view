@@ -20,6 +20,7 @@ import {
   layerVariants,
   modeRecord,
 } from '../../src/data/earthEngineLayers.js';
+import { bandLayers, demBand, demSource } from '../../src/data/demStack.js';
 
 /**
  * The Cloud project is registered for noncommercial Earth Engine use, and
@@ -304,8 +305,12 @@ export function contourExpression(
   dem,
   step,
   { indexEvery = 5, minorShare = 0.55, resample = '' },
-  { mosaic = false } = {},
+  { mosaic = false, values: shared = {} } = {},
 ) {
+  // The class and its focal minimum come after any values `dem` refers to
+  // (the DEM stack's shared sources).
+  const levelRef = String(Object.keys(shared).length + 1);
+  const lowestRef = String(Object.keys(shared).length + 2);
   // Bilinear: a tile finer than the DEM's cells reads a smooth surface, not
   // nearest-neighbour steps (staircase lines at z 13 and 14 on 30 m cells).
   // A mosaic's default projection is 1°, so it is given its cells' first,
@@ -329,7 +334,7 @@ export function contourExpression(
     }),
   });
   const lowest = invoke('Image.focalMin', {
-    image: reference('1'),
+    image: reference(levelRef),
     radius: constant(1),
     kernelType: constant('square'),
     units: constant('pixels'),
@@ -342,12 +347,12 @@ export function contourExpression(
       }),
     });
   const line = invoke('Image.neq', {
-    image1: reference('1'),
-    image2: reference('2'),
+    image1: reference(levelRef),
+    image2: reference(lowestRef),
   });
   const index = invoke('Image.neq', {
-    image1: indexOf(reference('1')),
-    image2: indexOf(reference('2')),
+    image1: indexOf(reference(levelRef)),
+    image2: indexOf(reference(lowestRef)),
   });
   const alpha = invoke('Image.where', {
     input: invoke('Image.multiply', {
@@ -360,8 +365,9 @@ export function contourExpression(
   return {
     values: {
       0: invoke('Image.updateMask', { image: imageConstant(1), mask: alpha }),
-      1: level,
-      2: lowest,
+      ...shared,
+      [levelRef]: level,
+      [lowestRef]: lowest,
     },
     result: '0',
   };
@@ -399,17 +405,7 @@ function imageNode(layer, variant, modeKey) {
         crs: invoke('Projection', { crs: constant('EPSG:3857') }),
         scale: constant(30),
       });
-    node =
-      layer.terrain === 'hillshade'
-        ? invoke('Terrain.hillshade', {
-            input: node,
-            azimuth: constant(315),
-            elevation: constant(45),
-          })
-        : invoke(
-            layer.terrain === 'aspect' ? 'Terrain.aspect' : 'Terrain.slope',
-            { input: node },
-          );
+    node = terrainNode(layer.terrain, node);
   }
   if (steps.maskBand)
     node = invoke('Image.updateMask', {
@@ -453,6 +449,218 @@ export function visFor(layer, modeKey) {
   return mode?.vis || layer.vis || null;
 }
 
+// --- the DEM stack (src/data/demStack.js) ---------------------------------------
+
+/** A terrain operation on an elevation image ('slope', 'aspect', 'hillshade'). */
+function terrainNode(kind, input) {
+  return kind === 'hillshade'
+    ? invoke('Terrain.hillshade', {
+        input,
+        azimuth: constant(315),
+        elevation: constant(45),
+      })
+    : invoke(kind === 'aspect' ? 'Terrain.aspect' : 'Terrain.slope', {
+        input,
+      });
+}
+
+/**
+ * The geometry a source is clipped to: one box is a BBox; several are a
+ * planar MultiPolygon (edges along parallels and meridians, as the client's
+ * box tests take them).
+ */
+export function boxesGeometry(boxes) {
+  if (boxes.length === 1) {
+    const [west, south, east, north] = boxes[0];
+    return invoke('GeometryConstructors.BBox', {
+      west: constant(west),
+      south: constant(south),
+      east: constant(east),
+      north: constant(north),
+    });
+  }
+  return invoke('GeometryConstructors.MultiPolygon', {
+    coordinates: constant(
+      boxes.map(([west, south, east, north]) => [
+        [
+          [west, south],
+          [east, south],
+          [east, north],
+          [west, north],
+          [west, south],
+        ],
+      ]),
+    ),
+    geodesic: constant(false),
+  });
+}
+
+/** An image's `band`, from an image node. */
+const bandNode = (image, band) =>
+  invoke('Image.select', { input: image, bandSelectors: constant([band]) });
+
+/**
+ * A source's elevation band, before any mask: an image, or a collection
+ * mosaicked and given its own grid (`crs`, `crsTransform`) so the terrain
+ * operations have a projection that does not resample it.
+ */
+function demRawNode(asset) {
+  const image = asset.collection
+    ? invoke('ImageCollection.mosaic', {
+        collection: invoke('ImageCollection.load', {
+          id: constant(asset.collection),
+        }),
+      })
+    : invoke('Image.load', { id: constant(asset.image) });
+  const band = bandNode(image, asset.band);
+  return asset.crs
+    ? invoke('Image.setDefaultProjection', {
+        image: band,
+        crs: invoke('Projection', { crs: constant(asset.crs) }),
+        crsTransform: constant([...asset.crsTransform]),
+      })
+    : band;
+}
+
+/** An image's own band `name` (ArcticDEM's datamask). */
+const bandOf = (asset, name) =>
+  bandNode(invoke('Image.load', { id: constant(asset.image) }), name);
+
+/** The name a `perImage` source's mapped function calls its image. */
+const DEM_IMAGE = '_dem';
+
+/**
+ * A band of the DEM stack as an expression: each source's elevation (its
+ * water at 0 masked where `seaIsZero`, ArcticDEM masked by its own data or
+ * by the base's land), the terrain operation on each (so the sources'
+ * datums, which differ by up to 60 m, make no step), each clipped to its
+ * boxes, mosaicked bottom to top: the finer source on top inside its box,
+ * the base beneath it with no gap. Each source's elevation is a shared value
+ * ('1', '2', …), so FABDEM read for the base and for the land mask is one
+ * node; a `perImage` source (3DEP 1 m) is a function over its images (its
+ * body a value too), each drawn in its own projection, then mosaicked. The
+ * Elevation layer (`heights`) mosaics the heights themselves.
+ */
+function demStackExpression(layer, variant, { resample = '' } = {}) {
+  const band = demBand(variant.stack);
+  const values = {};
+  const refs = new Map();
+  const share = (name, node) => {
+    if (!refs.has(name)) {
+      const ref = String(refs.size + 1);
+      refs.set(name, ref);
+      values[ref] = node();
+    }
+    return refs.get(name);
+  };
+  const raw = (key) => ({
+    valueReference: share(key, () => demRawNode(demSource(key).asset)),
+  });
+  // Land, for ArcticDEM on top: FABDEM not 0; where FABDEM has nothing
+  // (north of 80° N, open sea), ArcticDEM's own data mask.
+  const land = (entry) =>
+    invoke('Image.unmask', {
+      input: invoke('Image.neq', {
+        image1: raw('fabdem'),
+        image2: invoke('Image.constant', { value: constant(0) }),
+      }),
+      value: bandOf(entry.asset, entry.asset.maskBand),
+      sameFootprint: constant(false),
+    });
+  /** What every source goes through: its masks, then terrain or a rename. */
+  const pipeline = (entry, mask, input) => {
+    // Contours: each source read as a smooth surface on its own grid, before
+    // the mosaic (whose default projection, 1°, would resample it to ramps).
+    let node = resample
+      ? invoke('Image.resample', { image: input, mode: constant(resample) })
+      : input;
+    if (entry.asset.seaIsZero) node = invoke('Image.selfMask', { image: node });
+    if (mask)
+      node = invoke('Image.updateMask', {
+        image: node,
+        mask:
+          mask === 'land'
+            ? land(entry)
+            : bandOf(entry.asset, entry.asset.maskBand),
+      });
+    // A mosaic wants one band name and type: the terrain operations name
+    // theirs; heights are renamed (FABDEM's is b1, GMTED2010's an integer).
+    return layer.terrain
+      ? terrainNode(layer.terrain, node)
+      : invoke('Image.rename', {
+          input: invoke('Image.toFloat', { value: node }),
+          names: constant(['elevation']),
+        });
+  };
+  const images = bandLayers(band, { heights: variant.heights }).map(
+    ({ source: key, mask }) => {
+      const entry = demSource(key);
+      const node = entry.asset.perImage
+        ? invoke('ImageCollection.mosaic', {
+            collection: invoke('Collection.map', {
+              collection: invoke('ImageCollection.load', {
+                id: constant(entry.asset.collection),
+              }),
+              baseAlgorithm: {
+                functionDefinitionValue: {
+                  argumentNames: [DEM_IMAGE],
+                  body: share(`${key}/each`, () =>
+                    pipeline(
+                      entry,
+                      mask,
+                      bandNode(
+                        { argumentReference: DEM_IMAGE },
+                        entry.asset.band,
+                      ),
+                    ),
+                  ),
+                },
+              },
+            }),
+          })
+        : pipeline(entry, mask, raw(key));
+      return entry.boxes
+        ? invoke('Image.clip', {
+            input: node,
+            geometry: boxesGeometry(entry.boxes),
+          })
+        : node;
+    },
+  );
+  let node = invoke('ImageCollection.mosaic', {
+    collection: invoke('ImageCollection.fromImages', {
+      images: { arrayValue: { values: images } },
+    }),
+  });
+  if (layer.transform === 'sqrt')
+    node = invoke('Image.sqrt', {
+      value: invoke('Image.max', {
+        image1: node,
+        image2: invoke('Image.constant', { value: constant(0) }),
+      }),
+    });
+  return { values: { 0: node, ...values }, result: '0' };
+}
+
+/**
+ * Contour lines of the DEM stack's heights in a band (Elevation contours):
+ * each source resampled on its own grid as the record asks (bilinear), the
+ * heights mosaicked as the Elevation layer's are (the ellipsoidal polar
+ * sources only beneath the others), then the contour expression of that.
+ */
+function stackContourExpression(layer, variant) {
+  const stack = demStackExpression(layer, variant, {
+    resample: layer.contour.resample || '',
+  });
+  const { 0: heights, ...shared } = stack.values;
+  return contourExpression(
+    heights,
+    variant.step,
+    { ...layer.contour, resample: '' },
+    { values: shared },
+  );
+}
+
 /**
  * A layer variant's expression in an ink (and mode), as the REST API takes
  * it: {values: {0: <value node>, …}, result: '0'}.
@@ -463,14 +671,19 @@ export function expressionFor(
   ink = layerInks(layer)[0],
   mode = layerModes(layer)[0],
 ) {
-  // Contour lines (Elevation contours) have their own expression.
-  if (layer.contour)
+  // Contour lines (Elevation contours) have their own expression: of the
+  // DEM stack's heights for a `stack` variant, else of the variant's asset.
+  if (layer.contour) {
+    if (variant?.stack) return stackContourExpression(layer, variant);
     return contourExpression(
       assetNode(variant.asset),
       variant.step,
       layer.contour,
       { mosaic: Boolean(variant.asset?.collection) },
     );
+  }
+  // The terrain layers and Elevation: the DEM stack's band.
+  if (variant?.stack) return demStackExpression(layer, variant);
   if (layer.kind !== 'features')
     return { values: { 0: imageNode(layer, variant, mode) }, result: '0' };
   let node = assetNode(variant.asset);

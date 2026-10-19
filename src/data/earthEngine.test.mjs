@@ -76,25 +76,64 @@ test('every map request is exactly the committed fixture', async () => {
           );
   // A changed layer changes what is sent: regenerate the fixture with it.
   assert.deepEqual(built, requests);
-  const slope = requests['ee-terrain-slope/near/default'];
+  // Terrain: each band of the DEM stack is a mosaic of each source's
+  // terrain, bottom to top.
+  const slope = requests['ee-terrain-slope/base/default'];
   assert.equal(slope.fileFormat, 'PNG');
   assert.equal(slope.expression.result, '0');
   const root = slope.expression.values['0'].functionInvocationValue;
-  assert.equal(root.functionName, 'Terrain.slope');
+  assert.equal(root.functionName, 'ImageCollection.mosaic');
+  const layersOf = (request) =>
+    request.expression.values['0'].functionInvocationValue.arguments.collection
+      .functionInvocationValue.arguments.images.arrayValue.values;
+  assert.equal(layersOf(slope).length, 3);
   assert.deepEqual(slope.visualizationOptions.ranges, [{ min: 0, max: 45 }]);
-  assert.match(JSON.stringify(slope), /COPERNICUS\/DEM\/GLO30_2024_1/);
-  assert.match(JSON.stringify(slope), /Image\.setDefaultProjection/);
-  // Far views: GMTED2010, one pyramided image, its zero sea masked, in its
-  // own projection.
-  const far = requests['ee-terrain-hillshade/far/default'];
-  const farRoot = far.expression.values['0'].functionInvocationValue;
-  assert.equal(farRoot.functionName, 'Terrain.hillshade');
+  // FABDEM, in its own 1″ grid (another grid resamples it into lines), its
+  // water at 0 masked; Copernicus GLO-30 is no longer drawn.
+  const text = JSON.stringify(slope);
+  assert.match(text, /projects\/sat-io\/open-datasets\/FABDEM/);
+  assert.match(text, /"crsTransform"/);
+  assert.doesNotMatch(JSON.stringify(requests), /COPERNICUS\/DEM\/GLO30/);
+  const top = layersOf(slope).at(-1).functionInvocationValue;
+  assert.equal(top.functionName, 'Terrain.slope');
   assert.equal(
-    farRoot.arguments.input.functionInvocationValue.functionName,
+    top.arguments.input.functionInvocationValue.functionName,
     'Image.selfMask',
   );
+  // Far views: GMTED2010 on top, its zero sea masked, ArcticDEM and REMA
+  // beneath it (Greenland, Antarctica), clipped to their boxes.
+  const far = requests['ee-terrain-hillshade/far/default'];
+  const farLayers = layersOf(far).map((node) => node.functionInvocationValue);
+  assert.equal(farLayers[2].functionName, 'Terrain.hillshade');
+  assert.deepEqual(
+    farLayers.slice(0, 2).map((node) => node.functionName),
+    ['Image.clip', 'Image.clip'],
+  );
   assert.match(JSON.stringify(far), /USGS\/GMTED2010_FULL/);
-  assert.doesNotMatch(JSON.stringify(far), /setDefaultProjection/);
+  assert.match(JSON.stringify(far), /UMN\/PGC\/ArcticDEM\/V4\/2m_mosaic/);
+  assert.match(JSON.stringify(far), /UMN\/PGC\/REMA\/V1_1\/8m/);
+  assert.doesNotMatch(JSON.stringify(far), /FABDEM|3DEP/);
+  // Close in, over the United States: 3DEP 10 m in its own grid, and 3DEP
+  // 1 m drawn image by image (its tiles are in many UTM zones), both
+  // clipped to the US boxes.
+  const finest = JSON.stringify(
+    requests['ee-terrain-hillshade/finest/default'],
+  );
+  assert.match(finest, /USGS\/3DEP\/10m_collection/);
+  assert.match(finest, /"USGS\/3DEP\/1m"/);
+  assert.match(finest, /Collection\.map/);
+  assert.match(finest, /GeometryConstructors\.MultiPolygon/);
+  assert.doesNotMatch(finest, /"USGS\/3DEP\/10m"/, 'not the deprecated image');
+  // Elevation: heights, renamed to one band, shown by their square root.
+  const elevation = requests['ee-elevation/fine/default'];
+  assert.equal(
+    elevation.expression.values['0'].functionInvocationValue.functionName,
+    'Image.sqrt',
+  );
+  assert.deepEqual(elevation.visualizationOptions.ranges, [
+    { min: 0, max: 80 },
+  ]);
+  assert.doesNotMatch(JSON.stringify(elevation), /Terrain\./);
   const loss =
     requests['ee-forest-loss/default/default'].expression.values['0'];
   assert.equal(loss.functionInvocationValue.functionName, 'Image.selfMask');
@@ -155,23 +194,117 @@ test('the boundaries change level with the camera’s height', () => {
   assert.equal(variantForHeight(byId('ee-forest-loss'), 10).key, 'default');
 });
 
-test('terrain draws from GMTED2010 above 3,000 km and Copernicus below', () => {
+test('terrain draws from the DEM stack: a band per zoom range, chosen by height, drawn by zoom', () => {
   for (const id of [
     'ee-terrain-slope',
     'ee-terrain-aspect',
     'ee-terrain-hillshade',
+    'ee-elevation',
   ]) {
     const layer = byId(id);
+    assert.equal(layer.demStack, true, id);
+    assert.equal(layer.lazyMaps, true, id);
     assert.deepEqual(
       layerVariants(layer).map((v) => v.key),
-      ['far', 'near'],
+      ['far', 'base', 'polar', 'fine', 'finest'],
     );
+    assert.equal(zoomMatched(layer), true, id);
+    // The heights are where Cesium's drape zoom steps (1,600 px canvas).
     assert.equal(variantForHeight(layer, 20_000_000).key, 'far', id);
-    assert.equal(variantForHeight(layer, 3_000_000).key, 'far', id);
-    assert.equal(variantForHeight(layer, 2_999_999).key, 'near', id);
-    assert.equal(variantForHeight(layer, 500).key, 'near', id);
-    assert.match(layer.attribution, /Copernicus DEM GLO-30.*GMTED2010/);
+    assert.equal(variantForHeight(layer, 3_337_500).key, 'far', id);
+    assert.equal(variantForHeight(layer, 3_337_499).key, 'base', id);
+    assert.equal(variantForHeight(layer, 104_297).key, 'base', id);
+    assert.equal(variantForHeight(layer, 104_296).key, 'polar', id);
+    assert.equal(variantForHeight(layer, 26_075).key, 'polar', id);
+    assert.equal(variantForHeight(layer, 26_074).key, 'fine', id);
+    assert.equal(variantForHeight(layer, 13_038).key, 'fine', id);
+    assert.equal(variantForHeight(layer, 13_037).key, 'finest', id);
+    assert.equal(variantForHeight(layer, 500).key, 'finest', id);
+    // Each tile from the band of its zoom: GMTED2010 to z 5, FABDEM from 6.
+    assert.deepEqual(
+      [0, 5, 6, 10, 11, 12, 13, 14, 17].map(
+        (z) => variantForZoom(layer, z).key,
+      ),
+      [
+        'far',
+        'far',
+        'base',
+        'base',
+        'polar',
+        'polar',
+        'fine',
+        'finest',
+        'finest',
+      ],
+    );
+    assert.match(layer.attribution, /FABDEM v1-2.*CC BY-NC-SA 4\.0/);
   }
+  assert.equal(byId('ee-terrain-slope').maxZoom, 17, '3DEP 1 m');
+  assert.equal(byId('ee-elevation').maxZoom, 14, 'a tint gains nothing deeper');
+});
+
+test('the DEM stack is served through the zoom variant; each band’s map is made when a tile asks', async (t) => {
+  const root = await tempRoot(t);
+  const slope = byId('ee-terrain-slope');
+  const made = [];
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    layers: [slope],
+    backend: {
+      async createMap(layer, variant, ink) {
+        made.push(mapKey(layer, variant, ink));
+        return { name: `projects/p/maps/${variant.key}` };
+      },
+      async fetchTile(name, z, x, y) {
+        return {
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from(`${name}/${z}/${x}/${y}`),
+        };
+      },
+    },
+  });
+  const catalog = await service.layers();
+  assert.deepEqual(made, [], 'lazy: no map for the catalog');
+  const row = catalog.layers[0];
+  assert.equal(row.maxZoom, 17);
+  assert.deepEqual(
+    row.variants.map((variant) => variant.key),
+    ['far', 'base', 'polar', 'fine', 'finest', ZOOM_VARIANT],
+  );
+  assert.match(row.variants.at(-1).versions.default, /^[0-9a-f]{12}$/);
+  for (const [z, band] of [
+    [0, 'far'],
+    [5, 'far'],
+    [6, 'base'],
+    [11, 'polar'],
+    [13, 'fine'],
+    [17, 'finest'],
+  ]) {
+    const tile = await service.tile(
+      'ee-terrain-slope',
+      ZOOM_VARIANT,
+      'default',
+      z,
+      0,
+      0,
+    );
+    assert.equal(String(tile.body), `projects/p/maps/${band}/${z}/0/0`);
+  }
+  assert.deepEqual(made, [
+    'ee-terrain-slope/far/default',
+    'ee-terrain-slope/base/default',
+    'ee-terrain-slope/polar/default',
+    'ee-terrain-slope/fine/default',
+    'ee-terrain-slope/finest/default',
+  ]);
+  assert.equal(
+    (await service.tile('ee-terrain-slope', ZOOM_VARIANT, 'default', 18, 0, 0))
+      .status,
+    400,
+    'past maxZoom 17',
+  );
 });
 
 test('configured only with a project and a key file that exists; the key is never read here', async (t) => {
@@ -394,22 +527,27 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
   const [first] = await Promise.all([service.layers(), service.layers()]);
   assert.equal(
     backend.made.length,
-    19,
-    'one map per variant and ink (and mode), one request each; Population makes its maps lazily',
+    13,
+    'one map per variant and ink (and mode), one request each (the DEM stack, the contours, Population and the Rivers make theirs when a tile asks)',
   );
   assert.ok(backend.made.includes('ee-admin-boundaries/level0/dark'));
-  assert.ok(backend.made.includes('ee-terrain-slope/near/default'));
-  assert.ok(backend.made.includes('ee-terrain-slope/far/default'));
+  assert.ok(backend.made.includes('ee-forest-loss/default/default'));
+  assert.ok(!backend.made.some((key) => key.startsWith('ee-terrain-')));
   assert.equal(first.configured, true);
   const slope = first.layers.find((layer) => layer.id === 'ee-terrain-slope');
   assert.equal(
     slope.tileUrl,
     '/api/earth-engine/tile/ee-terrain-slope/{variant}/{ink}/{z}/{x}/{y}',
   );
-  assert.equal(slope.variants[0].ready, true);
+  assert.equal(slope.variants[0].ready, false, 'not made yet');
   assert.deepEqual(slope.inks, ['default']);
-  assert.match(slope.attribution, /^Google Earth Engine · Copernicus DEM/);
+  assert.match(
+    slope.attribution,
+    /^Google Earth Engine · Elevation from the DEM stack/,
+  );
   assert.equal(slope.error, null);
+  const loss = first.layers.find((layer) => layer.id === 'ee-forest-loss');
+  assert.equal(loss.variants[0].ready, true);
   assert.deepEqual(
     first.layers
       .find((layer) => layer.id === 'ee-admin-boundaries')
@@ -430,17 +568,15 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
     ['light', 'dark'],
   );
   await service.layers();
-  assert.equal(backend.made.length, 19, 'kept');
+  assert.equal(backend.made.length, 13, 'kept');
   clock += MAP_TTL_MS + 1;
   failing = true;
   const stale = await service.layers();
-  assert.equal(backend.made.length, 38, 'asked again');
-  const staleSlope = stale.layers.find(
-    (layer) => layer.id === 'ee-terrain-slope',
-  );
-  assert.equal(staleSlope.variants[0].ready, true, 'the old map still serves');
+  assert.equal(backend.made.length, 26, 'asked again');
+  const staleLoss = stale.layers.find((layer) => layer.id === 'ee-forest-loss');
+  assert.equal(staleLoss.variants[0].ready, true, 'the old map still serves');
   assert.equal(
-    staleSlope.error,
+    staleLoss.error,
     'Earth Engine 400: bad expression',
     'and the error is said',
   );
@@ -719,9 +855,9 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     now: () => clock,
   });
   for (let x = 0; x < 4; x++)
-    await service.tile('ee-terrain-slope', 'near', 'default', 4, x, 1);
+    await service.tile('ee-terrain-slope', 'base', 'default', 6, x, 1);
   // A disk hit is not counted.
-  await service.tile('ee-terrain-slope', 'near', 'default', 4, 0, 1);
+  await service.tile('ee-terrain-slope', 'base', 'default', 6, 0, 1);
   await service.tile('ee-forest-loss', 'default', 'default', 4, 0, 1);
   const budgetWarnings = () => warnings.filter((w) => /tile budget/.test(w));
   assert.deepEqual(budgetWarnings(), [
@@ -744,6 +880,7 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     'ee-terrain-slope': 4,
     'ee-terrain-aspect': 0,
     'ee-terrain-hillshade': 0,
+    'ee-elevation': 0,
     'ee-forest-loss': 6,
     'ee-admin-boundaries': 0,
     'ee-forest-types': 0,
@@ -1323,43 +1460,55 @@ test('contours: the step follows the zoom, 500 m from orbit to 20 m at street sc
   assert.equal(contourStepForZoom(20), 20, 'past the last band: its step');
   for (const z of [0, 7, 8, 10, 12, 13, 14])
     assert.equal(variantForZoom(layer, z).step, contourStepForZoom(z));
-  // Steps shrink as the view comes in; the far DEM to z 9, the near from 10.
+  // Steps shrink as the view comes in; each band is drawn from the DEM
+  // stack's band of the same zooms, its heights as Elevation mosaics them.
   const steps = CONTOUR_BANDS.map((band) => band.step);
   assert.deepEqual(
     [...steps].sort((a, b) => b - a),
     steps,
   );
-  for (const band of CONTOUR_BANDS)
-    assert.equal(
-      band.asset,
-      band.zooms[1] <= 9
-        ? byId('ee-terrain-slope').variants[0].asset
-        : byId('ee-terrain-slope').variants[1].asset,
-      `${band.key}: the terrain layers' own DEM records`,
+  const stackBands = byId('ee-terrain-slope').variants;
+  for (const band of CONTOUR_BANDS) {
+    const stack = stackBands.find((entry) => entry.key === band.stack);
+    assert.ok(stack, `${band.key}: a DEM stack band`);
+    assert.ok(
+      band.zooms[0] >= stack.zooms[0] && band.zooms[1] <= stack.zooms[1],
+      `${band.key}: inside the stack band's zooms`,
     );
+    assert.equal(band.heights, true);
+  }
   // On AUTO the camera height names the band (the row's words): the
   // heights at which a 1,600 px view drapes each band's zooms.
   for (const [height, key] of [
-    [20_000_000, 'c500'],
-    [834_375, 'c500'],
-    [834_374, 'c200'],
-    [300_000, 'c200'],
-    [100_000, 'c100'],
-    [40_000, 'c40'],
-    [10_000, 'c20'],
-    [100, 'c20'],
+    [20_000_000, 'c500-far'],
+    [3_337_500, 'c500-far'],
+    [3_337_499, 'c500-base'],
+    [834_375, 'c500-base'],
+    [834_374, 'c200-base'],
+    [300_000, 'c200-base'],
+    [104_297, 'c100-base'],
+    [104_296, 'c100-polar'],
+    [40_000, 'c40-polar'],
+    [20_000, 'c20-fine'],
+    [10_000, 'c20-finest'],
+    [100, 'c20-finest'],
   ])
     assert.equal(variantForHeight(layer, height).key, key, String(height));
   // Drawn from orbit: elevation averages sensibly (aggregate, then derive).
   assert.equal(layer.maxHeightM, undefined);
   assert.equal(CONTOUR_INDEX_EVERY, 5);
   assert.deepEqual(layerInks(layer), ['light', 'dark']);
-  assert.match(layer.attribution, /Copernicus DEM GLO-30.*GMTED2010/);
+  assert.match(layer.attribution, /^Elevation from the DEM stack/);
+  assert.equal(
+    layer.demStack,
+    true,
+    'credited and named as the terrain layers',
+  );
 });
 
 test('contours: lines are where the elevation quantised to the step changes, one pixel wide', () => {
   const layer = byId('ee-elevation-contours');
-  const near = CONTOUR_BANDS.find((band) => band.key === 'c20');
+  const near = CONTOUR_BANDS.find((band) => band.key === 'c20-finest');
   const request = mapRequestFor(layer, near, 'dark');
   const calls = invocations(request.expression);
   const named = (name) => calls.filter((call) => call.functionName === name);
@@ -1401,17 +1550,26 @@ test('contours: lines are where the elevation quantised to the step changes, one
       .functionInvocationValue.arguments.value.constantValue,
     0.55,
   );
-  // Sea masked; the mosaic given its 30 m cells, then read bilinearly.
-  assert.equal(named('Image.selfMask').length, 1);
-  assert.equal(
-    named('Image.resample')[0].arguments.mode.constantValue,
-    'bilinear',
+  // The DEM stack's finest band: every source read bilinearly on its own
+  // grid before the mosaic (FABDEM and 3DEP 10 m given theirs), the sea (0)
+  // of FABDEM and 3DEP masked, and the heights' zeros once more.
+  assert.equal(named('ImageCollection.fromImages').length, 1);
+  const resampled = named('Image.resample');
+  assert.equal(resampled.length, 5, 'REMA, ArcticDEM, FABDEM, 3DEP 10 m, 1 m');
+  assert.ok(
+    resampled.every((call) => call.arguments.mode.constantValue === 'bilinear'),
   );
-  assert.equal(
-    named('Image.setDefaultProjection')[0].arguments.scale.constantValue,
-    30,
-  );
-  assert.match(JSON.stringify(request), /COPERNICUS\/DEM\/GLO30_2024_1/);
+  assert.equal(named('Image.setDefaultProjection').length, 2);
+  assert.equal(named('Image.selfMask').length, 4);
+  for (const source of [
+    /projects\/sat-io\/open-datasets\/FABDEM/,
+    /USGS\/3DEP\/10m_collection/,
+    /USGS\/3DEP\/1m/,
+    /UMN\/PGC\/ArcticDEM/,
+    /UMN\/PGC\/REMA/,
+  ])
+    assert.match(JSON.stringify(request), source);
+  assert.doesNotMatch(JSON.stringify(request), /COPERNICUS\/DEM\/GLO30/);
   // The ink's colour and alpha.
   assert.deepEqual(request.visualizationOptions, {
     ranges: [{ min: 0, max: 1 }],
@@ -1422,8 +1580,8 @@ test('contours: lines are where the elevation quantised to the step changes, one
     mapRequestFor(layer, near, 'light').visualizationOptions.paletteColors,
     ['ffffff', 'ffffff'],
   );
-  // The far DEM is one image: no default projection to give; its sea (0)
-  // is masked by its record (seaIsZero) and again here.
+  // The far band: GMTED2010, with ArcticDEM and REMA beneath it where it
+  // has nothing (Greenland, Antarctica); images, so no projection to give.
   const far = mapRequestFor(layer, CONTOUR_BANDS[0], 'light');
   const farCalls = invocations(far.expression);
   assert.equal(
@@ -1433,6 +1591,7 @@ test('contours: lines are where the elevation quantised to the step changes, one
     0,
   );
   assert.match(JSON.stringify(far), /USGS\/GMTED2010_FULL/);
+  assert.doesNotMatch(JSON.stringify(far), /FABDEM/);
   assert.ok(
     farCalls.some(
       (call) =>
@@ -1442,11 +1601,29 @@ test('contours: lines are where the elevation quantised to the step changes, one
     ),
     'the far band quantises to 500 m',
   );
-  // The class and its focal minimum are shared values, sent once each.
-  assert.deepEqual(Object.keys(request.expression.values), ['0', '1', '2']);
+  // The class and its focal minimum are shared values, sent once each,
+  // after the stack's own (its five sources' heights).
+  assert.deepEqual(Object.keys(request.expression.values), [
+    '0',
+    '1',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    '7',
+  ]);
   assert.match(
     JSON.stringify(request.expression.values['0']),
-    /"valueReference":"2"/,
+    /"valueReference":"7"/,
+  );
+  assert.equal(
+    request.expression.values['7'].functionInvocationValue.functionName,
+    'Image.focalMin',
+  );
+  assert.equal(
+    request.expression.values['6'].functionInvocationValue.functionName,
+    'Image.floor',
   );
   // Without resampling the DEM is quantised as it is.
   const plain = invocations(
@@ -1481,12 +1658,15 @@ test('contours: the zoom variant draws each tile with its zoom’s step, one map
     },
   });
   for (const [z, band] of [
-    [0, 'c500'],
-    [7, 'c500'],
-    [8, 'c200'],
-    [11, 'c100'],
-    [12, 'c40'],
-    [14, 'c20'],
+    [0, 'c500-far'],
+    [6, 'c500-base'],
+    [7, 'c500-base'],
+    [8, 'c200-base'],
+    [10, 'c100-base'],
+    [11, 'c100-polar'],
+    [12, 'c40-polar'],
+    [13, 'c20-fine'],
+    [14, 'c20-finest'],
   ]) {
     const tile = await service.tile(layer.id, ZOOM_VARIANT, 'light', z, 0, 0);
     assert.equal(tile.status, 200, String(z));
@@ -1501,14 +1681,11 @@ test('contours: the zoom variant draws each tile with its zoom’s step, one map
   assert.deepEqual(catalog.inks, ['light', 'dark']);
   assert.deepEqual(
     catalog.variants.map((variant) => variant.key),
-    ['c500', 'c200', 'c100', 'c40', 'c20', ZOOM_VARIANT],
+    [...CONTOUR_BANDS.map((band) => band.key), ZOOM_VARIANT],
   );
   // Maps are made when a tile asks (lazyMaps): one per band drawn here.
-  assert.deepEqual(made, [
-    'ee-elevation-contours/c500/light',
-    'ee-elevation-contours/c200/light',
-    'ee-elevation-contours/c100/light',
-    'ee-elevation-contours/c40/light',
-    'ee-elevation-contours/c20/light',
-  ]);
+  assert.deepEqual(
+    made,
+    CONTOUR_BANDS.map((band) => `ee-elevation-contours/${band.key}/light`),
+  );
 });

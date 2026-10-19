@@ -6,10 +6,12 @@
  *
  * Every asset id is from the public Earth Engine catalog's STAC records
  * (storage.googleapis.com/earthengine-stac), checked 2026-10-17:
- * - COPERNICUS/DEM/GLO30_2024_1 (image collection, band DEM), the
- *   successor of the deprecated COPERNICUS/DEM/GLO30;
- * - USGS/GMTED2010_FULL (image, band mea: mean elevation at 7.5"), the
- *   terrain layers' far source (used live 2026-10-18; USGS, public domain);
+ * - the terrain layers' elevation: the DEM stack (src/data/demStack.js,
+ *   checked live 2026-10-19): GMTED2010, FABDEM v1-2, USGS 3DEP 10 m and
+ *   1 m, ArcticDEM v4.1 and REMA v1.1. Until 2026-10-19 they drew
+ *   COPERNICUS/DEM/GLO30_2024_1 below 3,000 km, whose coarse tiles took
+ *   10 to 156 s and whose sea inside each land tile is 0 (drawn as flat
+ *   squares over the coasts);
  * - UMD/hansen/global_forest_change_2025_v1_13 (image, band lossyear:
  *   0 = no loss, 1–25 = loss in 2001–2025), the latest version;
  * - FAO/GAUL/2025/level1 and level2 (tables, CC-BY-4.0), the successors of
@@ -52,11 +54,13 @@
  *               colour per ink; one map per (variant, ink), and the client
  *               picks the ink from the basemap's luminance (src/maps/ink.js)
  *   variants    [{key, asset, auto?, minHeightM?, maxHeightM?, maxOrder?,
- *               minZoom?}] in place of `asset`, one map per variant; on
- *               AUTO the camera height picks among the `auto` variants. For
- *               features they are administrative levels, and a chip can
- *               force any of them; for terrain a far and a near source,
- *               chosen by height only; for rivers the RIV_ORD bands
+ *               minZoom?, zooms?, stack?, heights?}] in place of `asset`,
+ *               one map per variant; on AUTO the camera height picks among
+ *               the `auto` variants. For features they are administrative
+ *               levels, and a chip can force any of them; for terrain the
+ *               DEM stack's zoom bands (`stack`: the band, src/data/
+ *               demStack.js; `heights`: the Elevation layer's order), no
+ *               chips; for rivers the RIV_ORD bands
  *               (`maxOrder`: reaches of that order or larger, all without
  *               it). `minZoom`: the variant's tiles start at that level
  *               (the client asks for nothing coarser, the server answers a
@@ -98,6 +102,11 @@
  *               HydroSHEDS v2 tiles when built (src/layers/riversV2/source.js)
  *   lineWidth   rivers: {base, step, max}, the widths by order in a band
  *               (riverLineWidth), shared with v2
+ *   demStack    true for the terrain layers: the client names the source
+ *               under the view, credits the ones in it, and asks as deep
+ *               as they go (demStack.js maxZoomInRect)
+ *   transform   'sqrt': the image is shown by √max(value, 0) (Elevation)
+ *   lazyMaps    the catalog makes no map; the first tile that needs one does
  *   legend      [{label, color}] (labels are English UI text)
  *   attribution the notice the dataset's terms require
  *   maxZoom     the deepest tile level asked for
@@ -106,7 +115,9 @@
  *               metres (the variant's), in the ink (`inks`), every
  *               `indexEvery`-th line (an index contour) at the ink's alpha
  *               and the rest at `minorShare` of it, the elevation read with
- *               `resample` ('bilinear') (ELEVATION_CONTOURS below)
+ *               `resample` ('bilinear'); a variant with `stack` takes the
+ *               DEM stack band's heights, each source resampled on its own
+ *               grid (ELEVATION_CONTOURS below)
  *   maxHeightM  no tiles are asked for while the camera is higher than this
  *               (optional; only for a quantity that means nothing once
  *               averaged down, like forest-loss years, or a level that
@@ -118,40 +129,27 @@
  *               docs/PERSONAL-FORK.md, "Level of detail")
  */
 
+import { DEM_MAX_ZOOM, demVariants } from './demStack.js';
+
 export const EARTH_ENGINE_ATTRIBUTION = 'Google Earth Engine';
 
-const COPERNICUS_DEM_NOTICE =
-  'Copernicus DEM GLO-30: © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved';
-const DEM = Object.freeze({
-  collection: 'COPERNICUS/DEM/GLO30_2024_1',
-  band: 'DEM',
+// The terrain layers draw from the DEM stack (src/data/demStack.js): one
+// variant per zoom band, each a mosaic of the best sources there, drawn by
+// tile zoom through the server's `zoom` variant (as the Rivers are), so a
+// 3D tileset's coarse tiles come from GMTED2010, which answers in under a
+// second, and close views from FABDEM, USGS 3DEP, ArcticDEM or REMA.
+const DEM_VARIANTS = demVariants();
+const DEM_HEIGHT_VARIANTS = demVariants({ heights: true });
+const DEM_NOTICE =
+  'Elevation from the DEM stack: GMTED2010 (USGS, NGA), FABDEM v1-2 (University of Bristol / Fathom, CC BY-NC-SA 4.0; Copernicus DEM GLO-30, © DLR e.V., © Airbus, EU/ESA), USGS 3DEP, ArcticDEM and REMA (PGC, NSF); each source is credited where it draws';
+/** The terrain layers' record fields from the stack. */
+const demLayer = (heights = false) => ({
+  variants: heights ? DEM_HEIGHT_VARIANTS : DEM_VARIANTS,
+  demStack: true,
+  // Five bands: their maps are made when a tile asks (`lazyMaps`).
+  lazyMaps: true,
+  attribution: DEM_NOTICE,
 });
-// Far views of the terrain layers: GMTED2010's 7.5" mean elevation, one
-// pyramided image. The Copernicus mosaic is some 26,000 images, and a z 0
-// to 2 tile of it took Earth Engine 10 to 156 s (2026-10-18), past the
-// proxy's 30 s; this one answers in under a second. Its sea is 0, masked.
-const DEM_FAR = Object.freeze({
-  image: 'USGS/GMTED2010_FULL',
-  band: 'mea',
-  seaIsZero: true,
-});
-/** Above this camera height the terrain layers draw from DEM_FAR. */
-const DEM_FAR_ABOVE_M = 3_000_000;
-const DEM_VARIANTS = Object.freeze([
-  Object.freeze({
-    key: 'far',
-    asset: DEM_FAR,
-    auto: true,
-    minHeightM: DEM_FAR_ABOVE_M,
-  }),
-  Object.freeze({
-    key: 'near',
-    asset: DEM,
-    auto: true,
-    maxHeightM: DEM_FAR_ABOVE_M,
-  }),
-]);
-const DEM_NOTICE = `${COPERNICUS_DEM_NOTICE}. Far views: GMTED2010, USGS and NGA`;
 
 // --- Rivers ------------------------------------------------------------------
 
@@ -614,16 +612,27 @@ const RIVERS_NOTICE =
  * to it (aggregate, then derive): a coarse tile's lines are the coarse
  * shape of the land, not the 30 m lines thinned out. The steps keep lines
  * apart on most slopes at each zoom's pixel size (steep mountains still
- * crowd them, as on any contour map), and the sources are the terrain
- * layers' DEM and DEM_FAR, so a change of DEM re-points them too. Timings
- * per band: docs/PERSONAL-FORK.md, "Elevation contours".
+ * crowd them, as on any contour map).
+ *
+ * The heights are the DEM stack's (src/data/demStack.js), as the Elevation
+ * layer mosaics them: GMTED2010 to z 5, FABDEM from z 6, USGS 3DEP 10 m
+ * from z 13 and 1 m at z 14 over the United States; ArcticDEM and REMA,
+ * whose heights are ellipsoidal (30 to 60 m off the others'), only where
+ * nothing else has heights (Greenland far out, north of 80° N,
+ * Antarctica), so no line jumps at a source's edge. Each band of steps is cut where the stack's band
+ * changes, so a tile draws from exactly the sources the terrain layers draw
+ * at its zoom, and each source is resampled (bilinear) on its own grid
+ * before the mosaic. Timings per band: docs/PERSONAL-FORK.md, "Elevation
+ * contours".
  */
 export const CONTOUR_INDEX_EVERY = 5;
 const CONTOUR_MAX_ZOOM = 14;
-const contourBand = (step, asset, zooms) =>
+const contourBand = (step, stack, zooms) =>
   Object.freeze({
-    key: `c${step}`,
-    asset,
+    key: `c${step}-${stack}`,
+    // The stack's band, its heights in the Elevation layer's order.
+    stack,
+    heights: true,
     step,
     zooms: Object.freeze(zooms),
     auto: true,
@@ -632,12 +641,18 @@ const contourBand = (step, asset, zooms) =>
     ...(zooms[0] > 0 ? { maxHeightM: STEP(zooms[0] - 2) } : {}),
     ...(zooms[1] < CONTOUR_MAX_ZOOM ? { minHeightM: STEP(zooms[1] - 1) } : {}),
   });
+// The steps (500 m to z 7, 200 m to z 9, 100 m to z 11, 40 m at z 12, 20 m
+// from z 13) cut by the stack's bands (far to z 5, base to z 10, polar to
+// z 12, fine at z 13, finest from z 14).
 export const CONTOUR_BANDS = Object.freeze([
-  contourBand(500, DEM_FAR, [0, 7]),
-  contourBand(200, DEM_FAR, [8, 9]),
-  contourBand(100, DEM, [10, 11]),
-  contourBand(40, DEM, [12, 12]),
-  contourBand(20, DEM, [13, CONTOUR_MAX_ZOOM]),
+  contourBand(500, 'far', [0, 5]),
+  contourBand(500, 'base', [6, 7]),
+  contourBand(200, 'base', [8, 9]),
+  contourBand(100, 'base', [10, 10]),
+  contourBand(100, 'polar', [11, 11]),
+  contourBand(40, 'polar', [12, 12]),
+  contourBand(20, 'fine', [13, 13]),
+  contourBand(20, 'finest', [14, CONTOUR_MAX_ZOOM]),
 ]);
 
 /** The contour step (m) drawn at a tile zoom. */
@@ -654,7 +669,9 @@ const ELEVATION_CONTOURS = Object.freeze({
   name: 'Elevation contours',
   kind: 'image',
   variants: CONTOUR_BANDS,
-  // Maps are made when a tile asks for them (5 bands × 2 inks).
+  // The terrain layers' credits, source name and depth (demStack.js).
+  demStack: true,
+  // Maps are made when a tile asks for them (8 bands × 2 inks).
   lazyMaps: true,
   contour: Object.freeze({
     indexEvery: CONTOUR_INDEX_EVERY,
@@ -781,7 +798,7 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     id: 'ee-terrain-slope',
     name: 'Terrain slope',
     kind: 'image',
-    variants: DEM_VARIANTS,
+    ...demLayer(),
     terrain: 'slope',
     vis: Object.freeze({
       min: 0,
@@ -801,14 +818,13 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
       Object.freeze({ label: '34°', color: '#fc8d59' }),
       Object.freeze({ label: '45°+', color: '#d73027' }),
     ]),
-    attribution: DEM_NOTICE,
-    maxZoom: 14,
+    maxZoom: DEM_MAX_ZOOM,
   }),
   Object.freeze({
     id: 'ee-terrain-aspect',
     name: 'Terrain aspect',
     kind: 'image',
-    variants: DEM_VARIANTS,
+    ...demLayer(),
     terrain: 'aspect',
     vis: Object.freeze({
       min: 0,
@@ -828,14 +844,13 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
       Object.freeze({ label: 'S', color: '#fee08b' }),
       Object.freeze({ label: 'W', color: '#fc8d59' }),
     ]),
-    attribution: DEM_NOTICE,
-    maxZoom: 14,
+    maxZoom: DEM_MAX_ZOOM,
   }),
   Object.freeze({
     id: 'ee-terrain-hillshade',
     name: 'Hillshade',
     kind: 'image',
-    variants: DEM_VARIANTS,
+    ...demLayer(),
     terrain: 'hillshade',
     vis: Object.freeze({
       min: 0,
@@ -848,7 +863,42 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
       // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
       Object.freeze({ label: 'Light', color: '#ffffff' }),
     ]),
-    attribution: DEM_NOTICE,
+    maxZoom: DEM_MAX_ZOOM,
+  }),
+  // Elevation: a hypsometric tint of the same stack, its ellipsoidal polar
+  // sources only beneath the others (heights). Shown by the square root of
+  // the height above sea level, so the lowlands, where most land is, get as
+  // many colours as the mountains: the stops are at 0, 100, 400, 900, 1,600,
+  // 2,500, 3,600, 4,900 and 6,400 m. A tint shows no more at 1 m than at
+  // 7 m, so it stops at z 14.
+  Object.freeze({
+    id: 'ee-elevation',
+    name: 'Elevation',
+    kind: 'image',
+    ...demLayer(true),
+    transform: 'sqrt',
+    vis: Object.freeze({
+      min: 0,
+      max: 80,
+      palette: Object.freeze([
+        '2b6a2e',
+        '5f9a3c',
+        'a9c15f',
+        'e8dc8a',
+        'd2a564',
+        'a66a3e',
+        '8a5a44',
+        'c9c3bd',
+        'ffffff',
+      ]),
+    }),
+    legend: Object.freeze([
+      Object.freeze({ label: '0 m', color: '#2b6a2e' }),
+      Object.freeze({ label: '400 m', color: '#a9c15f' }),
+      Object.freeze({ label: '1,600 m', color: '#d2a564' }),
+      Object.freeze({ label: '3,600 m', color: '#8a5a44' }),
+      Object.freeze({ label: '6,400 m+', color: '#ffffff' }),
+    ]),
     maxZoom: 14,
   }),
   Object.freeze({

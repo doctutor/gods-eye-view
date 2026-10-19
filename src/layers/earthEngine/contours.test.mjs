@@ -102,6 +102,7 @@ async function mounted(t, { host = 'globe', heightM, luminance = 'dark' }) {
 test('the row names the contour step the camera’s height draws', () => {
   assert.equal(variantLabel('c500'), 'Contours every 500 m');
   assert.equal(variantLabel('c20'), 'Contours every 20 m');
+  assert.equal(variantLabel('c100-polar'), 'Contours every 100 m');
   assert.equal(variantLabel('o3'), 'Rivers of flow orders 1 to 3');
   assert.equal(legendLabel('Contour'), 'Contour');
   assert.equal(legendLabel('Index contour'), 'Index contour');
@@ -151,13 +152,23 @@ test('the bands step at the heights the zooms are draped at', () => {
   assert.deepEqual(
     CONTOUR_BANDS.map((band) => [band.key, band.zooms]),
     [
-      ['c500', [0, 7]],
-      ['c200', [8, 9]],
-      ['c100', [10, 11]],
-      ['c40', [12, 12]],
-      ['c20', [13, 14]],
+      // Each cut where the DEM stack's band changes (far to z 5, base to
+      // z 10, polar to z 12, fine at z 13, finest from z 14).
+      ['c500-far', [0, 5]],
+      ['c500-base', [6, 7]],
+      ['c200-base', [8, 9]],
+      ['c100-base', [10, 10]],
+      ['c100-polar', [11, 11]],
+      ['c40-polar', [12, 12]],
+      ['c20-fine', [13, 13]],
+      ['c20-finest', [14, 14]],
     ],
   );
+  // Every band draws the stack's heights, as Elevation mosaics them.
+  for (const band of CONTOUR_BANDS) {
+    assert.equal(band.heights, true, band.key);
+    assert.equal(band.key.split('-')[1], band.stack, band.key);
+  }
   // Neighbouring bands meet: each one's ceiling is the next one's floor.
   for (let i = 1; i < CONTOUR_BANDS.length; i++)
     assert.equal(CONTOUR_BANDS[i].maxHeightM, CONTOUR_BANDS[i - 1].minHeightM);
