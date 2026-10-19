@@ -44,7 +44,7 @@ test('catalogs construct distinct layers and classification from their supplied 
   // Recorded Video layer, the six Earth Engine overlays
   // (src/data/earthEngineLayers.js), the Grid and the Wikipedia coverage
   // layer.
-  assert.equal(first.layers.length, 43);
+  assert.equal(first.layers.length, 44);
   assert.ok(first.get('local-adsb'), 'Local ADS-B is registered');
   assert.deepEqual(
     first.metadata.find(({ id }) => id === 'local-adsb'),
@@ -164,7 +164,7 @@ test('Mapillary can be omitted or replaced without changing catalog membership',
   // Recorded Video layer, the six Earth Engine overlays
   // (src/data/earthEngineLayers.js), the Grid and the Wikipedia coverage
   // layer.
-  assert.equal(catalog.layers.length, 43);
+  assert.equal(catalog.layers.length, 44);
   assert.deepEqual(catalog.get('street-level').providerIds, []);
   assert.equal(
     catalogControlServices(catalog).streetLevelLayer,

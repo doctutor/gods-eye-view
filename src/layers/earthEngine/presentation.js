@@ -153,8 +153,10 @@ export function inkSwatch(record, ink) {
  * The status line.
  * @param {{catalog?: object|null, layer?: object|null, variant?: string,
  *   loading?: boolean, failure?: string|null, hostless?: boolean,
- *   ceilingM?: number|null, slowDistricts?: boolean, americasV2?: boolean}}
+ *   ceilingM?: number|null, slowDistricts?: boolean, americasV2?: boolean,
+ *   demSource?: string}}
  *   state - `americasV2`: the Rivers draw the Americas from HydroSHEDS v2;
+ *   `demSource`: a terrain layer's elevation source under the view;
  *   `hostless`:
  *   the map stack can drape no imagery; `ceilingM`: the camera is above the
  *   layer's ceiling; `slowDistricts`: districts are forced from far out.
@@ -169,6 +171,7 @@ export function statusText({
   ceilingM = null,
   slowDistricts = false,
   americasV2 = false,
+  demSource = '',
 }) {
   if (failure)
     return t('Earth Engine unavailable: {reason}', { reason: failure });
@@ -190,6 +193,9 @@ export function statusText({
       }),
     );
   else if (variantLabel(variant)) parts.push(variantLabel(variant));
+  // The terrain layers: the DEM drawing under the view (a proper name).
+  if (demSource && !Number.isFinite(ceilingM))
+    parts.push(t('Elevation: {source}', { source: demSource }));
   if (slowDistricts)
     parts.push(t('Districts from this height: the tiles arrive slowly'));
   if (americasV2) parts.push(t('The Americas from HydroSHEDS v2'));
@@ -219,9 +225,11 @@ export function statusText({
  *   level?: string, onLevel?: (key: string) => void, ink?: string,
  *   onInk?: (key: string) => void, inkDrawn?: string,
  *   slowDistricts?: boolean, mode?: string,
- *   onMode?: (key: string) => void}} input - `level` and `ink` are the
- *   settings ('auto' or a key); `inkDrawn` the ink in use; `mode` the
- *   mode of a layer with modes.
+ *   onMode?: (key: string) => void, americasV2?: boolean,
+ *   demSource?: string, creditTitle?: string}} input - `level` and `ink`
+ *   are the settings ('auto' or a key); `inkDrawn` the ink in use; `mode`
+ *   the mode of a layer with modes; `demSource` and `creditTitle` a terrain
+ *   layer's source under the view and the notices of those in it.
  */
 export function rowControls({
   record,
@@ -242,6 +250,8 @@ export function rowControls({
   mode = '',
   onMode = () => {},
   americasV2 = false,
+  demSource = '',
+  creditTitle = '',
 }) {
   const layer = catalog?.layers?.get?.(record.id) || null;
   const variantKeys = new Set((record.variants || []).map((v) => v.key));
@@ -326,7 +336,9 @@ export function rowControls({
       ceilingM,
       slowDistricts,
       americasV2,
+      demSource,
     }),
-    infoTitle: layer?.attribution || '',
+    // A terrain layer: the notices of the sources in view.
+    infoTitle: creditTitle || layer?.attribution || '',
   };
 }

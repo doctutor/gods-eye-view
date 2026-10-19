@@ -41,7 +41,7 @@ test('all acquisition sources may be absent, and enable fails before initializin
   // Recorded Video layer, the six Earth Engine overlays
   // (src/data/earthEngineLayers.js), the Grid and the Wikipedia coverage
   // layer.
-  assert.equal(actual.layers.length, 43);
+  assert.equal(actual.layers.length, 44);
   const manager = new LayerLifecycle(
     {},
     { getSourceAvailability: actual.getSourceAvailability },

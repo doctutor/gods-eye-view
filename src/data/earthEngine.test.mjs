@@ -70,25 +70,64 @@ test('every map request is exactly the committed fixture', async () => {
           );
   // A changed layer changes what is sent: regenerate the fixture with it.
   assert.deepEqual(built, requests);
-  const slope = requests['ee-terrain-slope/near/default'];
+  // Terrain: each band of the DEM stack is a mosaic of each source's
+  // terrain, bottom to top.
+  const slope = requests['ee-terrain-slope/base/default'];
   assert.equal(slope.fileFormat, 'PNG');
   assert.equal(slope.expression.result, '0');
   const root = slope.expression.values['0'].functionInvocationValue;
-  assert.equal(root.functionName, 'Terrain.slope');
+  assert.equal(root.functionName, 'ImageCollection.mosaic');
+  const layersOf = (request) =>
+    request.expression.values['0'].functionInvocationValue.arguments.collection
+      .functionInvocationValue.arguments.images.arrayValue.values;
+  assert.equal(layersOf(slope).length, 3);
   assert.deepEqual(slope.visualizationOptions.ranges, [{ min: 0, max: 45 }]);
-  assert.match(JSON.stringify(slope), /COPERNICUS\/DEM\/GLO30_2024_1/);
-  assert.match(JSON.stringify(slope), /Image\.setDefaultProjection/);
-  // Far views: GMTED2010, one pyramided image, its zero sea masked, in its
-  // own projection.
-  const far = requests['ee-terrain-hillshade/far/default'];
-  const farRoot = far.expression.values['0'].functionInvocationValue;
-  assert.equal(farRoot.functionName, 'Terrain.hillshade');
+  // FABDEM, in its own 1″ grid (another grid resamples it into lines), its
+  // water at 0 masked; Copernicus GLO-30 is no longer drawn.
+  const text = JSON.stringify(slope);
+  assert.match(text, /projects\/sat-io\/open-datasets\/FABDEM/);
+  assert.match(text, /"crsTransform"/);
+  assert.doesNotMatch(JSON.stringify(requests), /COPERNICUS\/DEM\/GLO30/);
+  const top = layersOf(slope).at(-1).functionInvocationValue;
+  assert.equal(top.functionName, 'Terrain.slope');
   assert.equal(
-    farRoot.arguments.input.functionInvocationValue.functionName,
+    top.arguments.input.functionInvocationValue.functionName,
     'Image.selfMask',
   );
+  // Far views: GMTED2010 on top, its zero sea masked, ArcticDEM and REMA
+  // beneath it (Greenland, Antarctica), clipped to their boxes.
+  const far = requests['ee-terrain-hillshade/far/default'];
+  const farLayers = layersOf(far).map((node) => node.functionInvocationValue);
+  assert.equal(farLayers[2].functionName, 'Terrain.hillshade');
+  assert.deepEqual(
+    farLayers.slice(0, 2).map((node) => node.functionName),
+    ['Image.clip', 'Image.clip'],
+  );
   assert.match(JSON.stringify(far), /USGS\/GMTED2010_FULL/);
-  assert.doesNotMatch(JSON.stringify(far), /setDefaultProjection/);
+  assert.match(JSON.stringify(far), /UMN\/PGC\/ArcticDEM\/V4\/2m_mosaic/);
+  assert.match(JSON.stringify(far), /UMN\/PGC\/REMA\/V1_1\/8m/);
+  assert.doesNotMatch(JSON.stringify(far), /FABDEM|3DEP/);
+  // Close in, over the United States: 3DEP 10 m in its own grid, and 3DEP
+  // 1 m drawn image by image (its tiles are in many UTM zones), both
+  // clipped to the US boxes.
+  const finest = JSON.stringify(
+    requests['ee-terrain-hillshade/finest/default'],
+  );
+  assert.match(finest, /USGS\/3DEP\/10m_collection/);
+  assert.match(finest, /"USGS\/3DEP\/1m"/);
+  assert.match(finest, /Collection\.map/);
+  assert.match(finest, /GeometryConstructors\.MultiPolygon/);
+  assert.doesNotMatch(finest, /"USGS\/3DEP\/10m"/, 'not the deprecated image');
+  // Elevation: heights, renamed to one band, shown by their square root.
+  const elevation = requests['ee-elevation/fine/default'];
+  assert.equal(
+    elevation.expression.values['0'].functionInvocationValue.functionName,
+    'Image.sqrt',
+  );
+  assert.deepEqual(elevation.visualizationOptions.ranges, [
+    { min: 0, max: 80 },
+  ]);
+  assert.doesNotMatch(JSON.stringify(elevation), /Terrain\./);
   const loss =
     requests['ee-forest-loss/default/default'].expression.values['0'];
   assert.equal(loss.functionInvocationValue.functionName, 'Image.selfMask');
@@ -149,23 +188,117 @@ test('the boundaries change level with the camera’s height', () => {
   assert.equal(variantForHeight(byId('ee-forest-loss'), 10).key, 'default');
 });
 
-test('terrain draws from GMTED2010 above 3,000 km and Copernicus below', () => {
+test('terrain draws from the DEM stack: a band per zoom range, chosen by height, drawn by zoom', () => {
   for (const id of [
     'ee-terrain-slope',
     'ee-terrain-aspect',
     'ee-terrain-hillshade',
+    'ee-elevation',
   ]) {
     const layer = byId(id);
+    assert.equal(layer.demStack, true, id);
+    assert.equal(layer.lazyMaps, true, id);
     assert.deepEqual(
       layerVariants(layer).map((v) => v.key),
-      ['far', 'near'],
+      ['far', 'base', 'polar', 'fine', 'finest'],
     );
+    assert.equal(zoomMatched(layer), true, id);
+    // The heights are where Cesium's drape zoom steps (1,600 px canvas).
     assert.equal(variantForHeight(layer, 20_000_000).key, 'far', id);
-    assert.equal(variantForHeight(layer, 3_000_000).key, 'far', id);
-    assert.equal(variantForHeight(layer, 2_999_999).key, 'near', id);
-    assert.equal(variantForHeight(layer, 500).key, 'near', id);
-    assert.match(layer.attribution, /Copernicus DEM GLO-30.*GMTED2010/);
+    assert.equal(variantForHeight(layer, 3_337_500).key, 'far', id);
+    assert.equal(variantForHeight(layer, 3_337_499).key, 'base', id);
+    assert.equal(variantForHeight(layer, 104_297).key, 'base', id);
+    assert.equal(variantForHeight(layer, 104_296).key, 'polar', id);
+    assert.equal(variantForHeight(layer, 26_075).key, 'polar', id);
+    assert.equal(variantForHeight(layer, 26_074).key, 'fine', id);
+    assert.equal(variantForHeight(layer, 13_038).key, 'fine', id);
+    assert.equal(variantForHeight(layer, 13_037).key, 'finest', id);
+    assert.equal(variantForHeight(layer, 500).key, 'finest', id);
+    // Each tile from the band of its zoom: GMTED2010 to z 5, FABDEM from 6.
+    assert.deepEqual(
+      [0, 5, 6, 10, 11, 12, 13, 14, 17].map(
+        (z) => variantForZoom(layer, z).key,
+      ),
+      [
+        'far',
+        'far',
+        'base',
+        'base',
+        'polar',
+        'polar',
+        'fine',
+        'finest',
+        'finest',
+      ],
+    );
+    assert.match(layer.attribution, /FABDEM v1-2.*CC BY-NC-SA 4\.0/);
   }
+  assert.equal(byId('ee-terrain-slope').maxZoom, 17, '3DEP 1 m');
+  assert.equal(byId('ee-elevation').maxZoom, 14, 'a tint gains nothing deeper');
+});
+
+test('the DEM stack is served through the zoom variant; each band’s map is made when a tile asks', async (t) => {
+  const root = await tempRoot(t);
+  const slope = byId('ee-terrain-slope');
+  const made = [];
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    layers: [slope],
+    backend: {
+      async createMap(layer, variant, ink) {
+        made.push(mapKey(layer, variant, ink));
+        return { name: `projects/p/maps/${variant.key}` };
+      },
+      async fetchTile(name, z, x, y) {
+        return {
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from(`${name}/${z}/${x}/${y}`),
+        };
+      },
+    },
+  });
+  const catalog = await service.layers();
+  assert.deepEqual(made, [], 'lazy: no map for the catalog');
+  const row = catalog.layers[0];
+  assert.equal(row.maxZoom, 17);
+  assert.deepEqual(
+    row.variants.map((variant) => variant.key),
+    ['far', 'base', 'polar', 'fine', 'finest', ZOOM_VARIANT],
+  );
+  assert.match(row.variants.at(-1).versions.default, /^[0-9a-f]{12}$/);
+  for (const [z, band] of [
+    [0, 'far'],
+    [5, 'far'],
+    [6, 'base'],
+    [11, 'polar'],
+    [13, 'fine'],
+    [17, 'finest'],
+  ]) {
+    const tile = await service.tile(
+      'ee-terrain-slope',
+      ZOOM_VARIANT,
+      'default',
+      z,
+      0,
+      0,
+    );
+    assert.equal(String(tile.body), `projects/p/maps/${band}/${z}/0/0`);
+  }
+  assert.deepEqual(made, [
+    'ee-terrain-slope/far/default',
+    'ee-terrain-slope/base/default',
+    'ee-terrain-slope/polar/default',
+    'ee-terrain-slope/fine/default',
+    'ee-terrain-slope/finest/default',
+  ]);
+  assert.equal(
+    (await service.tile('ee-terrain-slope', ZOOM_VARIANT, 'default', 18, 0, 0))
+      .status,
+    400,
+    'past maxZoom 17',
+  );
 });
 
 test('configured only with a project and a key file that exists; the key is never read here', async (t) => {
@@ -388,22 +521,27 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
   const [first] = await Promise.all([service.layers(), service.layers()]);
   assert.equal(
     backend.made.length,
-    13,
-    'one map per variant and ink, one request each',
+    7,
+    'one map per variant and ink, one request each (the DEM stack and the Rivers make theirs when a tile asks)',
   );
   assert.ok(backend.made.includes('ee-admin-boundaries/level0/dark'));
-  assert.ok(backend.made.includes('ee-terrain-slope/near/default'));
-  assert.ok(backend.made.includes('ee-terrain-slope/far/default'));
+  assert.ok(backend.made.includes('ee-forest-loss/default/default'));
+  assert.ok(!backend.made.some((key) => key.startsWith('ee-terrain-')));
   assert.equal(first.configured, true);
   const slope = first.layers.find((layer) => layer.id === 'ee-terrain-slope');
   assert.equal(
     slope.tileUrl,
     '/api/earth-engine/tile/ee-terrain-slope/{variant}/{ink}/{z}/{x}/{y}',
   );
-  assert.equal(slope.variants[0].ready, true);
+  assert.equal(slope.variants[0].ready, false, 'not made yet');
   assert.deepEqual(slope.inks, ['default']);
-  assert.match(slope.attribution, /^Google Earth Engine · Copernicus DEM/);
+  assert.match(
+    slope.attribution,
+    /^Google Earth Engine · Elevation from the DEM stack/,
+  );
   assert.equal(slope.error, null);
+  const loss = first.layers.find((layer) => layer.id === 'ee-forest-loss');
+  assert.equal(loss.variants[0].ready, true);
   assert.deepEqual(
     first.layers
       .find((layer) => layer.id === 'ee-admin-boundaries')
@@ -424,17 +562,15 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
     ['light', 'dark'],
   );
   await service.layers();
-  assert.equal(backend.made.length, 13, 'kept');
+  assert.equal(backend.made.length, 7, 'kept');
   clock += MAP_TTL_MS + 1;
   failing = true;
   const stale = await service.layers();
-  assert.equal(backend.made.length, 26, 'asked again');
-  const staleSlope = stale.layers.find(
-    (layer) => layer.id === 'ee-terrain-slope',
-  );
-  assert.equal(staleSlope.variants[0].ready, true, 'the old map still serves');
+  assert.equal(backend.made.length, 14, 'asked again');
+  const staleLoss = stale.layers.find((layer) => layer.id === 'ee-forest-loss');
+  assert.equal(staleLoss.variants[0].ready, true, 'the old map still serves');
   assert.equal(
-    staleSlope.error,
+    staleLoss.error,
     'Earth Engine 400: bad expression',
     'and the error is said',
   );
@@ -713,9 +849,9 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     now: () => clock,
   });
   for (let x = 0; x < 4; x++)
-    await service.tile('ee-terrain-slope', 'near', 'default', 4, x, 1);
+    await service.tile('ee-terrain-slope', 'base', 'default', 6, x, 1);
   // A disk hit is not counted.
-  await service.tile('ee-terrain-slope', 'near', 'default', 4, 0, 1);
+  await service.tile('ee-terrain-slope', 'base', 'default', 6, 0, 1);
   await service.tile('ee-forest-loss', 'default', 'default', 4, 0, 1);
   const budgetWarnings = () => warnings.filter((w) => /tile budget/.test(w));
   assert.deepEqual(budgetWarnings(), [
@@ -738,6 +874,7 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     'ee-terrain-slope': 4,
     'ee-terrain-aspect': 0,
     'ee-terrain-hillshade': 0,
+    'ee-elevation': 0,
     'ee-forest-loss': 6,
     'ee-admin-boundaries': 0,
     'ee-rivers': 0,

@@ -3314,5 +3314,7 @@
   "Too many river lookups; try again shortly": "Слишком много запросов о реках; повторите чуть позже",
   "The river could not be traced": "Не удалось проследить реку",
   "A river of the {basin} basin": "Река бассейна: {basin}",
-  "The Americas from HydroSHEDS v2": "Америка — по HydroSHEDS v2"
+  "The Americas from HydroSHEDS v2": "Америка — по HydroSHEDS v2",
+  "Elevation": "Высота рельефа",
+  "Elevation: {source}": "Высоты: {source}"
 }

@@ -23,6 +23,7 @@ import {
   toCatalogLayer,
 } from './source.js';
 import { legendLabel, statusText } from './presentation.js';
+import { demSourceCredit } from '../../data/dataCredits.js';
 
 const record = (id) => EARTH_ENGINE_LAYERS.find((layer) => layer.id === id);
 
@@ -604,7 +605,11 @@ test('an overlay covers only the view’s neighbourhood, rebuilt as the view mov
     0,
     'a raised minimum would fan out on tilesets',
   );
-  assert.equal(first.imageryProvider.maximumLevel, 14);
+  assert.equal(
+    first.imageryProvider.maximumLevel,
+    17,
+    'over the United States: as deep as 3DEP 1 m goes',
+  );
   const rect = first.rectangle;
   const deg = (r) => Cesium.Math.toDegrees(r);
   assert.ok(deg(rect.south) < 39.29 && deg(rect.north) > 39.29);
@@ -686,14 +691,15 @@ test('above its ceiling an overlay asks for nothing and says how low to go', asy
                 key: 'far',
                 ready: true,
                 auto: true,
-                minHeightM: 3_000_000,
+                minHeightM: 3_337_500,
                 versions: { default: 'aaaaaaaaaaaa' },
               },
               {
-                key: 'near',
+                key: 'base',
                 ready: true,
                 auto: true,
-                maxHeightM: 3_000_000,
+                minHeightM: 104_296.875,
+                maxHeightM: 3_337_500,
                 versions: { default: 'bbbbbbbbbbbb' },
               },
             ],
@@ -711,20 +717,20 @@ test('above its ceiling an overlay asks for nothing and says how low to go', asy
   assert.match(
     fake.layers[0].imageryProvider.url,
     /\/ee-terrain-slope\/far\/default\/\{z\}\/\{x\}\/\{y\}\?v=aaaaaaaaaaaa$/,
-    'from GMTED2010, which Earth Engine answers in under a second; the map hash in the URL',
+    'the far band (GMTED2010), which Earth Engine answers in under a second; the map hash in the URL',
   );
   assert.equal(
     fake.layers[0].rectangle.west,
     -Math.PI,
     'no view rectangle: the whole world',
   );
-  // Below 3,000 km the Copernicus DEM takes over.
+  // Below 3,337 km FABDEM's band takes over.
   fake.setHeight(1_000_000);
   fake.settle();
   assert.equal(fake.layers.length, 1);
   assert.match(
     fake.layers[0].imageryProvider.url,
-    /\/ee-terrain-slope\/near\/default\/\{z\}\/\{x\}\/\{y\}\?v=bbbbbbbbbbbb$/,
+    /\/ee-terrain-slope\/base\/default\/\{z\}\/\{x\}\/\{y\}\?v=bbbbbbbbbbbb$/,
   );
   slope.destroy();
 });
@@ -845,7 +851,7 @@ test('the boundaries take their ink from the basemap, and the chips force and ke
     'auto',
   );
   // An image layer has no ink chips and a 'default' ink in its URL; its
-  // far/near sources are no chips either.
+  // DEM stack bands are no chips either.
   const slope = createEarthEngineLayer({
     record: record('ee-terrain-slope'),
     source: createEarthEngineSource({
@@ -862,7 +868,7 @@ test('the boundaries take their ink from the basemap, and the chips force and ke
   slope.init(fake.viewer);
   slope.enable(fake.viewer);
   await flush();
-  assert.match(fake.layers[0].imageryProvider.url, /\/near\/default\/\{z\}/);
+  assert.match(fake.layers[0].imageryProvider.url, /\/polar\/default\/\{z\}/);
   assert.equal(slope._state().ink, 'default');
   slope.destroy();
 });
@@ -947,4 +953,127 @@ test('the level chips force countries, regions or districts, kept in the browser
     'auto',
   );
   assert.equal(readLevel(memoryStorage(), record('ee-forest-loss')), 'auto');
+});
+
+test('the terrain layers: each tile by the DEM stack band of its zoom, the row naming the source under the view, the credit and the depth following the sources in it', async () => {
+  const fake = fakeViewer(20_000);
+  fake.setCentre(46.85, -121.76);
+  const bands = record('ee-terrain-slope').variants;
+  const server = fakeServer({
+    configured: true,
+    tiles: { used: 0, budget: 20000 },
+    layers: [
+      serverLayer('ee-terrain-slope', {
+        maxZoom: 17,
+        variants: [
+          ...bands.map((v) => ({
+            key: v.key,
+            ready: false,
+            auto: true,
+            ...(v.minHeightM ? { minHeightM: v.minHeightM } : {}),
+            ...(v.maxHeightM ? { maxHeightM: v.maxHeightM } : {}),
+            versions: { default: '111111111111' },
+          })),
+          {
+            key: 'zoom',
+            ready: false,
+            minZoom: 0,
+            versions: { default: 'abcdefabcdef' },
+          },
+        ],
+      }),
+    ],
+  });
+  const registered = [];
+  const layer = createEarthEngineLayer({
+    record: record('ee-terrain-slope'),
+    source: createEarthEngineSource({ fetchImpl: server.fetchImpl }),
+    storage: memoryStorage(),
+    credits: { register: (viewer, credit) => registered.push(credit.key) },
+    demCredit: demSourceCredit,
+  });
+  layer.init(fake.viewer);
+  layer.enable(fake.viewer);
+  await flush();
+  // Mount Rainier from 20 km: through the zoom variant, as deep as 3DEP 1 m.
+  const [rainier] = fake.layers;
+  assert.match(
+    rainier.imageryProvider.url,
+    /\/ee-terrain-slope\/zoom\/default\/\{z\}\/\{x\}\/\{y\}\?v=abcdefabcdef$/,
+  );
+  assert.equal(rainier.imageryProvider.minimumLevel, 0);
+  assert.equal(rainier.imageryProvider.maximumLevel, 17);
+  assert.equal(
+    layer.getRowControls().info,
+    'Elevation: USGS 3DEP 10 m · 0 of 20000 tiles today',
+  );
+  const creditOf = (imagery) => imagery.imageryProvider.credit.html;
+  assert.match(
+    creditOf(rainier),
+    /^Google Earth Engine · FABDEM 30 m: FABDEM v1-2/,
+  );
+  assert.match(creditOf(rainier), /USGS 3DEP 10 m: .*USGS 3DEP 1 m: /);
+  assert.doesNotMatch(creditOf(rainier), /ArcticDEM|REMA|GMTED/);
+  assert.match(layer.getRowControls().infoTitle, /CC BY-NC-SA 4\.0/);
+  assert.deepEqual(registered, [
+    'earth-engine-ee-terrain-slope',
+    'dem-fabdem',
+    'dem-3dep10',
+    'dem-3dep1',
+  ]);
+  // Closer: 3DEP 1 m where lidar covers, 10 m between surveys.
+  fake.setHeight(5_000);
+  fake.settle();
+  assert.match(
+    layer.getRowControls().info,
+    /^Elevation: USGS 3DEP 1 m \/ USGS 3DEP 10 m · /,
+  );
+  // The Alps: FABDEM, no deeper than z 14, the US sources no longer credited.
+  fake.setCentre(46.5, 8.0);
+  fake.setHeight(20_000);
+  fake.settle();
+  const [alps] = fake.layers;
+  assert.notEqual(alps, rainier);
+  assert.equal(alps.imageryProvider.maximumLevel, 14);
+  assert.equal(
+    layer.getRowControls().info,
+    'Elevation: FABDEM 30 m · 0 of 20000 tiles today',
+  );
+  assert.doesNotMatch(creditOf(alps), /3DEP/);
+  // Tromsø from 60 km: ArcticDEM on top, as deep as z 16.
+  fake.setCentre(69.65, 18.96);
+  fake.setHeight(60_000);
+  fake.settle();
+  assert.equal(fake.layers[0].imageryProvider.maximumLevel, 16);
+  assert.match(layer.getRowControls().info, /^Elevation: ArcticDEM 2 m · /);
+  assert.match(creditOf(fake.layers[0]), /ArcticDEM 2 m: ArcticDEM v4\.1/);
+  assert.ok(registered.includes('dem-arcticdem'));
+  // From orbit: GMTED2010, the whole world.
+  fake.setHeight(20_000_000);
+  fake.settle();
+  assert.match(layer.getRowControls().info, /^Elevation: GMTED2010 230 m · /);
+  assert.equal(fake.layers[0].rectangle.west, -Math.PI);
+  layer.destroy();
+});
+
+test('Elevation: the same stack, its polar sources only beneath, in its own tint', () => {
+  const elevation = record('ee-elevation');
+  assert.equal(elevation.demStack, true);
+  assert.equal(elevation.transform, 'sqrt');
+  assert.ok(elevation.variants.every((v) => v.heights === true));
+  assert.deepEqual(
+    elevation.legend.map((entry) => entry.label),
+    ['0 m', '400 m', '1,600 m', '3,600 m', '6,400 m+'],
+  );
+  // The legend's stops are the squares of the tint's 0 to 80 range.
+  assert.deepEqual(elevation.vis, {
+    min: 0,
+    max: 80,
+    palette: elevation.vis.palette,
+  });
+  assert.equal(elevation.vis.palette.length, 9);
+  assert.equal(`#${elevation.vis.palette[2]}`, elevation.legend[1].color);
+  assert.equal(`#${elevation.vis.palette[8]}`, elevation.legend[4].color);
+  assert.match(attributionCredit(elevation).html, /^Elevation: <a href=/);
+  assert.match(attributionCredit(elevation).html, /credited below$/);
 });

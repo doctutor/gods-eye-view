@@ -8,6 +8,7 @@ import { governorRequestRender } from '../../renderGovernor.js';
 import {
   HYDROSHEDS_V2_CREDIT,
   RIVER_REACH_CREDIT,
+  demSourceCredit,
   registerDynamicCredit,
 } from '../../data/dataCredits.js';
 import * as picking from '../../data/pickRegistry.js';
@@ -18,7 +19,8 @@ import { overlayHost } from './overlayHost.js';
  * Personal-fork Earth Engine overlays (ANALYSIS in the DATA LAYERS panel):
  * one layer per record of src/data/earthEngineLayers.js, sharing one catalog
  * source. The Rivers record also gets its names (world-overlay labels), its
- * clicks (a reach traced to the sea) and HydroSHEDS v2 over the Americas.
+ * clicks (a reach traced to the sea) and HydroSHEDS v2 over the Americas;
+ * the terrain layers credit their DEM stack's sources (demSourceCredit).
  */
 export function createApplicationEarthEngineLayers({
   source = createEarthEngineSource(),
@@ -48,6 +50,8 @@ export function createApplicationEarthEngineLayers({
           : null,
       v2Source: record.americasV2 ? riversV2 : null,
       v2Credit: record.americasV2 ? HYDROSHEDS_V2_CREDIT : null,
+      // The terrain layers credit each elevation source as it first draws.
+      demCredit: record.demStack ? demSourceCredit : null,
     }),
   );
 }

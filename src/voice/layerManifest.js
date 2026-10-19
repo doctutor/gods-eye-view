@@ -416,6 +416,7 @@ export const VOICE_OFF_LAYERS = Object.freeze({
   'ee-terrain-slope': 'personal fork layer',
   'ee-terrain-aspect': 'personal fork layer',
   'ee-terrain-hillshade': 'personal fork layer',
+  'ee-elevation': 'personal fork layer',
   'ee-forest-loss': 'personal fork layer',
   'ee-admin-boundaries': 'personal fork layer',
   'ee-rivers': 'personal fork layer',

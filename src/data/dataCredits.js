@@ -523,6 +523,33 @@ export const RIVER_REACH_CREDIT = {
     '<a href="https://earthengine.google.com/" target="_blank" rel="noopener">Google Earth Engine</a>',
 };
 
+const escapeCreditHtml = (value) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+/**
+ * Personal fork: one elevation source of the terrain layers' DEM stack
+ * (src/data/demStack.js DEM_SOURCES), registered the first time a terrain
+ * layer draws from it: its name, linked to its page, and the notice its
+ * terms ask for (FABDEM: CC BY-NC-SA 4.0 with Copernicus' notice; ArcticDEM
+ * and REMA: PGC's NSF acknowledgement; 3DEP and GMTED2010: public domain).
+ * @param {{key: string, name: string, credit: string, url?: string}} source
+ * @returns {{ key: string, html: string }}
+ */
+export function demSourceCredit(source) {
+  const name = escapeCreditHtml(source.name);
+  const linked = /^https:\/\//.test(String(source.url || ''))
+    ? `<a href="${escapeCreditHtml(source.url)}" target="_blank" rel="noopener">${name}</a>`
+    : name;
+  return {
+    key: `dem-${source.key}`,
+    html: `Elevation, ${linked}: ${escapeCreditHtml(source.credit)}, via <a href="https://earthengine.google.com/" target="_blank" rel="noopener">Google Earth Engine</a>`,
+  };
+}
+
 /** Registered when the first bundled US county outline resolves (public
  * domain — credited as a courtesy). */
 export const US_CENSUS_CREDIT = {

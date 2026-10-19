@@ -3243,5 +3243,7 @@
   "Too many river lookups; try again shortly": "Demasiadas búsquedas de ríos; inténtalo de nuevo en breve",
   "The river could not be traced": "No se pudo trazar el río",
   "A river of the {basin} basin": "Un río de la cuenca del {basin}",
-  "The Americas from HydroSHEDS v2": "Las Américas, de HydroSHEDS v2"
+  "The Americas from HydroSHEDS v2": "Las Américas, de HydroSHEDS v2",
+  "Elevation": "Elevación",
+  "Elevation: {source}": "Elevación: {source}"
 }
