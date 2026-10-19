@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DOWNLOADS, buildPaths, fetchDownloads, runBuild } from './build.mjs';
 import { findRiverInputs } from './sources.mjs';
+import { checkRawDir, rawDirFor, rawDirLabel } from '../rawDir.mjs';
 import { readLevelHeader } from '../../server/providers/riversV2/levelFile.js';
 import { tileVersion } from '../../server/providers/riversV2/bands.js';
 
@@ -93,8 +94,10 @@ function directoryBytes(dir) {
 }
 
 /** What `status` reports. */
-export function statusOf(dir) {
-  const paths = buildPaths(dir);
+export function statusOf(dir, rawDir) {
+  const paths = buildPaths(dir, rawDir);
+  if (rawDir) checkRawDir(paths.raw, { write: false });
+  const raw = rawDir ? rawDirLabel(paths.raw) : paths.raw;
   const inputs = findRiverInputs(paths.raw).map((input) => ({
     region: input.region,
     file: path.basename(input.file),
@@ -111,6 +114,7 @@ export function statusOf(dir) {
     return {
       built: false,
       dir,
+      raw,
       inputs,
       hint: inputs.length ? 'npm run rivers:build' : 'npm run rivers:fetch',
     };
@@ -129,6 +133,7 @@ export function statusOf(dir) {
   return {
     built: levels.every((level) => level.readable),
     dir,
+    raw,
     inputs,
     builtAt: manifest.builtAt,
     buildId: manifest.buildId,
@@ -154,7 +159,7 @@ function statusLines(status) {
         (input) =>
           `input: ${input.file} (${input.region}, ${(input.bytes / 1e9).toFixed(2)} GB)`,
       )
-    : [`no inputs under ${status.dir}${path.sep}raw; run npm run rivers:fetch`];
+    : [`no inputs under ${status.raw}; run npm run rivers:fetch`];
   if (!status.levels) {
     lines.push(`not built; run ${status.hint}`);
     return lines;
@@ -179,29 +184,34 @@ function statusLines(status) {
 async function main(argv) {
   const { command, flags } = parseArgs(argv);
   const dir = riversDir(process.env, flags);
+  // GEV_RAW_DIR/rivers/raw when set (the environment's or .env's), else raw/.
+  const rawDir = rawDirFor('rivers', null);
+  const paths = buildPaths(dir, rawDir);
   const log = (line) => console.log(`[rivers] ${line}`);
   if (command === 'status') {
-    const status = statusOf(dir);
+    const status = statusOf(dir, rawDir);
     if (flags.json) console.log(JSON.stringify(status, null, 2));
     else for (const line of statusLines(status)) console.log(line);
     return status.built ? 0 : 1;
   }
+  if (command === 'fetch' || command === 'build') checkRawDir(paths.raw);
   if (command === 'fetch') {
-    await fetchDownloads({ rawDir: buildPaths(dir).raw, log });
+    await fetchDownloads({ rawDir: paths.raw, log });
     log(
-      `inputs: ${DOWNLOADS.map((download) => download.file).join(', ')} under ${buildPaths(dir).raw}`,
+      `inputs: ${DOWNLOADS.map((download) => download.file).join(', ')} under ${paths.raw}`,
     );
     return 0;
   }
   if (command === 'build') {
     const result = await runBuild({
       cacheDir: dir,
+      rawDir: paths.raw,
       force: Boolean(flags.force),
       limit: limitOf(flags.limit),
       log,
     });
     if (!result.skipped)
-      for (const line of statusLines(statusOf(dir))) log(line);
+      for (const line of statusLines(statusOf(dir, rawDir))) log(line);
     return 0;
   }
   console.error(`unknown command ${command}; use fetch, build or status`);

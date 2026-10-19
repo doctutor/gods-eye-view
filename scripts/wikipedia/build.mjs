@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import zlib from 'node:zlib';
+import { checkRawDir } from '../rawDir.mjs';
 import { parseDumpStream } from './dump.mjs';
 import {
   buildPyramid,
@@ -392,12 +393,18 @@ export function writeCoverageH3({
   });
 }
 
-/** The files a build directory holds. */
-export function buildFiles(dir) {
+/**
+ * The files a build directory holds. The dump and its metadata are the
+ * build's raw download: in the directory itself unless `rawDir` says
+ * otherwise (the CLI's GEV_RAW_DIR/wikipedia/raw, scripts/rawDir.mjs).
+ */
+export function buildFiles(dir, rawDir = dir) {
+  const raw = rawDir;
   return {
     dir,
-    geoTags: path.join(dir, 'enwiki-latest-geo_tags.sql.gz'),
-    geoTagsMeta: path.join(dir, 'geo_tags.meta.json'),
+    raw,
+    geoTags: path.join(raw, 'enwiki-latest-geo_tags.sql.gz'),
+    geoTagsMeta: path.join(raw, 'geo_tags.meta.json'),
     grid: path.join(dir, 'grid.bin'),
     h3: path.join(dir, 'h3.bin'),
     runs: path.join(dir, 'runs.jsonl'),
@@ -415,6 +422,7 @@ export function buildFiles(dir) {
  */
 export async function runBuild({
   dir,
+  rawDir = dir,
   text = false,
   force = false,
   offline = false,
@@ -425,8 +433,9 @@ export async function runBuild({
   sleepImpl = sleep,
   currentHeader = null,
 }) {
-  const files = buildFiles(dir);
+  const files = buildFiles(dir, rawDir);
   fs.mkdirSync(dir, { recursive: true });
+  if (files.raw !== dir) checkRawDir(files.raw);
   let dump;
   let changed = true;
   if (offline) {

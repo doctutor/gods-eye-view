@@ -9,6 +9,7 @@ import {
   planRowGroups,
   rowGroupFile,
 } from './buildingsPlan.mjs';
+import { checkRawDir } from '../rawDir.mjs';
 import { readPartHeader } from './buildingsParts.mjs';
 import { gapBoxes } from './openBuildingsGaps.mjs';
 import { BUCKET_ZOOM } from '../../server/providers/overture/buildingsFile.js';
@@ -125,6 +126,7 @@ const mergeStats = (into, stats) => {
  */
 export async function buildBuildings({
   dir,
+  rawRoot = null,
   regions = BUILDINGS_REGIONS,
   keepRaw = false,
   capBytes = BUILDINGS_CAP_BYTES,
@@ -135,7 +137,12 @@ export async function buildBuildings({
   const started = Date.now();
   for (const name of regions)
     if (!REGIONS[name]) throw new Error(`unknown region ${name}`);
-  const rawDir = path.join(dir, 'raw', BUILDINGS.release, 'buildings');
+  const rawDir = path.join(
+    rawRoot || path.join(dir, 'raw'),
+    BUILDINGS.release,
+    'buildings',
+  );
+  checkRawDir(rawDir);
   const outDir = path.join(dir, 'buildings');
   const previous = currentBuildings(dir);
   const order = [...(previous?.regions || [])];

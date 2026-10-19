@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REFRESH_EVERY_DAYS, buildFiles, runBuild } from './build.mjs';
+import { rawDirFor, rawDirLabel } from '../rawDir.mjs';
 import { readGridHeader } from '../../server/providers/wikipediaCoverage/grid.js';
 import { readArrayFileHeader } from '../../server/providers/wikipediaCoverage/arrayFile.js';
 import {
@@ -72,10 +73,11 @@ const limitOf = (value) => {
 };
 
 /** What `status` reports: the grid's header, its age, and the dump's. */
-export function statusOf(dir, now = () => Date.now()) {
-  const files = buildFiles(dir);
+export function statusOf(dir, now = () => Date.now(), rawDir = dir) {
+  const files = buildFiles(dir, rawDir);
+  const raw = rawDirLabel(files.raw);
   if (!fs.existsSync(files.grid))
-    return { built: false, dir, hint: 'npm run wikipedia:build' };
+    return { built: false, dir, raw, hint: 'npm run wikipedia:build' };
   const { header } = readGridHeader(files.grid);
   const builtAt = Date.parse(header.builtAt);
   const ageDays = Number.isFinite(builtAt)
@@ -84,6 +86,7 @@ export function statusOf(dir, now = () => Date.now()) {
   return {
     built: true,
     dir,
+    raw,
     builtAt: header.builtAt,
     ageDays,
     stale: ageDays !== null && ageDays > REFRESH_EVERY_DAYS,
@@ -122,6 +125,7 @@ function statusLines(status) {
     `grid: ${status.dir}${path.sep}grid.bin (${(status.bytes / 1_048_576).toFixed(1)} MB)`,
     `built: ${status.builtAt} (${status.ageDays} days ago${status.stale ? '; older than a month, rebuild' : ''})`,
     `dump: ${status.dump.date || '?'} (${status.dump.lastModified || 'no Last-Modified'})`,
+    `raw download: ${status.raw}`,
     `rows: ${number(status.rows.read)} read, ${number(status.rows.kept)} primary Earth coordinates kept, ${number(status.rows.otherGlobe)} other globes, ${number(status.rows.secondary)} secondary, ${number(status.rows.invalid)} invalid`,
     status.text.included
       ? `text: ${number(status.text.pagesMatched)} articles sized, ${number(status.text.bytes)} bytes`
@@ -147,17 +151,20 @@ function statusLines(status) {
 async function main(argv) {
   const { command, flags } = parseArgs(argv);
   const dir = wikipediaDir(process.env, flags);
+  // The dump: in the build's directory, or GEV_RAW_DIR/wikipedia/raw.
+  const rawDir = rawDirFor('wikipedia', dir);
   const log = (line) => console.log(`[wikipedia] ${line}`);
   if (command === 'status') {
-    const status = statusOf(dir);
+    const status = statusOf(dir, undefined, rawDir);
     if (flags.json) console.log(JSON.stringify(status, null, 2));
     else for (const line of statusLines(status)) console.log(line);
     return status.built ? 0 : 1;
   }
   if (command === 'build') {
-    const current = statusOf(dir);
+    const current = statusOf(dir, undefined, rawDir);
     const result = await runBuild({
       dir,
+      rawDir,
       text: Boolean(flags.text),
       force: Boolean(flags.force),
       offline: Boolean(flags.offline),
@@ -168,7 +175,8 @@ async function main(argv) {
         : null,
     });
     if (!result.skipped)
-      for (const line of statusLines(statusOf(dir))) log(line);
+      for (const line of statusLines(statusOf(dir, undefined, rawDir)))
+        log(line);
     return 0;
   }
   console.error(`unknown command ${command}; use build or status`);
