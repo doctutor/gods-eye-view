@@ -1576,6 +1576,14 @@ fresh tile cache: a burst of 64 tiles from orbit and close in (21 at z 0–6,
 before and 2.5 s after, the asked tiles answering in 2.3 to 2.4 s instead
 of 8.8 to 9.1 s; alone each is 4 to 17 ms from the disk cache.
 
+Tiles z 0–4 go to the first worker alone, ahead of the others' queue: they
+read every bucket's overview, which that worker builds once (each of four
+workers built its own). Both inks share one draw and one file below the
+footprints' zoom, and a tile file is written by a temp file of its own and
+a rename tried again when Windows refuses it (EPERM while another reader
+holds the file: refused 100 times in 100 here); a tile that cannot be kept
+is logged, once a minute, where it was silently dropped before.
+
 Measured, the conterminous US (2026-10-19): 8,061 row groups, 14.4 GB of
 column chunks fetched in 603 s (12 connections); decoded in 6.6 min (14
 workers) and merged in 2.7 min. **152,795,749 buildings** in 60 buckets,
