@@ -29,6 +29,7 @@ unless its switch is set to `0`.
 - [Google indoor views (Street Level)](#google-indoor-views-street-level)
 - [Baltimore enforcement and CitiWatch cameras](#baltimore-enforcement-and-citiwatch-cameras)
 - [Earth Engine layers (ANALYSIS)](#earth-engine-layers-analysis)
+  - [Rivers](#rivers)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
 - [Level of detail](#level-of-detail)
@@ -511,6 +512,7 @@ has level and ink chips (below).
 | Terrain slope, Terrain aspect, Hillshade  | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`); above 3,000 km GMTED2010, `USGS/GMTED2010_FULL`, band `mea` | Copernicus DEM licence; notice required (GMTED2010: USGS, public domain) |
 | Forest loss (2001–2025, coloured by year) | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                 | CC BY 4.0                                                                |
 | Administrative boundaries                 | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from LSIB 2017, `USDOS/LSIB/2017`           | CC BY 4.0 (LSIB: US public domain)                                       |
+| Rivers (see [Rivers](#rivers))            | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth          | HydroSHEDS licence, attribution (Natural Earth: public domain)           |
 
 The ids were taken from Earth Engine's catalog records on 2026-10-17. The
 older ids, `COPERNICUS/DEM/GLO30` and `FAO/GAUL/2015/*`, are deprecated, and
@@ -720,6 +722,208 @@ sensibly (elevation and what is derived from it) should draw from orbit.
 
 Anything else Earth Engine can compute needs a small addition to
 `expressionFor`. Use the REST names from the project's `algorithms` list.
+
+### Rivers
+
+**Rivers** (`ee-rivers`, ANALYSIS) draws the HydroRIVERS v1 network, 8,477,883
+reaches from HydroSHEDS' 15″ hydrography (weaker above 60° N, where it comes
+from coarser data), as Earth Engine publishes it with the connectivity
+attributes of the free-flowing rivers study: `WWF/HydroSHEDS/v1/FreeFlowingRivers`.
+The names are Natural Earth's, drawn by the client. Credit (in the Cesium credit
+line and the data-attribution popover): HydroSHEDS/WWF, Lehner, Verdin and
+Jarvis 2008 (Eos 89:93, HydroSHEDS), Grill et al. 2019 (Nature 569:215, the
+free-flowing rivers), and Natural Earth. The HydroSHEDS licence allows
+commercial and noncommercial use with attribution; Natural Earth is public
+domain.
+
+**Modes** (chips, kept as `gev.rivers.mode`):
+
+- **NETWORK**: every reach in the ink, wider and more opaque the larger its
+  flow (`RIV_ORD`, the order of the long-term average discharge: 1 is over
+  100,000 m³/s, the Amazon; each order a tenth of the one before). Widths
+  run from 3 px (order 1) to 1 px (order 8 and smaller); alpha from `ff`
+  to `77`.
+- **FREE-FLOWING**: three colours by `CSI_FF2` (1 free-flowing, 2 good
+  connectivity, 3 impacted): blue, yellow, vermillion.
+- **PRESSURE**: six colours by `CSI_D`, the pressure that lowers the reach's
+  connectivity most: dams (fragmentation, `DOF`) vermillion, flow regulation
+  (`DOR`) blue, sediment trapping (`SED`) orange, water consumption (`USE`)
+  purple, road density (`RDD`) green, urban areas (`URB`) yellow. The 5.3
+  million reaches with none (`NAN`) are drawn a faint grey.
+
+The colours are the Okabe–Ito hues, which stay apart with the common colour
+vision deficiencies. Each has a light-ink version (lightened, for imagery
+and dark maps) and a dark-ink one (darkened, for the white globe, Positron
+and the light styles), each at least 3.9:1 against its background; the
+network's inks are `9fd8ff` and `08519c`. **AUTO INK / LIGHT INK / DARK INK**
+work as on the boundaries, in every mode, and the legend's swatches follow
+the mode and the ink drawn.
+
+**How it is drawn.** Each reach gets a whole style (`{color, width}`) looked
+up from constant tables in one mapped function (`Collection.map`, then
+`Collection.style` with `styleProperty`): NETWORK one `List.get` by
+`RIV_ORD`, FREE-FLOWING a list by `CSI_FF2` then by `RIV_ORD`, PRESSURE a
+dictionary by `CSI_D` (with the faint style for anything else) then a list
+by `RIV_ORD`. Building a `Dictionary` per reach with `Number.format` keys
+(the first version) made the slowest tiles about twice as slow (orders 1 to
+6, pressure, z 5 over the Amazon: 18.3 s against 9.7 s). `RIV_ORD` (1 to 10) and `CSI_FF2` (1 to 3) are on every reach (counted live), so they index
+lists. Each (band, ink, mode) is its own map, 6 × 2 × 3 = 36, and the
+catalog makes none of them (`lazyMaps`): the first tile that needs one
+makes it. The tile route carries the mode after the layer,
+`/api/earth-engine/tile/ee-rivers/<mode>/<band>/<ink>/<z>/<x>/<y>?v=<hash>`,
+and the disk cache keeps them under
+`.gev-cache/earth-engine/tiles/ee-rivers/<mode>/<band>/<ink>/<hash>/`; `/layers`
+gives each band's hashes per mode and ink (`modeVersions`), so a changed
+expression is never served old tiles.
+
+**Level of detail: RIV_ORD bands by height** (level switching, like the
+boundaries). On AUTO the camera height picks how many orders are drawn,
+the largest rivers from orbit and more as the view comes in:
+
+| Camera height   | Band  | Orders                  | Tiles from | First-level tile, live (s) |
+| --------------- | ----- | ----------------------- | ---------- | -------------------------- |
+| 6,000 km and up | `o3`  | 1–3 (over 1,000 m³/s)   | z 2        | 4.6–8.6                    |
+| 1,600–6,000 km  | `o4`  | 1–4 (over 100 m³/s)     | z 3        | 2.5–11.7                   |
+| 700–1,600 km    | `o5`  | 1–5 (over 10 m³/s)      | z 4        | 2.5–12.9                   |
+| 250–700 km      | `o6`  | 1–6 (over 1 m³/s)       | z 5        | 1.7–14.2                   |
+| 80–250 km       | `o7`  | 1–7 (over 0.1 m³/s)     | z 6        | 1.6–8.2                    |
+| below 80 km     | `all` | every order (8,477,883) | z 7        | 0.9–3.0                    |
+
+Each band's tiles start at its `minZoom`: the client's imagery provider
+asks for nothing coarser (`minimumLevel`), and the server answers a coarser
+tile with a transparent 256 × 256 PNG it makes itself (no Earth Engine
+request, nothing counted). Earth Engine reads every reach under a tile, so
+a coarse tile of a dense band is slow whatever its filter, and a raised
+`minimumLevel` is safe only where the overlay's view square bounds it: a
+band drawn above 1,667 km (where the square is the whole world) starts at
+z 3 or coarser, at most 64 tiles. The bands' first levels finish in at most
+14.2 s against the proxy's 30 s, most under 9 s; the slowest are always
+over the Amazon. `maxZoom` is 11 (HydroSHEDS' 15″ is about 460 m).
+
+**Timings** (2026-10-18, sequential, nothing else running against the
+project; tiles fetched straight from Earth Engine with the server's
+credentials). Plain outlines (`Collection.style`, one colour and width),
+each row a fresh map:
+
+| Filter      | z 0  | z 1       | z 2       | z 3       | z 4      | z 5     | z 6     | z 7     |
+| ----------- | ---- | --------- | --------- | --------- | -------- | ------- | ------- | ------- |
+| RIV_ORD ≤ 3 | 11.9 | 6.9–8.7   | 3.2–4.4   | 1.6–3.7   | 0.8–2.2  | 0.5–2.3 |         |         |
+| RIV_ORD ≤ 4 | 11.4 | 8.2–13.5  | 5.7–7.2   | 2.1–7.4   | 1.3–6.0  | 0.7–2.3 |         |         |
+| RIV_ORD ≤ 5 | 26.8 | 12.0–15.2 | 20.4–26.8 | 2.7–6.0   | 3.4–4.5  | 0.7–2.4 |         |         |
+| RIV_ORD ≤ 6 |      |           | 24.2      | 7.8–13.0  | 2.9–7.3  | 0.9–6.1 | 0.5–1.7 |         |
+| RIV_ORD ≤ 7 |      |           | 31.5      | 8.0–36.5  | 4.2–12.4 | 2.1–6.4 | 1.0–3.0 |         |
+| all orders  | > 90 | 69–87     | 34–71     | 12.3–31.2 | 5.3–7.6  | 1.5–6.5 | 1.1–5.4 | 0.9–2.3 |
+
+The all-orders z 0 to 3 row is from a first run that overlapped other
+Earth Engine work (z 3 and deeper re-measured alone). The layer's own
+requests, per-reach styles, each band at its first two levels (s; light
+ink):
+
+| Band  | Mode         | First level   | Next level   |
+| ----- | ------------ | ------------- | ------------ |
+| `o3`  | network      | z 2: 4.6–8.6  | z 3: 1.6–4.5 |
+| `o3`  | free-flowing | z 2: 4.6–7.0  | z 3: 1.4–4.7 |
+| `o3`  | pressure     | z 2: 4.7–6.6  | z 3: 1.3–5.1 |
+| `o4`  | network      | z 3: 2.5–11.7 | z 4: 2.0–8.8 |
+| `o4`  | free-flowing | z 3: 3.6–11.2 | z 4: 1.5–5.9 |
+| `o4`  | pressure     | z 3: 2.6–8.9  | z 4: 1.5–5.7 |
+| `o5`  | network      | z 4: 2.5–8.2  | z 5: 2.5–4.2 |
+| `o5`  | pressure     | z 4: 3.8–12.9 | z 5: 5.9     |
+| `o6`  | network      | z 5: 1.7–9.0  | z 6: 1.6–6.3 |
+| `o6`  | pressure     | z 5: 1.8–14.2 | z 6: 1.1–5.1 |
+| `o7`  | network      | z 6: 1.6–6.7  | z 7: 2.4–2.7 |
+| `o7`  | pressure     | z 6: 1.6–8.2  | z 7: 1.6–3.4 |
+| `all` | network      | z 7: 1.5–3.0  | z 8: 1.3–1.6 |
+| `all` | pressure     | z 7: 0.9–2.8  | z 8: 1.0–1.2 |
+
+Tiles timed: Europe, the Amazon, South and East Asia, Siberia and eastern
+North America at each level (for example z 3 `3/4/2`, `3/2/4`, `3/5/3`,
+`3/6/2`, `3/1/2`). Earth Engine's timings vary by up to two times between
+runs.
+
+**Far fallbacks considered.** The coarse tiles are slow because Earth Engine
+reads every reach under them; three faster sources were tried:
+
+- **The FeatureView** `WWF/HydroSHEDS/v1/FreeFlowingRivers_FeatureView`.
+  `maps.create` cannot draw it (a FeatureView is not an expression), but
+  the REST API has its own route: `POST /v1/projects/<project>/featureView`
+  with `{asset: 'projects/earthengine-public/assets/WWF/HydroSHEDS/v1/FreeFlowingRivers_FeatureView',
+visualizationExpression}` answers `projects/*/featureViews/<id>`, and its
+  tiles are at `/v1/<name>/tiles/<z>/<x>/<y>`, the same path shape the
+  server's `fetchTile` uses. It works with the server's
+  `earthengine` scope, takes `color`, `lineWidth` and `rules` (filters, with
+  `isVisible`), and answered every z 0 to 7 tile in 0.2 to 0.7 s. But it is
+  thinned when it was ingested: up to z 3 even the largest rivers come out
+  in dashes, and at z 5 over Germany only the Rhine shows. Not used; it
+  would serve a far band only if a FeatureView with a `RIV_ORD` thinning
+  ranking were made, which needs an asset of our own.
+- **HydroSHEDS flow accumulation** (`WWF/HydroSHEDS/15ACC` and `30ACC`,
+  one pyramided image each), thresholded: 0.1 to 0.5 s a tile at any
+  level, and the pyramid makes a scale-dependent network by itself. But it
+  stops at 60° N (no Ob, Yenisei, Lena, Mackenzie or Yukon lower courses),
+  and it can only draw NETWORK. MERIT Hydro's upstream area pyramids by
+  sampling and comes out as dots.
+- **Natural Earth's lines**, drawn by the client: fast and global but
+  without the connectivity attributes. Not drawn (only the names are used).
+
+The bands' `minZoom` (above) is what made the far view fast enough
+instead.
+
+**The Americas switch.** `omitAmericas` in the record (off) leaves out
+`CON_ID` 1 and 2, for another source (HydroSHEDS v2) to draw there. The
+check, live on 2026-10-18: every reach has a `CON_ID` (none missing, none
+0: 1 = 1,270,524, 2 = 1,790,250, 3 = 938,544, 4 = 1,527,551, 5 = 2,114,542,
+6 = 836,472). Greenland is 1 (124,446 reaches), as are the Canadian Arctic
+islands; the Caribbean (Cuba, Hispaniola, Jamaica, Puerto Rico, the
+Bahamas, the Lesser Antilles, Trinidad), Central America from Guatemala to
+Panama and most of Mexico are 2 (northern Baja is partly 1); Iceland and
+Svalbard are 3; Hawaii has no reaches; Alaska's Near Islands west of 180°
+and Chukotka are 5. So 1 and 2 are exactly the Americas with Greenland and
+the Caribbean. `CON_ID` is stored as a double: `Filter.inList` with
+`[1, 2]` matched no reach, so the switch is `not (CON_ID = 1 or CON_ID = 2)`
+with `Filter.eq` (live: the z 3 South America tile comes back empty, Europe
+unchanged). It changes the request, so the hash, so the tiles.
+
+**Names** (`src/layers/earthEngine/riverNames.js`). Natural Earth 10m
+rivers and lake centerlines (public domain), downloaded from
+naciscdn.org and trimmed by `scripts/build-river-names-pack.mjs` into
+`src/data/local_data/natural_earth/river_names.json` (88 KB: 1,097 names,
+1,202 label points, English with Spanish and Russian where Natural Earth
+has them; the folder's README has the provenance). Loaded on first use.
+They are world-overlay labels (`ee-rivers-names`, never Cesium labels),
+in the rivers' blue for the ink, larger rivers winning the collisions,
+thinned by Natural Earth's `scalerank` with the camera height:
+
+| Camera height   | Names up to scalerank |
+| --------------- | --------------------- |
+| 8,000 km and up | 2 (24 to 55 at orbit) |
+| 4,000 km        | 4                     |
+| 2,000 km        | 5                     |
+| 1,000 km        | 7                     |
+| 400 km          | 9                     |
+| 150 km          | 12 (all)              |
+| below 150 km    | none                  |
+
+Below 150 km the label points (from 1:10m lines) are too coarse for the
+reaches Earth Engine draws. Only the points in the view window (the H3 window rule; from
+far out, the side of the Earth the camera sees) are published, larger
+rivers first, then nearer the middle of the view, at most 160.
+
+**Checklist** ([Level of detail](#level-of-detail)):
+
+- [x] The record says how its detail follows the camera: level switching
+      by `RIV_ORD` band, lines one to three pixels at every zoom; names
+      thinned by scalerank.
+- [x] It draws from orbit (orders 1 to 3).
+- [x] Its coarsest tiles were timed live (above); each band starts at a
+      level that answers in seconds, and the coarser ones are transparent.
+- [x] Not a boundary table (each reach is one feature).
+
+Tests: `src/layers/earthEngine/rivers.test.mjs` (the bands by height, the
+mode expressions, the Americas flag, the names' thinning and labels, the
+pack, the chips and `gev.rivers.mode`) and the Rivers tests in
+`src/data/earthEngine.test.mjs` (lazy maps, the mode route, the transparent
+tile, the cache path per mode).
 
 ## Grid (REFERENCE)
 
@@ -1326,7 +1530,10 @@ drowning the view. There are four ways to do it, by the kind of data:
   The lines are one pixel at every zoom. The Countries basemap's
   subdivisions style does the same (admin-1 below 5,000 km, countries
   above), and the Grid steps its spacing (30° at orbit to 1' at the street;
-  MGRS from grid zones to 1 km lines).
+  MGRS from grid zones to 1 km lines). The Rivers draw more `RIV_ORD`
+  orders as the camera comes in (orders 1 to 3 from orbit, every order
+  below 80 km; see [Rivers](#rivers)), each band from the level whose tiles
+  Earth Engine draws in seconds.
 
 **Checklist for a new data layer:**
 
@@ -1338,7 +1545,9 @@ drowning the view. There are four ways to do it, by the kind of data:
       (categories, years); only then does it get a `maxHeightM`, and the
       record says why.
 - [ ] Its coarsest tiles were timed against the live source (z 0 to 2),
-      and a slow source has a far variant or a cache in front of it.
+      and a slow source has a far variant, a cache in front of it, or
+      variants that start at a level it answers in seconds (`minZoom`, the
+      Rivers).
 - [ ] A boundary table has one feature per unit (compare its feature count
       with its distinct codes); a chunked one draws its cuts as borders.
 
@@ -1391,9 +1600,9 @@ git merge origin/main
 - `src/data/dataCredits.js`, `.env.example` and `DATA_SOURCES.md`.
 - **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (two
   places) and `src/app/sourceComposition.test.mjs` assert `layers.length`.
-  The fork's count is upstream's plus 10 (the two Baltimore layers, Recorded
-  Video, the five Earth Engine overlays, the Grid and Wikipedia coverage):
-  42 since Wikipedia coverage (2026-10-17). A record added to `src/data/earthEngineLayers.js` or an
+  The fork's count is upstream's plus 11 (the two Baltimore layers, Recorded
+  Video, the six Earth Engine overlays, the Grid and Wikipedia coverage):
+  43 since the Rivers layer (2026-10-18). A record added to `src/data/earthEngineLayers.js` or an
   upstream layer added later changes the number.
 - **Translations.** Upstream checks that every UI string is marked for
   translation (`npm run i18n`). Fork UI text goes through `t()`, `tn()` and

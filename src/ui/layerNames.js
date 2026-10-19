@@ -51,6 +51,7 @@ export const LAYER_NAME_KEYS = Object.freeze({
   'ee-terrain-hillshade': msg('Hillshade'),
   'ee-forest-loss': msg('Forest loss'),
   'ee-admin-boundaries': msg('Administrative boundaries'),
+  'ee-rivers': msg('Rivers'),
   grid: msg('Grid'),
   'wikipedia-coverage': msg('Wikipedia coverage'),
 });

@@ -16,15 +16,23 @@ import {
   createEarthEngineService,
   createRestBackend,
   createServiceAccountAuth,
+  TRANSPARENT_TILE,
   earthEngineSettings,
+  featureFilter,
+  mapKey,
   mapRequestFor,
   mapRequestHash,
 } from '../../server/providers/earthEngine.js';
 import {
+  AMERICAS_CON_IDS,
   EARTH_ENGINE_LAYERS,
+  RIVER_BANDS,
+  RIVER_MODES,
   inkColor,
   layerInks,
+  layerModes,
   layerVariants,
+  modeRecord,
   variantForHeight,
 } from './earthEngineLayers.js';
 
@@ -46,13 +54,15 @@ test('every map request is exactly the committed fixture', async () => {
   const { requests } = JSON.parse(await fs.readFile(FIXTURE, 'utf8'));
   const built = {};
   for (const layer of EARTH_ENGINE_LAYERS)
-    for (const variant of layerVariants(layer))
-      for (const ink of layerInks(layer))
-        built[`${layer.id}/${variant.key}/${ink}`] = mapRequestFor(
-          layer,
-          variant,
-          ink,
-        );
+    for (const mode of layerModes(layer))
+      for (const variant of layerVariants(layer))
+        for (const ink of layerInks(layer))
+          built[mapKey(layer, variant, ink, mode)] = mapRequestFor(
+            layer,
+            variant,
+            ink,
+            mode,
+          );
   // A changed layer changes what is sent: regenerate the fixture with it.
   assert.deepEqual(built, requests);
   const slope = requests['ee-terrain-slope/near/default'];
@@ -725,6 +735,7 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     'ee-terrain-hillshade': 0,
     'ee-forest-loss': 6,
     'ee-admin-boundaries': 0,
+    'ee-rivers': 0,
   });
   assert.deepEqual(catalog.tiles, { used: 10, budget: 10 });
   // A new day starts from nothing, with its own warnings.
@@ -734,4 +745,210 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
       .tilesToday,
     0,
   );
+});
+
+test('Rivers: one map per (band, ink, mode), made when a tile asks, cached per mode; nothing below a band’s first level', async (t) => {
+  const root = await tempRoot(t);
+  const rivers = byId('ee-rivers');
+  const made = [];
+  const fetched = [];
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    layers: [rivers],
+    backend: {
+      async createMap(layer, variant, ink, mode) {
+        made.push(mapKey(layer, variant, ink, mode));
+        return { name: `projects/p/maps/m${made.length}` };
+      },
+      async fetchTile(name, z, x, y) {
+        fetched.push(`${name}/${z}/${x}/${y}`);
+        return {
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from(`${z}/${x}/${y}`),
+        };
+      },
+    },
+  });
+  // The catalog makes no map for a lazy layer, and gives every hash.
+  const catalog = await service.layers();
+  assert.deepEqual(made, []);
+  const row = catalog.layers[0];
+  assert.deepEqual(row.modes, layerModes(rivers));
+  assert.equal(row.variants.length, RIVER_BANDS.length);
+  for (const variant of row.variants) {
+    assert.equal(variant.ready, false);
+    assert.equal(variant.versions, undefined);
+    for (const mode of layerModes(rivers))
+      for (const ink of layerInks(rivers))
+        assert.equal(
+          variant.modeVersions[mode][ink],
+          mapRequestHash(
+            rivers,
+            rivers.variants.find((v) => v.key === variant.key),
+            ink,
+            mode,
+          ),
+        );
+  }
+  // Below the band's first level: a transparent tile, no Earth Engine, not counted.
+  const blank = await service.tile(
+    'ee-rivers',
+    'o4',
+    'light',
+    2,
+    1,
+    1,
+    'pressure',
+  );
+  assert.equal(blank.status, 200);
+  assert.equal(blank.blank, true);
+  assert.equal(blank.body, TRANSPARENT_TILE);
+  assert.deepEqual(made, []);
+  assert.deepEqual(fetched, []);
+  assert.equal((await service.layers()).layers[0].tilesToday, 0);
+  // From it: the mode's map, made once, its tiles kept under the mode.
+  const tile = await service.tile(
+    'ee-rivers',
+    'o4',
+    'light',
+    3,
+    4,
+    2,
+    'pressure',
+  );
+  assert.equal(tile.status, 200);
+  assert.deepEqual(made, ['ee-rivers/pressure/o4/light']);
+  const hash = mapRequestHash(rivers, RIVER_BANDS[1], 'light', 'pressure');
+  const kept = await fs.stat(
+    path.join(
+      root,
+      '.gev-cache',
+      'earth-engine',
+      'tiles',
+      'ee-rivers',
+      'pressure',
+      'o4',
+      'light',
+      hash,
+      '3',
+      '4',
+      '2.png',
+    ),
+  );
+  assert.ok(kept.isFile());
+  assert.equal(
+    (await service.tile('ee-rivers', 'o4', 'light', 3, 4, 2, 'pressure'))
+      .cached,
+    true,
+  );
+  await service.tile('ee-rivers', 'o4', 'light', 3, 4, 2, 'network');
+  assert.deepEqual(made, [
+    'ee-rivers/pressure/o4/light',
+    'ee-rivers/network/o4/light',
+  ]);
+  const after = (await service.layers()).layers[0];
+  assert.equal(after.tilesToday, 2);
+  assert.equal(after.variants[0].ready, false, 'not every mode and ink yet');
+  // A mode the layer does not have, or none: no tile.
+  assert.equal(
+    (await service.tile('ee-rivers', 'o4', 'light', 3, 4, 2, 'bogus')).status,
+    404,
+  );
+  assert.equal(
+    (await service.tile('ee-rivers', 'o4', 'light', 3, 4, 2)).status,
+    404,
+  );
+  assert.equal(
+    (await service.tile('ee-rivers', 'o4', 'light', 12, 0, 0, 'network'))
+      .status,
+    400,
+    'past maxZoom 11',
+  );
+});
+
+test('the transparent tile is a 256 × 256 RGBA PNG of zeros', async () => {
+  const { inflateSync } = await import('node:zlib');
+  assert.deepEqual(
+    [...TRANSPARENT_TILE.subarray(0, 8)],
+    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  );
+  assert.equal(TRANSPARENT_TILE.toString('latin1', 12, 16), 'IHDR');
+  assert.equal(TRANSPARENT_TILE.readUInt32BE(16), 256);
+  assert.equal(TRANSPARENT_TILE.readUInt32BE(20), 256);
+  assert.equal(TRANSPARENT_TILE[25], 6, 'RGBA');
+  const idatLength = TRANSPARENT_TILE.readUInt32BE(33);
+  assert.equal(TRANSPARENT_TILE.toString('latin1', 37, 41), 'IDAT');
+  const rows = inflateSync(TRANSPARENT_TILE.subarray(41, 41 + idatLength));
+  assert.equal(rows.length, 256 * (1 + 256 * 4));
+  assert.ok(rows.every((byte) => byte === 0));
+  assert.ok(TRANSPARENT_TILE.length < 2_000);
+});
+
+test('the mode is a path segment after the layer; the plain route stays as it was', async () => {
+  const seen = [];
+  const handler = createEarthEngineHandler({
+    service: {
+      layers: async () => ({}),
+      tile: async (...args) => {
+        seen.push(args);
+        return {
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('x'),
+        };
+      },
+    },
+  });
+  const call = async (url) => {
+    const res = { statusCode: 200, setHeader() {}, end() {} };
+    await handler(
+      { url, method: 'GET', headers: { host: 'localhost' }, socket: {} },
+      res,
+      () => (res.nexted = true),
+    );
+    return res;
+  };
+  await call('/tile/ee-rivers/free-flowing/o5/dark/4/8/5?v=0123456789ab');
+  assert.deepEqual(seen.at(-1), [
+    'ee-rivers',
+    'o5',
+    'dark',
+    4,
+    8,
+    5,
+    'free-flowing',
+  ]);
+  await call('/tile/ee-forest-loss/default/default/3/2/1');
+  assert.deepEqual(seen.at(-1), [
+    'ee-forest-loss',
+    'default',
+    'default',
+    3,
+    2,
+    1,
+  ]);
+  assert.equal(
+    (await call('/tile/ee-rivers/Bad_Mode/o5/dark/4/8/5')).nexted,
+    true,
+  );
+});
+
+test('the Rivers record: AUTO by height, the Americas switch off, both citations', () => {
+  const rivers = byId('ee-rivers');
+  assert.equal(variantForHeight(rivers, 20_000_000).key, 'o3');
+  assert.equal(variantForHeight(rivers, 50_000).key, 'all');
+  assert.equal(rivers.omitAmericas, false);
+  assert.deepEqual([...AMERICAS_CON_IDS], [1, 2]);
+  assert.equal(featureFilter(rivers, rivers.variants.at(-1)), null);
+  assert.equal(modeRecord(rivers, 'nope').key, 'network');
+  assert.deepEqual(
+    RIVER_MODES.map((mode) => mode.key),
+    ['network', 'free-flowing', 'pressure'],
+  );
+  assert.match(rivers.attribution, /HydroSHEDS\/WWF/);
+  assert.match(rivers.attribution, /Lehner.*2008/);
+  assert.match(rivers.attribution, /Grill et al\. 2019, Nature 569:215/);
+  assert.match(rivers.attribution, /Natural Earth/);
 });

@@ -1,6 +1,7 @@
 import * as Cesium from 'cesium';
 import {
   layerInks,
+  layerModes,
   layerVariants,
   variantForHeight,
 } from '../../data/earthEngineLayers.js';
@@ -43,7 +44,17 @@ import { tileTemplate } from './source.js';
  *   orbit);
  * - asks no deeper than its maxZoom. Its minimumLevel stays 0: Cesium
  *   clamps a primitive's level up to it, so a raised minimum would make a
- *   planet-sized primitive ask for every tile of that level.
+ *   planet-sized primitive ask for every tile of that level. The exception
+ *   is a variant with a `minZoom` (the Rivers bands, whose coarse tiles
+ *   Earth Engine cannot draw in time): it asks for nothing coarser, which
+ *   is at most the 64 tiles of z 3 from orbit, and inside the view's square
+ *   below that.
+ *
+ * A layer with `modes` (the Rivers: NETWORK, FREE-FLOWING, PRESSURE) draws
+ * the mode a chip picks, kept as the record's `modeStorageKey`; a layer
+ * with `names` gets a names companion (`names`, src/layers/earthEngine/
+ * riverNames.js) that it shows, updates on each settled view and ink, and
+ * hides with it.
  */
 
 export const OPACITY_STORAGE_PREFIX = 'gev.earthEngine.opacity.';
@@ -130,6 +141,19 @@ export function readLevel(storage, record) {
   }
 }
 
+/** The mode stored for a layer with modes (one of its keys), else its first. */
+export function readMode(storage, record) {
+  const modes = layerModes(record);
+  try {
+    const value = record.modeStorageKey
+      ? storage?.getItem(record.modeStorageKey)
+      : null;
+    return modes.includes(value) ? value : modes[0];
+  } catch {
+    return modes[0];
+  }
+}
+
 const escapeHtml = (value) =>
   String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -148,7 +172,9 @@ export function attributionCredit(record) {
 /**
  * @param {{record: object, source: {catalog: Function, last?: Function},
  *   cesium?: object, requestRender?: (reason: string) => void,
- *   storage?: Storage|null, credits?: {register?: Function}}} options
+ *   storage?: Storage|null, credits?: {register?: Function},
+ *   names?: {enable: Function, update: Function, disable: Function}|null}} options
+ *   `names`: the record's names companion (riverNames.js), if it has one.
  */
 export function createEarthEngineLayer({
   record,
@@ -157,6 +183,7 @@ export function createEarthEngineLayer({
   requestRender = () => {},
   storage,
   credits,
+  names = null,
 }) {
   const store = storageOf(storage);
   let _viewer = null;
@@ -171,6 +198,9 @@ export function createEarthEngineLayer({
   let _level = readLevel(store, record);
   let _inkSetting = readInkSetting(store, `${INK_STORAGE_PREFIX}${record.id}`);
   const hasInks = layerInks(record)[0] !== 'default';
+  const hasModes = layerModes(record)[0] !== 'default';
+  /** The mode drawn ('default' for a layer without modes). */
+  let _mode = readMode(store, record);
   let _removeMoveListener = null;
   let _rowListener = null;
   /** The map stack controller (src/maps/controller.js), when attached. */
@@ -289,17 +319,20 @@ export function createEarthEngineLayer({
       _catalog?.configured &&
       layer &&
       !_aboveCeiling;
+    if (_enabled) names?.update(view, wantedInk());
     if (!drawable) {
       unmount();
       return;
     }
     const variant = wantedVariant();
     const ink = wantedInk();
+    const mode = hasModes ? _mode : 'default';
+    const served = layer.variants?.find?.((entry) => entry.key === variant);
     const version =
-      layer.variants?.find?.((entry) => entry.key === variant)?.versions?.[
-        ink
-      ] || '';
-    const key = `${variant}|${ink}|${version}`;
+      (hasModes
+        ? served?.modeVersions?.[mode]?.[ink]
+        : served?.versions?.[ink]) || '';
+    const key = `${variant}|${ink}|${version}|${mode}`;
     if (
       _imagery &&
       _mountedKey === key &&
@@ -308,10 +341,14 @@ export function createEarthEngineLayer({
     )
       return;
     unmount();
+    const minimumLevel =
+      served?.minZoom ??
+      layerVariants(record).find((entry) => entry.key === variant)?.minZoom ??
+      0;
     const provider = new cesium.UrlTemplateImageryProvider({
-      url: tileTemplate(record.id, variant, ink, version),
+      url: tileTemplate(record.id, variant, ink, version, mode),
       tilingScheme: new cesium.WebMercatorTilingScheme(),
-      minimumLevel: 0,
+      minimumLevel,
       maximumLevel: layer.maxZoom ?? record.maxZoom ?? 12,
       credit: layer.attribution || record.attribution,
       hasAlphaChannel: true,
@@ -403,6 +440,19 @@ export function createEarthEngineLayer({
     notify();
   }
 
+  /** A mode chip: kept as the record's modeStorageKey, drawn at once. */
+  function setMode(key) {
+    if (!hasModes || !layerModes(record).includes(key) || key === _mode) return;
+    _mode = key;
+    try {
+      if (record.modeStorageKey) store?.setItem(record.modeStorageKey, key);
+    } catch {
+      /* private mode: kept for this page only */
+    }
+    if (_enabled) sync();
+    notify();
+  }
+
   function setOpacity(value) {
     _opacity = Math.min(1, Math.max(0, Number(value) || 0));
     try {
@@ -435,6 +485,7 @@ export function createEarthEngineLayer({
       if (_viewer?.camera?.moveEnd && !_removeMoveListener)
         _removeMoveListener = _viewer.camera.moveEnd.addEventListener(onMoved);
       _catalog = source.last?.() || _catalog;
+      names?.enable();
       sync();
       void loadCatalog();
     },
@@ -444,6 +495,7 @@ export function createEarthEngineLayer({
       _removeMoveListener?.();
       _removeMoveListener = null;
       unmount();
+      names?.disable();
       notify();
     },
 
@@ -492,6 +544,8 @@ export function createEarthEngineLayer({
         onInk: setInk,
         inkDrawn: wantedInk(),
         slowDistricts: _enabled && slowDistricts(),
+        mode: _mode,
+        onMode: setMode,
       });
     },
 
@@ -518,6 +572,9 @@ export function createEarthEngineLayer({
       mounted: Boolean(_imagery),
       variant: _mountedKey ? _mountedKey.split('|')[0] : '',
       ink: _mountedKey ? _mountedKey.split('|')[1] : '',
+      mode: _mountedKey ? _mountedKey.split('|')[3] : '',
+      modeSetting: _mode,
+      minimumLevel: _imagery?.imageryProvider?.minimumLevel ?? null,
       level: _level,
       inkSetting: _inkSetting,
       opacity: _opacity,
