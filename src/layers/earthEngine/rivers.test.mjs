@@ -705,6 +705,7 @@ test('the mode chips exist only on a layer with modes', () => {
       // Census tracts (TRACTS in Earth Engine, INCOME local) and Inundation.
       'tracts',
       'income',
+      'lst',
       'count',
       'duration',
       'v200',

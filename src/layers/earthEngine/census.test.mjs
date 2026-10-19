@@ -124,6 +124,7 @@ test('HOUSEHOLD INCOME draws the local server’s tiles; TRACTS draws Earth Engi
     [
       ['mode-tracts', false],
       ['mode-income', true],
+      ['mode-lst', false],
     ],
   );
   assert.equal(row.legend.length, 7);

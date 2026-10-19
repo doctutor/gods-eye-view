@@ -18,8 +18,10 @@ import {
 import { mapRequestFor } from '../../server/providers/earthEngine.js';
 import {
   INCOME_CLASSES,
+  LST_CLASSES,
   NO_ESTIMATE_COLOR,
   incomeColor,
+  lstColor,
 } from './censusTracts.js';
 import {
   openTracts,
@@ -33,15 +35,22 @@ import {
 } from '../../server/providers/census/render.js';
 import {
   CENSUS_MIN_ZOOM,
+  censusTileVersion,
   createCensusHandler,
   createCensusService,
 } from '../../server/providers/census.js';
 import {
   NEEDS_BUILD,
   NEEDS_KEY,
+  NEEDS_LST,
 } from '../../server/providers/census/sources.js';
 import { readDbf, readPolygons } from '../../scripts/census/shapefile.mjs';
-import { fetchIncome } from '../../scripts/census/index.mjs';
+import { fetchIncome, rekeyToBoundaries } from '../../scripts/census/index.mjs';
+import {
+  computeLst,
+  lstRequest,
+  lstValues,
+} from '../../scripts/census/lst.mjs';
 
 const byId = (id) => EARTH_ENGINE_LAYERS.find((layer) => layer.id === id);
 const fnOf = (node) => node.functionInvocationValue;
@@ -116,6 +125,7 @@ test('Census tracts: TIGER 2020 outlines in the ink from z 7, below about 417 km
     [
       ['tracts', null],
       ['income', 'census'],
+      ['lst', 'census'],
     ],
   );
   assert.equal(tracts.maxHeightM, TRACT_MAX_HEIGHT_M);
@@ -341,8 +351,13 @@ test('the census server says what each mode lacks, then draws income tiles and k
   );
   assert.equal(
     (await service.tile('lst', 12, x, y)).status,
+    503,
+    'surface temperature not computed in this build',
+  );
+  assert.equal(
+    (await service.tile('ndvi', 12, x, y)).status,
     404,
-    'not yet a mode',
+    'no such mode',
   );
   const bounds = tileBounds(12, x, y);
   assert.ok(bounds.west < -74.0 && bounds.east > -74.0);
@@ -376,4 +391,97 @@ test('the census server says what each mode lacks, then draws income tiles and k
     'no-store',
   );
   assert.equal((await call('/tile/../etc/1/1/1')).nexted, true);
+});
+
+// Personal fork: the surface temperature step (scripts/census/lst.mjs).
+test('the surface temperature request: summer Landsat 8 and 9, clear pixels, °C, a mean per tract at 300 m', () => {
+  const text = JSON.stringify(lstRequest('04', '013'));
+  assert.match(text, /LANDSAT\/LC08\/C02\/T1_L2/);
+  assert.match(text, /LANDSAT\/LC09\/C02\/T1_L2/);
+  assert.match(text, /"ST_B10"/);
+  assert.match(text, /"QA_PIXEL"/);
+  assert.match(text, /0\.00341802/);
+  assert.match(
+    text,
+    /"start":\{"constantValue":6\},"end":\{"constantValue":8\}/,
+  );
+  assert.match(text, /"scale":\{"constantValue":300\}/);
+  assert.match(text, /"COUNTYFP"/);
+  assert.doesNotMatch(JSON.stringify(lstRequest('04')), /COUNTYFP/);
+  assert.deepEqual(lstValues({ a: 41.234, b: null }), { a: 41.2, b: null });
+});
+
+test('the surface temperature step resumes: finished states are not asked again; a too-large state goes county by county', async (t) => {
+  const dir = tempDir(t);
+  const asked = [];
+  const compute = async (body) => {
+    const text = JSON.stringify(body);
+    const state = /"STATEFP"\},"rightValue":\{"constantValue":"(\d\d)"/.exec(
+      text,
+    )[1];
+    const county = /"COUNTYFP"\},"rightValue":\{"constantValue":"(\d{3})"/.exec(
+      text,
+    )?.[1];
+    asked.push(county ? `${state}${county}` : state);
+    if (state === '48' && !county)
+      throw new Error('Earth Engine 400: Computation timed out.');
+    return { [`${state}${county || '001'}000100`]: 30 + asked.length };
+  };
+  const geoids = ['04013000100', '48001000100', '48003000100'];
+  const first = await computeLst({ dir, geoids, compute, concurrency: 1 });
+  assert.deepEqual(asked, ['04', '48', '48001', '48003']);
+  assert.deepEqual(first.byCounty, ['48']);
+  assert.equal(Object.keys(first.values).length, 3);
+  asked.length = 0;
+  const again = await computeLst({ dir, geoids, compute, concurrency: 1 });
+  assert.deepEqual(asked, [], 'nothing asked twice');
+  assert.deepEqual(again.values, first.values);
+  // Connecticut's 2020 tracts keyed to the 2024 planning regions by tract code.
+  assert.deepEqual(
+    rekeyToBoundaries({ '09001010101': 29.1, '04013000100': 40 }, [
+      '09190010101',
+      '04013000100',
+    ]),
+    { '09190010101': 29.1, '04013000100': 40 },
+  );
+});
+
+test('the census server draws surface temperature once it is computed, and says how before', async (t) => {
+  const keyless = createCensusService({ dir: await built(t), env: {} });
+  assert.equal((await keyless.layers()).modes.lst.message, NEEDS_LST);
+  const dir = tempDir(t);
+  const buildDir = path.join(dir, 'build');
+  writeTracts(buildDir, [{ geoid: GEOID, rings: [Float64Array.from(SQUARE)] }]);
+  fs.writeFileSync(
+    path.join(buildDir, 'values.json'),
+    JSON.stringify({ version: 1, lst: { [GEOID]: 47.5 } }),
+  );
+  fs.writeFileSync(
+    path.join(buildDir, 'manifest.json'),
+    JSON.stringify({
+      buildId: 'b-lst',
+      boundaries: { count: 1 },
+      values: { income: null, lst: { scale: 300, known: 1 } },
+    }),
+  );
+  const service = createCensusService({ dir, env: {} });
+  const status = await service.layers();
+  assert.equal(status.modes.lst.ready, true);
+  assert.equal(status.modes.income.ready, false, 'income still needs its key');
+  assert.notEqual(
+    status.modes.lst.version,
+    censusTileVersion('income', 'b-lst'),
+  );
+  const n = 2 ** 12;
+  const x = Math.floor(((-74.0 + 180) / 360) * n);
+  const lat = (40.75 * Math.PI) / 180;
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2) * n,
+  );
+  const tile = await service.tile('lst', 12, x, y);
+  assert.equal(tile.status, 200);
+  assert.ok(!tile.empty);
+  assert.equal(lstColor(47.5), 'fc8d59c8');
+  assert.equal(lstColor(null), NO_ESTIMATE_COLOR);
+  assert.equal(LST_CLASSES.length, 7);
 });

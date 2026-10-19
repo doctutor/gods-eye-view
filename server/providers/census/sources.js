@@ -19,6 +19,8 @@ export const ACS = Object.freeze({
 export const CENSUS_KEY_ENV = 'CENSUS_API_KEY';
 export const NEEDS_KEY =
   'Set CENSUS_API_KEY in .env (a free key from api.census.gov/data/key_signup.html), then run npm run census:build';
+export const NEEDS_LST =
+  'Run npm run census:build with Earth Engine set up to compute the summer surface temperatures (about an hour of Earth Engine time, once)';
 export const NEEDS_BUILD = 'Run npm run census:build to draw the census tracts';
 
 /** The census cache directory (CENSUS_CACHE_DIR, else .gev-cache/census). */

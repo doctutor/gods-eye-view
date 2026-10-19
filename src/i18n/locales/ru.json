@@ -3379,5 +3379,9 @@
   "CENSUS_API_KEY is set: run npm run census:build again to fetch the incomes": "CENSUS_API_KEY задан: запустите npm run census:build ещё раз, чтобы загрузить доходы",
   "Asking the local census server…": "Запрос к локальному серверу переписи…",
   "Census tracts": "Участки переписи",
-  "Inundation history": "История наводнений"
+  "Inundation history": "История наводнений",
+  "SURFACE TEMPERATURE": "ТЕМПЕРАТУРА ПОВЕРХНОСТИ",
+  "Summer land surface temperature by tract: the June–August 2018–2023 Landsat mean (surfaces, not air)": "Летняя температура поверхности земли по участкам: среднее Landsat за июнь–август 2018–2023 годов (поверхность, не воздух)",
+  "Under 25 °C": "Ниже 25 °C",
+  "Run npm run census:build with Earth Engine set up to compute the summer surface temperatures (about an hour of Earth Engine time, once)": "Запустите npm run census:build с настроенным Earth Engine, чтобы рассчитать летние температуры поверхности (около часа работы Earth Engine, один раз)"
 }

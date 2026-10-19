@@ -129,7 +129,7 @@
  *               docs/PERSONAL-FORK.md, "Level of detail")
  */
 
-import { INCOME_LEGEND } from './censusTracts.js';
+import { INCOME_LEGEND, LST_LEGEND } from './censusTracts.js';
 import { DEM_MAX_ZOOM, demVariants } from './demStack.js';
 
 export const EARTH_ENGINE_ATTRIBUTION = 'Google Earth Engine';
@@ -872,10 +872,12 @@ export const FLOOD_MODES = Object.freeze([
 
 /**
  * Census tracts: TRACTS draws TIGER/Line 2020's 85,528 tract outlines in
- * the boundaries' inks (Earth Engine); HOUSEHOLD INCOME fills the 2024
- * cartographic boundary tracts by their ACS median household income, drawn
- * by the local server (`local: 'census'`, server/providers/census.js, built
- * by `npm run census:build`; the income needs CENSUS_API_KEY). Tracts hold
+ * the boundaries' inks (Earth Engine); HOUSEHOLD INCOME and SURFACE
+ * TEMPERATURE fill the 2024 cartographic boundary tracts by their ACS
+ * median household income or their summer land surface temperature,
+ * drawn by the local server (`local: 'census'`, server/providers/census.js,
+ * built by `npm run census:build`; the income needs CENSUS_API_KEY, the
+ * temperature Earth Engine, once). Tracts hold
  * about 4,000 people, a kilometre or two across in a city: they are drawn
  * below TRACT_MAX_HEIGHT_M, where the middle of the view is z 9 (300 m
  * pixels), and Earth Engine's outline tiles start at z 7, the first level
@@ -893,6 +895,9 @@ export const CENSUS_TRACT_MODES = Object.freeze([
     ]),
   }),
   Object.freeze({ key: 'income', local: 'census', legend: INCOME_LEGEND }),
+  // The June–August 2018–2023 Landsat surface temperature per tract,
+  // computed once by `npm run census:build` (scripts/census/lst.mjs).
+  Object.freeze({ key: 'lst', local: 'census', legend: LST_LEGEND }),
 ]);
 
 const FLOOD_NOTICE =
@@ -1211,7 +1216,7 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     inks: TRACT_INKS,
     legend: CENSUS_TRACT_MODES[0].legend,
     attribution:
-      'U.S. Census Bureau: TIGER/Line 2020 census tracts; income from the ACS 5-year 2020–2024 estimates and the 2024 cartographic boundaries (public domain). This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau',
+      'U.S. Census Bureau: TIGER/Line 2020 census tracts; income from the ACS 5-year 2020–2024 estimates and the 2024 cartographic boundaries (public domain); summer surface temperature from Landsat 8 and 9 Collection 2 (USGS). This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau',
     maxZoom: 14,
     maxHeightM: TRACT_MAX_HEIGHT_M,
   }),

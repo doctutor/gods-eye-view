@@ -1419,6 +1419,8 @@ the legends, the ceiling's status line).
   $30k, $50k, $70k, $90k, $120k, $160k+; ColorBrewer YlGnBu at 78%), with
   thin outlines from z 10. A tract with no estimate (no households, or too
   few) is faint grey.
+- **SURFACE TEMPERATURE**: each tract's summer land surface temperature
+  (below).
 
 **Why the income is drawn locally.** Earth Engine has no ACS asset (its
 catalogue's TIGER group is boundaries only), and colouring 85,000 tracts
@@ -1479,18 +1481,45 @@ second; the server answers a coarser one with a transparent tile.
 (Earth Engine: cold tiles, 2026-10-19. Local: the first draw of a tile,
 with stand-in incomes; drawn tiles are then read from disk.)
 
-**Land surface temperature per tract: deferred.** Google Earth's layer
-averages summer surface temperature per tract. Computing it on the fly
-per tile is not feasible, and a precompute (the 2018–2023 June–August
-Landsat 8/9 Collection 2 `ST_B10` mean, clear pixels only, `reduceRegions`
-over each state's tracts) is costly: Maricopa County's 1,009 tracts took
-90.7 s of Earth Engine time at 90 m (values 49 to 54 °C in Phoenix).
-Scaled by area, the whole country is about 10 hours of Earth Engine time
-at 90 m, or about 1 hour at 300 m, a large share of the noncommercial
-Community tier's 150 EECU-hours a month, so it waits for the owner's
-decision. The build has the seam: `values.json` holds one column per value
-(`income` now; an `lst` column later), and the server draws a local mode
-per column.
+**SURFACE TEMPERATURE** (the third mode, also drawn by the local server):
+each tract's summer land surface temperature, the June–August 2018–2023
+mean of Landsat 8 and 9 Collection 2 Level-2 `ST_B10` (×0.00341802 + 149,
+in °C), clear pixels only (QA_PIXEL's dilated cloud, cirrus, cloud and
+shadow bits off), averaged over the tract (`reduceRegions`, mean) at 300 m,
+in seven classes (under 25 °C to 50 °C+, RdYlBu reversed). It is the
+ground's temperature, not the air's: summer roofs and roads are often over
+50 °C. Google Earth's layer shows the same kind of value per tract.
+
+It is computed once, by the build's third step (`scripts/census/lst.mjs`),
+with the server's Earth Engine service account; the owner approved the
+cost (about an hour of Earth Engine time at 300 m; 10 hours at 90 m,
+estimated from Maricopa County's 1,009 tracts, which took 90.7 s at 90 m).
+
+- **Resumable.** Each state's answer is written to `lst/<state>.json` as it
+  comes, and a state already there is skipped, so a crash repeats nothing
+  finished. A state that one request cannot answer is asked county by
+  county, each county kept the same way.
+- **The run** (2026-10-19, four requests at a time): 56 states and
+  territories in about 19 minutes. Only Nevada went county by county (its
+  statewide request failed in transit). California's 9,129 tracts came in
+  one request. The first run stopped at Hawaii: tracts with no clear
+  summer pixel had no mean, so the GEOID and value lists differed in
+  length. Such tracts are now left out (drawn as no value), and the build
+  resumed with the 10 states it had.
+- **Result:** 85,413 TIGER 2020 tracts (7.3 to 60.7 °C, median 37 °C).
+  85,077 of the 2024 boundaries' 85,184 tracts have a value. The 107
+  without are in the territories, Hawaii and Puerto Rico. Connecticut's
+  tracts are keyed across its 2022 county renumbering by their tract code,
+  unique in the state (all 879 matched).
+- **Known limit:** TIGER 2020's tracts include their water area, so a
+  shoreline tract's mean includes river or sea pixels and reads cooler
+  (along Manhattan's rivers). Masking Landsat's water bit would fix it, at
+  the cost of computing the step again.
+
+`--skip-lst` leaves the step out; `--env-root DIR` reads `.env` and the
+Earth Engine key path from another checkout (a worktree's build reads the
+main checkout's). The tiles took 0.10 to 0.15 s to draw (Phoenix z 9, NYC
+z 11, Houston z 10).
 
 Tests: `src/data/censusFlood.test.mjs` (the TRACTS expression and inks,
 the shapefile reader and tract files, the ACS step with its key and

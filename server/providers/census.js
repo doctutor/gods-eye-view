@@ -20,19 +20,21 @@ import {
   CENSUS_KEY_ENV,
   NEEDS_BUILD,
   NEEDS_KEY,
+  NEEDS_LST,
   censusCacheDir,
 } from './census/sources.js';
 import {
   CENSUS_ENDPOINT,
   CENSUS_LOCAL_MODES,
-  INCOME_CLASSES,
-  incomeColor,
+  CENSUS_MODE_STYLES,
 } from '../../src/data/censusTracts.js';
 
 /**
- * The Census tracts layer's HOUSEHOLD INCOME mode, drawn here: each tract of
- * the 2024 cartographic boundaries filled by its ACS median household
- * income class, with thin outlines, into 256 × 256 PNG tiles kept on disk.
+ * The Census tracts layer's HOUSEHOLD INCOME and SURFACE TEMPERATURE modes,
+ * drawn here: each tract of the 2024 cartographic boundaries filled by its
+ * value's class (the ACS median household income, or the summer surface
+ * temperature computed once in Earth Engine), with thin outlines, into
+ * 256 × 256 PNG tiles kept on disk.
  *
  *   GET /api/census/layers
  *       which modes are built, when, from what, their tile versions
@@ -48,7 +50,7 @@ import {
 export const CENSUS_MIN_ZOOM = 7;
 export const CENSUS_MAX_ZOOM = 14;
 export const ATTRIBUTION =
-  'U.S. Census Bureau: 2024 cartographic boundary tracts; ACS 5-year 2020–2024 B19013 median household income (public domain). This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau';
+  'U.S. Census Bureau: 2024 cartographic boundary tracts; ACS 5-year 2020–2024 B19013 median household income (public domain); summer surface temperature from Landsat 8 and 9 Collection 2 (USGS) via Google Earth Engine. This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau';
 /** The manifest is stat'ed at most this often. */
 const STAT_EVERY_MS = 5000;
 
@@ -60,7 +62,7 @@ export function censusTileVersion(mode, buildId) {
       JSON.stringify({
         mode,
         buildId,
-        classes: INCOME_CLASSES,
+        classes: CENSUS_MODE_STYLES[mode]?.classes,
         size: TILE_SIZE,
       }),
     )
@@ -127,6 +129,8 @@ export function createCensusService({
           ? `The census build is not readable: ${lastError}`
           : NEEDS_BUILD,
       };
+    if (mode === 'lst' && !open.manifest.values?.lst)
+      return { ready: false, message: NEEDS_LST };
     if (mode === 'income' && !open.manifest.values?.income)
       return {
         ready: false,
@@ -215,9 +219,10 @@ export function createCensusService({
         /* not on disk */
       }
       const project = tileProjector(z, x, y);
-      const values = open.values.income || {};
+      const values = open.values[mode] || {};
+      const { color } = CENSUS_MODE_STYLES[mode];
       const tracts = open.tracts.tractsIn(tileBounds(z, x, y)).map((t) => ({
-        color: incomeColor(values[open.tracts.geoids[t]] ?? NaN),
+        color: color(values[open.tracts.geoids[t]] ?? NaN),
         rings: open.tracts.ringsOf(t).map((ring) => {
           const out = new Float64Array(ring.length);
           for (let i = 0; i < ring.length; i += 2) {

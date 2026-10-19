@@ -42,6 +42,7 @@ export const LEGEND_WORDS = Object.freeze({
   // Census tracts and Inundation history.
   Tract: msg('Tract'),
   'Under $30k': msg('Under $30k'),
+  'Under 25 °C': msg('Under 25 °C'),
   Once: msg('Once'),
   '1 day': msg('1 day'),
   '10 days': msg('10 days'),
@@ -171,6 +172,13 @@ export const MODE_CHIPS = Object.freeze([
     label: msg('HOUSEHOLD INCOME'),
     title: msg(
       'Median household income by tract, ACS 5-year 2020–2024 (drawn by the local server: npm run census:build)',
+    ),
+  }),
+  Object.freeze({
+    key: 'lst',
+    label: msg('SURFACE TEMPERATURE'),
+    title: msg(
+      'Summer land surface temperature by tract: the June–August 2018–2023 Landsat mean (surfaces, not air)',
     ),
   }),
   // Inundation history (Global Flood Database).
@@ -303,6 +311,10 @@ const LOCAL_MESSAGES = Object.freeze({
       'CENSUS_API_KEY is set: run npm run census:build again to fetch the incomes',
     ),
   'Asking the local census server…': msg('Asking the local census server…'),
+  'Run npm run census:build with Earth Engine set up to compute the summer surface temperatures (about an hour of Earth Engine time, once)':
+    msg(
+      'Run npm run census:build with Earth Engine set up to compute the summer surface temperatures (about an hour of Earth Engine time, once)',
+    ),
 });
 
 /**
