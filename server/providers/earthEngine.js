@@ -577,6 +577,41 @@ const TILE_PATH =
 const MODE_TILE_PATH =
   /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z-]{1,20})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
 
+/**
+ * The variant that draws a tile coarser than `variant`'s minZoom, or null
+ * (then the tile is transparent). For variants that name the `zooms` they
+ * are drawn at (the Rivers bands, matched to the zooms Cesium drapes at
+ * their heights): the variant whose zooms hold z, else the first (the
+ * fewest orders), so a z 0 to 4 tile of any band is the orbit band's,
+ * which Earth Engine draws in seconds. Only a 3D-tiles host asks for these:
+ * it drapes about one imagery tile on each loaded primitive, at the level
+ * that spans it, so a continent-sized primitive at orbit asks for z 0 to 2
+ * (docs/PERSONAL-FORK.md, "Rivers on the photoreal tiles").
+ */
+export function coarseVariant(layer, variant, z) {
+  if (!variant?.zooms || !zoomMatched(layer)) return null;
+  return variantForZoom(layer, z);
+}
+
+/** The pseudo-variant a layer with zoom-matched bands is drawn through. */
+export const ZOOM_VARIANT = 'zoom';
+
+/** Whether every variant of a layer names the zooms it is drawn at. */
+export const zoomMatched = (layer) =>
+  layerVariants(layer).every((variant) => Array.isArray(variant.zooms));
+
+/**
+ * The band a zoom draws: the variant whose `zooms` hold z, else the first
+ * below the bands' zooms (the fewest orders) or the last above them.
+ */
+export function variantForZoom(layer, z) {
+  const variants = layerVariants(layer);
+  return (
+    variants.find((entry) => z >= entry.zooms[0] && z <= entry.zooms[1]) ||
+    (z < variants[0].zooms[0] ? variants[0] : variants[variants.length - 1])
+  );
+}
+
 /** "<layer>/<variant>/<ink>", or "<layer>/<mode>/<variant>/<ink>" for a layer with modes. */
 export function mapKey(layer, variant, ink, mode = 'default') {
   return mode === 'default'
@@ -836,6 +871,40 @@ export function createEarthEngineService({
               : {}),
           });
         }
+        // Bands matched to zooms (the Rivers) are also served as one
+        // `zoom` variant: each tile drawn by the band of its own zoom, as
+        // HydroSHEDS v2's tiles are; its version hashes every band's.
+        if (zoomMatched(layer)) {
+          const versionsAt = (mode) =>
+            Object.fromEntries(
+              inks.map((ink) => [
+                ink,
+                crypto
+                  .createHash('sha256')
+                  .update(
+                    layerVariants(layer)
+                      .map((variant) =>
+                        mapRequestHash(layer, variant, ink, mode),
+                      )
+                      .join(','),
+                  )
+                  .digest('hex')
+                  .slice(0, 12),
+              ]),
+            );
+          variants.push({
+            key: ZOOM_VARIANT,
+            minZoom: 0,
+            ready: variants.every((variant) => variant.ready),
+            ...(moded
+              ? {
+                  modeVersions: Object.fromEntries(
+                    modes.map((mode) => [mode, versionsAt(mode)]),
+                  ),
+                }
+              : { versions: versionsAt('default') }),
+          });
+        }
         out.push({
           id: layer.id,
           name: layer.name,
@@ -871,8 +940,10 @@ export function createEarthEngineService({
      */
     async tile(layerId, variantKey, ink, z, x, y, mode = 'default') {
       const layer = byId.get(layerId);
-      const variant = layer
-        ? layerVariants(layer).find((entry) => entry.key === variantKey)
+      let variant = layer
+        ? variantKey === ZOOM_VARIANT && zoomMatched(layer)
+          ? variantForZoom(layer, z)
+          : layerVariants(layer).find((entry) => entry.key === variantKey)
         : null;
       if (!variant) return { status: 404, error: 'No such layer' };
       if (!layerInks(layer).includes(ink))
@@ -882,13 +953,21 @@ export function createEarthEngineService({
       const limit = 2 ** z;
       if (z > (layer.maxZoom ?? 12) || x >= limit || y >= limit)
         return { status: 400, error: 'Tile out of range' };
-      if (z < (variant.minZoom ?? 0))
-        return {
-          status: 200,
-          contentType: 'image/png',
-          body: TRANSPARENT_TILE,
-          blank: true,
-        };
+      if (z < (variant.minZoom ?? 0)) {
+        // A band with zooms (the Rivers) answers a coarser tile with the
+        // band drawn at that zoom: a 3D tileset drapes one tile per loaded
+        // primitive whatever the level, so it asks for coarse tiles the
+        // globe never does (see coarseVariant). Otherwise: transparent.
+        const coarse = coarseVariant(layer, variant, z);
+        if (!coarse)
+          return {
+            status: 200,
+            contentType: 'image/png',
+            body: TRANSPARENT_TILE,
+            blank: true,
+          };
+        variant = coarse;
+      }
       const file = tileFile(layer, variant, ink, z, x, y, mode);
       try {
         const stat = fs.statSync(file);

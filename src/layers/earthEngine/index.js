@@ -3,12 +3,13 @@ import {
   layerInks,
   layerModes,
   layerVariants,
+  riverHeightForCanvas,
   variantForHeight,
 } from '../../data/earthEngineLayers.js';
 import { resolveImageryHost } from '../../maps/imageryHost.js';
 import { activeLuminance, readInkSetting, resolveInk } from '../../maps/ink.js';
 import { SLOW_DISTRICTS_ABOVE_M, rowControls } from './presentation.js';
-import { tileTemplate } from './source.js';
+import { ZOOM_VARIANT, tileTemplate } from './source.js';
 import { riversV2ImageryOptions, riversV2Ready } from '../riversV2/source.js';
 
 /**
@@ -45,11 +46,13 @@ import { riversV2ImageryOptions, riversV2Ready } from '../riversV2/source.js';
  *   orbit);
  * - asks no deeper than its maxZoom. Its minimumLevel stays 0: Cesium
  *   clamps a primitive's level up to it, so a raised minimum would make a
- *   planet-sized primitive ask for every tile of that level. The exception
- *   is a variant with a `minZoom` (the Rivers bands, whose coarse tiles
- *   Earth Engine cannot draw in time): it asks for nothing coarser, which
- *   is at most the 64 tiles of z 3 from orbit, and inside the view's square
- *   below that.
+ *   planet-sized primitive ask for every tile of that level, and Cesium
+ *   1.138 drapes at most 10 textures on one primitive (the rest are
+ *   dropped: a hard-edged patch). The Rivers, whose bands name the zooms
+ *   they are drawn at, go through the server's `zoom` variant (each tile
+ *   drawn by the band of its own zoom, every zoom quick), at minimumLevel 0
+ *   on the globe and on a tileset alike; only a band asked for by name
+ *   (an older server) keeps its `minZoom` on the globe.
  *
  * A layer with `modes` (the Rivers: NETWORK, FREE-FLOWING, PRESSURE) draws
  * the mode a chip picks, kept as the record's `modeStorageKey`; a layer
@@ -217,6 +220,7 @@ export function createEarthEngineLayer({
   let _inkSetting = readInkSetting(store, `${INK_STORAGE_PREFIX}${record.id}`);
   const hasInks = layerInks(record)[0] !== 'default';
   const hasModes = layerModes(record)[0] !== 'default';
+  const zoomBands = layerVariants(record).every((variant) => variant.zooms);
   /** The mode drawn ('default' for a layer without modes). */
   let _mode = readMode(store, record);
   let _removeMoveListener = null;
@@ -282,7 +286,23 @@ export function createEarthEngineLayer({
       layerVariants(record).some((variant) => variant.key === _level)
     )
       return _level;
-    return variantForHeight(record, cameraHeight()).key;
+    return variantForHeight(record, bandHeight()).key;
+  }
+
+  /**
+   * The height the bands are picked by: the camera's, or for bands matched
+   * to Cesium's zooms (the Rivers' `zooms`) the height a 1,600 px canvas
+   * would drape this canvas's zoom at (riverHeightForCanvas).
+   */
+  function bandHeight() {
+    const height = cameraHeight();
+    if (!zoomBands) return height;
+    const canvas = _viewer?.scene?.canvas;
+    return riverHeightForCanvas(
+      height,
+      canvas?.clientWidth,
+      canvas?.clientHeight,
+    );
   }
 
   /** The ink to draw: the forced one, else what the basemap wants. */
@@ -358,12 +378,21 @@ export function createEarthEngineLayer({
       unmount();
       return;
     }
-    const variant = wantedVariant();
     const ink = wantedInk();
     const useV2 = v2Drawn(ink);
     // While v2 draws the Americas, Earth Engine draws the rest of the world.
     const mode = hasModes ? (useV2 ? 'network-rest' : _mode) : 'default';
     const v2Version = useV2 ? _v2Status.versions[ink] : '';
+    // Bands matched to zooms (the Rivers) are drawn through the server's
+    // `zoom` variant: each tile by the band of its own zoom, as v2's are,
+    // so the two agree tile by tile on any canvas and on a 3D tileset
+    // (which drapes each primitive at the level that spans it, not the
+    // view's). The band by height still names the orders in the row.
+    const byZoom =
+      zoomBands &&
+      layer.variants?.some?.((entry) => entry.key === ZOOM_VARIANT) &&
+      !layerVariants(record).some((entry) => entry.key === _level);
+    const variant = byZoom ? ZOOM_VARIANT : wantedVariant();
     const served = layer.variants?.find?.((entry) => entry.key === variant);
     const version =
       (hasModes
@@ -378,19 +407,33 @@ export function createEarthEngineLayer({
     )
       return;
     unmount();
+    const box = viewRectangleDegrees(view.lat, view.lon, view.height);
+    // The levels Cesium asks for. On a 3D tileset it drapes about one
+    // imagery tile on each loaded primitive at the level that spans it,
+    // clamped up to minimumLevel, and keeps at most 10 draped textures per
+    // primitive (Cesium 1.138's ImageryPipelineStage truncates the rest):
+    // a raised minimum made a continent-sized primitive at orbit need 16 to
+    // 33 tiles and draw only the first 10, a hard-edged patch. So on a
+    // tileset, and for the zoom variant (whose every zoom is quick), the
+    // level is Cesium's own; a band by height on the globe keeps its first
+    // level (bounded by the view's square), and the server answers any
+    // coarser tile with the band of that zoom (coarseVariant).
     const minimumLevel =
-      served?.minZoom ??
-      layerVariants(record).find((entry) => entry.key === variant)?.minZoom ??
-      0;
+      host.kind === 'tileset' || variant === ZOOM_VARIANT
+        ? 0
+        : (served?.minZoom ??
+          layerVariants(record).find((entry) => entry.key === variant)
+            ?.minZoom ??
+          0);
+    const maximumLevel = layer.maxZoom ?? record.maxZoom ?? 12;
     const provider = new cesium.UrlTemplateImageryProvider({
       url: tileTemplate(record.id, variant, ink, version, mode),
       tilingScheme: new cesium.WebMercatorTilingScheme(),
       minimumLevel,
-      maximumLevel: layer.maxZoom ?? record.maxZoom ?? 12,
+      maximumLevel,
       credit: layer.attribution || record.attribution,
       hasAlphaChannel: true,
     });
-    const box = viewRectangleDegrees(view.lat, view.lon, view.height);
     _imagery = new cesium.ImageryLayer(provider, {
       alpha: _opacity,
       ...(box
@@ -405,7 +448,8 @@ export function createEarthEngineLayer({
         : {}),
     });
     host.collection.add(_imagery);
-    if (useV2) mountV2(host.collection, ink, box);
+    if (useV2)
+      mountV2(host.collection, ink, box, { minimumLevel, maximumLevel });
     _collection = host.collection;
     _mountedKey = key;
     _madeFor = view;
@@ -418,7 +462,7 @@ export function createEarthEngineLayer({
    * extent (and the view's square, as the Earth Engine overlay), at the
    * same opacity, above the Earth Engine overlay.
    */
-  function mountV2(collection, ink, box) {
+  function mountV2(collection, ink, box, levels) {
     const options = riversV2ImageryOptions(_v2Status, ink);
     if (!options) return;
     const { rectangleDegrees: extent, ...rest } = options;
@@ -441,6 +485,8 @@ export function createEarthEngineLayer({
     if (extentRectangle && viewRectangle && !clip) return;
     const provider = new cesium.UrlTemplateImageryProvider({
       ...rest,
+      // The Earth Engine side's levels, so v2 is no sharper or blurrier.
+      ...levels,
       tilingScheme: new cesium.WebMercatorTilingScheme(),
       ...(extentRectangle ? { rectangle: extentRectangle } : {}),
     });
@@ -622,11 +668,14 @@ export function createEarthEngineLayer({
       return rowControls({
         record,
         catalog: _catalog,
-        variant: _mountedKey
-          ? _mountedKey.split('|')[0]
-          : record.variants?.length
-            ? wantedVariant()
-            : '',
+        // The band the camera's height picks names the orders, also when
+        // the tiles come through the zoom variant.
+        variant:
+          _mountedKey && _mountedKey.split('|')[0] !== ZOOM_VARIANT
+            ? _mountedKey.split('|')[0]
+            : record.variants?.length
+              ? wantedVariant()
+              : '',
         opacity: _opacity,
         onOpacity: setOpacity,
         loading: _loading,

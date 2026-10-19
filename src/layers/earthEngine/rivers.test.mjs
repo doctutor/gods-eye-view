@@ -17,6 +17,7 @@ import {
   layerInks,
   layerModes,
   modeRecord,
+  riverHeightForCanvas,
   riverLineWidth,
   riverOrdersAt,
   riverZoomForHeight,
@@ -614,9 +615,13 @@ test('the row: mode and ink chips, the mode kept as gev.rivers.mode, the legend 
   const provider = layers[0].imageryProvider;
   assert.match(
     provider.url,
-    /\/tile\/ee-rivers\/pressure\/o3\/light\/\{z\}\/\{x\}\/\{y\}\?v=[0-9a-f]{12}$/,
+    /\/tile\/ee-rivers\/pressure\/zoom\/light\/\{z\}\/\{x\}\/\{y\}\?v=[0-9a-f]{12}$/,
   );
-  assert.equal(provider.minimumLevel, 2, 'orbit starts at z 2');
+  assert.equal(
+    provider.minimumLevel,
+    0,
+    'by zoom: every level Cesium asks for',
+  );
   assert.equal(provider.maximumLevel, 11);
   assert.equal(named[0], 'enable');
   assert.ok(named.includes('update 20000 light'));
@@ -651,7 +656,7 @@ test('the row: mode and ink chips, the mode kept as gev.rivers.mode, the legend 
   assert.equal(layers.length, 1);
   assert.match(
     layers[0].imageryProvider.url,
-    /\/ee-rivers\/free-flowing\/o3\/light\//,
+    /\/ee-rivers\/free-flowing\/zoom\/light\//,
   );
   controls = layer.getRowControls();
   assert.deepEqual(
@@ -664,19 +669,21 @@ test('the row: mode and ink chips, the mode kept as gev.rivers.mode, the legend 
   );
   // DARK INK: the legend's swatches follow.
   controls.chips.find((chip) => chip.id === 'ink-dark').onClick();
-  assert.match(layers[0].imageryProvider.url, /\/free-flowing\/o3\/dark\//);
+  assert.match(layers[0].imageryProvider.url, /\/free-flowing\/zoom\/dark\//);
   assert.equal(layer.getRowControls().legend[0].color, '#0072b2');
   assert.equal(named.at(-1), 'update 20000 dark');
 
   // In: a band with more orders, from its own first level.
   height = 600_000;
   listeners.forEach((fn) => fn());
-  assert.match(layers[0].imageryProvider.url, /\/free-flowing\/o6\/dark\//);
-  assert.equal(layers[0].imageryProvider.minimumLevel, 5, 'o6 from z 5');
+  assert.match(layers[0].imageryProvider.url, /\/free-flowing\/zoom\/dark\//);
+  assert.equal(layers[0].imageryProvider.minimumLevel, 0);
+  assert.match(layer.getRowControls().info, /Rivers of flow orders 1 to 6/);
   assert.ok(layers[0].rectangle, 'inside the view square');
   height = 50_000;
   listeners.forEach((fn) => fn());
-  assert.match(layers[0].imageryProvider.url, /\/free-flowing\/all\/dark\//);
+  assert.match(layers[0].imageryProvider.url, /\/free-flowing\/zoom\/dark\//);
+  assert.match(layer.getRowControls().info, /Rivers of every flow order/);
   assert.equal(layer._state().mode, 'free-flowing');
 
   layer.disable();
@@ -851,13 +858,22 @@ test('NETWORK in the Americas is HydroSHEDS v2 while it is built, with Earth Eng
   const [ee, v2] = layers;
   assert.match(
     ee.imageryProvider.url,
-    /\/ee-rivers\/network-rest\/o3\/light\//,
+    /\/ee-rivers\/network-rest\/zoom\/light\//,
   );
   assert.match(
     v2.imageryProvider.url,
     /^\/api\/rivers\/v2\/tile\/light\/\{z\}\/\{x\}\/\{y\}\?v=00000000000a$/,
   );
-  assert.equal(v2.imageryProvider.maximumLevel, 14);
+  // v2 at the Earth Engine side's levels: no sharper, no blurrier.
+  assert.equal(
+    v2.imageryProvider.maximumLevel,
+    ee.imageryProvider.maximumLevel,
+  );
+  assert.equal(
+    v2.imageryProvider.minimumLevel,
+    ee.imageryProvider.minimumLevel,
+  );
+  assert.equal(v2.imageryProvider.maximumLevel, 11);
   // Inside v2's extent (orbit: the whole extent).
   const degrees = (r) => Cesium.Math.toDegrees(r);
   assert.equal(degrees(v2.rectangle.west).toFixed(2), '-169.72');
@@ -882,7 +898,7 @@ test('NETWORK in the Americas is HydroSHEDS v2 while it is built, with Earth Eng
     layers[1].imageryProvider.url,
     /\/tile\/dark\/.*\?v=00000000000b$/,
   );
-  assert.match(layers[0].imageryProvider.url, /\/network-rest\/o3\/dark\//);
+  assert.match(layers[0].imageryProvider.url, /\/network-rest\/zoom\/dark\//);
   // Opacity moves both.
   layer.getRowControls().slider.onInput(40);
   assert.deepEqual(
@@ -891,7 +907,7 @@ test('NETWORK in the Americas is HydroSHEDS v2 while it is built, with Earth Eng
   );
   // Close in over the Americas: v2 inside the view's square.
   move({ height: 300_000, lat: 38.6, lon: -90.2 });
-  assert.match(layers[0].imageryProvider.url, /\/network-rest\/o7\/dark\//);
+  assert.match(layers[0].imageryProvider.url, /\/network-rest\/zoom\/dark\//);
   assert.ok(
     degrees(layers[1].rectangle.west) > -105 &&
       degrees(layers[1].rectangle.west) < -95,
@@ -900,7 +916,7 @@ test('NETWORK in the Americas is HydroSHEDS v2 while it is built, with Earth Eng
   // Over Europe the view square misses v2's extent: Earth Engine only.
   move({ height: 300_000, lat: 50, lon: 8 });
   assert.equal(layers.length, 1);
-  assert.match(layers[0].imageryProvider.url, /\/network-rest\/o7\/dark\//);
+  assert.match(layers[0].imageryProvider.url, /\/network-rest\/zoom\/dark\//);
   // FREE-FLOWING and PRESSURE: v1 everywhere, nothing omitted.
   layer
     .getRowControls()
@@ -910,7 +926,7 @@ test('NETWORK in the Americas is HydroSHEDS v2 while it is built, with Earth Eng
   assert.equal(layers.length, 1);
   assert.match(
     layers[0].imageryProvider.url,
-    /\/ee-rivers\/pressure\/o3\/dark\//,
+    /\/ee-rivers\/pressure\/zoom\/dark\//,
   );
   assert.doesNotMatch(layer.getRowControls().info, /HydroSHEDS v2/);
   layer
@@ -937,7 +953,7 @@ test('without a v2 build (503) or its status, NETWORK is v1 everywhere, quietly'
     assert.equal(layers.length, 1, String(v2?.message || 'no light ink'));
     assert.match(
       layers[0].imageryProvider.url,
-      /\/ee-rivers\/network\/o3\/light\//,
+      /\/ee-rivers\/network\/zoom\/light\//,
     );
     const info = layer.getRowControls().info;
     assert.doesNotMatch(info, /HydroSHEDS|rivers:build|503/);
@@ -1017,4 +1033,144 @@ test('clicks: attached while the layer is on, at most the orders drawn at the he
   layer.enable(viewer);
   layer.disable();
   assert.deepEqual(seen, ['enable', 'disable']);
+});
+
+/** A Rivers layer on a fake globe or 3D-tileset host, with a canvas size. */
+async function hostedRivers(
+  t,
+  { host = 'globe', width = 720, height = 507, catalog } = {},
+) {
+  const body = catalog || (await riversCatalog(t)).body;
+  const source = createEarthEngineSource({
+    fetchImpl: async () => Response.json(body),
+  });
+  const collection = (list) => ({
+    add: (layer) => (list.push(layer), layer),
+    remove: (layer) => {
+      const i = list.indexOf(layer);
+      if (i >= 0) list.splice(i, 1);
+      return i >= 0;
+    },
+    get length() {
+      return list.length;
+    },
+  });
+  const globeLayers = [];
+  const tilesetLayers = [];
+  const state = { height: 4_500_000 };
+  const viewer = {
+    imageryLayers: collection(globeLayers),
+    scene: {
+      globe: { show: host === 'globe' },
+      canvas: { clientWidth: width, clientHeight: height },
+    },
+    camera: {
+      get positionCartographic() {
+        return Cesium.Cartographic.fromDegrees(-100, 40, state.height);
+      },
+      moveEnd: { addEventListener: () => () => {} },
+    },
+  };
+  const tileset = { imageryLayers: collection(tilesetLayers) };
+  const layer = createEarthEngineLayer({
+    record: RIVERS,
+    source,
+    storage: memoryStorage({ 'gev.rivers.mode': 'network' }),
+  });
+  layer.init(viewer);
+  layer.attachMapStackController({
+    getImageryHostTileset: () => (host === 'tileset' ? tileset : null),
+    getActiveLuminance: () => 'dark',
+    subscribe: () => () => {},
+  });
+  layer.enable(viewer);
+  for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+  return {
+    layer,
+    layers: host === 'tileset' ? tilesetLayers : globeLayers,
+    state,
+  };
+}
+
+test('on a 3D tileset and on the globe the Rivers ask for every level through the zoom variant, so no primitive needs more than Cesium’s 10 draped textures', async (t) => {
+  for (const host of ['tileset', 'globe']) {
+    const { layer, layers } = await hostedRivers(t, { host });
+    assert.equal(layers.length, 1, host);
+    const provider = layers[0].imageryProvider;
+    assert.match(provider.url, /\/ee-rivers\/network\/zoom\/light\//, host);
+    assert.equal(provider.minimumLevel, 0, host);
+    assert.equal(provider.maximumLevel, 11, host);
+    // The row still names the band of the height (and canvas).
+    assert.match(layer.getRowControls().info, /Rivers of flow orders 1 to 3/);
+    layer.disable();
+  }
+});
+
+test('with a server that has no zoom variant, the bands keep their first level on the globe and drop it on a 3D tileset', async (t) => {
+  const { body } = await riversCatalog(t);
+  const old = structuredClone(body);
+  old.layers[0].variants = old.layers[0].variants.filter(
+    (variant) => variant.key !== 'zoom',
+  );
+  const globe = await hostedRivers(t, { host: 'globe', catalog: old });
+  assert.match(globe.layers[0].imageryProvider.url, /\/network\/o3\/light\//);
+  assert.equal(globe.layers[0].imageryProvider.minimumLevel, 2);
+  globe.layer.disable();
+  const tileset = await hostedRivers(t, { host: 'tileset', catalog: old });
+  assert.match(tileset.layers[0].imageryProvider.url, /\/network\/o3\/light\//);
+  assert.equal(
+    tileset.layers[0].imageryProvider.minimumLevel,
+    0,
+    'Cesium’s own level per primitive on a tileset',
+  );
+  tileset.layer.disable();
+});
+
+test('the band follows the zoom this canvas drapes: a 720 px pane at 4,500 km is a 1,600 px canvas at 10,000 km', async (t) => {
+  assert.equal(riverHeightForCanvas(4_500_000, 720, 507), 10_000_000);
+  assert.equal(riverHeightForCanvas(4_500_000, 1600, 900), 4_500_000);
+  assert.equal(
+    riverHeightForCanvas(4_500_000, 600, 900),
+    8_000_000,
+    'portrait: the taller side',
+  );
+  assert.equal(riverHeightForCanvas(4_500_000, 0, 0), 4_500_000, 'no canvas');
+  // 720 px: orders 1 to 3 at 4,500 km (Cesium drapes z 4 there, v2's ≤ 3).
+  const small = await hostedRivers(t, { width: 720, height: 507 });
+  assert.match(
+    small.layer.getRowControls().info,
+    /Rivers of flow orders 1 to 3/,
+  );
+  small.layer.disable();
+  // 1,600 px: orders 1 to 4 (z 5).
+  const wide = await hostedRivers(t, { width: 1600, height: 900 });
+  assert.match(
+    wide.layer.getRowControls().info,
+    /Rivers of flow orders 1 to 4/,
+  );
+  wide.layer.disable();
+  assert.equal(
+    riverZoomForHeight(riverHeightForCanvas(4_500_000, 720, 507)),
+    4,
+  );
+  assert.equal(bandForZoom(4).maxOrder, 3);
+});
+
+test('a click asks for the orders drawn on this canvas', () => {
+  let maxOrder = null;
+  const clicks = createRiverClicks({
+    attachHighlight: () => ({ detach() {} }),
+    attachClicks: (options) => {
+      maxOrder = options.maxOrder;
+      return () => {};
+    },
+  });
+  clicks.enable({ scene: { canvas: { clientWidth: 720, clientHeight: 507 } } });
+  assert.equal(maxOrder(4_500_000), 3, '720 px pane');
+  clicks.disable();
+  clicks.enable({
+    scene: { canvas: { clientWidth: 1600, clientHeight: 900 } },
+  });
+  assert.equal(maxOrder(4_500_000), 4, '1,600 px canvas');
+  clicks.disable();
 });
