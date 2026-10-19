@@ -6,6 +6,7 @@ import {
   OverpassViewError,
   createOverpassViewClient,
 } from '../../sources/overpassView.js';
+import { OvertureError, createOvertureClient } from './overture.js';
 import {
   OSM_MAX_HEIGHT_M,
   OSM_QUERY_LIMIT,
@@ -20,6 +21,7 @@ import {
   placeCardEntry,
   placeLabelEntry,
   placeName,
+  placeZoomForHeight,
 } from './places.js';
 import { placeCardDetails, rowControls } from './presentation.js';
 
@@ -30,14 +32,17 @@ import { placeCardDetails, rowControls } from './presentation.js';
  * bundled as a trimmed pack (src/data/local_data/natural_earth/
  * populated_places.json, built by scripts/build-populated-places-pack.mjs)
  * and named from the zoom Natural Earth gives each (places.js, "Level of
- * detail"); below OSM_MAX_HEIGHT_M, OpenStreetMap's place nodes for the
- * view as well, from Overpass through the app's /api/overpass proxy (which
- * needs OVERPASS_UPSTREAMS; without it the row says so and Natural Earth
- * keeps naming). The names are world-overlay labels (never Cesium labels:
+ * detail"); below OSM_MAX_HEIGHT_M, the close-in places of the view as
+ * well: Overture Maps' divisions from the local index (/api/overture,
+ * built by `npm run overture:build`), else OpenStreetMap's place nodes from
+ * Overpass through the app's /api/overpass proxy (which needs
+ * OVERPASS_UPSTREAMS; without it the row says so and Natural Earth keeps
+ * naming). The names are world-overlay labels (never Cesium labels:
  * src/noCesiumLabels.test.mjs), white on dark maps and imagery and
  * near-black on light maps (the basemap's luminance, src/maps/ink.js);
  * DOTS adds a point at each place. A click on a name or a dot opens a card
- * beside it (kind, country, population, source); a click elsewhere closes
+ * beside it (kind, country, population, source, Wikidata id); a click
+ * elsewhere closes
  * it. Everything is rebuilt when the camera settles, nothing per frame.
  */
 
@@ -50,12 +55,15 @@ export const PLACES_PACK_URL = new URL(
 export const DOTS_STORAGE_KEY = 'gev.localities.dots';
 /** Wait this long after the camera settles before asking Overpass. */
 export const OSM_DEBOUNCE_MS = 400;
+/** …or the local Overture index, which answers in milliseconds. */
+export const OVERTURE_DEBOUNCE_MS = 150;
 const DOT_PREFIX = 'locality:';
 
 export const LOCALITIES_CREDIT = Object.freeze({
   key: 'localities',
   html:
     'Places: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a> (public domain); close in, ' +
+    '<a href="https://docs.overturemaps.org/attribution/" target="_blank" rel="noopener">Overture Maps Foundation</a> divisions and ' +
     '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a> (ODbL)',
 });
 
@@ -96,7 +104,9 @@ export function readDots(storage) {
  * @param {{overlayHost?: object|null, cesium?: object,
  *   requestRender?: (reason: string) => void, credits?: {register?: Function},
  *   load?: () => Promise<{countries: string[], places: object[]}>,
- *   overpass?: {query: Function, abort: Function}, storage?: Storage|null,
+ *   overpass?: {query: Function, abort: Function},
+ *   overture?: {status: Function, places: Function, abort: Function},
+ *   storage?: Storage|null,
  *   hitTest?: Function, locale?: () => string,
  *   setTimeoutImpl?: typeof setTimeout, clearTimeoutImpl?: typeof clearTimeout}} [options]
  */
@@ -107,6 +117,7 @@ export function createLocalitiesLayer({
   credits = null,
   load = () => loadPlacesPack(),
   overpass = createOverpassViewClient(),
+  overture = createOvertureClient(),
   storage,
   hitTest = null,
   locale = getLocale,
@@ -127,6 +138,13 @@ export function createLocalitiesLayer({
   let _debounce = null;
   /** OpenStreetMap: {state, places, box, kinds, count, saturated}. */
   let _osm = { state: 'above', places: [], box: null, kinds: [], count: 0 };
+  /**
+   * Overture's index: null until its status is known, false when it is not
+   * built (OpenStreetMap instead), else {state, places, box, zoom, count,
+   * saturated, version}.
+   */
+  let _overture = null;
+  let _overtureAsked = null;
   let _view = null;
   /** id → {place, lon, lat} of what is drawn now. */
   let _drawn = new Map();
@@ -205,9 +223,11 @@ export function createLocalitiesLayer({
     const accent = PLACE_COLORS[ink()] || PLACE_COLORS.light;
     const language = locale();
     const close = _view.height < OSM_MAX_HEIGHT_M;
+    const fromOverture = Boolean(_overture);
     const merged = mergePlaces(
       pickNaturalEarthPlaces(_pack.places, _view),
-      close ? _osm.places : [],
+      close ? (fromOverture ? _overture.places : _osm.places) : [],
+      { ordered: fromOverture },
     );
     const items = [...merged.osm, ...merged.naturalEarth];
     _neCount = merged.naturalEarth.length;
@@ -279,12 +299,103 @@ export function createLocalitiesLayer({
     draw();
   }
 
-  /** The camera settled: name what it sees, and ask OpenStreetMap close in. */
+  async function fetchOverture(box, zoom) {
+    _overture = { ..._overture, state: 'loading', box, zoom };
+    notify();
+    try {
+      const answer = await overture.places({
+        box,
+        zoom,
+        version: _overture.version,
+      });
+      if (!_overture) return;
+      _overture = {
+        ..._overture,
+        state: 'ready',
+        places: answer.places,
+        box,
+        zoom,
+        count: answer.count,
+        saturated: answer.saturated,
+      };
+    } catch (error) {
+      if (error?.name === 'AbortError' || !_overture) return;
+      if (error instanceof OvertureError && error.code === 'unconfigured') {
+        // The build went away: OpenStreetMap from here on.
+        _overture = false;
+        settle();
+        return;
+      }
+      _overture = {
+        ..._overture,
+        state: 'failed',
+        places: [],
+        box: null,
+        count: 0,
+      };
+    }
+    draw();
+  }
+
+  /** Close in from Overture's index: the view's box at its zoom. */
+  function settleOverture() {
+    if (_view.height >= OSM_MAX_HEIGHT_M) {
+      overture.abort?.();
+      _overture = { ..._overture, state: 'above', places: [], box: null };
+      return;
+    }
+    const box = osmQueryBox(_view);
+    const zoom = placeZoomForHeight(_view.height);
+    const covered =
+      (_overture.state === 'ready' || _overture.state === 'loading') &&
+      _overture.zoom === zoom &&
+      boxCovers(_overture.box, box);
+    if (!covered)
+      _debounce = setTimeoutImpl(() => {
+        _debounce = null;
+        fetchOverture(box, zoom);
+      }, OVERTURE_DEBOUNCE_MS);
+  }
+
+  /** Ask once per enable whether Overture's index is built. */
+  function askOverture() {
+    if (_overtureAsked) return;
+    _overtureAsked = Promise.resolve()
+      .then(() => overture.status?.())
+      .catch(() => null)
+      .then((status) => {
+        if (!_enabled) return;
+        _overture = status?.configured
+          ? {
+              state: 'above',
+              places: [],
+              box: null,
+              zoom: null,
+              count: 0,
+              saturated: false,
+              version: status.version,
+            }
+          : false;
+        settle();
+      });
+  }
+
+  /** The camera settled: name what it sees, and ask for the places close in. */
   function settle() {
     if (!_enabled) return;
     _view = viewNow();
     clearTimeoutImpl(_debounce);
     _debounce = null;
+    if (_overture === null) {
+      askOverture();
+      draw();
+      return;
+    }
+    if (_overture) {
+      settleOverture();
+      draw();
+      return;
+    }
     const kinds = osmPlaceKindsForHeight(_view.height);
     if (!kinds.length) {
       overpass.abort?.();
@@ -362,7 +473,7 @@ export function createLocalitiesLayer({
     id: LOCALITIES_LAYER_ID,
     name: 'Localities',
     icon: '◉',
-    source: 'Natural Earth · OpenStreetMap',
+    source: 'Natural Earth · Overture · OpenStreetMap',
     updateInterval: 0,
 
     init(viewer) {
@@ -396,6 +507,9 @@ export function createLocalitiesLayer({
       clearTimeoutImpl(_debounce);
       _debounce = null;
       overpass.abort?.();
+      overture.abort?.();
+      _overture = null;
+      _overtureAsked = null;
       _removeMove?.();
       _removeMove = null;
       try {
@@ -451,6 +565,7 @@ export function createLocalitiesLayer({
         enabled: _enabled,
         naturalEarth: _neCount,
         osm: _osm,
+        overture: _overture || null,
       });
     },
 
@@ -462,6 +577,7 @@ export function createLocalitiesLayer({
     _state: () => ({
       view: _view,
       osm: _osm,
+      overture: _overture,
       drawn: _drawn,
       selected: _selected,
       dots: _dots,
