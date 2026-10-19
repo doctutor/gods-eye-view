@@ -60,6 +60,8 @@
     "rivers:fetch": "node scripts/rivers/index.mjs fetch",
     "rivers:build": "node scripts/rivers/index.mjs build",
     "rivers:status": "node scripts/rivers/index.mjs status",
+    "census:build": "node scripts/census/index.mjs build",
+    "census:status": "node scripts/census/index.mjs status",
     "qa:transit": "node scripts/qa-transit.mjs",
     "mcp": "node server/mcp/stdio.js"
   },

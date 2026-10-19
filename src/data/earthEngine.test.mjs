@@ -537,7 +537,7 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
   const [first] = await Promise.all([service.layers(), service.layers()]);
   assert.equal(
     backend.made.length,
-    13,
+    17,
     'one map per variant and ink (and mode), one request each (the DEM stack, the contours, Population and the Rivers make theirs when a tile asks)',
   );
   assert.ok(backend.made.includes('ee-admin-boundaries/level0/dark'));
@@ -578,11 +578,11 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
     ['light', 'dark'],
   );
   await service.layers();
-  assert.equal(backend.made.length, 13, 'kept');
+  assert.equal(backend.made.length, 17, 'kept');
   clock += MAP_TTL_MS + 1;
   failing = true;
   const stale = await service.layers();
-  assert.equal(backend.made.length, 26, 'asked again');
+  assert.equal(backend.made.length, 34, 'asked again');
   const staleLoss = stale.layers.find((layer) => layer.id === 'ee-forest-loss');
   assert.equal(staleLoss.variants[0].ready, true, 'the old map still serves');
   assert.equal(
@@ -899,6 +899,8 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     'ee-surface-water': 0,
     'ee-land-cover': 0,
     'ee-elevation-contours': 0,
+    'ee-census-tracts': 0,
+    'ee-inundation': 0,
   });
   assert.deepEqual(catalog.tiles, { used: 10, budget: 10 });
   // A new day starts from nothing, with its own warnings.

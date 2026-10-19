@@ -129,6 +129,7 @@
  *               docs/PERSONAL-FORK.md, "Level of detail")
  */
 
+import { INCOME_LEGEND } from './censusTracts.js';
 import { DEM_MAX_ZOOM, demVariants } from './demStack.js';
 
 export const EARTH_ENGINE_ATTRIBUTION = 'Google Earth Engine';
@@ -793,6 +794,110 @@ export const POPULATION_MODES = Object.freeze(
   }),
 );
 
+// --- Inundation history --------------------------------------------------------
+
+/**
+ * The Global Flood Database v1 (GLOBAL_FLOOD_DB/MODIS_EVENTS/V1): 913 flood
+ * events, 2000–2018, mapped from MODIS at 250 m, one image per event with
+ * the event's maximum extent (`flooded`, 1 or 0), its days under water
+ * (`duration`) and the JRC permanent water inside it (`jrc_perm_water`).
+ * A mode sums one band over every event, less the share of each pixel that
+ * is permanent water (summedNode, server/providers/earthEngine.js). Every
+ * band is pyramided by MEAN (read from the asset, 2026-10-19), so a coarse
+ * pixel is each event's flooded fraction summed: a count averaged over the
+ * pixel, which reads sensibly from orbit, and the tiles drew in under 7 s
+ * at z 0 to 3 (docs/PERSONAL-FORK.md, "Inundation history").
+ */
+const FLOOD_EVENTS = 'GLOBAL_FLOOD_DB/MODIS_EVENTS/V1';
+const floodAsset = (sum) =>
+  Object.freeze({
+    collection: FLOOD_EVENTS,
+    sum,
+    lessShareOf: 'jrc_perm_water',
+  });
+export const FLOOD_MODES = Object.freeze([
+  Object.freeze({
+    key: 'count',
+    asset: floodAsset('flooded'),
+    // Under a tenth of a flood (a sliver of a far pixel, once) is not drawn.
+    atLeast: 0.1,
+    vis: Object.freeze({
+      min: 0.1,
+      max: 10,
+      palette: Object.freeze([
+        'c6e6f5',
+        '74b9e3',
+        '2b7bc4',
+        '0b3d91',
+        '2a0b5e',
+      ]),
+    }),
+    legend: Object.freeze([
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      Object.freeze({ label: 'Once', color: '#c6e6f5' }),
+      Object.freeze({ label: '3', color: '#2b7bc4' }),
+      Object.freeze({ label: '10+', color: '#2a0b5e' }),
+    ]),
+  }),
+  Object.freeze({
+    key: 'duration',
+    asset: floodAsset('duration'),
+    // Days under water over all events, drawn on a log scale: 1 to 300+.
+    atLeast: 1,
+    log10: true,
+    vis: Object.freeze({
+      min: 0,
+      max: 2.5,
+      palette: Object.freeze([
+        'fee8c8',
+        'fdbb84',
+        'e34a33',
+        'b30000',
+        '4d0000',
+      ]),
+    }),
+    legend: Object.freeze([
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      Object.freeze({ label: '1 day', color: '#fee8c8' }),
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      Object.freeze({ label: '10 days', color: '#fdbb84' }),
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      Object.freeze({ label: '100 days', color: '#b30000' }),
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      Object.freeze({ label: '300+ days', color: '#4d0000' }),
+    ]),
+  }),
+]);
+// --- Census tracts ---------------------------------------------------------------
+
+/**
+ * Census tracts: TRACTS draws TIGER/Line 2020's 85,528 tract outlines in
+ * the boundaries' inks (Earth Engine); HOUSEHOLD INCOME fills the 2024
+ * cartographic boundary tracts by their ACS median household income, drawn
+ * by the local server (`local: 'census'`, server/providers/census.js, built
+ * by `npm run census:build`; the income needs CENSUS_API_KEY). Tracts hold
+ * about 4,000 people, a kilometre or two across in a city: they are drawn
+ * below TRACT_MAX_HEIGHT_M, where the middle of the view is z 9 (300 m
+ * pixels), and Earth Engine's outline tiles start at z 7, the first level
+ * that answers in about a second (z 3 to 5 took 4 to 21 s, live
+ * 2026-10-19; docs/PERSONAL-FORK.md, "Census tracts").
+ */
+export const TRACT_MAX_HEIGHT_M = Math.round(STEP(7));
+const TRACT_INKS = Object.freeze({ light: 'ffffffaa', dark: '1a1a1aaa' });
+export const CENSUS_TRACT_MODES = Object.freeze([
+  Object.freeze({
+    key: 'tracts',
+    legend: Object.freeze([
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      Object.freeze({ label: 'Tract', color: '#ffffff', ink: true }),
+    ]),
+  }),
+  Object.freeze({ key: 'income', local: 'census', legend: INCOME_LEGEND }),
+]);
+
+const FLOOD_NOTICE =
+  'Global Flood Database v1 (Tellman et al. 2021, Nature 596:80, doi:10.1038/s41586-021-03695-w), Cloud to Street and the Dartmouth Flood Observatory, CC BY-NC 4.0';
+
 export const EARTH_ENGINE_LAYERS = Object.freeze([
   Object.freeze({
     id: 'ee-terrain-slope',
@@ -1085,13 +1190,52 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     maxHeightM: LAND_COVER_MAX_HEIGHT_M,
   }),
   ELEVATION_CONTOURS,
+  Object.freeze({
+    id: 'ee-census-tracts',
+    name: 'Census tracts',
+    kind: 'features',
+    variants: Object.freeze([
+      Object.freeze({
+        key: 'tracts',
+        asset: Object.freeze({ table: 'TIGER/2020/TRACT' }),
+        minZoom: 7,
+      }),
+    ]),
+    modes: CENSUS_TRACT_MODES,
+    modeStorageKey: 'gev.censusTracts.mode',
+    style: Object.freeze({
+      color: TRACT_INKS.light,
+      fillColor: '00000000',
+      width: 1,
+    }),
+    inks: TRACT_INKS,
+    legend: CENSUS_TRACT_MODES[0].legend,
+    attribution:
+      'U.S. Census Bureau: TIGER/Line 2020 census tracts; income from the ACS 5-year 2020–2024 estimates and the 2024 cartographic boundaries (public domain). This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau',
+    maxZoom: 14,
+    maxHeightM: TRACT_MAX_HEIGHT_M,
+  }),
+  // Inundation history: how often, and how long, floods covered the ground.
+  Object.freeze({
+    id: 'ee-inundation',
+    name: 'Inundation history',
+    kind: 'image',
+    asset: FLOOD_MODES[0].asset,
+    modes: FLOOD_MODES,
+    modeStorageKey: 'gev.inundation.mode',
+    legend: FLOOD_MODES[0].legend,
+    attribution: FLOOD_NOTICE,
+    // 250 m pixels: z 10 is about 150 m.
+    maxZoom: 10,
+  }),
 ]);
 
 /** A layer's modes: the keys of its `modes`, else one ('default'). */
 export function layerModes(layer) {
-  return layer?.modes?.length
-    ? layer.modes.map((mode) => mode.key)
-    : ['default'];
+  // A mode drawn by a local server (`local`: the Census tracts' income) has
+  // no Earth Engine map.
+  const modes = (layer?.modes || []).filter((mode) => !mode.local);
+  return modes.length ? modes.map((mode) => mode.key) : ['default'];
 }
 
 /** A layer's mode record by key, else its first (or null without modes). */

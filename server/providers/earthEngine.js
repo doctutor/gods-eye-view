@@ -92,6 +92,7 @@ const invoke = (functionName, args) => ({
 function assetNode(asset) {
   if (asset?.table)
     return invoke('Collection.loadTable', { tableId: constant(asset.table) });
+  if (asset?.sum) return summedNode(asset);
   const image = asset?.collection
     ? invoke('ImageCollection.mosaic', {
         collection: invoke('ImageCollection.load', {
@@ -106,6 +107,39 @@ function assetNode(asset) {
       })
     : image;
   return asset?.seaIsZero ? invoke('Image.selfMask', { image: band }) : band;
+}
+
+/**
+ * A collection's band summed over its images (`sum`: Inundation history's
+ * flood count, or days, over 913 events), less the share of each pixel
+ * that is `lessShareOf` (permanent water, the same JRC map in every event):
+ * sum × (1 − share). Both are pyramided by MEAN, so a coarse pixel is the
+ * flooded fraction summed over the events, times its land share: a count
+ * averaged over the pixel's area. A mask would drop every coarse pixel that
+ * touches a lake or a coast.
+ */
+function summedNode(asset) {
+  const collection = invoke('ImageCollection.load', {
+    id: constant(asset.collection),
+  });
+  const summed = invoke('Image.select', {
+    input: invoke('ImageCollection.reduce', {
+      collection,
+      reducer: invoke('Reducer.sum', {}),
+    }),
+    bandSelectors: constant([`${asset.sum}_sum`]),
+  });
+  if (!asset.lessShareOf) return summed;
+  return invoke('Image.multiply', {
+    image1: summed,
+    image2: invoke('Image.subtract', {
+      image1: invoke('Image.constant', { value: constant(1) }),
+      image2: invoke('Image.select', {
+        input: invoke('ImageCollection.mosaic', { collection }),
+        bandSelectors: constant([asset.lessShareOf]),
+      }),
+    }),
+  });
 }
 
 const orOf = (filters) =>
@@ -702,7 +736,9 @@ export function expressionFor(
   let node = assetNode(variant.asset);
   const filter = featureFilter(layer, variant, mode);
   if (filter) node = invoke('Collection.filter', { collection: node, filter });
-  if (layer.modes?.length)
+  // Modes coloured per feature by a property (the Rivers'); a mode without
+  // one (the Census tracts' outlines) is drawn in the ink.
+  if (layer.modes?.length && modeRecord(layer, mode)?.property)
     return styledFeatures(layer, variant, node, ink, mode);
   const style = layer.style || {};
   node = invoke('Collection.style', {

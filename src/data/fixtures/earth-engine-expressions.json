@@ -35489,6 +35489,527 @@
         ],
         "opacity": 0.8
       }
+    },
+    "ee-census-tracts/tracts/tracts/light": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Collection.style",
+              "arguments": {
+                "collection": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.loadTable",
+                    "arguments": {
+                      "tableId": {
+                        "constantValue": "TIGER/2020/TRACT"
+                      }
+                    }
+                  }
+                },
+                "color": {
+                  "constantValue": "ffffffaa"
+                },
+                "fillColor": {
+                  "constantValue": "00000000"
+                },
+                "width": {
+                  "constantValue": 1
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-census-tracts/tracts/tracts/dark": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Collection.style",
+              "arguments": {
+                "collection": {
+                  "functionInvocationValue": {
+                    "functionName": "Collection.loadTable",
+                    "arguments": {
+                      "tableId": {
+                        "constantValue": "TIGER/2020/TRACT"
+                      }
+                    }
+                  }
+                },
+                "color": {
+                  "constantValue": "1a1a1aaa"
+                },
+                "fillColor": {
+                  "constantValue": "00000000"
+                },
+                "width": {
+                  "constantValue": 1
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG"
+    },
+    "ee-inundation/count/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.updateMask",
+              "arguments": {
+                "image": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.multiply",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.select",
+                          "arguments": {
+                            "input": {
+                              "functionInvocationValue": {
+                                "functionName": "ImageCollection.reduce",
+                                "arguments": {
+                                  "collection": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.load",
+                                      "arguments": {
+                                        "id": {
+                                          "constantValue": "GLOBAL_FLOOD_DB/MODIS_EVENTS/V1"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "reducer": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Reducer.sum",
+                                      "arguments": {}
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "bandSelectors": {
+                              "constantValue": [
+                                "flooded_sum"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.subtract",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 1
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.mosaic",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "GLOBAL_FLOOD_DB/MODIS_EVENTS/V1"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "jrc_perm_water"
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "mask": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.gte",
+                    "arguments": {
+                      "image1": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.reduce",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "GLOBAL_FLOOD_DB/MODIS_EVENTS/V1"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "reducer": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Reducer.sum",
+                                            "arguments": {}
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "flooded_sum"
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.subtract",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 1
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.mosaic",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.load",
+                                                  "arguments": {
+                                                    "id": {
+                                                      "constantValue": "GLOBAL_FLOOD_DB/MODIS_EVENTS/V1"
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "jrc_perm_water"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "image2": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.constant",
+                          "arguments": {
+                            "value": {
+                              "constantValue": 0.1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0.1,
+            "max": 10
+          }
+        ],
+        "paletteColors": [
+          "c6e6f5",
+          "74b9e3",
+          "2b7bc4",
+          "0b3d91",
+          "2a0b5e"
+        ]
+      }
+    },
+    "ee-inundation/duration/default/default": {
+      "expression": {
+        "values": {
+          "0": {
+            "functionInvocationValue": {
+              "functionName": "Image.log10",
+              "arguments": {
+                "value": {
+                  "functionInvocationValue": {
+                    "functionName": "Image.updateMask",
+                    "arguments": {
+                      "image": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.multiply",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.select",
+                                "arguments": {
+                                  "input": {
+                                    "functionInvocationValue": {
+                                      "functionName": "ImageCollection.reduce",
+                                      "arguments": {
+                                        "collection": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.load",
+                                            "arguments": {
+                                              "id": {
+                                                "constantValue": "GLOBAL_FLOOD_DB/MODIS_EVENTS/V1"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "reducer": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Reducer.sum",
+                                            "arguments": {}
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "bandSelectors": {
+                                    "constantValue": [
+                                      "duration_sum"
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.subtract",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.constant",
+                                      "arguments": {
+                                        "value": {
+                                          "constantValue": 1
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.mosaic",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.load",
+                                                  "arguments": {
+                                                    "id": {
+                                                      "constantValue": "GLOBAL_FLOOD_DB/MODIS_EVENTS/V1"
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "jrc_perm_water"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "mask": {
+                        "functionInvocationValue": {
+                          "functionName": "Image.gte",
+                          "arguments": {
+                            "image1": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.multiply",
+                                "arguments": {
+                                  "image1": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.select",
+                                      "arguments": {
+                                        "input": {
+                                          "functionInvocationValue": {
+                                            "functionName": "ImageCollection.reduce",
+                                            "arguments": {
+                                              "collection": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.load",
+                                                  "arguments": {
+                                                    "id": {
+                                                      "constantValue": "GLOBAL_FLOOD_DB/MODIS_EVENTS/V1"
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "reducer": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "Reducer.sum",
+                                                  "arguments": {}
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "bandSelectors": {
+                                          "constantValue": [
+                                            "duration_sum"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "image2": {
+                                    "functionInvocationValue": {
+                                      "functionName": "Image.subtract",
+                                      "arguments": {
+                                        "image1": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.constant",
+                                            "arguments": {
+                                              "value": {
+                                                "constantValue": 1
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "image2": {
+                                          "functionInvocationValue": {
+                                            "functionName": "Image.select",
+                                            "arguments": {
+                                              "input": {
+                                                "functionInvocationValue": {
+                                                  "functionName": "ImageCollection.mosaic",
+                                                  "arguments": {
+                                                    "collection": {
+                                                      "functionInvocationValue": {
+                                                        "functionName": "ImageCollection.load",
+                                                        "arguments": {
+                                                          "id": {
+                                                            "constantValue": "GLOBAL_FLOOD_DB/MODIS_EVENTS/V1"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "bandSelectors": {
+                                                "constantValue": [
+                                                  "jrc_perm_water"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "image2": {
+                              "functionInvocationValue": {
+                                "functionName": "Image.constant",
+                                "arguments": {
+                                  "value": {
+                                    "constantValue": 1
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "result": "0"
+      },
+      "fileFormat": "PNG",
+      "visualizationOptions": {
+        "ranges": [
+          {
+            "min": 0,
+            "max": 2.5
+          }
+        ],
+        "paletteColors": [
+          "fee8c8",
+          "fdbb84",
+          "e34a33",
+          "b30000",
+          "4d0000"
+        ]
+      }
     }
   }
 }

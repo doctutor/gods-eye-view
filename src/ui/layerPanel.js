@@ -111,6 +111,8 @@ const PANEL_GROUPS = [
       'ee-population',
       'ee-admin-boundaries',
       'ee-rivers',
+      'ee-census-tracts',
+      'ee-inundation',
       'ee-surface-water',
       'ee-land-cover',
       // Personal fork: Wikipedia coverage (src/layers/wikipediaCoverage/).

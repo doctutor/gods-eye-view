@@ -423,6 +423,8 @@ export const VOICE_OFF_LAYERS = Object.freeze({
   'ee-population': 'personal fork layer',
   'ee-admin-boundaries': 'personal fork layer',
   'ee-rivers': 'personal fork layer',
+  'ee-census-tracts': 'personal fork layer',
+  'ee-inundation': 'personal fork layer',
   'ee-surface-water': 'personal fork layer',
   'ee-land-cover': 'personal fork layer',
   grid: 'personal fork layer',

@@ -39,6 +39,14 @@ export const LEGEND_WORDS = Object.freeze({
   '1 month a year': msg('1 month a year'),
   '6 months a year': msg('6 months a year'),
   'All year': msg('All year'),
+  // Census tracts and Inundation history.
+  Tract: msg('Tract'),
+  'Under $30k': msg('Under $30k'),
+  Once: msg('Once'),
+  '1 day': msg('1 day'),
+  '10 days': msg('10 days'),
+  '100 days': msg('100 days'),
+  '300+ days': msg('300+ days'),
   // Land cover's classes (ESA WorldCover).
   'Tree cover': msg('Tree cover'),
   Shrubland: msg('Shrubland'),
@@ -152,6 +160,32 @@ export const MODE_CHIPS = Object.freeze([
     label: msg('SEASONALITY'),
     title: msg('How many months a year water is there'),
   }),
+  // Census tracts: outlines (Earth Engine) or income (the local server).
+  Object.freeze({
+    key: 'tracts',
+    label: msg('TRACTS'),
+    title: msg('Census tract outlines (TIGER/Line 2020)'),
+  }),
+  Object.freeze({
+    key: 'income',
+    label: msg('HOUSEHOLD INCOME'),
+    title: msg(
+      'Median household income by tract, ACS 5-year 2020–2024 (drawn by the local server: npm run census:build)',
+    ),
+  }),
+  // Inundation history (Global Flood Database).
+  Object.freeze({
+    key: 'count',
+    label: msg('FLOOD COUNT'),
+    title: msg(
+      'How many of the 913 mapped floods of 2000–2018 covered each place',
+    ),
+  }),
+  Object.freeze({
+    key: 'duration',
+    label: msg('FLOODED DURATION'),
+    title: msg('Days under flood water in all of them, on a log scale'),
+  }),
   // Land cover (ESA WorldCover): the map's year.
   Object.freeze({
     key: 'v200',
@@ -255,6 +289,22 @@ export function demSourceText({ name = '', fallback = null } = {}) {
     : name;
 }
 
+/** The local census server's messages (server/providers/census/sources.js). */
+const LOCAL_MESSAGES = Object.freeze({
+  'Set CENSUS_API_KEY in .env (a free key from api.census.gov/data/key_signup.html), then run npm run census:build':
+    msg(
+      'Set CENSUS_API_KEY in .env (a free key from api.census.gov/data/key_signup.html), then run npm run census:build',
+    ),
+  'Run npm run census:build to draw the census tracts': msg(
+    'Run npm run census:build to draw the census tracts',
+  ),
+  'CENSUS_API_KEY is set: run npm run census:build again to fetch the incomes':
+    msg(
+      'CENSUS_API_KEY is set: run npm run census:build again to fetch the incomes',
+    ),
+  'Asking the local census server…': msg('Asking the local census server…'),
+});
+
 /**
  * The status line.
  * @param {{catalog?: object|null, layer?: object|null, variant?: string,
@@ -279,9 +329,16 @@ export function statusText({
   americasV2 = false,
   mode = '',
   demSource = '',
+  localMessage = '',
 }) {
   if (failure)
     return t('Earth Engine unavailable: {reason}', { reason: failure });
+  // A mode drawn by a local server that cannot draw yet (the Census
+  // tracts' income without its build or CENSUS_API_KEY): what to do.
+  if (localMessage && !Number.isFinite(ceilingM))
+    return LOCAL_MESSAGES[localMessage]
+      ? t(LOCAL_MESSAGES[localMessage])
+      : localMessage;
   // The words Recent Imagery and the weather layers use for this map.
   if (hostless && catalog?.configured && !layer?.error)
     return t(NO_IMAGERY_HOST);
@@ -360,6 +417,7 @@ export function rowControls({
   americasV2 = false,
   demSource = '',
   creditTitle = '',
+  localMessage = '',
 }) {
   const layer = catalog?.layers?.get?.(record.id) || null;
   const variantKeys = new Set((record.variants || []).map((v) => v.key));
@@ -446,6 +504,7 @@ export function rowControls({
       americasV2,
       mode,
       demSource,
+      localMessage,
     }),
     // A terrain layer: the notices of the sources in view.
     infoTitle: creditTitle || layer?.attribution || '',

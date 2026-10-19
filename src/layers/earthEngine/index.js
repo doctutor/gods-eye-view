@@ -22,6 +22,7 @@ import {
 } from './presentation.js';
 import { ZOOM_VARIANT, tileTemplate } from './source.js';
 import { riversV2ImageryOptions, riversV2Ready } from '../riversV2/source.js';
+import { censusImageryOptions, censusModeMessage } from '../census/source.js';
 
 /**
  * Personal fork: one Earth Engine overlay (src/data/earthEngineLayers.js) as
@@ -276,6 +277,7 @@ export function createEarthEngineLayer({
   clicks = null,
   v2Source = null,
   v2Credit = null,
+  localSource = null,
   demCredit = null,
 }) {
   const store = storageOf(storage);
@@ -310,6 +312,8 @@ export function createEarthEngineLayer({
   let _demSources = [];
   /** HydroSHEDS v2's status, and its imagery over the Americas when drawn. */
   let _v2Status = null;
+  /** A local mode's server status (the Census tracts' income), when asked. */
+  let _localStatus = null;
   let _v2Imagery = null;
   const notify = () => {
     try {
@@ -445,12 +449,72 @@ export function createEarthEngineLayer({
   }
 
   /** Drape the variant the camera wants, on the stack's host, when the server can draw it. */
+  /** The mode drawn by a local server (`local`), or null. */
+  function localMode() {
+    const entry = (record.modes || []).find((mode) => mode.key === _mode);
+    return entry?.local && localSource ? entry : null;
+  }
+
+  /** A local mode: its server's tiles in place of Earth Engine's. */
+  function syncLocal(host, view) {
+    const options = censusImageryOptions(_localStatus, _mode);
+    if (!options) {
+      unmount();
+      notify();
+      return;
+    }
+    const key = `local|${_mode}|${options.url}`;
+    if (
+      _imagery &&
+      _mountedKey === key &&
+      _collection === host.collection &&
+      !viewMoved(_madeFor, view)
+    )
+      return;
+    unmount();
+    const box = viewRectangleDegrees(view.lat, view.lon, view.height);
+    const { url, credit, ...levels } = options;
+    const provider = new cesium.UrlTemplateImageryProvider({
+      url,
+      tilingScheme: new cesium.WebMercatorTilingScheme(),
+      ...levels,
+      // On a tileset Cesium drapes each primitive at the level that spans
+      // it: the server answers a coarser tile with a transparent one.
+      minimumLevel: host.kind === 'tileset' ? 0 : levels.minimumLevel,
+      credit,
+    });
+    _imagery = new cesium.ImageryLayer(provider, {
+      alpha: _opacity,
+      ...(box
+        ? {
+            rectangle: cesium.Rectangle.fromDegrees(
+              box.west,
+              box.south,
+              box.east,
+              box.north,
+            ),
+          }
+        : {}),
+    });
+    host.collection.add(_imagery);
+    _collection = host.collection;
+    _mountedKey = key;
+    _madeFor = view;
+    requestRender('earth-engine-show');
+    notify();
+  }
+
   function sync() {
     const layer = _catalog?.layers?.get?.(record.id);
     const host = imageryHost();
     _hostKind = host.kind;
     const view = viewNow();
     _aboveCeiling = view.height > (record.maxHeightM ?? Infinity);
+    if (localMode()) {
+      if (_enabled && host.collection && !_aboveCeiling) syncLocal(host, view);
+      else unmount();
+      return;
+    }
     const drawable =
       _enabled &&
       host.collection &&
@@ -596,6 +660,18 @@ export function createEarthEngineLayer({
     if (v2Credit) credits?.register?.(_viewer, v2Credit);
   }
 
+  /** A local mode's server status: a failure reads as not built. */
+  async function loadLocal({ refresh = false } = {}) {
+    if (!localSource) return;
+    try {
+      _localStatus = await localSource.status({ refresh });
+    } catch {
+      _localStatus = null;
+    }
+    if (_enabled) sync();
+    notify();
+  }
+
   /** HydroSHEDS v2's status: a failure reads as not built (v1 everywhere). */
   async function loadV2({ refresh = false } = {}) {
     if (!record.americasV2 || !v2Source) return;
@@ -720,11 +796,13 @@ export function createEarthEngineLayer({
         _removeMoveListener = _viewer.camera.moveEnd.addEventListener(onMoved);
       _catalog = source.last?.() || _catalog;
       _v2Status = v2Source?.last?.() || _v2Status;
+      _localStatus = localSource?.last?.() || _localStatus;
       names?.enable();
       clicks?.enable(_viewer);
       sync();
       void loadCatalog();
       void loadV2();
+      void loadLocal();
     },
 
     disable() {
@@ -789,6 +867,12 @@ export function createEarthEngineLayer({
         mode: _mode,
         onMode: setMode,
         americasV2: _enabled && Boolean(_v2Imagery),
+        // A local mode not built (no build, no CENSUS_API_KEY): what to do.
+        localMessage:
+          _enabled && localMode()
+            ? censusModeMessage(_localStatus, _mode) ||
+              (_localStatus ? '' : 'Asking the local census server…')
+            : '',
         demSource: _enabled && record.demStack ? demSourceName() : '',
         creditTitle:
           record.demStack && _demSources.length
