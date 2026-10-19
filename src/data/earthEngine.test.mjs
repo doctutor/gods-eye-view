@@ -30,6 +30,8 @@ import {
 import {
   AMERICAS_CON_IDS,
   EARTH_ENGINE_LAYERS,
+  LAND_COVER_CLASSES,
+  LAND_COVER_MAX_HEIGHT_M,
   RIVER_BANDS,
   RIVER_MODES,
   inkColor,
@@ -388,8 +390,8 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
   const [first] = await Promise.all([service.layers(), service.layers()]);
   assert.equal(
     backend.made.length,
-    13,
-    'one map per variant and ink, one request each',
+    18,
+    'one map per variant and ink (and mode), one request each',
   );
   assert.ok(backend.made.includes('ee-admin-boundaries/level0/dark'));
   assert.ok(backend.made.includes('ee-terrain-slope/near/default'));
@@ -424,11 +426,11 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
     ['light', 'dark'],
   );
   await service.layers();
-  assert.equal(backend.made.length, 13, 'kept');
+  assert.equal(backend.made.length, 18, 'kept');
   clock += MAP_TTL_MS + 1;
   failing = true;
   const stale = await service.layers();
-  assert.equal(backend.made.length, 26, 'asked again');
+  assert.equal(backend.made.length, 36, 'asked again');
   const staleSlope = stale.layers.find(
     (layer) => layer.id === 'ee-terrain-slope',
   );
@@ -741,6 +743,8 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     'ee-forest-loss': 6,
     'ee-admin-boundaries': 0,
     'ee-rivers': 0,
+    'ee-surface-water': 0,
+    'ee-land-cover': 0,
   });
   assert.deepEqual(catalog.tiles, { used: 10, budget: 10 });
   // A new day starts from nothing, with its own warnings.
@@ -1081,4 +1085,193 @@ test('the Rivers record: AUTO by height, the Americas switch off, both citations
   assert.match(rivers.attribution, /Lehner.*2008/);
   assert.match(rivers.attribution, /Grill et al\. 2019, Nature 569:215/);
   assert.match(rivers.attribution, /Natural Earth/);
+});
+
+// Personal fork: Surface water and Land cover, image layers with modes.
+const fnOf = (node) => node.functionInvocationValue;
+
+test('Surface water: each mode is its JRC band, masked by max_extent, zero transparent, in its own colours', () => {
+  const water = byId('ee-surface-water');
+  assert.deepEqual(layerModes(water), ['occurrence', 'change', 'seasonality']);
+  assert.equal(water.modeStorageKey, 'gev.surfaceWater.mode');
+  assert.equal(water.maxHeightM, undefined, 'it draws from orbit');
+  assert.match(water.attribution, /^Source: EC JRC\/Google/);
+  const bandOf = (node) => fnOf(node).arguments.bandSelectors.constantValue[0];
+  const expect = {
+    occurrence: { band: 'occurrence', top: 'Image.selfMask', min: 1, max: 100 },
+    change: { band: 'change_abs', top: 'Image.updateMask', min: -50, max: 50 },
+    seasonality: {
+      band: 'seasonality',
+      top: 'Image.selfMask',
+      min: 1,
+      max: 12,
+    },
+  };
+  for (const [mode, want] of Object.entries(expect)) {
+    const request = mapRequestFor(
+      water,
+      layerVariants(water)[0],
+      'default',
+      mode,
+    );
+    const top = fnOf(request.expression.values['0']);
+    assert.equal(top.functionName, want.top, mode);
+    // Under the zero mask: the band, masked by max_extent of the same image.
+    const masked = fnOf(top.arguments.image);
+    assert.equal(masked.functionName, 'Image.updateMask', mode);
+    assert.equal(bandOf(masked.arguments.image), want.band, mode);
+    assert.equal(bandOf(masked.arguments.mask), 'max_extent', mode);
+    assert.match(JSON.stringify(request), /JRC\/GSW1_4\/GlobalSurfaceWater/);
+    assert.deepEqual(request.visualizationOptions.ranges, [
+      { min: want.min, max: want.max },
+    ]);
+    assert.deepEqual(request.visualizationOptions.paletteColors, [
+      ...modeRecord(water, mode).vis.palette,
+    ]);
+  }
+  // CHANGE is signed: zero (no change) is masked by comparing with 0.
+  const change = fnOf(
+    mapRequestFor(water, layerVariants(water)[0], 'default', 'change')
+      .expression.values['0'],
+  );
+  assert.equal(fnOf(change.arguments.mask).functionName, 'Image.neq');
+  // One map per mode, each its own key and hash.
+  const keys = layerModes(water).map((mode) =>
+    mapKey(water, layerVariants(water)[0], 'default', mode),
+  );
+  assert.deepEqual(keys, [
+    'ee-surface-water/occurrence/default/default',
+    'ee-surface-water/change/default/default',
+    'ee-surface-water/seasonality/default/default',
+  ]);
+  assert.equal(
+    new Set(
+      layerModes(water).map((mode) =>
+        mapRequestHash(water, layerVariants(water)[0], 'default', mode),
+      ),
+    ).size,
+    3,
+  );
+  // A single variant: the height never changes what is drawn.
+  for (const height of [1_000, 3_000_000, 20_000_000])
+    assert.equal(variantForHeight(water, height).key, 'default');
+});
+
+test('Land cover: WorldCover classes remapped to the dataset palette, two years, and a ceiling', () => {
+  const cover = byId('ee-land-cover');
+  assert.deepEqual(layerModes(cover), ['v200', 'v100']);
+  assert.equal(cover.modeStorageKey, 'gev.landCover.mode');
+  assert.equal(cover.maxHeightM, LAND_COVER_MAX_HEIGHT_M);
+  assert.equal(LAND_COVER_MAX_HEIGHT_M, 10_000_000);
+  assert.match(
+    cover.attribution,
+    /^© ESA WorldCover project 2021 \/ Contains modified Copernicus Sentinel data \(2021\) processed by ESA WorldCover consortium/,
+  );
+  assert.match(cover.attribution, /CC BY 4\.0/);
+  // The STAC record's gee:classes, in order.
+  assert.deepEqual(
+    LAND_COVER_CLASSES.map((entry) => [entry.value, entry.color]),
+    [
+      [10, '006400'],
+      [20, 'ffbb22'],
+      [30, 'ffff4c'],
+      [40, 'f096ff'],
+      [50, 'fa0000'],
+      [60, 'b4b4b4'],
+      [70, 'f0f0f0'],
+      [80, '0064c8'],
+      [90, '0096a0'],
+      [95, '00cf75'],
+      [100, 'fae6a0'],
+    ],
+  );
+  for (const [mode, image] of [
+    ['v200', 'ESA/WorldCover/v200/2021'],
+    ['v100', 'ESA/WorldCover/v100/2020'],
+  ]) {
+    const request = mapRequestFor(
+      cover,
+      layerVariants(cover)[0],
+      'default',
+      mode,
+    );
+    const remap = fnOf(request.expression.values['0']);
+    assert.equal(remap.functionName, 'Image.remap');
+    assert.deepEqual(
+      remap.arguments.from.constantValue,
+      LAND_COVER_CLASSES.map((entry) => entry.value),
+    );
+    assert.deepEqual(
+      remap.arguments.to.constantValue,
+      [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    );
+    const select = fnOf(remap.arguments.image);
+    assert.deepEqual(select.arguments.bandSelectors.constantValue, ['Map']);
+    assert.equal(
+      fnOf(select.arguments.input).arguments.id.constantValue,
+      image,
+    );
+    assert.deepEqual(request.visualizationOptions, {
+      ranges: [{ min: 0, max: 10 }],
+      paletteColors: LAND_COVER_CLASSES.map((entry) => entry.color),
+    });
+  }
+  assert.equal(cover.legend.length, 11);
+  assert.equal(cover.legend[4].label, 'Built-up');
+  assert.equal(cover.legend[4].color, '#fa0000');
+});
+
+test('the tile route takes a mode with digits (Land cover’s v200)', async () => {
+  const asked = [];
+  const handle = createEarthEngineHandler({
+    service: {
+      async layers() {
+        return { configured: true, layers: [] };
+      },
+      async tile(...args) {
+        asked.push(args);
+        return {
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from('t'),
+        };
+      },
+    },
+  });
+  const call = (url) =>
+    new Promise((resolve) => {
+      const res = {
+        headers: {},
+        statusCode: 0,
+        setHeader(name, value) {
+          this.headers[name.toLowerCase()] = value;
+        },
+        end(body) {
+          resolve({ status: this.statusCode, body: String(body) });
+        },
+      };
+      handle(
+        { method: 'GET', url, headers: { host: 'localhost:4176' }, socket: {} },
+        res,
+        () => resolve({ nexted: true }),
+      );
+    });
+  assert.equal(
+    (await call('/tile/ee-land-cover/v200/default/default/3/4/2')).status,
+    200,
+  );
+  assert.equal(
+    (await call('/tile/ee-surface-water/change/default/default/9/291/144'))
+      .status,
+    200,
+  );
+  assert.deepEqual(asked, [
+    ['ee-land-cover', 'default', 'default', 3, 4, 2, 'v200'],
+    ['ee-surface-water', 'default', 'default', 9, 291, 144, 'change'],
+  ]);
+  assert.equal(
+    (await call('/tile/ee-land-cover/2021/default/default/3/4/2')).nexted,
+    true,
+    'a mode starts with a letter',
+  );
 });

@@ -37,7 +37,7 @@ import {
  *       layer with inks, 'default' otherwise
  *   GET /api/earth-engine/tile/<layer>/<mode>/<variant>/<ink>/<z>/<x>/<y>
  *       the same for a layer with modes (the Rivers' network, free-flowing
- *       and pressure colourings)
+ *       and pressure colourings; Surface water's bands; Land cover's years)
  *
  * A tile coarser than its variant's `minZoom` is a transparent PNG, made
  * here: no Earth Engine request, nothing counted.
@@ -282,6 +282,50 @@ function styledFeatures(layer, variant, collection, ink, modeKey) {
 }
 
 /**
+ * An image layer's mode (Surface water, Land cover): its band of the
+ * variant's asset or its own asset, masked by another band of it
+ * (`maskBand`), class codes remapped, zero masked.
+ */
+function imageModeNode(variant, mode) {
+  let node = assetNode(
+    mode.asset || {
+      ...variant.asset,
+      ...(mode.band ? { band: mode.band } : {}),
+    },
+  );
+  // A band whose coarse pyramid is the water's own extent (Surface water's
+  // max_extent): from far out only where most of a pixel is water.
+  if (mode.maskBand)
+    node = invoke('Image.updateMask', {
+      image: node,
+      mask: assetNode({ ...variant.asset, band: mode.maskBand }),
+    });
+  if (mode.remap)
+    node = invoke('Image.remap', {
+      image: node,
+      from: constant([...mode.remap.from]),
+      to: constant([...mode.remap.to]),
+    });
+  if (mode.mask === 'self') node = invoke('Image.selfMask', { image: node });
+  else if (mode.mask === 'nonzero')
+    node = invoke('Image.updateMask', {
+      image: node,
+      mask: invoke('Image.neq', {
+        image1: node,
+        image2: invoke('Image.constant', { value: constant(0) }),
+      }),
+    });
+  return node;
+}
+
+/** The colours a map draws with: the mode's for an image layer with modes, else the layer's. */
+export function visFor(layer, modeKey) {
+  if (layer.kind === 'features') return null;
+  const mode = layer.modes?.length ? modeRecord(layer, modeKey) : null;
+  return mode?.vis || layer.vis || null;
+}
+
+/**
  * A layer variant's expression in an ink (and mode), as the REST API takes
  * it: {values: {0: <value node>, …}, result: '0'}.
  */
@@ -291,6 +335,11 @@ export function expressionFor(
   ink = layerInks(layer)[0],
   mode = layerModes(layer)[0],
 ) {
+  if (layer.kind !== 'features' && layer.modes?.length)
+    return {
+      values: { 0: imageModeNode(variant, modeRecord(layer, mode)) },
+      result: '0',
+    };
   let node = assetNode(variant.asset);
   if (layer.kind === 'features') {
     const filter = featureFilter(layer, variant, mode);
@@ -360,10 +409,11 @@ export function mapRequestFor(
     expression: expressionFor(layer, variant, ink, mode),
     fileFormat: 'PNG',
   };
-  if (layer.kind !== 'features' && layer.vis)
+  const vis = visFor(layer, mode);
+  if (vis)
     body.visualizationOptions = {
-      ranges: [{ min: layer.vis.min, max: layer.vis.max }],
-      paletteColors: [...(layer.vis.palette || [])],
+      ranges: [{ min: vis.min, max: vis.max }],
+      paletteColors: [...(vis.palette || [])],
     };
   return body;
 }
@@ -575,7 +625,7 @@ const TILE_PATH =
   /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
 /** The same with a mode after the layer (a layer with `modes`). */
 const MODE_TILE_PATH =
-  /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z-]{1,20})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
+  /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z][a-z0-9-]{0,19})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
 
 /**
  * The variant that draws a tile coarser than `variant`'s minZoom, or null

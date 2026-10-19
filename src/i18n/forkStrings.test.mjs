@@ -62,6 +62,8 @@ const FORK_LAYER_NAMES = [
   'Forest loss',
   'Administrative boundaries',
   'Rivers',
+  'Surface water',
+  'Land cover',
   'Wikipedia coverage',
   'Analysis',
   'Grid',
