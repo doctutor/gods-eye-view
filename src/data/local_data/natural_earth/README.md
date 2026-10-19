@@ -103,3 +103,29 @@ Includes England, Scotland, Wales and Northern Ireland from
 `ne_10m_admin_0_map_units.geojson` at the same commit (SHA-256
 `57da82be755f4afccd8f3b14251bb2752f5df1395f47d2d86f817470c4a48862`).
 Result: 945,843 bytes; 260 features, 2,088 parts, 122,788 vertices.
+
+## River names (`river_names.json`)
+
+Personal fork: the names the Rivers layer labels with
+(`src/layers/earthEngine/riverNames.js`; Earth Engine draws the lines).
+Natural Earth 10m rivers and lake centerlines, version 5.0.0, public domain
+under the terms above. Source: the official download
+`https://naciscdn.org/naturalearth/10m/physical/ne_10m_rivers_lake_centerlines.zip`
+(SHA-256 `ded71b01870855ccfe19b51f2ec14c9bb48fae23c0e9f3c11974d426433b5c38`),
+fetched 2026-10-18.
+
+**Regenerate:** download that zip into an empty directory, then
+`node scripts/build-river-names-pack.mjs --zip <dir>/ne_10m_rivers_lake_centerlines.zip`.
+The script checks the SHA-256 and fetches nothing; a rerun rewrites the pack
+byte for byte.
+
+**Schema:** `meta` (source, URL, hash, licence, curation) and `features[]`
+with `name` (`name_en`, else `name`), `es` (`name_es`) and `ru` (`name_ru`)
+when they differ, `rank` (`scalerank`, 0 to 12, the largest rivers lowest)
+and `at` ([lon, lat] label points). No line geometry.
+
+**Curation:** the 1,387 named records of 1,473; one label point every
+1,500 km along each part (at least one, at most six), at the middle of equal
+stretches; a point within 500 km of a kept point of the same name is
+dropped (larger rivers first); coordinates rounded to 2 decimals. Result:
+1,097 names, 1,202 label points, 87,793 bytes.

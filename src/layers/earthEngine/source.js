@@ -24,6 +24,15 @@ function versionsOf(versions) {
   return kept.length ? { versions: Object.fromEntries(kept) } : {};
 }
 
+/** {modeVersions: {mode: {ink: hash}}} for the well-formed entries, or nothing. */
+function modeVersionsOf(modeVersions) {
+  const kept = Object.entries(modeVersions || {})
+    .filter(([mode]) => /^[a-z-]{1,20}$/.test(mode))
+    .map(([mode, versions]) => [mode, versionsOf(versions).versions])
+    .filter(([, versions]) => versions);
+  return kept.length ? { modeVersions: Object.fromEntries(kept) } : {};
+}
+
 /** One server layer, checked on the way in, or null. */
 export function toCatalogLayer(row) {
   const id = String(row?.id || '');
@@ -40,11 +49,20 @@ export function toCatalogLayer(row) {
       ...(Number.isFinite(variant.maxHeightM)
         ? { maxHeightM: variant.maxHeightM }
         : {}),
-      // Per ink, the hash of what the map is made from (the server's).
+      ...(Number.isInteger(variant.minZoom) &&
+      variant.minZoom >= 0 &&
+      variant.minZoom <= 18
+        ? { minZoom: variant.minZoom }
+        : {}),
+      // Per ink (and mode), the hash of what the map is made from (the server's).
       ...versionsOf(variant.versions),
+      ...modeVersionsOf(variant.modeVersions),
     }));
   const inks = (Array.isArray(row.inks) ? row.inks : []).filter((ink) =>
     /^[a-z]{1,10}$/.test(String(ink)),
+  );
+  const modes = (Array.isArray(row.modes) ? row.modes : []).filter((mode) =>
+    /^[a-z-]{1,20}$/.test(String(mode)),
   );
   return {
     id,
@@ -54,6 +72,8 @@ export function toCatalogLayer(row) {
     // The inks the server has maps for: 'light' and 'dark' for a features
     // layer, 'default' otherwise.
     inks: inks.length ? inks : ['default'],
+    // The modes it has maps for (the Rivers' colourings), when it has any.
+    ...(modes.length ? { modes } : {}),
     legend: (Array.isArray(row.legend) ? row.legend : [])
       .filter((entry) => /^#[0-9a-f]{6}$/i.test(String(entry?.color || '')))
       .map((entry) => ({ label: text(entry.label, 40), color: entry.color })),
@@ -66,15 +86,22 @@ export function toCatalogLayer(row) {
 }
 
 /**
- * The tile URL template for a layer variant in an ink (the server's proxy).
- * `version`, the hash of the map's request, only busts the browser's cache:
- * the server reads the path.
+ * The tile URL template for a layer variant in an ink (and mode: the
+ * server's proxy). `version`, the hash of the map's request, only busts the
+ * browser's cache: the server reads the path.
  */
-export function tileTemplate(layerId, variantKey, ink = 'default', version) {
+export function tileTemplate(
+  layerId,
+  variantKey,
+  ink = 'default',
+  version,
+  mode = 'default',
+) {
   const query = /^[0-9a-f]{12}$/.test(String(version || ''))
     ? `?v=${version}`
     : '';
-  return `${EARTH_ENGINE_ENDPOINT}/tile/${layerId}/${variantKey}/${ink}/{z}/{x}/{y}${query}`;
+  const moded = mode && mode !== 'default' ? `${mode}/` : '';
+  return `${EARTH_ENGINE_ENDPOINT}/tile/${layerId}/${moded}${variantKey}/${ink}/{z}/{x}/{y}${query}`;
 }
 
 /**

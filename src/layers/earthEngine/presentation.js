@@ -1,6 +1,6 @@
 import { msg, t, tn, translateKnown } from '../../i18n/index.js';
 import { NO_IMAGERY_HOST } from '../../maps/imageryHost.js';
-import { inkColor } from '../../data/earthEngineLayers.js';
+import { inkColor, modeRecord } from '../../data/earthEngineLayers.js';
 
 /**
  * Personal fork: what an Earth Engine overlay's row in the DATA LAYERS panel
@@ -15,6 +15,19 @@ export const LEGEND_WORDS = Object.freeze({
   Shade: msg('Shade'),
   Light: msg('Light'),
   Boundary: msg('Boundary'),
+  // The Rivers modes' legends.
+  'Large river': msg('Large river'),
+  Stream: msg('Stream'),
+  'Free-flowing': msg('Free-flowing'),
+  'Good connectivity': msg('Good connectivity'),
+  Impacted: msg('Impacted'),
+  'Dams (fragmentation)': msg('Dams (fragmentation)'),
+  'Flow regulation': msg('Flow regulation'),
+  'Sediment trapping': msg('Sediment trapping'),
+  'Water consumption': msg('Water consumption'),
+  'Road density': msg('Road density'),
+  'Urban areas': msg('Urban areas'),
+  'No dominant pressure': msg('No dominant pressure'),
 });
 
 /** A compass point's letter in the page language, else null. */
@@ -37,7 +50,42 @@ const VARIANT_LABELS = Object.freeze({
   level0: msg('Countries'),
   level1: msg('First-level units'),
   level2: msg('Second-level units'),
+  // The Rivers bands (src/data/earthEngineLayers.js RIVER_BANDS).
+  all: msg('Rivers of every flow order'),
 });
+
+/** A variant's words for the status line, or ''. */
+export function variantLabel(variant) {
+  const band = /^o(\d{1,2})$/.exec(String(variant || ''));
+  if (band)
+    return t('Rivers of flow orders 1 to {max}', { max: Number(band[1]) });
+  return VARIANT_LABELS[variant] ? t(VARIANT_LABELS[variant]) : '';
+}
+
+/** The mode chips of a layer with modes (the Rivers). */
+export const MODE_CHIPS = Object.freeze([
+  Object.freeze({
+    key: 'network',
+    label: msg('NETWORK'),
+    title: msg(
+      'The river network, wider and brighter the larger the flow (HydroRIVERS)',
+    ),
+  }),
+  Object.freeze({
+    key: 'free-flowing',
+    label: msg('FREE-FLOWING'),
+    title: msg(
+      'Connectivity status (Grill et al. 2019): free-flowing, good connectivity, impacted',
+    ),
+  }),
+  Object.freeze({
+    key: 'pressure',
+    label: msg('PRESSURE'),
+    title: msg(
+      'The pressure that most lowers each reach’s connectivity: dams, flow regulation, sediment trapping, water use, roads, cities',
+    ),
+  }),
+]);
 
 /** The level chips: AUTO (the height rule), then each variant. */
 export const LEVEL_CHIPS = Object.freeze([
@@ -138,7 +186,7 @@ export function statusText({
         height: Math.round(ceilingM / 1000),
       }),
     );
-  else if (VARIANT_LABELS[variant]) parts.push(t(VARIANT_LABELS[variant]));
+  else if (variantLabel(variant)) parts.push(variantLabel(variant));
   if (slowDistricts)
     parts.push(t('Districts from this height: the tiles arrive slowly'));
   if (Number.isFinite(layer?.tilesToday))
@@ -166,8 +214,10 @@ export function statusText({
  *   failure?: string|null, hostless?: boolean, ceilingM?: number|null,
  *   level?: string, onLevel?: (key: string) => void, ink?: string,
  *   onInk?: (key: string) => void, inkDrawn?: string,
- *   slowDistricts?: boolean}} input - `level` and `ink` are the settings
- *   ('auto' or a key); `inkDrawn` the ink in use.
+ *   slowDistricts?: boolean, mode?: string,
+ *   onMode?: (key: string) => void}} input - `level` and `ink` are the
+ *   settings ('auto' or a key); `inkDrawn` the ink in use; `mode` the
+ *   mode of a layer with modes.
  */
 export function rowControls({
   record,
@@ -185,10 +235,23 @@ export function rowControls({
   onInk = () => {},
   inkDrawn = 'default',
   slowDistricts = false,
+  mode = '',
+  onMode = () => {},
 }) {
   const layer = catalog?.layers?.get?.(record.id) || null;
   const variantKeys = new Set((record.variants || []).map((v) => v.key));
   const chips = [];
+  const modeKeys = new Set((record.modes || []).map((entry) => entry.key));
+  for (const chip of MODE_CHIPS) {
+    if (!modeKeys.has(chip.key)) continue;
+    chips.push({
+      id: `mode-${chip.key}`,
+      label: t(chip.label),
+      title: t(chip.title),
+      active: mode === chip.key,
+      onClick: () => onMode(chip.key),
+    });
+  }
   // Level chips only for a layer with administrative levels; a layer whose
   // variants are far/near sources has nothing to choose.
   const hasLevels = LEVEL_CHIPS.some(
@@ -214,17 +277,29 @@ export function rowControls({
         active: ink === chip.key,
         onClick: () => onInk(chip.key),
       });
-  const legend = layer?.legend?.length ? layer.legend : record.legend || [];
+  // A layer with modes: the mode's legend, each swatch its colour in the
+  // ink drawn.
+  const drawnMode = record.modes?.length ? modeRecord(record, mode) : null;
+  const legend = drawnMode
+    ? drawnMode.legend.map((entry) => ({
+        label: legendLabel(entry.label),
+        color: `#${String(
+          drawnMode.colors?.[inkDrawn]?.[entry.value] || entry.color.slice(1),
+        ).slice(0, 6)}`,
+      }))
+    : (layer?.legend?.length ? layer.legend : record.legend || []).map(
+        (entry) => ({
+          label: legendLabel(entry.label),
+          // A features layer's swatch is the ink it is drawn in.
+          color:
+            record.inks && inkDrawn !== 'default'
+              ? inkSwatch(record, inkDrawn)
+              : entry.color,
+        }),
+      );
   return {
     chips,
-    legend: legend.map((entry) => ({
-      label: legendLabel(entry.label),
-      // A features layer's swatch is the ink it is drawn in.
-      color:
-        record.inks && inkDrawn !== 'default'
-          ? inkSwatch(record, inkDrawn)
-          : entry.color,
-    })),
+    legend,
     slider: {
       label: t('Opacity {value}%', { value: Math.round(opacity * 100) }),
       min: 0,

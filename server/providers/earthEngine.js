@@ -6,12 +6,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { admitSameSite } from './common/same-site.js';
 import { defaultSourceRoot } from './common/source-root.js';
+import { deflateSync } from 'node:zlib';
 import {
+  AMERICAS_CON_IDS,
   EARTH_ENGINE_ATTRIBUTION,
   EARTH_ENGINE_LAYERS,
   inkColor,
   layerInks,
+  layerModes,
   layerVariants,
+  modeRecord,
 } from '../../src/data/earthEngineLayers.js';
 
 /**
@@ -28,13 +32,21 @@ import {
  *       (counted per layer for the day; a warning is logged at 50% and
  *       90% of the budget); the ink is 'light' or 'dark' for a features
  *       layer with inks, 'default' otherwise
+ *   GET /api/earth-engine/tile/<layer>/<mode>/<variant>/<ink>/<z>/<x>/<y>
+ *       the same for a layer with modes (the Rivers' network, free-flowing
+ *       and pressure colourings)
  *
- * Each (layer, variant, ink) has its own map, made by POST
+ * A tile coarser than its variant's `minZoom` is a transparent PNG, made
+ * here: no Earth Engine request, nothing counted.
+ *
+ * Each (layer, variant, ink[, mode]) has its own map, made by POST
  * /v1/projects/<project>/maps with the layer's expression (the computation
  * graph Earth Engine's own clients send; a features layer's line colour is
  * the ink's), cached until it nears its expiry, made again on demand, one
  * request at a time per map; when a new one cannot be made the old one
- * keeps serving and the error is reported. The JSON sent for each map is
+ * keeps serving and the error is reported. A layer marked `lazyMaps` (the
+ * Rivers: 5 bands × 2 inks × 3 modes) has its maps made only when a tile
+ * asks for one, not for the catalog. The JSON sent for each map is
  * a committed fixture (src/data/fixtures/earth-engine-expressions.json), so
  * an Earth Engine rejection can be read against exactly what was sent.
  *
@@ -87,16 +99,158 @@ function assetNode(asset) {
 }
 
 /**
- * A layer variant's expression in an ink, as the REST API takes it:
- * {values: {0: <value node>}, result: '0'}.
+ * The filter a features variant draws through, or null: its RIV_ORD band
+ * (`maxOrder`) and the layer's `omitAmericas` switch.
+ */
+export function featureFilter(layer, variant) {
+  const filters = [];
+  if (Number.isFinite(variant?.maxOrder))
+    filters.push(
+      invoke('Filter.lessThanOrEquals', {
+        leftField: constant('RIV_ORD'),
+        rightValue: constant(variant.maxOrder),
+      }),
+    );
+  // CON_ID is stored as a double: Filter.inList with [1, 2] matched no reach
+  // (live, 2026-10-18) where Filter.eq compares numbers and matched 1,270,524
+  // for 1. So: not (CON_ID = 1 or CON_ID = 2).
+  if (layer?.omitAmericas === true)
+    filters.push(
+      invoke('Filter.not', {
+        filter: invoke('Filter.or', {
+          filters: {
+            arrayValue: {
+              values: AMERICAS_CON_IDS.map((id) =>
+                invoke('Filter.eq', {
+                  leftField: constant('CON_ID'),
+                  rightValue: constant(id),
+                }),
+              ),
+            },
+          },
+        }),
+      }),
+    );
+  if (!filters.length) return null;
+  return filters.length === 1
+    ? filters[0]
+    : invoke('Filter.and', { filters: { arrayValue: { values: filters } } });
+}
+
+/** The name the per-feature style function calls its argument. */
+const REACH = '_reach';
+const reach = { argumentReference: REACH };
+
+/** A numeric property's value less one: an index into a list by 1, 2, 3… */
+function indexOf(property) {
+  return invoke('Number.subtract', {
+    left: invoke('Element.get', {
+      object: reach,
+      property: constant(property),
+    }),
+    right: constant(1),
+  });
+}
+
+/** A table keyed 1, 2, 3… as a list in that order. */
+const byNumber = (table) =>
+  Object.keys(table)
+    .sort((a, b) => Number(a) - Number(b))
+    .map((key) => table[key]);
+
+/**
+ * A layer drawn per feature (`modes`): each feature gets a whole style
+ * dictionary ({color, width}) looked up from constant tables, and
+ * Collection.style draws them through `styleProperty`. The colour comes
+ * from the mode's table for the ink (by the mode's property), the width from
+ * the layer's `widths` (by `widthProperty`).
+ *
+ * Built so each reach costs one or two lookups of constants: building a
+ * Dictionary per reach (with Number.format keys) made the slowest tiles
+ * about twice as slow (o6 pressure at z 5 over the Amazon 18.3 s against
+ * 9.7 s, live 2026-10-18). A numeric property (RIV_ORD 1 to 10, CSI_FF2 1
+ * to 3: every reach has one, counted live) indexes a list; a text one
+ * (CSI_D) keys a dictionary, with the fallback for anything else. The
+ * function body is value '1', as Earth Engine's own clients encode a
+ * mapped function.
+ */
+function styledFeatures(layer, collection, ink, modeKey) {
+  const mode = modeRecord(layer, modeKey);
+  const colors = mode.colors?.[ink] || {};
+  const fallback = mode.fallback?.[ink] || inkColor(layer, ink);
+  const widths = byNumber(layer.widths || {});
+  /** One colour's styles, by the width property's value. */
+  const stylesIn = (color) => widths.map((width) => ({ color, width }));
+  let style;
+  if (mode.property === layer.widthProperty)
+    // Colour and width by the same property (NETWORK: RIV_ORD): one lookup.
+    style = invoke('List.get', {
+      list: constant(
+        byNumber(colors).map((color, i) => ({ color, width: widths[i] })),
+      ),
+      index: indexOf(mode.property),
+    });
+  else
+    style = invoke('List.get', {
+      list: mode.numeric
+        ? invoke('List.get', {
+            list: constant(byNumber(colors).map(stylesIn)),
+            index: indexOf(mode.property),
+          })
+        : invoke('Dictionary.get', {
+            dictionary: constant(
+              Object.fromEntries(
+                Object.entries(colors).map(([value, color]) => [
+                  value,
+                  stylesIn(color),
+                ]),
+              ),
+            ),
+            key: invoke('Element.get', {
+              object: reach,
+              property: constant(mode.property),
+            }),
+            defaultValue: constant(stylesIn(fallback)),
+          }),
+      index: indexOf(layer.widthProperty),
+    });
+  return {
+    values: {
+      0: invoke('Collection.style', {
+        collection: invoke('Collection.map', {
+          collection,
+          baseAlgorithm: {
+            functionDefinitionValue: { argumentNames: [REACH], body: '1' },
+          },
+        }),
+        styleProperty: constant('style'),
+      }),
+      1: invoke('Element.set', {
+        object: reach,
+        key: constant('style'),
+        value: style,
+      }),
+    },
+    result: '0',
+  };
+}
+
+/**
+ * A layer variant's expression in an ink (and mode), as the REST API takes
+ * it: {values: {0: <value node>, …}, result: '0'}.
  */
 export function expressionFor(
   layer,
   variant = layerVariants(layer)[0],
   ink = layerInks(layer)[0],
+  mode = layerModes(layer)[0],
 ) {
   let node = assetNode(variant.asset);
   if (layer.kind === 'features') {
+    const filter = featureFilter(layer, variant);
+    if (filter)
+      node = invoke('Collection.filter', { collection: node, filter });
+    if (layer.modes?.length) return styledFeatures(layer, node, ink, mode);
     const style = layer.style || {};
     node = invoke('Collection.style', {
       collection: node,
@@ -135,18 +289,28 @@ export function expressionFor(
  * cache files tiles under it, so a changed expression, ink or
  * visualization never serves the old one's tiles.
  */
-export function mapRequestHash(layer, variant, ink = layerInks(layer)[0]) {
+export function mapRequestHash(
+  layer,
+  variant,
+  ink = layerInks(layer)[0],
+  mode = layerModes(layer)[0],
+) {
   return crypto
     .createHash('sha256')
-    .update(JSON.stringify(mapRequestFor(layer, variant, ink)))
+    .update(JSON.stringify(mapRequestFor(layer, variant, ink, mode)))
     .digest('hex')
     .slice(0, 12);
 }
 
-/** The body of the request that makes a layer variant's map in an ink. */
-export function mapRequestFor(layer, variant, ink = layerInks(layer)[0]) {
+/** The body of the request that makes a layer variant's map in an ink (and mode). */
+export function mapRequestFor(
+  layer,
+  variant,
+  ink = layerInks(layer)[0],
+  mode = layerModes(layer)[0],
+) {
   const body = {
-    expression: expressionFor(layer, variant, ink),
+    expression: expressionFor(layer, variant, ink, mode),
     fileFormat: 'PNG',
   };
   if (layer.kind !== 'features' && layer.vis)
@@ -301,13 +465,18 @@ export function createRestBackend({
   }
   return {
     /** @returns {Promise<{name: string}>} */
-    async createMap(layer, variant, ink = layerInks(layer)[0]) {
+    async createMap(
+      layer,
+      variant,
+      ink = layerInks(layer)[0],
+      mode = layerModes(layer)[0],
+    ) {
       const response = await authorized(
         `${EE_API}/projects/${encodeURIComponent(project)}/maps?fields=name`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(mapRequestFor(layer, variant, ink)),
+          body: JSON.stringify(mapRequestFor(layer, variant, ink, mode)),
         },
       );
       if (!response.ok) throw new Error(await errorText(response));
@@ -357,6 +526,54 @@ export function createRestBackend({
 
 const TILE_PATH =
   /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
+/** The same with a mode after the layer (a layer with `modes`). */
+const MODE_TILE_PATH =
+  /^\/tile\/(ee-[a-z0-9-]{1,40})\/([a-z-]{1,20})\/([a-z0-9-]{1,20})\/([a-z]{1,10})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
+
+/** "<layer>/<variant>/<ink>", or "<layer>/<mode>/<variant>/<ink>" for a layer with modes. */
+export function mapKey(layer, variant, ink, mode = 'default') {
+  return mode === 'default'
+    ? `${layer.id}/${variant.key}/${ink}`
+    : `${layer.id}/${mode}/${variant.key}/${ink}`;
+}
+
+const crcTable = new Uint32Array(256).map((_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (const byte of bytes) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function pngChunk(type, data) {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(body));
+  return Buffer.concat([length, body, crc]);
+}
+/**
+ * A transparent 256 × 256 PNG (RGBA, every pixel 0): the answer for a tile
+ * coarser than its variant's `minZoom`.
+ */
+export const TRANSPARENT_TILE = (() => {
+  const size = 256;
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
+  header[8] = 8; // bit depth
+  header[9] = 6; // RGBA
+  const rows = Buffer.alloc(size * (1 + size * 4)); // filter 0, zero pixels
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', deflateSync(rows)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+})();
 
 /**
  * @param {{sourceRoot?: string, env?: object, layers?: Array<object>,
@@ -402,9 +619,14 @@ export function createEarthEngineService({
     return made.backend;
   }
 
-  /** A (variant, ink)'s map, made again once old; the old one serves if that fails. */
-  async function mapFor(layer, variant, ink, { force = false } = {}) {
-    const key = `${layer.id}/${variant.key}/${ink}`;
+  /** A (variant, ink[, mode])'s map, made again once old; the old one serves if that fails. */
+  async function mapFor(
+    layer,
+    variant,
+    ink,
+    { force = false, mode = 'default' } = {},
+  ) {
+    const key = mapKey(layer, variant, ink, mode);
     const held = maps.get(key) || {};
     maps.set(key, held);
     if (!force && held.name && now() < held.expiresAt) return held;
@@ -412,7 +634,10 @@ export function createEarthEngineService({
       try {
         const engine = backendNow();
         if (!engine) throw new Error(NEEDS_KEY);
-        const { name } = await engine.createMap(layer, variant, ink);
+        const { name } =
+          mode === 'default'
+            ? await engine.createMap(layer, variant, ink)
+            : await engine.createMap(layer, variant, ink, mode);
         Object.assign(held, {
           name,
           madeAt: now(),
@@ -475,15 +700,17 @@ export function createEarthEngineService({
     fs.renameSync(temporary, usageFile);
   }
 
-  /** "<layer>/<variant>/<ink>" → the hash of its map request (fixed per process). */
+  /** mapKey → the hash of its map request (fixed per process). */
   const hashes = new Map();
-  const tileFile = (layer, variant, ink, z, x, y) => {
-    const key = `${layer.id}/${variant.key}/${ink}`;
-    if (!hashes.has(key)) hashes.set(key, mapRequestHash(layer, variant, ink));
+  const tileFile = (layer, variant, ink, z, x, y, mode = 'default') => {
+    const key = mapKey(layer, variant, ink, mode);
+    if (!hashes.has(key))
+      hashes.set(key, mapRequestHash(layer, variant, ink, mode));
     return path.join(
       dir,
       'tiles',
       layer.id,
+      ...(mode === 'default' ? [] : [mode]),
       variant.key,
       ink,
       hashes.get(key),
@@ -494,7 +721,11 @@ export function createEarthEngineService({
   };
 
   return {
-    /** The layer catalog, every map made or refreshed as needed. */
+    /**
+     * The layer catalog, every map made or refreshed as needed (a
+     * `lazyMaps` layer's only when its tiles ask: the catalog reports the
+     * maps it has).
+     */
     async layers() {
       const current = settings();
       const today = usage();
@@ -503,21 +734,36 @@ export function createEarthEngineService({
       for (const layer of layers) {
         const variants = [];
         const inks = layerInks(layer);
+        const modes = layerModes(layer);
+        const moded = modes[0] !== 'default';
         let error = current.configured || backend ? null : NEEDS_KEY;
         for (const variant of layerVariants(layer)) {
-          // One map per ink; the variant is ready when every ink's map is.
+          // One map per ink (and mode); the variant is ready when every one is.
           const held = [];
-          for (const ink of inks)
-            held.push(
-              current.configured || backend
-                ? await mapFor(layer, variant, ink)
-                : {},
-            );
+          for (const mode of modes)
+            for (const ink of inks)
+              held.push(
+                !(current.configured || backend)
+                  ? {}
+                  : layer.lazyMaps
+                    ? maps.get(mapKey(layer, variant, ink, mode)) || {}
+                    : await mapFor(layer, variant, ink, { mode }),
+              );
           const failed = held.find((map) => map.error);
           if (failed && !error) error = failed.error;
           const expiries = held
             .map((map) => map.expiresAt)
             .filter(Number.isFinite);
+          // Per ink, the hash its tiles are kept under: the client puts it
+          // in the tile URL, so the browser's day-long cache cannot serve a
+          // changed expression's old tiles either.
+          const versionsFor = (mode) =>
+            Object.fromEntries(
+              inks.map((ink) => [
+                ink,
+                mapRequestHash(layer, variant, ink, mode),
+              ]),
+            );
           variants.push({
             key: variant.key,
             ...(variant.auto ? { auto: true } : {}),
@@ -527,13 +773,17 @@ export function createEarthEngineService({
             ...(variant.maxHeightM !== undefined
               ? { maxHeightM: variant.maxHeightM }
               : {}),
+            ...(Number.isInteger(variant.minZoom)
+              ? { minZoom: variant.minZoom }
+              : {}),
             ready: held.every((map) => Boolean(map.name)),
-            // Per ink, the hash its tiles are kept under: the client puts it
-            // in the tile URL, so the browser's day-long cache cannot serve a
-            // changed expression's old tiles either.
-            versions: Object.fromEntries(
-              inks.map((ink) => [ink, mapRequestHash(layer, variant, ink)]),
-            ),
+            ...(moded
+              ? {
+                  modeVersions: Object.fromEntries(
+                    modes.map((mode) => [mode, versionsFor(mode)]),
+                  ),
+                }
+              : { versions: versionsFor('default') }),
             ...(expiries.length
               ? { expiresAt: new Date(Math.min(...expiries)).toISOString() }
               : {}),
@@ -543,10 +793,13 @@ export function createEarthEngineService({
           id: layer.id,
           name: layer.name,
           kind: layer.kind,
-          tileUrl: `${EARTH_ENGINE_ROUTE}/tile/${layer.id}/{variant}/{ink}/{z}/{x}/{y}`,
+          tileUrl: moded
+            ? `${EARTH_ENGINE_ROUTE}/tile/${layer.id}/{mode}/{variant}/{ink}/{z}/{x}/{y}`
+            : `${EARTH_ENGINE_ROUTE}/tile/${layer.id}/{variant}/{ink}/{z}/{x}/{y}`,
           maxZoom: layer.maxZoom ?? 12,
           variants,
           inks,
+          ...(moded ? { modes } : {}),
           legend: layer.legend || [],
           attribution:
             `${EARTH_ENGINE_ATTRIBUTION} · ${layer.attribution || ''}`.trim(),
@@ -564,10 +817,12 @@ export function createEarthEngineService({
     },
 
     /**
-     * One tile: from disk, else from Earth Engine within the day's budget.
-     * @returns {Promise<{status: number, contentType?: string, body?: Buffer, error?: string, cached?: boolean}>}
+     * One tile: from disk, else from Earth Engine within the day's budget;
+     * a transparent one below the variant's `minZoom`. `mode` is 'default'
+     * for a layer without modes.
+     * @returns {Promise<{status: number, contentType?: string, body?: Buffer, error?: string, cached?: boolean, blank?: boolean}>}
      */
-    async tile(layerId, variantKey, ink, z, x, y) {
+    async tile(layerId, variantKey, ink, z, x, y, mode = 'default') {
       const layer = byId.get(layerId);
       const variant = layer
         ? layerVariants(layer).find((entry) => entry.key === variantKey)
@@ -575,10 +830,19 @@ export function createEarthEngineService({
       if (!variant) return { status: 404, error: 'No such layer' };
       if (!layerInks(layer).includes(ink))
         return { status: 404, error: 'No such ink' };
+      if (!layerModes(layer).includes(mode))
+        return { status: 404, error: 'No such mode' };
       const limit = 2 ** z;
       if (z > (layer.maxZoom ?? 12) || x >= limit || y >= limit)
         return { status: 400, error: 'Tile out of range' };
-      const file = tileFile(layer, variant, ink, z, x, y);
+      if (z < (variant.minZoom ?? 0))
+        return {
+          status: 200,
+          contentType: 'image/png',
+          body: TRANSPARENT_TILE,
+          blank: true,
+        };
+      const file = tileFile(layer, variant, ink, z, x, y, mode);
       try {
         const stat = fs.statSync(file);
         if (now() - stat.mtimeMs < TILE_TTL_MS)
@@ -599,14 +863,14 @@ export function createEarthEngineService({
           status: 429,
           error: `The day's ${current.dailyTiles} Earth Engine tiles are used`,
         };
-      let held = await mapFor(layer, variant, ink);
+      let held = await mapFor(layer, variant, ink, { mode });
       if (!held.name) return { status: 502, error: held.error || 'No map' };
       const engine = backendNow();
       countTile(layerId);
       let answer = await engine.fetchTile(held.name, z, x, y);
       // An expired map is made again, once.
       if ([400, 404].includes(answer.status)) {
-        held = await mapFor(layer, variant, ink, { force: true });
+        held = await mapFor(layer, variant, ink, { force: true, mode });
         if (held.name) {
           countTile(layerId);
           answer = await engine.fetchTile(held.name, z, x, y);
@@ -653,9 +917,12 @@ export function createEarthEngineHandler({ service }) {
     try {
       if (route === '/layers')
         return sendJson(res, 200, await service.layers());
-      const match = TILE_PATH.exec(route);
-      if (match) {
-        const [, layer, variant, ink, z, x, y] = match;
+      const plain = TILE_PATH.exec(route);
+      const moded = plain ? null : MODE_TILE_PATH.exec(route);
+      if (plain || moded) {
+        const [layer, mode, variant, ink, z, x, y] = plain
+          ? [plain[1], 'default', ...plain.slice(2)]
+          : moded.slice(1);
         const answer = await service.tile(
           layer,
           variant,
@@ -663,6 +930,7 @@ export function createEarthEngineHandler({ service }) {
           Number(z),
           Number(x),
           Number(y),
+          ...(mode === 'default' ? [] : [mode]),
         );
         if (answer.status !== 200)
           return sendJson(res, answer.status, {

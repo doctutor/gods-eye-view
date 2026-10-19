@@ -61,6 +61,7 @@ const FORK_LAYER_NAMES = [
   'Hillshade',
   'Forest loss',
   'Administrative boundaries',
+  'Rivers',
   'Wikipedia coverage',
   'Analysis',
   'Grid',
