@@ -1,11 +1,12 @@
-import { formatNumber, msg, t, tn } from '../../i18n/index.js';
+import { formatNumber, getLocale, msg, t, tn } from '../../i18n/index.js';
 import { OSM_MAX_HEIGHT_M } from './places.js';
 
 /**
  * Personal fork: what the Localities layer says in words: a place's kind
  * and population on its card, and the row in the DATA LAYERS panel
  * (REFERENCE): a DOTS chip, the sources drawn at this height and the state
- * of the OpenStreetMap places below OSM_MAX_HEIGHT_M.
+ * of the close-in places below OSM_MAX_HEIGHT_M (Overture's index, or
+ * OpenStreetMap through Overpass without it).
  */
 
 const KINDS = Object.freeze({
@@ -15,9 +16,30 @@ const KINDS = Object.freeze({
   hamlet: msg('Hamlet'),
   suburb: msg('Suburb'),
   neighbourhood: msg('Neighbourhood'),
+  // Overture's subtypes and locality classes.
+  locality: msg('Locality'),
+  localadmin: msg('Municipality'),
+  county: msg('County'),
+  macrohood: msg('District'),
+  neighborhood: msg('Neighbourhood'),
+  microhood: msg('Small neighbourhood'),
 });
 
-/** A place's kind in words: OpenStreetMap's place tag, or Natural Earth's capital class. */
+/** A country's name from its ISO 3166-1 code, in the page's language. */
+export function countryName(code, locale = getLocale()) {
+  if (!/^[A-Z]{2}$/.test(String(code || ''))) return null;
+  try {
+    return (
+      new Intl.DisplayNames([String(locale || 'en')], { type: 'region' }).of(
+        code,
+      ) || code
+    );
+  } catch {
+    return code;
+  }
+}
+
+/** A place's kind in words: OpenStreetMap's place tag, Overture's kind, or Natural Earth's capital class. */
 export function placeKind(place) {
   if (place?.kind) return KINDS[place.kind] ? t(KINDS[place.kind]) : null;
   if (place?.cap === 'country') return t('National capital');
@@ -29,7 +51,9 @@ export function placeKind(place) {
 export function placeCardDetails(place, countries = []) {
   const lines = [];
   const kind = placeKind(place);
-  const country = Number.isInteger(place?.c) ? countries[place.c] : null;
+  const country = Number.isInteger(place?.c)
+    ? countries[place.c]
+    : countryName(place?.country);
   if (kind && country) lines.push(t('{kind} · {country}', { kind, country }));
   else if (kind) lines.push(kind);
   if (place?.pop)
@@ -38,9 +62,42 @@ export function placeCardDetails(place, countries = []) {
     );
   if (place?.local && place.local !== place.name)
     lines.push(t('Local name: {name}', { name: place.local }));
+  if (place?.source === 'overture') {
+    lines.push(
+      place.wikidata
+        ? t('Overture Maps · Wikidata {id}', { id: place.wikidata })
+        : // i18n-ignore: data source name
+          'Overture Maps',
+    );
+    return lines;
+  }
   // i18n-ignore: data source names
   lines.push(place?.kind ? 'OpenStreetMap' : 'Natural Earth');
   return lines;
+}
+
+/** What the row says about Overture's places. */
+export function overtureStatusText(overture) {
+  switch (overture?.state) {
+    case 'above':
+      return t('Overture places below {height} km', {
+        height: Math.round(OSM_MAX_HEIGHT_M / 1000),
+      });
+    case 'loading':
+      return t('Reading the Overture index…');
+    case 'failed':
+      return t('Overture places unavailable');
+    case 'ready':
+      return overture.saturated
+        ? t('{count}+ Overture places', { count: overture.count })
+        : tn(
+            overture.count,
+            '{count} Overture place',
+            '{count} Overture places',
+          );
+    default:
+      return '';
+  }
 }
 
 /** What the row says about OpenStreetMap's places. */
@@ -75,10 +132,19 @@ export function osmStatusText(osm) {
 
 /**
  * @param {{dots: boolean, onDots: (on: boolean) => void, enabled: boolean,
- *   naturalEarth: number, osm: object|null}} input - `naturalEarth`: the
- *   Natural Earth places named now; `osm`: the OpenStreetMap state.
+ *   naturalEarth: number, osm: object|null, overture?: object|null}} input -
+ *   `naturalEarth`: the Natural Earth places named now; `osm`: the
+ *   OpenStreetMap state; `overture`: the Overture state, when its index is
+ *   built (it speaks for the close-in places then).
  */
-export function rowControls({ dots, onDots, enabled, naturalEarth, osm }) {
+export function rowControls({
+  dots,
+  onDots,
+  enabled,
+  naturalEarth,
+  osm,
+  overture = null,
+}) {
   const parts = [];
   if (enabled) {
     parts.push(
@@ -88,7 +154,7 @@ export function rowControls({ dots, onDots, enabled, naturalEarth, osm }) {
         '{count} Natural Earth places',
       ),
     );
-    const status = osmStatusText(osm);
+    const status = overture ? overtureStatusText(overture) : osmStatusText(osm);
     if (status) parts.push(status);
   }
   return {

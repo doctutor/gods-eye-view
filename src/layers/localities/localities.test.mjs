@@ -1,6 +1,7 @@
 // Personal fork: the Localities layer (src/layers/localities/): the
 // thinning rule on the real Natural Earth pack, the Overpass query for
-// OpenStreetMap's places, the merge, and the label and card entries.
+// OpenStreetMap's places, Overture's places close in, the merge, and the
+// label and card entries.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -19,10 +20,17 @@ import {
   pickNaturalEarthPlaces,
   placeCardEntry,
   placeLabelEntry,
+  labelPriority,
   placeName,
   placeZoomForHeight,
 } from './places.js';
-import { osmStatusText, placeCardDetails, placeKind } from './presentation.js';
+import {
+  osmStatusText,
+  overtureStatusText,
+  placeCardDetails,
+  placeKind,
+} from './presentation.js';
+import { OvertureError, normalizeOverturePlace } from './overture.js';
 import { createLocalitiesLayer, LOCALITIES_SOURCE } from './index.js';
 import { OverpassViewError } from '../../sources/overpassView.js';
 import { normalizeOverlayEntry } from '../../overlays/worldOverlay.js';
@@ -307,6 +315,18 @@ const flush = async () => {
   for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
 };
 
+/** An Overture client whose index is not built. */
+const NOT_BUILT = {
+  status: async () => ({
+    configured: false,
+    message: 'Run npm run overture:build',
+  }),
+  places: async () => {
+    throw new OvertureError('unconfigured', 'not built');
+  },
+  abort: () => {},
+};
+
 test('the layer: Natural Earth from far out, Overpass below 60 km, the row says why not', async () => {
   const queries = [];
   let answer = () => ({
@@ -331,6 +351,7 @@ test('the layer: Natural Earth from far out, Overpass below 60 km, the row says 
   const layer = createLocalitiesLayer({
     overlayHost: host,
     overpass,
+    overture: NOT_BUILT,
     load: async () => ({ countries: PACK.countries, places: PACK.places }),
     storage: null,
     setTimeoutImpl: (fn) => (fn(), 0),
@@ -385,5 +406,154 @@ test('the row’s OpenStreetMap words', () => {
   assert.equal(
     osmStatusText({ state: 'limited' }),
     'OpenStreetMap is busy; trying again shortly',
+  );
+});
+
+const OVERTURE_BALTIMORE = [
+  {
+    id: 'ov:1',
+    name: 'Baltimore',
+    ru: 'Балтимор',
+    kind: 'city',
+    pop: 585708,
+    prominence: 69,
+    wikidata: 'Q5092',
+    country: 'US',
+    at: [-76.61, 39.29],
+  },
+  {
+    id: 'ov:2',
+    name: 'Remington',
+    kind: 'neighborhood',
+    country: 'US',
+    at: [-76.62, 39.31],
+  },
+];
+
+test('Overture close in: its places replace Overpass, Natural Earth gives way by name', async () => {
+  const asked = [];
+  let built = true;
+  const overture = {
+    status: async () => ({ configured: true, version: '0123456789ab' }),
+    places: async (question) => {
+      asked.push(question);
+      if (!built) throw new OvertureError('unconfigured', 'gone');
+      return {
+        places: OVERTURE_BALTIMORE.map(normalizeOverturePlace),
+        count: 2,
+        saturated: false,
+      };
+    },
+    abort: () => {},
+  };
+  const overpassQueries = [];
+  const host = fakeHost();
+  const layer = createLocalitiesLayer({
+    overlayHost: host,
+    overpass: {
+      query: async (q) => {
+        overpassQueries.push(q);
+        return { elements: [] };
+      },
+      abort: () => {},
+    },
+    overture,
+    load: async () => ({ countries: PACK.countries, places: PACK.places }),
+    storage: null,
+    setTimeoutImpl: (fn) => (fn(), 0),
+    clearTimeoutImpl: () => {},
+    locale: () => 'en',
+  });
+  const viewer = fakeViewer(3_000_000);
+  layer.init(viewer);
+  layer.enable(viewer);
+  await flush();
+  assert.equal(asked.length, 0, 'not from far out');
+  assert.match(layer.getRowControls().info, /Overture places below 60 km/);
+  viewer.camera.positionCartographic.height = 30_000;
+  layer._settle();
+  await flush();
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0].zoom, 12);
+  assert.equal(asked[0].version, '0123456789ab');
+  assert.deepEqual(
+    asked[0].box,
+    osmQueryBox({ lat: 39.29, lon: -76.61, height: 30_000 }),
+  );
+  assert.equal(overpassQueries.length, 0);
+  const entries = host.sources.get(LOCALITIES_SOURCE);
+  const baltimore = entries.filter((entry) => entry.title === 'Baltimore');
+  assert.equal(baltimore.length, 1, 'Natural Earth’s Baltimore gave way');
+  assert.equal(baltimore[0].id, 'ov:1');
+  assert.ok(entries.some((entry) => entry.title === 'Remington'));
+  assert.match(layer.getRowControls().info, /· 2 Overture places$/);
+  // A small pan inside the answer's box asks nothing more.
+  viewer.camera.positionCartographic.longitude = Cesium.Math.toRadians(-76.6);
+  layer._settle();
+  await flush();
+  assert.equal(asked.length, 1);
+  // The build went away: Overpass from then on.
+  built = false;
+  viewer.camera.positionCartographic.height = 10_000;
+  layer._settle();
+  await flush();
+  assert.equal(layer._state().overture, false);
+  assert.equal(overpassQueries.length, 1);
+  layer.disable();
+});
+
+test('Overture places: checked, ranked, and their card', () => {
+  assert.equal(
+    normalizeOverturePlace({ id: 'x', name: 'A', at: [0, 0] }),
+    null,
+  );
+  assert.equal(
+    normalizeOverturePlace({ id: 'ov:1', name: '', at: [0, 0] }),
+    null,
+  );
+  assert.equal(
+    normalizeOverturePlace({ id: 'ov:1', name: 'A', at: [0, 95] }),
+    null,
+  );
+  const odd = normalizeOverturePlace({
+    id: 'ov:3',
+    name: 'Odd',
+    kind: 'castle',
+    wikidata: 'javascript:alert(1)',
+    country: 'usa',
+    pop: -4,
+    at: [1, 2],
+  });
+  assert.deepEqual(odd, {
+    id: 'ov:3',
+    name: 'Odd',
+    source: 'overture',
+    kind: 'locality',
+    at: [1, 2],
+  });
+  const [city, hood] = OVERTURE_BALTIMORE.map(normalizeOverturePlace);
+  assert.ok(labelPriority(city) > labelPriority(hood));
+  assert.deepEqual(placeCardDetails(city), [
+    'City · United States',
+    'Population 585,708',
+    'Overture Maps · Wikidata Q5092',
+  ]);
+  assert.deepEqual(placeCardDetails(hood), [
+    'Neighbourhood · United States',
+    'Overture Maps',
+  ]);
+  // Overture's order is kept; OpenStreetMap's is sorted.
+  const merged = mergePlaces([], [hood, city], { ordered: true });
+  assert.deepEqual(
+    merged.osm.map((item) => item.id),
+    ['ov:2', 'ov:1'],
+  );
+  assert.equal(
+    overtureStatusText({ state: 'ready', count: 800, saturated: true }),
+    '800+ Overture places',
+  );
+  assert.equal(
+    overtureStatusText({ state: 'ready', count: 1 }),
+    '1 Overture place',
   );
 });

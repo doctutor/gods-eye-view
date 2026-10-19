@@ -35,6 +35,8 @@ import { riversV2Proxy } from './riversV2.js';
 import { riverReachProxy } from './riverReach.js';
 // Personal fork: the Census tracts layer's locally drawn income tiles.
 import { censusProxy } from './census.js';
+// Personal fork: the Localities layer's Overture places close in.
+import { overtureProxy } from './overture.js';
 import { keySetupEndpoint } from '../standalone/key-setup.js';
 import { weatherProxy } from './weather.js';
 import { firePerimetersProxy } from './firePerimeters.js';
@@ -81,6 +83,7 @@ function localProviderPlugins({ realtime } = {}) {
     riversV2Proxy({ sourceRoot: defaultSourceRoot }),
     riverReachProxy({ sourceRoot: defaultSourceRoot }),
     censusProxy({ sourceRoot: defaultSourceRoot }),
+    overtureProxy({ sourceRoot: defaultSourceRoot }),
     firePerimetersProxy(),
     gnssIntegrityProxy(),
     keySetupEndpoint(),

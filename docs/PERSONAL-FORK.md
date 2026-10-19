@@ -2798,14 +2798,98 @@ capital in view), and the 15 Natural Earth places in the window of a 50 km
 view of Baltimore (Baltimore, Annapolis, Washington, Philadelphia and the
 towns between).
 
-**Close in: OpenStreetMap.** Below 60 km the layer also asks Overpass
-for the view's named `place` nodes, the kinds widening as the camera comes
-in: `city` and `town` below 60 km; `village` and `suburb` too below 20 km;
-`hamlet` and `neighbourhood` too below 6 km. The box is the ground a nadir
-view sees (half-side one camera height, at least 3 km), snapped outward
-to 0.05° so a small pan reuses the answer; at most 800 places. Natural
-Earth's place gives way where OpenStreetMap has one of the same name
-within 5 km.
+**Close in: Overture Maps divisions.** Below 60 km the layer also names
+the view's places from a local index of Overture Maps' divisions
+(`npm run overture:build`, below), when it is built: localities (city,
+town, village, hamlet), neighbourhoods (macro, micro) and municipalities
+and counties with a population. The box is the ground a nadir view sees
+(half-side one camera height, at least 3 km), snapped outward to 0.05° so
+a small pan reuses the answer, asked at the view's zoom; the server
+answers in milliseconds. Natural Earth's place gives way where the close-in
+source has one of the same name within 5 km.
+
+**Close in without the build: OpenStreetMap.** Without the index the layer
+asks Overpass for the view's named `place` nodes instead, the kinds
+widening as the camera comes in: `city` and `town` below 60 km; `village`
+and `suburb` too below 20 km; `hamlet` and `neighbourhood` too below
+6 km; at most 800 places. The layer asks the server once each time it is
+turned on; a build that goes away while it is on falls back to Overpass.
+
+**The Overture divisions build.** `npm run overture:build` reads Overture's
+release **2026-09-23.1** (schema v2.0.0) from its public bucket over HTTPS
+(no account, no key; `server/providers/overture/sources.js` pins it):
+
+| File (theme=divisions/type=division)                                | Size                   | Points    |
+| ------------------------------------------------------------------- | ---------------------- | --------- |
+| `part-00000-8b67a992-99db-52a1-aeb0-1b049a9a125c-c000.zstd.parquet` | 581,868,458 B (582 MB) | 4,688,229 |
+
+The divisions theme's areas (8 files, 4.5 GB) and boundaries (512 MB) are
+not read. The world's points are one file, so the build takes the world
+(`--regions north-america,europe`, or `OVERTURE_REGIONS`, keeps less). It
+downloads the file once (resumable, checked against the listed size,
+refused past 5 GB in all), reads it with a small Parquet reader
+(`scripts/overture/parquet.mjs`: Thrift footer, dictionary and RLE pages,
+ZSTD through Node's zlib; no dependency), and writes the index: 24 bytes
+a place sorted by 0.5° cell and by the zoom it is named from, the names in
+a separate file, and a cell table counting each cell's places by zoom, so
+a view reads only the start of each cell
+(`server/providers/overture/divisionsFile.js`). Each build goes to
+`build/<buildId>/` and `build/current.json` points at it, so the server
+never reads a build being written; the build id hashes the input, the
+rules and the index format, and the answers' version hashes the build, so
+a rebuild never answers under an old one. `npm run overture:status`
+reports it. Everything is in `OVERTURE_CACHE_DIR` (default
+`.gev-cache/overture`, gitignored).
+
+Measured (2026-10-19): the download took 28 s; reading 4,688,229 points
+took 27.7 s and writing the index 4.9 s (35 s in all, the download
+already there). It keeps 4,639,407 places in 42,310 cells: 1,712,328
+hamlets, 1,558,002 villages, 103,177 towns, 14,199 cities, 113,333
+localities without a class, 728,226 neighbourhoods, 237,753
+microhoods, 156,594 macrohoods, 7,495 municipalities and 8,300 counties.
+Country, dependency and region points (4,201) are left out: they name
+areas, which the Boundaries layer draws, as are counties and municipalities
+without a population. On disk: 555 MB raw, 240 MB index (111 MB places,
+125 MB names, 3 MB cells).
+
+_Which zoom names a place._ The release leaves Overture's
+`cartography.min_zoom` and `max_zoom` empty for every point, and gives a
+`prominence` (1-100) only to localities, so the build derives the zoom
+(`src/data/overtureDivisions.js`): a locality from its prominence
+(round(16 - 0.14 × prominence): 100 from z 2, 94 (Paris) z 3, 69
+(Baltimore) z 6, 50 z 9, 30 z 12, 10 z 15) or its class (city z 9, town
+z 11, village z 13, hamlet z 15), whichever comes first; a locality
+without a class from z 14; a macrohood from z 12, a neighbourhood z 14, a
+microhood z 16, a municipality z 12 and a county z 11, each a zoom sooner
+for every tenfold of population past 10,000 (at most four). The server
+answers with the places whose zoom the view's zoom reaches (z 12 at 50 km
+and 30 km, z 14 at 10 km), the most prominent first, then those named
+sooner, then the larger; one per name within 5 km (a county and its city
+of the same name are one); at most 800. Labels from Overture rank in the
+collision solver by prominence (capitals and Natural Earth's larger
+places still win), the neighbourhoods below the localities.
+
+Measured on the index (2026-10-19, `createOvertureService` on this
+machine):
+
+| View                  | Zoom | Places       | Kinds                                             | Time  |
+| --------------------- | ---- | ------------ | ------------------------------------------------- | ----- |
+| Baltimore, 50 km      | 12   | 321 of 329   | 19 cities, 80 towns, 106 villages, 106 macrohoods | 6 ms  |
+| Baltimore, 30 km      | 12   | 118 of 119   | 9 cities, 41 towns, 18 villages, 47 macrohoods    | 2 ms  |
+| Baltimore, 10 km      | 14   | 538 of 544   | 22 localities, 18 macrohoods, 497 neighbourhoods  | 7 ms  |
+| Paris, 40 km          | 12   | 800 of 1,023 | 5 cities, 254 towns, 537 villages (capped)        | 10 ms |
+| Rural Kansas, 30 km   | 12   | 13 of 13     | Great Bend, Lyons, Ellsworth and villages         | 1 ms  |
+| Massif Central, 20 km | 13   | 95 of 95     | Saint-Flour and 90 villages                       | 1 ms  |
+
+_Licence._ Overture's divisions are ODbL 1.0 (they derive from
+OpenStreetMap), credited "© OpenStreetMap contributors, Overture Maps
+Foundation". ODbL's share-alike applies to a derived database that is
+publicly used: the index in `.gev-cache/overture` is one, so it must not
+be published except under ODbL; rendered views (the labels on screen,
+screenshots) are a Produced Work and need only the credit, which the
+layer registers. The fork is personal use, beside FABDEM's CC BY-NC-SA
+4.0 elevation (non-commercial), which already keeps the whole app
+non-commercial.
 
 **Overpass.** Both this layer and [Street assets](#street-assets-analysis)
 go through the app's own `/api/overpass` proxy (its query bounds, its 24 h
@@ -2827,11 +2911,15 @@ white on imagery and dark maps, near-black on light ones (the basemap's
 luminance). **DOTS** (on by default, kept as `gev.localities.dots`) adds a
 point at each named place, larger for capitals. A click on a name or a dot
 opens a card beside it: its kind (City, Town, Village, Hamlet, Suburb,
-Neighbourhood; or National capital, Regional capital, Populated place) and
-country, population, its local name when OpenStreetMap's English one
-differs, and the source; a click elsewhere closes it. Attribution: Natural
-Earth (public domain) and © OpenStreetMap contributors (ODbL), registered
-when the layer is on.
+Neighbourhood; Overture's Locality, District, Small neighbourhood,
+Municipality and County; or National capital, Regional capital, Populated
+place) and country (an Overture place's from its ISO code, in the page's
+language), population, its local name when the English one differs, and
+the source, with an Overture place's Wikidata id (the overlay's cards
+hold text, so the id is not a link); a click elsewhere closes it.
+Attribution: Natural Earth (public domain), the Overture Maps Foundation
+and © OpenStreetMap contributors (ODbL), registered when the layer is
+on.
 
 Overpass times for the layer's own queries (2026-10-19, through the public
 `maps.mail.ru` mirror, the only one that answered from this machine that
@@ -3091,10 +3179,12 @@ drowning the view. There are four ways to do it, by the kind of data:
   [Street assets](#street-assets-analysis)).
 - **Names: thinned by their own importance.** Localities names Natural
   Earth's places from the zoom Natural Earth gives each (its `min_zoom`,
-  from scalerank and population), at most 180 at once, and adds
-  OpenStreetMap's places below 60 km, the kinds widening as the camera
-  comes in (see [Localities](#localities-reference)); the river names thin
-  by scalerank the same way.
+  from scalerank and population), at most 180 at once, and adds Overture's
+  places below 60 km, each from the zoom its prominence or kind gives it,
+  the most prominent first, at most 800 (without the Overture build,
+  OpenStreetMap's, the kinds widening as the camera comes in; see
+  [Localities](#localities-reference)); the river names thin by scalerank
+  the same way.
 - **Boundaries: level switching.** The administrative boundaries' AUTO
   chip draws states and provinces above 800 km and districts below;
   COUNTRIES, REGIONS and DISTRICTS force one level (LSIB 2017 countries,

@@ -62,6 +62,8 @@
     "rivers:status": "node scripts/rivers/index.mjs status",
     "census:build": "node scripts/census/index.mjs build",
     "census:status": "node scripts/census/index.mjs status",
+    "overture:build": "node scripts/overture/index.mjs build",
+    "overture:status": "node scripts/overture/index.mjs status",
     "qa:transit": "node scripts/qa-transit.mjs",
     "mcp": "node server/mcp/stdio.js"
   },

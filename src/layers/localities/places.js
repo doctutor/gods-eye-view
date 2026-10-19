@@ -17,10 +17,15 @@ import { riverZoomForHeight } from '../../data/earthEngineLayers.js';
  *   most prominent first (national capitals, then lower z, scalerank and
  *   larger population), at most MAX_PLACE_LABELS, in the view window; the
  *   overlay's collision solver drops what overlaps.
- * - Close in, below OSM_MAX_HEIGHT_M: OpenStreetMap's place nodes for the
- *   view as well, from Overpass, the kinds widening as the camera comes in
- *   (OSM_PLACE_BANDS). Natural Earth's place drops where OpenStreetMap has
- *   one of the same name close by.
+ * - Close in, below OSM_MAX_HEIGHT_M: the local Overture divisions index
+ *   when it is built (`npm run overture:build`): the places of the view
+ *   whose zoom (from Overture's prominence and the kind,
+ *   src/data/overtureDivisions.js) the view's zoom reaches, the most
+ *   prominent first, at most OVERTURE_PLACE_LIMIT, thinned by the server.
+ *   Without the build, OpenStreetMap's place nodes from Overpass, the kinds
+ *   widening as the camera comes in (OSM_PLACE_BANDS). Either way Natural
+ *   Earth's place drops where the close-in source has one of the same name
+ *   within SAME_PLACE_KM.
  */
 export const MAX_PLACE_LABELS = 180;
 /** Below this camera height OpenStreetMap's places join in. */
@@ -262,10 +267,12 @@ const sameName = (a, b) =>
     .toLowerCase();
 
 /**
- * Natural Earth's picks without those OpenStreetMap also has (the same
- * name within SAME_PLACE_KM), then OpenStreetMap's places in the view.
+ * Natural Earth's picks without those the close-in source also has (the
+ * same name within SAME_PLACE_KM), then the close-in places: OpenStreetMap's
+ * sorted by kind and population, Overture's (`ordered`) as the server
+ * ranked them.
  */
-export function mergePlaces(naturalEarth, osm) {
+export function mergePlaces(naturalEarth, osm, { ordered = false } = {}) {
   const kept = (naturalEarth || []).filter(
     ({ place, lat, lon }) =>
       !(osm || []).some(
@@ -279,7 +286,7 @@ export function mergePlaces(naturalEarth, osm) {
   );
   return {
     naturalEarth: kept,
-    osm: sortOsmPlaces(osm || []).map((place) => ({
+    osm: (ordered ? osm || [] : sortOsmPlaces(osm || [])).map((place) => ({
       id: place.id,
       place,
       lon: place.at[0],
@@ -296,8 +303,21 @@ export function placeName(place, locale = 'en') {
   return (language !== 'en' && place?.[language]) || place?.name || '';
 }
 
+/** Overture's kinds without prominence, by collision priority. */
+const OVERTURE_PRIORITY = Object.freeze({
+  localadmin: 24,
+  county: 22,
+  macrohood: 20,
+  neighborhood: 16,
+  microhood: 12,
+});
+
 /** A label's collision priority: capitals and larger places win. */
 export function labelPriority(place) {
+  if (place?.source === 'overture')
+    return place.prominence > 0
+      ? 12 + Math.round(place.prominence * 0.33)
+      : OVERTURE_PRIORITY[place.kind] || 14;
   if (place?.kind) {
     const index = KIND_ORDER.indexOf(place.kind);
     return 40 - (index < 0 ? KIND_ORDER.length : index) * 4;
