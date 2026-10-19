@@ -31,6 +31,7 @@ unless its switch is set to `0`.
 - [Earth Engine layers (ANALYSIS)](#earth-engine-layers-analysis)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
+- [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
 - [Level of detail](#level-of-detail)
 
 - [Keyless basemaps (MAP SOURCE)](#keyless-basemaps-map-source)
@@ -1008,6 +1009,217 @@ fixture `src/data/fixtures/wikipedia-coverage-h3-europe.json` (resolution
 Chrome from that fixture; the live route (server/providers/
 wikipediaCoverage.js, from local-fixes `181f947a`) answers the same shape.
 
+## Rivers: HydroSHEDS v2 for the Americas
+
+**What it does.** Over North, Central and South America the Rivers layer
+can draw HydroSHEDS v2's river network instead of HydroRIVERS v1 (Earth
+Engine's `WWF/HydroSHEDS/v1/FreeFlowingRivers`, which it keeps for the
+rest of the world). v2 is traced from 12 m TanDEM-X elevation on a
+1 arc-second grid (about 30 m): 21.0 million reaches, 35.4 million km, every
+stream with at least 1 km² upstream. The app's own server draws it into
+transparent 256 × 256 PNG tiles, z 0 to 14, in the layer's two inks, and
+keeps them on disk; nothing is fetched at request time. This section is
+the data pipeline, the tile route and a client helper; the Rivers layer's
+wiring is separate.
+
+**Source, licence, attribution.** HydroSHEDS v2 core data, river network
+(RIV), version `v2r0`, released for the Americas in July 2026 (the DLR EOC
+Geoservice lists 2026-07-24). v2 is derived from DLR's TanDEM-X elevation
+data, conditioned by Confluvio (with flow tools developed with Esri);
+HydroSHEDS itself began at WWF. The technical documentation (v2.0.0,
+July 2026) was prepared by Bernhard Lehner for Confluvio. Licence: **CC BY 4.0** for scientific, educational and
+commercial use (https://creativecommons.org/licenses/by/4.0/); the authors
+also ask that the data not be redistributed whole in its original format
+on other websites without their permission, which this fork does not do
+(it serves only tiles drawn from it, to its own browser). Cite, as the
+documentation asks until a v2 paper is out: Lehner, B., Roth, A., Huber,
+M., Anand, M., Thieme, M. (2022). A sharper look at the world's rivers and
+catchments. _Eos_, 103, https://doi.org/10.1029/2022EO220167, and link
+https://www.hydrosheds.org. The tile route's credit line is "HydroSHEDS v2
+(Lehner et al. 2022; WWF, DLR, Confluvio), CC BY 4.0"; the layer should
+carry it in its credit and the data-attribution popover.
+
+**The files.** From the v2 core-data downloads page
+(https://www.hydrosheds.org/downloads-core-data-v2, whose region table is
+`https://data.hydrosheds.org/file/hydrosheds-v2/download-index.json`),
+the river network comes per continent as a zipped Esri File Geodatabase or
+an OGC GeoPackage:
+
+| File                                                           | Bytes          | Used |
+| -------------------------------------------------------------- | -------------- | ---- |
+| `RIV/1s/north-america_RIV_1s_v2r0.gdb.zip`                     | 3,391,450,146  | yes  |
+| `RIV/1s/south-america_RIV_1s_v2r0.gdb.zip`                     | 1,430,637,101  | yes  |
+| `RIV/1s/north-america_RIV_1s_v2r0.gpkg`                        | 18,052,263,936 | no   |
+| `RIV/1s/south-america_RIV_1s_v2r0.gpkg`                        | 7,498,641,408  | no   |
+| `technical-documentation/HydroSHEDS_TechDoc_v2_0_0.pdf`        | 2,485,310      | read |
+
+(all under `https://data.hydrosheds.org/file/hydrosheds-v2/`, the PDF under
+`https://data.hydrosheds.org/file/`). The GeoPackages hold the same layer
+at five times the size (25.6 GB against 4.8 GB), so the build reads the
+geodatabases; it reads a `*_RIV_*.gpkg` too, if one is put in place of a
+region's `.gdb.zip`. Each archive holds `<region>_RIV_STREAMS_1s_v2r0`
+(the reaches) and `<region>_RIV_NODES_1s_v2r0` (their end points, not
+used). The North American one also holds
+`north_america_RIV_STREAMS_1s_v2r0_1`, an earlier copy with the same rows
+left after a field was dropped (its freed blocks show the old
+`StrahlerOrder`/`StrahlerID` field names); the build passes over it.
+
+**What a reach carries** (the geodatabase's fields, checked against the
+documentation's Table 1): `STRM_ID`, `STRM_DN` (the next reach downstream,
+-1 at the ocean or a sink), `STRM_UP` (the reaches upstream, joined with
+`_`), `GRID_CODE`, `MAIN_BAS` (the whole basin's id), `NODE_ID_UP`,
+`NODE_ID_DOWN`, `LENGTH_KM` (geodesic), `UP_CELLS` and `UPLAND_SKM` (cells
+and km² upstream, at the reach's last pixel), `ORD_STRAH` (Strahler order,
+1 to 11; not in the documentation's table) and `Shape_Length`. There is
+**no discharge, no v1-style `ORD_FLOW`/`RIV_ORD` and no names**; the
+documentation says attributes will come later through HydroRIVERS and
+HydroATLAS. Geometry: single-part polylines (2D, though the field is
+declared with Z and M), one part each, vertices on the 1″ grid; CRS
+geographic WGS 84 (`GCS_WGS_1984`). Counts: North America 11,558,529
+reaches (19.8 M km, 375 M vertices), South America 9,432,146 (15.6 M km,
+260 M vertices).
+
+**Extent.** West −169.72° (the Aleutians as far as Unalaska and Umnak;
+not Atka, Adak or anything past 180°), south −55.96° (Cape Horn), east
+−32.41° (Brazil's Atlantic islands), north 83.13° (Ellesmere Island).
+Covered (checked for reaches in the built cells): the whole Canadian
+Arctic Archipelago, every Caribbean island checked (the Bahamas, Cuba,
+Hispaniola, Puerto Rico, Guadeloupe, Dominica, Martinique, Barbados,
+Trinidad, Aruba, Curaçao, Bonaire; South America's file reaches 14.88° N,
+North America's comes down to Panama at 7.21° N, and they overlap),
+Bermuda, the Galápagos, Cocos, the Revillagigedos, Clipperton, Juan
+Fernández, Fernando de Noronha, the Falklands and South Georgia. **Not covered: Greenland** (North America's
+file stops at Newfoundland, 52.6° W; HydroSHEDS lists Greenland as a region
+of its own, not yet released), **Hawaii**, the western Aleutians and
+Easter Island. So a Rivers layer that leaves out HydroRIVERS v1's Americas
+must keep v1 there.
+
+**Level of detail.** Lines: thin by size, simplify per band. A reach's
+v1-equivalent order comes from its upstream area. v1's order is a decade of
+long-term discharge (1 over 100,000 m³/s, 2 from 10,000, … 6 from 1 to 10,
+7 from 0.1 to 1); at the world's mean runoff, about 0.01 m³/s per km²
+(315 mm a year), a discharge decade is an area decade, so **order k ⇔ at
+least 10^(8−k) km² upstream** (`orderForUpland` in
+`server/providers/riversV2/bands.js`). Wet basins (the Orinoco) come out a
+step smaller than by discharge, dry ones (the Colorado) a step bigger; no
+American river reaches order 1 (the Amazon's 5.95 M km² is order 2).
+
+| Zooms   | Orders drawn | Upstream area | Simplified for | Cells at | Reaches | Level file |
+| ------- | ------------ | ------------- | -------------- | -------- | ------- | ---------- |
+| 0 – 2   | ≤ 3          | ≥ 100,000 km² | z 2            | z 2      | 62 k    | 0.04 MB    |
+| 3 – 4   | ≤ 4          | ≥ 10,000 km²  | z 4            | z 3      | 276 k   | 0.5 MB     |
+| 5 – 6   | ≤ 5          | ≥ 1,000 km²   | z 6            | z 5      | 908 k   | 3.9 MB     |
+| 7 – 8   | ≤ 6          | ≥ 100 km²     | z 8            | z 7      | 2.67 M  | 17.8 MB    |
+| 9 – 10  | ≤ 7          | ≥ 10 km²      | z 10           | z 9      | 7.37 M  | 95.2 MB    |
+| 11 – 14 | ≤ 8 (all)    | ≥ 1 km²       | z 12           | z 11     | 21.0 M  | 717 MB     |
+
+Reaches by order: 2: 6,512; 3: 55,915; 4: 213,250; 5: 632,582; 6: 1.76 M;
+7: 4.70 M; 8: 13.6 M. Each band keeps the gap between drawn rivers at
+roughly 5 to 15 pixels (a basin of 10^n km² is about √10^n km across).
+Within a band each reach is projected to Web Mercator, simplified
+(Douglas–Peucker, half a pixel at the "simplified for" zoom; for the last
+band 19 m at the equator, under the 30 m grid, which smooths the 1″ stair
+steps), and quantized to a quarter pixel at the band's deepest zoom. Line
+width grows with size: the smallest order a zoom draws is 0.75 px, each
+order bigger adds 0.55 px, up to 4 px (`widthFor`); under a pixel a line is
+drawn fainter rather than thinner. Lines are antialiased capsules,
+max-composited (crossings and joints do not darken), in the Rivers layer's
+inks: light `ffffffcc`, dark `1a1a1acc` (AUTO is resolved by the layer).
+The bands are one table (`BANDS`); a change there is a new tile version
+and a rebuild.
+
+**Building** (`scripts/rivers/`). Personal-fork tooling, no new
+dependencies: a ZIP64 reader that streams an entry straight out of the
+archive (`zip.mjs`), a File Geodatabase table reader written from GDAL's
+open format notes (`fileGdb.mjs`: field list, null bitmaps, the
+varint-packed polylines, the `.gdbtablx` row index), and a GeoPackage
+reader on Node's built-in `node:sqlite` with its own WKB decoder
+(`geopackage.mjs`). PNGs are encoded with `zlib`; no canvas library.
+
+```
+npm run rivers:fetch    # the two .gdb.zip files (4.8 GB), skipped when present at their size
+npm run rivers:build    # 21 M reaches → the level files (about 6 minutes)
+npm run rivers:status   # inputs, build, levels, tile cache
+```
+
+`build` reads each region's stream table once, in file order, at the
+offsets its `.gdbtablx` names (an edited table's freed blocks do not chain),
+checks the row count against the header, and writes each band's pieces to
+row-stripe partition files, then sorts every stripe by cell into one level
+file per band: `'GEVRIV2\n'`, the cells (each raw deflate of its pieces:
+order, point count, zigzag varint deltas from the cell's corner), the index
+(Float64 start, Uint32 key, Uint32 length per cell), a JSON header and a
+footer. A reach crossing cells is cut at them; each cell also takes in the
+lines within half the widest line and a pixel of it (at the band's
+shallowest zoom), so a tile reads only the cells under it. An unchanged
+input is skipped (`--force` rebuilds; `--limit N` builds from the first N
+reaches of each region, never counted as up to date). `manifest.json` names
+the level files (in `levels-<stamp>/`), the build id, the sources, the
+extent and the timings; older levels and all tiles go when a build lands.
+
+Measured on 2026-10-18 (this machine, Node 24.21): reading and cutting
+6 min 34 s in all (North America 186 s, South America 123 s, writing the
+levels 84 s); a read-only pass over both tables is 111 s. Disk: the
+downloads 4.5 GB in `raw/`, the build 797 MB in `v2/`.
+
+Everything lives in `RIVERS_CACHE_DIR` (default `.gev-cache/rivers`): `raw/`
+(each download in its own folder: `north-america-riv-gdb/`,
+`south-america-riv-gdb/`, `techdoc/`), `v2/` (the build, `runs.jsonl` and
+the server's `tiles/`). A worktree points it at the main checkout's
+(`RIVERS_CACHE_DIR=C:\Users\nospa\Desktop\godseye\.gev-cache\rivers`, or
+`--dir` for the scripts) so the 5 GB is not copied. None of it is
+committed; the tests build tiny synthetic geodatabases, ZIPs and
+GeoPackages in a temporary folder.
+
+**On demand, not a pyramid.** A tile costs 2 to 25 ms to draw (45 to 85 ms
+at worst: a z 3 or z 5 tile over the Amazon reads 190,000 to 540,000
+points), 2 to 9 ms to encode, then a few ms from disk. A prebuilt pyramid
+to z 14 over the Americas would be tens of millions of tiles, so tiles are
+drawn when first asked for and kept.
+
+**Serving** (`server/providers/riversV2.js`, same-site, GET only):
+
+- `GET /api/rivers/v2/layers`: `configured` (else the message "Run npm run
+  rivers:build to build the HydroSHEDS v2 rivers"), `builtAt`, `buildId`,
+  the regions and reach count, the extent, the tile template
+  `/api/rivers/v2/tile/{ink}/{z}/{x}/{y}`, `inks` (`light`, `dark`) with
+  `versions` (each ink's tile version), the zoom bands, `minZoom` 0,
+  `maxZoom` 14, the attribution and the licence.
+- `GET /api/rivers/v2/tile/<ink>/<z>/<x>/<y>[?v=<version>]`: a PNG (gray +
+  alpha, both inks being grays). 404 for another ink, 400 past z 14 or off
+  the grid, 503 before a build, 403 cross-site, 405 for anything but GET.
+  Outside the build's extent the answer is a shared 206-byte transparent
+  PNG after a box test (well under a millisecond); a tile in the extent
+  with no river is the same PNG, not stored.
+
+A tile version is the hash of the style (renderer version, ink, band
+table, widths) and the build id (`tileVersion`). Tiles are kept under
+`v2/tiles/<ink>/<version>/<z>/<x>/<y>.png` and the client puts the version
+in the URL as `?v=`, so neither a style change nor a rebuild serves an old
+tile; a URL naming another version than the current one is answered
+`Cache-Control: no-store`, the rest `private, max-age=86400`. The manifest
+is stat'ed at most every 5 s, so a rebuild lands without a restart.
+
+**Client helper** (`src/layers/riversV2/source.js`, imports no Cesium):
+`createRiversV2Source().status()` (the `/layers` answer, checked, kept
+5 minutes; a failure reads as not ready), `riversV2Ready(status, ink)`,
+`riversV2TileTemplate(ink, version)` and `riversV2ImageryOptions(status,
+ink)`, the options for `new UrlTemplateImageryProvider(...)` (`url`,
+`minimumLevel`, `maximumLevel`, 256 px tiles, `hasAlphaChannel`, `credit`)
+plus `rectangleDegrees`, the extent to pass as `rectangle:
+Rectangle.fromDegrees(...)`, or null when the build is not ready.
+
+**Checklist** (from [Level of detail](#level-of-detail)):
+
+- [x] How its detail follows the camera: level switching by size class
+      (order bands from upstream area), each band simplified for its own
+      zooms; the module header and this section say so.
+- [x] It draws from orbit: z 0 shows the rivers of 100,000 km² and more;
+      no `maxHeightM`.
+- [x] Coarsest tiles timed: z 0 16 ms, z 1 9 ms, z 2 5 ms to draw; the
+      source is the local level files and every tile is cached on disk.
+- [ ] (Boundary tables only: not applicable.)
+
 ## Keyless basemaps (MAP SOURCE)
 
 Fourteen more map sources that need no key, under the five upstream chips in
@@ -1327,6 +1539,11 @@ drowning the view. There are four ways to do it, by the kind of data:
   subdivisions style does the same (admin-1 below 5,000 km, countries
   above), and the Grid steps its spacing (30° at orbit to 1' at the street;
   MGRS from grid zones to 1 km lines).
+- **Lines: thin by size, simplify per band.** The HydroSHEDS v2 rivers
+  draw the rivers of 100,000 km² and more from orbit and add a decade of
+  upstream area every two zooms, to every 1 km² stream from z 11, each band
+  simplified to half a pixel at its own zooms (see
+  [Rivers: HydroSHEDS v2](#rivers-hydrosheds-v2-for-the-americas)).
 
 **Checklist for a new data layer:**
 
