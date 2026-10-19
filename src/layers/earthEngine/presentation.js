@@ -47,6 +47,9 @@ export const LEGEND_WORDS = Object.freeze({
   'Herbaceous wetland': msg('Herbaceous wetland'),
   Mangroves: msg('Mangroves'),
   'Moss and lichen': msg('Moss and lichen'),
+  // Elevation contours.
+  Contour: msg('Contour'),
+  'Index contour': msg('Index contour'),
 });
 
 /** A compass point's letter in the page language, else null. */
@@ -78,6 +81,10 @@ export function variantLabel(variant) {
   const band = /^o(\d{1,2})$/.exec(String(variant || ''));
   if (band)
     return t('Rivers of flow orders 1 to {max}', { max: Number(band[1]) });
+  // The elevation contour bands (CONTOUR_BANDS): c500, c200, c100, c40, c20.
+  const contour = /^c(\d{1,4})$/.exec(String(variant || ''));
+  if (contour)
+    return t('Contours every {step} m', { step: Number(contour[1]) });
   return VARIANT_LABELS[variant] ? t(VARIANT_LABELS[variant]) : '';
 }
 

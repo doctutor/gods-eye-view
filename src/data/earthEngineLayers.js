@@ -85,6 +85,12 @@
  *   legend      [{label, color}] (labels are English UI text)
  *   attribution the notice the dataset's terms require
  *   maxZoom     the deepest tile level asked for
+ *   contour     {indexEvery, minorShare, resample?}: an image layer drawn
+ *               as contour lines of its variant's elevation every `step`
+ *               metres (the variant's), in the ink (`inks`), every
+ *               `indexEvery`-th line (an index contour) at the ink's alpha
+ *               and the rest at `minorShare` of it, the elevation read with
+ *               `resample` ('bilinear') (ELEVATION_CONTOURS below)
  *   maxHeightM  no tiles are asked for while the camera is higher than this
  *               (optional; only for a quantity that means nothing once
  *               averaged down, like forest-loss years, or a level that
@@ -576,6 +582,80 @@ export const LAND_COVER_MODES = Object.freeze([
 const RIVERS_NOTICE =
   'HydroSHEDS/WWF: HydroRIVERS v1 (Lehner, Verdin & Jarvis 2008, Eos 89:93) and the Free-Flowing Rivers attributes (Grill et al. 2019, Nature 569:215); names from Natural Earth (public domain)';
 
+// --- Elevation contours ----------------------------------------------------------
+
+/**
+ * Elevation contours: lines every `step` metres of the DEM, the step
+ * following the tile's zoom as the Grid's spacing follows the height
+ * (500 m from orbit to 20 m at street scale; Google Earth offers 40 m and
+ * 20 m). Each band names the zooms it is drawn at, so the server's `zoom`
+ * variant draws every tile with its own zoom's step and source, on the
+ * globe and on the photoreal tiles alike (as the Rivers do). Earth Engine
+ * computes each tile at its own scale from the elevation already averaged
+ * to it (aggregate, then derive): a coarse tile's lines are the coarse
+ * shape of the land, not the 30 m lines thinned out. The steps keep lines
+ * apart on most slopes at each zoom's pixel size (steep mountains still
+ * crowd them, as on any contour map), and the sources are the terrain
+ * layers' DEM and DEM_FAR, so a change of DEM re-points them too. Timings
+ * per band: docs/PERSONAL-FORK.md, "Elevation contours".
+ */
+export const CONTOUR_INDEX_EVERY = 5;
+const CONTOUR_MAX_ZOOM = 14;
+const contourBand = (step, asset, zooms) =>
+  Object.freeze({
+    key: `c${step}`,
+    asset,
+    step,
+    zooms: Object.freeze(zooms),
+    auto: true,
+    // The heights at which the middle of a 1,600 px view drapes these
+    // zooms (riverZoomForHeight), for the row's words.
+    ...(zooms[0] > 0 ? { maxHeightM: STEP(zooms[0] - 2) } : {}),
+    ...(zooms[1] < CONTOUR_MAX_ZOOM ? { minHeightM: STEP(zooms[1] - 1) } : {}),
+  });
+export const CONTOUR_BANDS = Object.freeze([
+  contourBand(500, DEM_FAR, [0, 7]),
+  contourBand(200, DEM_FAR, [8, 9]),
+  contourBand(100, DEM, [10, 11]),
+  contourBand(40, DEM, [12, 12]),
+  contourBand(20, DEM, [13, CONTOUR_MAX_ZOOM]),
+]);
+
+/** The contour step (m) drawn at a tile zoom. */
+export function contourStepForZoom(z) {
+  const zoom = Math.max(0, Math.floor(Number(z) || 0));
+  return (
+    CONTOUR_BANDS.find((band) => zoom >= band.zooms[0] && zoom <= band.zooms[1])
+      ?.step ?? CONTOUR_BANDS[CONTOUR_BANDS.length - 1].step
+  );
+}
+
+const ELEVATION_CONTOURS = Object.freeze({
+  id: 'ee-elevation-contours',
+  name: 'Elevation contours',
+  kind: 'image',
+  variants: CONTOUR_BANDS,
+  // Maps are made when a tile asks for them (5 bands × 2 inks).
+  lazyMaps: true,
+  contour: Object.freeze({
+    indexEvery: CONTOUR_INDEX_EVERY,
+    minorShare: 0.55,
+    // A smooth surface between the DEM's cells: nearest-neighbour cells
+    // drew staircase lines at z 13 and 14.
+    resample: 'bilinear',
+  }),
+  // The boundaries' and the Rivers' inks.
+  inks: RIVER_INKS,
+  legend: Object.freeze([
+    // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+    Object.freeze({ label: 'Contour', color: '#ffffff' }),
+    // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+    Object.freeze({ label: 'Index contour', color: '#ffffff' }),
+  ]),
+  attribution: DEM_NOTICE,
+  maxZoom: CONTOUR_MAX_ZOOM,
+});
+
 export const EARTH_ENGINE_LAYERS = Object.freeze([
   Object.freeze({
     id: 'ee-terrain-slope',
@@ -776,6 +856,7 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     maxZoom: 14,
     maxHeightM: LAND_COVER_MAX_HEIGHT_M,
   }),
+  ELEVATION_CONTOURS,
 ]);
 
 /** A layer's modes: the keys of its `modes`, else one ('default'). */
