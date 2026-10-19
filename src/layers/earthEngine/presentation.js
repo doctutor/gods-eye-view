@@ -61,6 +61,9 @@ export const LEGEND_WORDS = Object.freeze({
   // Population (people per km²).
   '1,000': msg('1,000'),
   '10,000+ per km²': msg('10,000+ per km²'),
+  // Buildings' height and Tree canopy (metres).
+  '30+ m': msg('30+ m'),
+  '40+ m': msg('40+ m'),
 });
 
 /** A compass point's letter in the page language, else null. */
@@ -85,6 +88,13 @@ const VARIANT_LABELS = Object.freeze({
   level2: msg('Second-level units'),
   // The Rivers bands (src/data/earthEngineLayers.js RIVER_BANDS).
   all: msg('Rivers of every flow order'),
+  // Buildings from z 15 (BUILDINGS_BANDS).
+  footprints: msg('With building footprints (Open Buildings v3)'),
+});
+
+/** What the row says outside a layer's `coverage` (its key). */
+export const COVERAGE_MESSAGES = Object.freeze({
+  'open-buildings': msg('No Open Buildings data here'),
 });
 
 /** A variant's words for the status line, or ''. */
@@ -175,6 +185,37 @@ export const MODE_CHIPS = Object.freeze([
       values: Object.freeze({ year: mode.epoch }),
     }),
   ),
+  // Buildings (Google Open Buildings 2.5D Temporal, 2023).
+  Object.freeze({
+    key: 'count',
+    label: msg('COUNT'),
+    title: msg('Buildings per km², 2023 (Open Buildings 2.5D Temporal)'),
+  }),
+  Object.freeze({
+    key: 'cover',
+    label: msg('COVER'),
+    title: msg('The share of the ground built on, 2023'),
+  }),
+  Object.freeze({
+    key: 'height',
+    label: msg('HEIGHT'),
+    title: msg(
+      'Building height in metres, 2023: the height of what is built, averaged',
+    ),
+  }),
+  // Tree canopy: the map's source.
+  Object.freeze({
+    key: 'meta',
+    label: msg('META 1 M'),
+    title: msg('Canopy height, Meta and WRI, 1 m (2018–2020 imagery)'),
+  }),
+  Object.freeze({
+    key: 'eth',
+    label: msg('ETH 10 M'),
+    title: msg(
+      'Canopy height, ETH Zürich, 10 m (2020), to compare: taller in tall forest',
+    ),
+  }),
 ]);
 
 /** The level chips: AUTO (the height rule), then each variant. */
@@ -263,6 +304,7 @@ export function statusText({
   americasV2 = false,
   mode = '',
   demSource = '',
+  outsideCoverage = '',
 }) {
   if (failure)
     return t('Earth Engine unavailable: {reason}', { reason: failure });
@@ -277,6 +319,9 @@ export function statusText({
   // Earth Engine's own words: the first run is the only validation there is.
   if (layer?.error) return t('Earth Engine: {error}', { error: layer.error });
   const parts = [];
+  // Outside where the data is (Buildings): said first, rather than nothing drawn.
+  if (COVERAGE_MESSAGES[outsideCoverage])
+    parts.push(t(COVERAGE_MESSAGES[outsideCoverage]));
   if (Number.isFinite(ceilingM))
     parts.push(
       t('Zoom in below {height} km to draw it', {
@@ -344,6 +389,7 @@ export function rowControls({
   americasV2 = false,
   demSource = '',
   creditTitle = '',
+  outsideCoverage = '',
 }) {
   const layer = catalog?.layers?.get?.(record.id) || null;
   const variantKeys = new Set((record.variants || []).map((v) => v.key));
@@ -430,6 +476,7 @@ export function rowControls({
       americasV2,
       mode,
       demSource,
+      outsideCoverage,
     }),
     // A terrain layer: the notices of the sources in view.
     infoTitle: creditTitle || layer?.attribution || '',

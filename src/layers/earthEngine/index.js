@@ -349,6 +349,15 @@ export function createEarthEngineLayer({
     };
   }
 
+  /** Whether the point under the view lies in the layer's `coverage` boxes. */
+  function viewInCoverage() {
+    const { lat, lon } = viewNow();
+    return record.coverage.boxes.some(
+      ([west, south, east, north]) =>
+        lat >= south && lat <= north && lon >= west && lon <= east,
+    );
+  }
+
   /** The variant to draw: the forced level, else the height rule. */
   function wantedVariant() {
     if (
@@ -789,6 +798,11 @@ export function createEarthEngineLayer({
         onMode: setMode,
         americasV2: _enabled && Boolean(_v2Imagery),
         demSource: _enabled && record.demStack ? demSourceName() : '',
+        // Personal fork: outside where the data is (Buildings), the row says so.
+        outsideCoverage:
+          _enabled && record.coverage && !viewInCoverage()
+            ? record.coverage.key
+            : '',
         creditTitle:
           record.demStack && _demSources.length
             ? demCreditText(_demSources)

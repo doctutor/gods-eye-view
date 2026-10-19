@@ -37,15 +37,34 @@
  *   the Forest types layer since 2026-10-19;
  * - JRC/GHSL/P2023A/GHS_POP (image collection, one image per epoch 1975 to
  *   2030, band population_count: people per 100 m cell; reuse authorised
- *   with acknowledgement), the Population layer since 2026-10-19.
+ *   with acknowledgement), the Population layer since 2026-10-19;
+ * - GOOGLE/Research/open-buildings-temporal/v1 (image collection, one image
+ *   per S2 cell and year 2016–2023, 0.5 m grid of 4 m effective resolution;
+ *   bands building_presence, building_height, building_fractional_count,
+ *   every one pyramided by MEAN; CC BY 4.0 or ODbL 1.0, the user's choice)
+ *   and GOOGLE/Research/open-buildings/v3/polygons (table, CC BY 4.0), the
+ *   Buildings layer since 2026-10-19;
+ * - projects/meta-forest-monitoring-okw37/assets/CanopyHeight (community
+ *   catalog, image collection of 170 tiles, band cover_code: canopy height
+ *   in m, 0 where none; 1.19 m cells in EPSG:3857, MEAN pyramid; CC BY 4.0)
+ *   and users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1 (image, band b1:
+ *   canopy height in m, 10 m, MEAN pyramid; CC BY 4.0), the Tree canopy
+ *   layer since 2026-10-19 (both readable by the service account, checked
+ *   2026-10-19).
  *
  * A record:
  *   id          layer id ('ee-' prefix), also the tile route's name
  *   name        the layer's English name (translated in layerNames.js)
  *   kind        'image' (a band, visualized with vis) or 'features'
  *               (a table, drawn with style)
- *   asset       {collection | image | table, band?, seaIsZero?}; a collection
- *               is mosaicked; seaIsZero masks the zero pixels before use
+ *   asset       {collection | image | table, band?, seaIsZero?, year?}; a
+ *               collection is mosaicked (only its `year`'s images when
+ *               given); seaIsZero masks the zero pixels before use
+ *   overlay     a variant's {table, filter?: {property, atLeast}, width}:
+ *               the mode's picture with the table's outlines in the ink on
+ *               top (Buildings' footprints from z 15)
+ *   coverage    {key, boxes}: where the data is; outside every box the row
+ *               says there is none here (Buildings)
  *   terrain     'slope' | 'aspect' | 'hillshade' (ee.Terrain), optional
  *   selfMask    true to leave zero pixels transparent
  *   vis         {min, max, palette} (palette colours as RRGGBB)
@@ -90,6 +109,8 @@
  *               is masked)
  *   mask        'self' (zero transparent, as `selfMask`) or 'nonzero' (zero
  *               transparent where values are signed)
+ *   perBand     {band, atLeast}: ÷ another band of the asset, masked where
+ *               that band is below atLeast (Buildings' height per built share)
  *   scale       a factor (a count per equal-area cell to one per km²)
  *   atLeast     values below it are masked
  *   log10       true to draw the logarithm (vis min/max in log10)
@@ -130,6 +151,7 @@
  */
 
 import { DEM_MAX_ZOOM, demVariants } from './demStack.js';
+import { OPEN_BUILDINGS_BOXES } from './openBuildingsCoverage.js';
 
 export const EARTH_ENGINE_ATTRIBUTION = 'Google Earth Engine';
 
@@ -793,6 +815,230 @@ export const POPULATION_MODES = Object.freeze(
   }),
 );
 
+// --- Buildings ----------------------------------------------------------------
+
+/** Google Open Buildings 2.5D Temporal: the latest year it has. */
+export const OPEN_BUILDINGS_YEAR = 2023;
+const OPEN_BUILDINGS_RASTER = Object.freeze({
+  collection: 'GOOGLE/Research/open-buildings-temporal/v1',
+  year: OPEN_BUILDINGS_YEAR,
+});
+/**
+ * Buildings per km² from a pixel's fractional count: the bands are on a
+ * 0.5 m grid (0.25 m² a pixel) and MEAN-pyramided, so at every level a
+ * pixel's mean count × 4,000,000 is the buildings per km² beneath it
+ * (Lagos 2023, a 1 km box: about 2,400).
+ */
+export const BUILDINGS_PER_KM2 = 4_000_000;
+/**
+ * Footprints: Open Buildings v3's polygons with a confidence of at least
+ * 0.7 (the dataset suggests 0.65 to 0.75 for its precision), drawn over
+ * the mode from z 15: their tiles took 3.0 to 7.6 s at z 14 to 17 and 5 to
+ * 11 s at z 13, where z 11 timed out past 30 s (Jakarta), measured
+ * 2026-10-19. At z 15 a 4.8 m pixel shows a house's shape.
+ */
+export const BUILDINGS_FOOTPRINT_ZOOM = 15;
+const BUILDINGS_MAX_ZOOM = 17;
+const BUILDINGS_FOOTPRINTS = Object.freeze({
+  table: 'GOOGLE/Research/open-buildings/v3/polygons',
+  filter: Object.freeze({ property: 'confidence', atLeast: 0.7 }),
+  width: 1,
+});
+/**
+ * The Buildings bands, by tile zoom (the server's `zoom` variant): the
+ * raster alone to z 14, the raster with footprints from z 15.
+ */
+export const BUILDINGS_BANDS = Object.freeze([
+  Object.freeze({
+    key: 'raster',
+    asset: OPEN_BUILDINGS_RASTER,
+    zooms: Object.freeze([0, BUILDINGS_FOOTPRINT_ZOOM - 1]),
+    auto: true,
+    minHeightM: STEP(BUILDINGS_FOOTPRINT_ZOOM - 2),
+  }),
+  Object.freeze({
+    key: 'footprints',
+    asset: OPEN_BUILDINGS_RASTER,
+    overlay: BUILDINGS_FOOTPRINTS,
+    zooms: Object.freeze([BUILDINGS_FOOTPRINT_ZOOM, BUILDINGS_MAX_ZOOM]),
+    auto: true,
+    maxHeightM: STEP(BUILDINGS_FOOTPRINT_ZOOM - 2),
+  }),
+]);
+/** RdPu: a ramp apart from Population's YlOrRd and Land cover's built-up red. */
+const BUILDINGS_PALETTE = Object.freeze([
+  'fcc5c0',
+  'fa9fb5',
+  'f768a1',
+  'c51b8a',
+  '7a0177',
+]);
+/** Viridis for height, read as a quantity rather than a density. */
+const BUILDING_HEIGHT_PALETTE = Object.freeze([
+  '440154',
+  '3b528b',
+  '21918c',
+  '5ec962',
+  'fde725',
+]);
+const swatches = (palette, labels) =>
+  Object.freeze(
+    labels.map((label, i) => Object.freeze({ label, color: `#${palette[i]}` })),
+  );
+/**
+ * The Buildings modes (chips COUNT / COVER / HEIGHT), every band
+ * MEAN-pyramided, so each mode is the same quantity at every zoom:
+ * - COUNT (the default): buildings per km² (BUILDINGS_PER_KM2), log scale,
+ *   1 to 10,000+; it reads at every zoom, from orbit too;
+ * - COVER: building_presence, the share of the ground built on (a 1 km box
+ *   in Lagos 2023: 35%), 2% to 50%+. From orbit only cities show: a z 3
+ *   pixel (20 km) is under 2% built almost everywhere else;
+ * - HEIGHT: building_height ÷ building_presence, Σ height / Σ presence over
+ *   the pixel at every zoom, so roughly the mean height of what is built
+ *   there. Height is predicted off buildings too (11 to 22% of the pixels
+ *   with presence under 0.1 had some, in 1 km boxes over Lagos, Jakarta and
+ *   São Paulo), so this reads 28 to 50% above the mean height of pixels
+ *   with presence over 0.5 there (10.1 against 7.9 m, 24.9 against 16.6 m,
+ *   31.8 against 23.7 m); the plain mean over the ground (3.5, 5.8, 10.5 m)
+ *   would be half the buildings' height. Masked where under 5% is built.
+ */
+export const BUILDINGS_MODES = Object.freeze([
+  Object.freeze({
+    key: 'count',
+    band: 'building_fractional_count',
+    scale: BUILDINGS_PER_KM2,
+    atLeast: 1,
+    log10: true,
+    vis: Object.freeze({ min: 0, max: 4, palette: BUILDINGS_PALETTE }),
+    legend: swatches(BUILDINGS_PALETTE, [
+      '1',
+      '10',
+      '100',
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      '1,000',
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      '10,000+ per km²',
+    ]),
+  }),
+  Object.freeze({
+    key: 'cover',
+    band: 'building_presence',
+    atLeast: 0.02,
+    vis: Object.freeze({ min: 0, max: 0.5, palette: BUILDINGS_PALETTE }),
+    legend: swatches(BUILDINGS_PALETTE, ['2%', '10%', '20%', '35%', '50%+']),
+  }),
+  Object.freeze({
+    key: 'height',
+    band: 'building_height',
+    perBand: Object.freeze({ band: 'building_presence', atLeast: 0.05 }),
+    vis: Object.freeze({ min: 0, max: 30, palette: BUILDING_HEIGHT_PALETTE }),
+    legend: swatches(BUILDING_HEIGHT_PALETTE, [
+      '3',
+      '8',
+      '15',
+      '22',
+      // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+      '30+ m',
+    ]),
+  }),
+]);
+const BUILDINGS_NOTICE = `Google Open Buildings 2.5D Temporal v1, ${OPEN_BUILDINGS_YEAR} (CC BY 4.0; Sirko et al. 2023; contains modified Copernicus Sentinel-2 data) and Open Buildings v3 polygons (CC BY 4.0; Sirko et al. 2021)`;
+
+const BUILDINGS = Object.freeze({
+  id: 'ee-buildings',
+  name: 'Buildings',
+  kind: 'image',
+  variants: BUILDINGS_BANDS,
+  modes: BUILDINGS_MODES,
+  modeStorageKey: 'gev.buildings.mode',
+  // 2 bands × 3 modes × 2 inks: made when a tile asks.
+  lazyMaps: true,
+  // The footprints' ink; the raster is the same in both.
+  inks: RIVER_INKS,
+  coverage: Object.freeze({
+    key: 'open-buildings',
+    boxes: OPEN_BUILDINGS_BOXES,
+  }),
+  legend: BUILDINGS_MODES[0].legend,
+  attribution: BUILDINGS_NOTICE,
+  maxZoom: BUILDINGS_MAX_ZOOM,
+});
+
+// --- Tree canopy --------------------------------------------------------------
+
+/**
+ * Canopy height in metres, 0 where there is none (masked). Both sources are
+ * MEAN-pyramided, zero included, so a coarse pixel is the mean height over
+ * the ground beneath it, gaps and all (a forest's stand height reads lower
+ * than its trees from far out). The share of ground above a height (canopy
+ * cover) is not on offer: a mean pyramid of heights cannot give it, and
+ * deriving it from the 1 m pixels is a precomputed pyramid's job. Meta's
+ * band is an integer, so a coarse pixel whose mean is under 1 m (dry
+ * savanna, East Africa at z 2) is 0 and clear. Every
+ * tile of both took under 0.7 s, z 0 to 14 (Congo basin and the Pacific
+ * Northwest, 2026-10-19), so Meta's 1 m map draws from orbit with no far
+ * fallback.
+ */
+const CANOPY_PALETTE = Object.freeze([
+  'f7fcb9',
+  'addd8e',
+  '41ab5d',
+  '006837',
+  '00321a',
+]);
+const CANOPY_VIS = Object.freeze({ min: 0, max: 40, palette: CANOPY_PALETTE });
+const CANOPY_LEGEND = swatches(CANOPY_PALETTE, [
+  '2',
+  '10',
+  '20',
+  '30',
+  // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
+  '40+ m',
+]);
+/**
+ * The Tree canopy modes (chips META 1 m / ETH 10 m). Meta's reads lower in
+ * tall tropical forest (a 1 km box in the Congo basin: 22.6 m mean against
+ * ETH's 32.7 m; the Pacific Northwest: 10.3 against 20.0), so the second is
+ * there to compare, not to blend.
+ */
+export const CANOPY_MODES = Object.freeze([
+  Object.freeze({
+    key: 'meta',
+    asset: Object.freeze({
+      collection: 'projects/meta-forest-monitoring-okw37/assets/CanopyHeight',
+      band: 'cover_code',
+    }),
+    mask: 'self',
+    vis: CANOPY_VIS,
+    legend: CANOPY_LEGEND,
+  }),
+  Object.freeze({
+    key: 'eth',
+    asset: Object.freeze({
+      image: 'users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1',
+      band: 'b1',
+    }),
+    mask: 'self',
+    vis: CANOPY_VIS,
+    legend: CANOPY_LEGEND,
+  }),
+]);
+const CANOPY_NOTICE =
+  'Meta and World Resources Institute, High Resolution Canopy Height Maps 1 m (CC BY 4.0; Tolan et al. 2024, Remote Sensing of Environment 300). ETH: Global Canopy Height 2020, 10 m (CC BY 4.0; Lang et al. 2023, Nature Ecology & Evolution 7)';
+
+const TREE_CANOPY = Object.freeze({
+  id: 'ee-tree-canopy',
+  name: 'Tree canopy',
+  kind: 'image',
+  asset: CANOPY_MODES[0].asset,
+  modes: CANOPY_MODES,
+  modeStorageKey: 'gev.treeCanopy.mode',
+  lazyMaps: true,
+  legend: CANOPY_LEGEND,
+  attribution: CANOPY_NOTICE,
+  maxZoom: 16,
+});
+
 export const EARTH_ENGINE_LAYERS = Object.freeze([
   Object.freeze({
     id: 'ee-terrain-slope',
@@ -1085,6 +1331,8 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     maxHeightM: LAND_COVER_MAX_HEIGHT_M,
   }),
   ELEVATION_CONTOURS,
+  BUILDINGS,
+  TREE_CANOPY,
 ]);
 
 /** A layer's modes: the keys of its `modes`, else one ('default'). */

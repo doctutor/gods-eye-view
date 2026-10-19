@@ -3286,5 +3286,21 @@
   "Forest types": "Tipos de bosque",
   "Population": "Población",
   "Elevation": "Elevación",
-  "Elevation: {source}": "Elevación: {source}"
+  "Elevation: {source}": "Elevación: {source}",
+  "Buildings": "Edificios",
+  "Tree canopy": "Dosel arbóreo",
+  "30+ m": "30+ m",
+  "40+ m": "40+ m",
+  "With building footprints (Open Buildings v3)": "Con huellas de edificios (Open Buildings v3)",
+  "No Open Buildings data here": "Open Buildings no tiene datos aquí",
+  "COUNT": "NÚMERO",
+  "Buildings per km², 2023 (Open Buildings 2.5D Temporal)": "Edificios por km², 2023 (Open Buildings 2.5D Temporal)",
+  "COVER": "COBERTURA",
+  "The share of the ground built on, 2023": "La parte del suelo edificada, 2023",
+  "HEIGHT": "ALTURA",
+  "Building height in metres, 2023: the height of what is built, averaged": "Altura de los edificios en metros, 2023: la altura de lo edificado, promediada",
+  "META 1 M": "META 1 M",
+  "Canopy height, Meta and WRI, 1 m (2018–2020 imagery)": "Altura del dosel, Meta y WRI, 1 m (imágenes de 2018–2020)",
+  "ETH 10 M": "ETH 10 M",
+  "Canopy height, ETH Zürich, 10 m (2020), to compare: taller in tall forest": "Altura del dosel, ETH Zúrich, 10 m (2020), para comparar: más alta en el bosque alto"
 }

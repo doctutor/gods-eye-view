@@ -3357,5 +3357,21 @@
   "Forest types": "Типы лесов",
   "Population": "Население",
   "Elevation": "Высота рельефа",
-  "Elevation: {source}": "Высоты: {source}"
+  "Elevation: {source}": "Высоты: {source}",
+  "Buildings": "Здания",
+  "Tree canopy": "Древесный полог",
+  "30+ m": "30+ м",
+  "40+ m": "40+ м",
+  "With building footprints (Open Buildings v3)": "С контурами зданий (Open Buildings v3)",
+  "No Open Buildings data here": "Здесь нет данных Open Buildings",
+  "COUNT": "ЧИСЛО",
+  "Buildings per km², 2023 (Open Buildings 2.5D Temporal)": "Зданий на км², 2023 (Open Buildings 2.5D Temporal)",
+  "COVER": "ЗАСТРОЙКА",
+  "The share of the ground built on, 2023": "Доля застроенной земли, 2023",
+  "HEIGHT": "ВЫСОТА",
+  "Building height in metres, 2023: the height of what is built, averaged": "Высота зданий в метрах, 2023: средняя высота застройки",
+  "META 1 M": "META 1 М",
+  "Canopy height, Meta and WRI, 1 m (2018–2020 imagery)": "Высота полога, Meta и WRI, 1 м (снимки 2018–2020)",
+  "ETH 10 M": "ETH 10 М",
+  "Canopy height, ETH Zürich, 10 m (2020), to compare: taller in tall forest": "Высота полога, ETH Цюрих, 10 м (2020), для сравнения: выше в высоком лесу"
 }

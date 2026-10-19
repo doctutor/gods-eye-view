@@ -68,6 +68,8 @@ const FORK_LAYER_NAMES = [
   'Rivers',
   'Surface water',
   'Land cover',
+  'Buildings',
+  'Tree canopy',
   'Wikipedia coverage',
   'Analysis',
   'Grid',
