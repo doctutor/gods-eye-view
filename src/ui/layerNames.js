@@ -62,6 +62,8 @@ export const LAYER_NAME_KEYS = Object.freeze({
   'ee-tree-canopy': msg('Tree canopy'),
   grid: msg('Grid'),
   'wikipedia-coverage': msg('Wikipedia coverage'),
+  localities: msg('Localities'),
+  'street-assets': msg('Street assets'),
 });
 
 /** The layer panel's own English names, where they differ from the module's. */

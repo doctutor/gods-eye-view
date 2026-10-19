@@ -39,6 +39,8 @@ unless its switch is set to `0`.
 - [Elevation: the DEM stack](#elevation-the-dem-stack)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
+- [Localities (REFERENCE)](#localities-reference)
+- [Street assets (ANALYSIS)](#street-assets-analysis)
 - [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
 - [Rivers: click a reach](#rivers-click-a-reach)
 - [Level of detail](#level-of-detail)
@@ -2589,6 +2591,137 @@ packs. The wiring (share links, voice enum and aliases such as "hex map",
 "countries", "subdivisions"; cable classification; the first-key hash
 strip) follows the keyless basemaps' lists.
 
+## Localities (REFERENCE)
+
+Populated places with their names at every height
+(`src/layers/localities/`), under **REFERENCE** beside the Grid: names
+are a base reference to read other layers against, not a quantity to
+analyse.
+
+**From orbit to regional scale: Natural Earth.** The 7,342 places of
+Natural Earth's 10m populated places (public domain), bundled as
+`src/data/local_data/natural_earth/populated_places.json` (802 KB, 228 KB
+gzipped: names in English, Spanish and Russian, scalerank, Natural Earth's
+own label `min_zoom`, largest population, capital class, country, at about
+100 m). It is built by `scripts/build-populated-places-pack.mjs` from the
+official download (SHA-256 pinned; see the pack README), like the river
+names.
+
+_Thinning._ A place is named once the imagery level the camera height
+drapes at the middle of the view (the Rivers' `riverZoomForHeight`, a
+1,600 px canvas: z 3 from 20,000 km, z 6 from 3,000 km, z 12 from 50 km)
+reaches its `min_zoom`, the zoom Natural Earth itself gives it from its
+scalerank and population. Within that, national capitals first, then lower
+`min_zoom`, scalerank and larger population; at most 180 labels, in the
+view window (the H3 window rule; from orbit, the side of the Earth the
+camera sees); the overlay's collision solver drops what overlaps, larger
+places winning. Measured on the pack: 41 names from orbit (Moscow, not
+Baltimore), 180 of the 992 eligible from 3,000 km over Europe (every
+capital in view), and the 15 Natural Earth places in the window of a 50 km
+view of Baltimore (Baltimore, Annapolis, Washington, Philadelphia and the
+towns between).
+
+**Close in: OpenStreetMap.** Below 60 km the layer also asks Overpass
+for the view's named `place` nodes, the kinds widening as the camera comes
+in: `city` and `town` below 60 km; `village` and `suburb` too below 20 km;
+`hamlet` and `neighbourhood` too below 6 km. The box is the ground a nadir
+view sees (half-side one camera height, at least 3 km), snapped outward
+to 0.05° so a small pan reuses the answer; at most 800 places. Natural
+Earth's place gives way where OpenStreetMap has one of the same name
+within 5 km.
+
+**Overpass.** Both this layer and [Street assets](#street-assets-analysis)
+go through the app's own `/api/overpass` proxy (its query bounds, its 24 h
+memory and 7-day disk cache) with a client that paces them
+(`src/sources/overpassView.js`): one request at a time, at least 1.5 s
+apart, nothing until a refusal's Retry-After has passed, a newer view
+aborting the request in flight. The proxy queries only the instances in
+**`OVERPASS_UPSTREAMS`**, and uses no public instance unless told to.
+Without it the row says "OpenStreetMap places need OVERPASS_UPSTREAMS in
+.env" and Natural Earth keeps naming. To turn it on, add to `.env` and
+restart the dev server, for example:
+
+```
+OVERPASS_UPSTREAMS=https://overpass-api.de/api/interpreter,https://overpass.private.coffee/api/interpreter
+```
+
+**On screen.** Names are world-overlay labels (never Cesium labels),
+white on imagery and dark maps, near-black on light ones (the basemap's
+luminance). **DOTS** (on by default, kept as `gev.localities.dots`) adds a
+point at each named place, larger for capitals. A click on a name or a dot
+opens a card beside it: its kind (City, Town, Village, Hamlet, Suburb,
+Neighbourhood; or National capital, Regional capital, Populated place) and
+country, population, its local name when OpenStreetMap's English one
+differs, and the source; a click elsewhere closes it. Attribution: Natural
+Earth (public domain) and © OpenStreetMap contributors (ODbL), registered
+when the layer is on.
+
+Overpass times for the layer's own queries (2026-10-19, through the public
+`maps.mail.ru` mirror, the only one that answered from this machine that
+day: overpass-api.de refused it with 406 and the others timed out; a
+configured upstream should be faster):
+
+| Query                         | Box         | Answer             | Time   |
+| ----------------------------- | ----------- | ------------------ | ------ |
+| city, town @ 55 km, Baltimore | 1.0° × 1.3° | 111 places, 46 KB  | 18.3 s |
+| city, town @ 55 km, Paris     | 1.0° × 1.5° | 276 places, 158 KB | 25.8 s |
+| village, suburb @ 15 km       | 0.3° × 0.4° | (mirror 504)       | n/a    |
+
+## Street assets (ANALYSIS)
+
+The infrastructure Google Earth shows, from OpenStreetMap
+(`src/layers/streetAssets/`): **EV CHARGING** (`amenity=charging_station`,
+nodes and areas), **BIKE LANES** (`highway=cycleway`, and roads with
+`cycleway`, `cycleway:both`, `cycleway:left` or `cycleway:right` = lane or
+track), **HYDRANTS** (`emergency=fire_hydrant`), **STREET LIGHTS**
+(`highway=street_lamp`) and **SIGNALS** (`highway=traffic_signals`). One
+type at a time, a chip each (kept as `gev.streetAssets.type`), through
+the same paced `/api/overpass` client as Localities (and the same
+`OVERPASS_UPSTREAMS` need). OpenChargeMap was not used: OpenStreetMap's
+charging stations need no key. Attribution © OpenStreetMap contributors
+(ODbL).
+
+**Level of detail: pins, then counts, then nothing.** These are dense, so
+each type has two heights:
+
+| Type          | Pins below | Counts below | Pin limit | Count limit |
+| ------------- | ---------- | ------------ | --------- | ----------- |
+| EV charging   | 40 km      | 150 km       | 1,500     | 8,000       |
+| Bike lanes    | 8 km       | 30 km        | 2,500     | 10,000      |
+| Hydrants      | 5 km       | 25 km        | 2,000     | 12,000      |
+| Street lights | 3 km       | 15 km        | 2,000     | 12,000      |
+| Signals       | 5 km       | 40 km        | 2,000     | 12,000      |
+
+Below its pin height a type draws its features for the view: points
+(coloured by type, outlined in the ink), or for bike lanes lines in the ink
+clamped to the ground and the 3D tiles. From there to its count height the
+same features come as bare coordinates (`out skel`, or `out center` for
+ways and areas) and the shared point rollup (`src/layers/pointRollup/`)
+draws their counts per H3 hexagon, a click flying the camera in. Above it
+nothing is asked for and the row says how low to go: a wider box would ask
+Overpass for a city's worth of features. The rollup also takes over below
+the pin height if a view holds more than the pin limit. The box is the
+ground a nadir view sees (half-side one camera height), snapped to 0.05°,
+inside the proxy's 12° bound at every cap (tested at 70° N). An answer at
+its limit says so ("more than the view can show; zoom in for all").
+
+Overpass times for the layer's own queries at the caps (2026-10-19,
+Baltimore, through `maps.mail.ru` as above; several timed out at the mirror,
+which says more about the mirror that day than about the queries):
+
+| Query                                | Answer                    | Time   |
+| ------------------------------------ | ------------------------- | ------ |
+| Signals, pins @ 10 km (then the cap) | 2,000 (the limit), 341 KB | 13.4 s |
+| EV charging, pins @ 38 km            | 413, 175 KB               | 15.8 s |
+| Hydrants, counts @ 24 km             | 4,426 points, 368 KB      | 20.5 s |
+| Street lights, count @ 20 km box     | 1,112 (count only)        | 54.7 s |
+| Signals, count @ 20 km box           | 2,347 (count only)        | 22.6 s |
+
+The signals' first pin height (10 km) filled the limit in Baltimore's
+20 km box, so their pins start at 5 km (a 4 km box held 544). OpenStreetMap
+coverage varies by city: Baltimore has only 25 hydrants mapped in a 4 km
+box.
+
 ## H3 hexes (resolution by perspective)
 
 Every hex surface in the fork (the Countries basemap's hex style, the
@@ -2776,7 +2909,15 @@ drowning the view. There are four ways to do it, by the kind of data:
   [H3 hexes](#h3-hexes-resolution-by-perspective)): Wikipedia coverage's
   Hexes mode, from resolution 0 at orbit to 7 at city scale, and the
   Cameras layer's counts per hex that give way to pins as the view comes in
-  (see [Point rollups](#point-rollups-camera-counts-per-hex)).
+  (see [Point rollups](#point-rollups-camera-counts-per-hex)), and Street
+  assets' counts between each type's pin and count heights (see
+  [Street assets](#street-assets-analysis)).
+- **Names: thinned by their own importance.** Localities names Natural
+  Earth's places from the zoom Natural Earth gives each (its `min_zoom`,
+  from scalerank and population), at most 180 at once, and adds
+  OpenStreetMap's places below 60 km, the kinds widening as the camera
+  comes in (see [Localities](#localities-reference)); the river names thin
+  by scalerank the same way.
 - **Boundaries: level switching.** The administrative boundaries' AUTO
   chip draws states and provinces above 800 km and districts below;
   COUNTRIES, REGIONS and DISTRICTS force one level (LSIB 2017 countries,

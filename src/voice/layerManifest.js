@@ -429,6 +429,8 @@ export const VOICE_OFF_LAYERS = Object.freeze({
   'ee-tree-canopy': 'personal fork layer',
   grid: 'personal fork layer',
   'wikipedia-coverage': 'personal fork layer',
+  localities: 'personal fork layer',
+  'street-assets': 'personal fork layer',
 });
 
 const TYPE_NAMES = Object.freeze({
