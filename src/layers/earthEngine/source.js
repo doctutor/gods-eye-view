@@ -6,6 +6,11 @@
  */
 
 export const EARTH_ENGINE_ENDPOINT = '/api/earth-engine';
+/**
+ * The pseudo-variant a layer whose bands name their zooms (the Rivers) is
+ * drawn through: the server draws each tile with the band of its zoom.
+ */
+export const ZOOM_VARIANT = 'zoom';
 /** The catalog is asked for again after this long. */
 export const CATALOG_TTL_MS = 5 * 60 * 1000;
 

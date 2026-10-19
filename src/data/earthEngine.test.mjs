@@ -17,6 +17,10 @@ import {
   createRestBackend,
   createServiceAccountAuth,
   TRANSPARENT_TILE,
+  ZOOM_VARIANT,
+  coarseVariant,
+  variantForZoom,
+  zoomMatched,
   earthEngineSettings,
   featureFilter,
   mapKey,
@@ -43,6 +47,7 @@ const FIXTURE = path.join(
   'earth-engine-expressions.json',
 );
 const byId = (id) => EARTH_ENGINE_LAYERS.find((layer) => layer.id === id);
+const band = (key) => byId('ee-rivers').variants.find((v) => v.key === key);
 
 async function tempRoot(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-ee-'));
@@ -776,8 +781,18 @@ test('Rivers: one map per (band, ink, mode), made when a tile asks, cached per m
   assert.deepEqual(made, []);
   const row = catalog.layers[0];
   assert.deepEqual(row.modes, layerModes(rivers));
-  assert.equal(row.variants.length, RIVER_BANDS.length);
-  for (const variant of row.variants) {
+  // The bands, then the zoom variant, which draws each tile with the band
+  // of its zoom; its version hashes every band's.
+  assert.equal(row.variants.length, RIVER_BANDS.length + 1);
+  const zoom = row.variants.at(-1);
+  assert.equal(zoom.key, ZOOM_VARIANT);
+  assert.equal(zoom.minZoom, 0);
+  assert.match(zoom.modeVersions['network-rest'].dark, /^[0-9a-f]{12}$/);
+  assert.notEqual(
+    zoom.modeVersions.network.dark,
+    row.variants[0].modeVersions.network.dark,
+  );
+  for (const variant of row.variants.slice(0, -1)) {
     assert.equal(variant.ready, false);
     assert.equal(variant.versions, undefined);
     for (const mode of layerModes(rivers))
@@ -792,8 +807,23 @@ test('Rivers: one map per (band, ink, mode), made when a tile asks, cached per m
           ),
         );
   }
-  // Below the band's first level: a transparent tile, no Earth Engine, not counted.
-  const blank = await service.tile(
+  // Below a band's first level, bands without zooms: a transparent tile,
+  // no Earth Engine, not counted.
+  const plain = {
+    ...rivers,
+    variants: rivers.variants.map(({ zooms, ...variant }) => variant),
+  };
+  const plainService = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    layers: [plain],
+    backend: {
+      async createMap() {
+        throw new Error('no map wanted');
+      },
+    },
+  });
+  const blank = await plainService.tile(
     'ee-rivers',
     'o4',
     'light',
@@ -805,6 +835,12 @@ test('Rivers: one map per (band, ink, mode), made when a tile asks, cached per m
   assert.equal(blank.status, 200);
   assert.equal(blank.blank, true);
   assert.equal(blank.body, TRANSPARENT_TILE);
+  assert.equal(
+    (await plainService.layers()).layers[0].variants.some(
+      (variant) => variant.key === ZOOM_VARIANT,
+    ),
+    false,
+  );
   assert.deepEqual(made, []);
   assert.deepEqual(fetched, []);
   assert.equal((await service.layers()).layers[0].tilesToday, 0);
@@ -865,6 +901,100 @@ test('Rivers: one map per (band, ink, mode), made when a tile asks, cached per m
       .status,
     400,
     'past maxZoom 11',
+  );
+});
+
+test('Rivers: the zoom variant draws each tile with the band of its zoom, and a band’s coarser tiles are the coarser band’s (what a 3D tileset asks for)', async (t) => {
+  const root = await tempRoot(t);
+  const rivers = byId('ee-rivers');
+  const made = [];
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    layers: [rivers],
+    backend: {
+      async createMap(layer, variant, ink, mode) {
+        made.push(mapKey(layer, variant, ink, mode));
+        return { name: `projects/p/maps/${variant.key}` };
+      },
+      async fetchTile(name, z, x, y) {
+        return {
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from(`${name}/${z}/${x}/${y}`),
+        };
+      },
+    },
+  });
+  assert.equal(zoomMatched(rivers), true);
+  assert.equal(zoomMatched(byId('ee-admin-boundaries')), false);
+  // z → band: the bands' zooms, the first below them, the last above.
+  const bandAt = (z) => variantForZoom(rivers, z).key;
+  assert.deepEqual([0, 2, 4, 5, 6, 7, 8, 9, 10, 11, 14].map(bandAt), [
+    'o3',
+    'o3',
+    'o3',
+    'o4',
+    'o4',
+    'o5',
+    'o6',
+    'o7',
+    'o7',
+    'all',
+    'all',
+  ]);
+  for (const [z, band] of [
+    [1, 'o3'],
+    [5, 'o4'],
+    [8, 'o6'],
+    [11, 'all'],
+  ]) {
+    const tile = await service.tile(
+      'ee-rivers',
+      ZOOM_VARIANT,
+      'dark',
+      z,
+      0,
+      0,
+      'network',
+    );
+    assert.equal(tile.status, 200);
+    assert.equal(String(tile.body), `projects/p/maps/${band}/${z}/0/0`);
+  }
+  assert.deepEqual(made, [
+    'ee-rivers/network/o3/dark',
+    'ee-rivers/network/o4/dark',
+    'ee-rivers/network/o6/dark',
+    'ee-rivers/network/all/dark',
+  ]);
+  // A band's tile below its first level: the band of that zoom draws it,
+  // under its own cache path.
+  const coarse = await service.tile(
+    'ee-rivers',
+    'o6',
+    'dark',
+    2,
+    1,
+    1,
+    'network',
+  );
+  assert.equal(String(coarse.body), 'projects/p/maps/o3/2/1/1');
+  assert.equal(coarseVariant(rivers, band('o6'), 2).key, 'o3');
+  assert.equal(coarseVariant(rivers, band('o3'), 0).key, 'o3', 'the floor');
+  assert.equal(
+    coarseVariant(
+      byId('ee-admin-boundaries'),
+      byId('ee-admin-boundaries').variants[1],
+      0,
+    ),
+    null,
+  );
+  // At or past a band's first level a band draws itself.
+  assert.equal(
+    String(
+      (await service.tile('ee-rivers', 'o6', 'dark', 5, 1, 1, 'network')).body,
+    ),
+    'projects/p/maps/o6/5/1/1',
   );
 });
 

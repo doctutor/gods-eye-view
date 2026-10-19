@@ -1,4 +1,7 @@
-import { riverOrdersAt } from '../../data/earthEngineLayers.js';
+import {
+  riverHeightForCanvas,
+  riverOrdersAt,
+} from '../../data/earthEngineLayers.js';
 import {
   attachReachClicks,
   attachReachHighlight,
@@ -8,8 +11,9 @@ import {
  * Personal fork: the Rivers layer's clicks (src/layers/rivers/
  * reachHighlight.js). While the layer is on, a click on the map finds the
  * reach there and traces it to the sea; the size limit is the orders the
- * layer draws at the camera's height (riverOrdersAt: 3 from orbit, every
- * order below 104 km), so a click picks a river that is on screen. Off, the
+ * layer draws at the camera's height (riverOrdersAt, on a canvas of this
+ * size: 3 from orbit, every order close in), so a click picks a river that
+ * is on screen. Off, the
  * highlight, the card and the click handler go.
  *
  * The lookup is HydroRIVERS v1's (server/providers/riverReach.js). Over the
@@ -50,7 +54,15 @@ export function createRiverClicks({
         highlight,
         picking,
         isPointerFree,
-        maxOrder: (heightM) => riverOrdersAt(heightM),
+        // The orders drawn: the band picked for this canvas's size.
+        maxOrder: (heightM) =>
+          riverOrdersAt(
+            riverHeightForCanvas(
+              heightM,
+              viewer.scene.canvas?.clientWidth,
+              viewer.scene.canvas?.clientHeight,
+            ),
+          ),
       });
       if (credit) credits?.register?.(viewer, credit);
     },

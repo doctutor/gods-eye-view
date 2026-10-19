@@ -296,6 +296,22 @@ export function riverZoomForHeight(heightM, k = RIVER_ZOOM_K_M) {
   const height = Math.max(1, Number(heightM) || 1);
   return Math.max(0, Math.ceil(Math.log2(k / height)) + 1);
 }
+/** The canvas width (CSS px) RIVER_ZOOM_K_M is for. */
+export const RIVER_REFERENCE_WIDTH_PX = 1600;
+
+/**
+ * The camera height a 1,600 px canvas would need to drape the zoom this
+ * canvas drapes at `heightM`: Cesium's level steps with distance / the
+ * canvas's larger side (the 60° field of view spans it), so a 720 px pane
+ * at 4,500 km drapes what a 1,600 px one does at 10,000 km. The Rivers
+ * pick their band from it, so v1 follows the zoom v2 is drawn at whatever
+ * the pane's size.
+ */
+export function riverHeightForCanvas(heightM, widthPx, heightPx) {
+  const side = Math.max(Number(widthPx) || 0, Number(heightPx) || 0);
+  return side > 0 ? (heightM * RIVER_REFERENCE_WIDTH_PX) / side : heightM;
+}
+
 /** The height below which the middle of the view is at zoom n + 2: K / 2^n. */
 const STEP = (n) => RIVER_ZOOM_K_M / 2 ** n;
 

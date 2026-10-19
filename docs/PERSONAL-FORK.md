@@ -886,22 +886,74 @@ round(L + log2(2.03 × cos latitude)) (`ImageryLayer`'s
 For a 1,600 px wide canvas looking down that is z = ceil(log2(5.34e7 /
 height)) + 1, which steps at 5.34e7 / 2^n m: 6,675, 3,338, 1,669, 834, 417,
 209 and 104 km. The `o4`/`o5` step is at 1,666 km rather than 1,669 so that
-`o5`'s view square is never the whole world. On a wider canvas every step
-moves up (2,560 px: by 1.6×); v2 follows the zoom Cesium actually picks and
-v1 the height, so there the edge can differ by a zoom. Towards the horizon
-Cesium drapes coarser tiles: v2 thins there by zoom, v1 keeps the band of
-the camera's height.
+`o5`'s view square is never the whole world. The step moves with the
+canvas (Cesium's error bound is per CSS pixel of the larger side), so the
+layer picks its band from `riverHeightForCanvas`: the height a 1,600 px
+canvas would need for the zoom this canvas drapes (a 720 px pane at
+4,500 km is a 1,600 px canvas at 10,000 km, orders 1 to 3, Cesium's z 4).
+The clicks' `maxOrder` uses the same height.
 
-Each band's tiles start at its `minZoom`: the client's imagery provider
-asks for nothing coarser (`minimumLevel`), and the server answers a coarser
-tile with a transparent 256 × 256 PNG it makes itself (no Earth Engine
-request, nothing counted). Earth Engine reads every reach under a tile, so
-a coarse tile of a dense band is slow whatever its filter, and a raised
-`minimumLevel` is safe only where the overlay's view square bounds it: a
-band drawn above 1,667 km (where the square is the whole world) starts at
-z 3 or coarser, at most 64 tiles. The bands' first levels finish in at most
-14.2 s against the proxy's 30 s, most under 9 s; the slowest are always
-over the Amazon. `maxZoom` is 11 (HydroSHEDS' 15″ is about 460 m).
+**The tiles come by zoom** (since 2026-10-19). The band by height names the
+orders in the row and the clicks, but the tiles are drawn through the
+server's `zoom` variant (`/tile/ee-rivers/<mode>/zoom/<ink>/<z>/<x>/<y>`):
+each tile by the band of its own zoom (`variantForZoom`: z 0–4 `o3`, z 5–6
+`o4`, z 7 `o5`, z 8 `o6`, z 9–10 `o7`, z 11 on `all`), exactly as v2's tiles
+are, so the two agree tile by tile on any canvas, towards the horizon and on
+a 3D tileset. Every zoom of it is quick (each band only at its own zooms),
+so it is asked for at `minimumLevel` 0 everywhere; its version hashes every
+band's. The bands keep their `minZoom` for a client that asks for a band by
+name (on a globe), and the server answers a band's tile coarser than its
+first level with the band of that zoom (`coarseVariant`) rather than a
+transparent one. HydroSHEDS v2's provider takes the Earth Engine side's
+levels (0 to 11), so neither is sharper or blurrier than the other.
+`maxZoom` is 11 (HydroSHEDS' 15″ is about 460 m). The bands' first levels
+finish in at most 14.2 s against the proxy's 30 s, most under 9 s; the
+slowest are always over the Amazon.
+
+**Rivers on the photoreal tiles.** On the default photoreal map at 4,500 km
+over North America (720 × 507 pane) only a hard-edged patch of rivers drew,
+blurred, with the Columbia, the upper Missouri, the Saskatchewan and the St.
+Lawrence missing. The cause is how Cesium 1.138 drapes imagery on a 3D
+tileset (`ModelPrimitiveImagery`): each loaded primitive gets about one
+imagery tile at the level whose tile spans it, clamped up to the provider's
+`minimumLevel`, and `ImageryPipelineStage` keeps at most 10 draped textures
+per primitive, dropping the rest ("Draped imagery requires 16 texture units,
+truncating"). At orbit the photoreal primitives are continent-sized, so the
+`o4` band's `minimumLevel` 3 made one need 16 to 33 z 3 tiles (all 64
+requested, all 200); the first 10 were drawn, and HydroSHEDS v2's layer,
+second in the list, got none of the slots left. v2 itself had no minimum,
+so it drew one z 0 or z 2 tile stretched over each primitive: thick and
+blurry. Now the Rivers ask for every level through the `zoom` variant at
+`minimumLevel` 0, so each primitive takes one to four tiles per layer at
+Cesium's own level and both layers fit. The other Earth Engine layers have
+no `minZoom` (their minimum was always 0), so they never needed more than
+Cesium's one-to-four tiles a primitive; several draped layers at once still
+share the 10 slots. On a tileset the level follows the primitive, not the
+screen, so at orbit the lines stay softer than on a globe (a z 2 tile over a
+90° primitive) whatever the layer; a globe map is the sharper view from far
+out.
+
+Checked in headless Chrome (SwiftShader) with real Cesium 1.138, the
+layer's own modules and the real server routes against the main checkout's
+caches and live Earth Engine (`scratchpad/harness/run.mjs`, not committed).
+Google's tiles refuse the harness's origin (the browser key is restricted to
+the app's referrers, and so is the ion token), so the photoreal stack is a
+stand-in: a 3D tileset of ellipsoid patches, either 16 cells of 90° × 45°
+(continent-sized, as the photoreal primitives at orbit are) or a seven-level
+quadtree, draped through the same `ModelPrimitiveImagery` code. Requests at
+lat 40, lon −100 (and 38.6, −90.2 at 600 km), pitch −90, 720 × 507,
+NETWORK with v2:
+
+| View                | Before (`local-fixes`)                                 | After                                                |
+| ------------------- | ------------------------------------------------------ | ---------------------------------------------------- |
+| 90° cells, 4,500 km | EE 64 (z 3, 7 of 15 primitives over 10 textures), v2 5 | EE 9 (z 0, z 2), v2 5 (z 0, z 2); none over 10       |
+| quadtree, 4,500 km  | EE 64 (z 3, 1 primitive over 10), v2 15                | EE 25 (z 0, 2, 3), v2 15 (z 0, 2, 3), the same tiles |
+| quadtree, 600 km    | EE 10 (z 5), v2 11 (z 0, 2, 3, 5)                      | EE 11, v2 11, the same tiles                         |
+| globe, 4,500 km     | EE 84 (z 3 64, z 4 20), v2 48                          | EE 58 (z 1 to 4), v2 48 (z 1 to 4)                   |
+| globe, 600 km       | EE 42 (z 5 to 7), v2 41 (z 1 to 7)                     | EE 41, v2 41, the same tiles                         |
+
+The administrative boundaries on the 90° cells: 9 tiles (z 0 and z 2), no
+primitive over 10 textures; on the globe 58.
 
 **Timings** (2026-10-18, sequential, nothing else running against the
 project; tiles fetched straight from Earth Engine with the server's
