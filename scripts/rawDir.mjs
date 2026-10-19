@@ -61,10 +61,10 @@ export function rawRoot(env = process.env, { root = REPO_ROOT } = {}) {
  * A build's raw directory: GEV_RAW_DIR/<build>/raw when set, else
  * `fallback` (the build's own raw/ under its cache directory).
  */
-export function rawDirFor(build, fallback, env = process.env) {
+export function rawDirFor(build, fallback, env = process.env, options = {}) {
   if (!/^[a-z][a-z0-9-]*$/.test(build))
     throw new Error(`bad build name ${build}`);
-  const root = rawRoot(env);
+  const root = rawRoot(env, options);
   return root ? path.join(root, build, 'raw') : fallback;
 }
 

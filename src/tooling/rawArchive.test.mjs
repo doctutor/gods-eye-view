@@ -32,7 +32,7 @@ test('GEV_RAW_DIR: the environment first, else .env (.env.local wins), else each
   const root = tmp(t);
   assert.equal(rawRoot({}, { root }), null);
   assert.equal(
-    rawDirFor('rivers', '/cache/rivers/raw', {}),
+    rawDirFor('rivers', '/cache/rivers/raw', {}, { root }),
     '/cache/rivers/raw',
   );
   put(path.join(root, '.env'), 'OTHER=1\nGEV_RAW_DIR="X:/gev-data"\n');
