@@ -702,6 +702,12 @@ test('the mode chips exist only on a layer with modes', () => {
       'occurrence',
       'change',
       'seasonality',
+      // Census tracts (TRACTS in Earth Engine, INCOME local) and Inundation.
+      'tracts',
+      'income',
+      'lst',
+      'count',
+      'duration',
       'v200',
       'v100',
       // Population's epochs (src/data/forestPopulation.test.mjs).

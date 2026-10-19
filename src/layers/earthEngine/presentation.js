@@ -39,6 +39,15 @@ export const LEGEND_WORDS = Object.freeze({
   '1 month a year': msg('1 month a year'),
   '6 months a year': msg('6 months a year'),
   'All year': msg('All year'),
+  // Census tracts and Inundation history.
+  Tract: msg('Tract'),
+  'Under $30k': msg('Under $30k'),
+  'Under 25 °C': msg('Under 25 °C'),
+  Once: msg('Once'),
+  '1 day': msg('1 day'),
+  '10 days': msg('10 days'),
+  '100 days': msg('100 days'),
+  '300+ days': msg('300+ days'),
   // Land cover's classes (ESA WorldCover).
   'Tree cover': msg('Tree cover'),
   Shrubland: msg('Shrubland'),
@@ -120,7 +129,8 @@ export function modeLabel(mode) {
 
 /**
  * The mode chips of a layer with modes (the Rivers, Surface water, Land
- * cover, Population's epochs).
+ * cover, Population's epochs). A chip with a `layer` belongs to that layer
+ * only, for a mode key two layers share (Buildings' and Inundation's COUNT).
  */
 export const MODE_CHIPS = Object.freeze([
   Object.freeze({
@@ -162,6 +172,40 @@ export const MODE_CHIPS = Object.freeze([
     label: msg('SEASONALITY'),
     title: msg('How many months a year water is there'),
   }),
+  // Census tracts: outlines (Earth Engine) or income (the local server).
+  Object.freeze({
+    key: 'tracts',
+    label: msg('TRACTS'),
+    title: msg('Census tract outlines (TIGER/Line 2020)'),
+  }),
+  Object.freeze({
+    key: 'income',
+    label: msg('HOUSEHOLD INCOME'),
+    title: msg(
+      'Median household income by tract, ACS 5-year 2020–2024 (drawn by the local server: npm run census:build)',
+    ),
+  }),
+  Object.freeze({
+    key: 'lst',
+    label: msg('SURFACE TEMPERATURE'),
+    title: msg(
+      'Summer land surface temperature by tract: the June–August 2018–2023 Landsat mean (surfaces, not air)',
+    ),
+  }),
+  // Inundation history (Global Flood Database).
+  Object.freeze({
+    key: 'count',
+    layer: 'ee-inundation',
+    label: msg('FLOOD COUNT'),
+    title: msg(
+      'How many of the 913 mapped floods of 2000–2018 covered each place',
+    ),
+  }),
+  Object.freeze({
+    key: 'duration',
+    label: msg('FLOODED DURATION'),
+    title: msg('Days under flood water in all of them, on a log scale'),
+  }),
   // Land cover (ESA WorldCover): the map's year.
   Object.freeze({
     key: 'v200',
@@ -188,6 +232,7 @@ export const MODE_CHIPS = Object.freeze([
   // Buildings (Google Open Buildings 2.5D Temporal, 2023).
   Object.freeze({
     key: 'count',
+    layer: 'ee-buildings',
     label: msg('COUNT'),
     title: msg('Buildings per km², 2023 (Open Buildings 2.5D Temporal)'),
   }),
@@ -281,6 +326,42 @@ export function inkSwatch(record, ink) {
 }
 
 /**
+ * A terrain layer's elevation source as the row says it: its name, and for
+ * patchy lidar its fallback ("USGS 3DEP 1 m where lidar exists, else 10 m").
+ * @param {{name: string, fallback?: string|null}} names - demStack.js
+ *   sourceNamesAt.
+ */
+export function demSourceText({ name = '', fallback = null } = {}) {
+  if (!name) return '';
+  return fallback
+    ? t('{source} where lidar exists, else {fallback}', {
+        source: name,
+        fallback,
+      })
+    : name;
+}
+
+/** The local census server's messages (server/providers/census/sources.js). */
+const LOCAL_MESSAGES = Object.freeze({
+  'Set CENSUS_API_KEY in .env (a free key from api.census.gov/data/key_signup.html), then run npm run census:build':
+    msg(
+      'Set CENSUS_API_KEY in .env (a free key from api.census.gov/data/key_signup.html), then run npm run census:build',
+    ),
+  'Run npm run census:build to draw the census tracts': msg(
+    'Run npm run census:build to draw the census tracts',
+  ),
+  'CENSUS_API_KEY is set: run npm run census:build again to fetch the incomes':
+    msg(
+      'CENSUS_API_KEY is set: run npm run census:build again to fetch the incomes',
+    ),
+  'Asking the local census server…': msg('Asking the local census server…'),
+  'Run npm run census:build with Earth Engine set up to compute the summer surface temperatures (about an hour of Earth Engine time, once)':
+    msg(
+      'Run npm run census:build with Earth Engine set up to compute the summer surface temperatures (about an hour of Earth Engine time, once)',
+    ),
+});
+
+/**
  * The status line.
  * @param {{catalog?: object|null, layer?: object|null, variant?: string,
  *   loading?: boolean, failure?: string|null, hostless?: boolean,
@@ -304,10 +385,17 @@ export function statusText({
   americasV2 = false,
   mode = '',
   demSource = '',
+  localMessage = '',
   outsideCoverage = '',
 }) {
   if (failure)
     return t('Earth Engine unavailable: {reason}', { reason: failure });
+  // A mode drawn by a local server that cannot draw yet (the Census
+  // tracts' income without its build or CENSUS_API_KEY): what to do.
+  if (localMessage && !Number.isFinite(ceilingM))
+    return LOCAL_MESSAGES[localMessage]
+      ? t(LOCAL_MESSAGES[localMessage])
+      : localMessage;
   // The words Recent Imagery and the weather layers use for this map.
   if (hostless && catalog?.configured && !layer?.error)
     return t(NO_IMAGERY_HOST);
@@ -389,6 +477,7 @@ export function rowControls({
   americasV2 = false,
   demSource = '',
   creditTitle = '',
+  localMessage = '',
   outsideCoverage = '',
 }) {
   const layer = catalog?.layers?.get?.(record.id) || null;
@@ -397,6 +486,7 @@ export function rowControls({
   const modeKeys = new Set((record.modes || []).map((entry) => entry.key));
   for (const chip of MODE_CHIPS) {
     if (!modeKeys.has(chip.key)) continue; // hidden modes have no chip
+    if (chip.layer && chip.layer !== record.id) continue;
     chips.push({
       id: `mode-${chip.key}`,
       label: t(chip.label),
@@ -476,6 +566,7 @@ export function rowControls({
       americasV2,
       mode,
       demSource,
+      localMessage,
       outsideCoverage,
     }),
     // A terrain layer: the notices of the sources in view.

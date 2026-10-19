@@ -68,6 +68,8 @@ const FORK_LAYER_NAMES = [
   'Population',
   'Administrative boundaries',
   'Rivers',
+  'Census tracts',
+  'Inundation history',
   'Surface water',
   'Land cover',
   'Buildings',

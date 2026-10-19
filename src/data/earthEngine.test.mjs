@@ -94,17 +94,27 @@ test('every map request is exactly the committed fixture', async () => {
   assert.match(text, /projects\/sat-io\/open-datasets\/FABDEM/);
   assert.match(text, /"crsTransform"/);
   assert.doesNotMatch(JSON.stringify(requests), /COPERNICUS\/DEM\/GLO30/);
-  const top = layersOf(slope).at(-1).functionInvocationValue;
+  // Each source read bilinearly, the terrain operation's result resampled
+  // too (DEM_RESAMPLE): magnified, it shades smoothly.
+  const resampled = layersOf(slope).at(-1).functionInvocationValue;
+  assert.equal(resampled.functionName, 'Image.resample');
+  assert.equal(resampled.arguments.mode.constantValue, 'bilinear');
+  const top = resampled.arguments.image.functionInvocationValue;
   assert.equal(top.functionName, 'Terrain.slope');
+  const masked = top.arguments.input.functionInvocationValue;
+  assert.equal(masked.functionName, 'Image.selfMask');
   assert.equal(
-    top.arguments.input.functionInvocationValue.functionName,
-    'Image.selfMask',
+    masked.arguments.image.functionInvocationValue.functionName,
+    'Image.resample',
   );
   // Far views: GMTED2010 on top, its zero sea masked, ArcticDEM and REMA
   // beneath it (Greenland, Antarctica), clipped to their boxes.
   const far = requests['ee-terrain-hillshade/far/default'];
   const farLayers = layersOf(far).map((node) => node.functionInvocationValue);
-  assert.equal(farLayers[2].functionName, 'Terrain.hillshade');
+  assert.equal(
+    farLayers[2].arguments.image.functionInvocationValue.functionName,
+    'Terrain.hillshade',
+  );
   assert.deepEqual(
     farLayers.slice(0, 2).map((node) => node.functionName),
     ['Image.clip', 'Image.clip'],
@@ -527,7 +537,7 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
   const [first] = await Promise.all([service.layers(), service.layers()]);
   assert.equal(
     backend.made.length,
-    13,
+    17,
     'one map per variant and ink (and mode), one request each (the DEM stack, the contours, Population and the Rivers make theirs when a tile asks)',
   );
   assert.ok(backend.made.includes('ee-admin-boundaries/level0/dark'));
@@ -568,11 +578,11 @@ test('maps are made once, kept until they near expiry, and an old one serves whe
     ['light', 'dark'],
   );
   await service.layers();
-  assert.equal(backend.made.length, 13, 'kept');
+  assert.equal(backend.made.length, 17, 'kept');
   clock += MAP_TTL_MS + 1;
   failing = true;
   const stale = await service.layers();
-  assert.equal(backend.made.length, 26, 'asked again');
+  assert.equal(backend.made.length, 34, 'asked again');
   const staleLoss = stale.layers.find((layer) => layer.id === 'ee-forest-loss');
   assert.equal(staleLoss.variants[0].ready, true, 'the old map still serves');
   assert.equal(
@@ -891,6 +901,8 @@ test('tiles are counted per layer for the day, and the budget warns once at 50% 
     'ee-elevation-contours': 0,
     'ee-buildings': 0,
     'ee-tree-canopy': 0,
+    'ee-census-tracts': 0,
+    'ee-inundation': 0,
   });
   assert.deepEqual(catalog.tiles, { used: 10, budget: 10 });
   // A new day starts from nothing, with its own warnings.

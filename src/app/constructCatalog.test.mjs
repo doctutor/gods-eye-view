@@ -41,12 +41,12 @@ test('catalogs construct distinct layers and classification from their supplied 
     surface: fixtureSurface(b.signal),
   });
   // Personal fork: upstream's 32 plus the two Baltimore camera layers, the
-  // Recorded Video layer, the fourteen Earth Engine overlays
+  // Recorded Video layer, the sixteen Earth Engine overlays
   // (src/data/earthEngineLayers.js; Surface water, Land cover, Elevation,
-  // Elevation contours, Forest types, Population, Buildings and Tree canopy
-  // since 2026-10-19), the Grid, the Wikipedia coverage layer, Localities
-  // and Street assets.
-  assert.equal(first.layers.length, 53);
+  // Elevation contours, Forest types, Population, Buildings, Tree canopy,
+  // Census tracts and Inundation history since 2026-10-19), the Grid, the
+  // Wikipedia coverage layer, Localities and Street assets.
+  assert.equal(first.layers.length, 55);
   assert.ok(first.get('local-adsb'), 'Local ADS-B is registered');
   assert.deepEqual(
     first.metadata.find(({ id }) => id === 'local-adsb'),
@@ -163,12 +163,12 @@ test('Mapillary can be omitted or replaced without changing catalog membership',
   };
   const catalog = createApplicationCatalog(options);
   // Personal fork: upstream's 32 plus the two Baltimore camera layers, the
-  // Recorded Video layer, the fourteen Earth Engine overlays
+  // Recorded Video layer, the sixteen Earth Engine overlays
   // (src/data/earthEngineLayers.js; Surface water, Land cover, Elevation,
-  // Elevation contours, Forest types, Population, Buildings and Tree canopy
-  // since 2026-10-19), the Grid, the Wikipedia coverage layer, Localities
-  // and Street assets.
-  assert.equal(catalog.layers.length, 53);
+  // Elevation contours, Forest types, Population, Buildings, Tree canopy,
+  // Census tracts and Inundation history since 2026-10-19), the Grid, the
+  // Wikipedia coverage layer, Localities and Street assets.
+  assert.equal(catalog.layers.length, 55);
   assert.deepEqual(catalog.get('street-level').providerIds, []);
   assert.equal(
     catalogControlServices(catalog).streetLevelLayer,

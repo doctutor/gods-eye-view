@@ -36,6 +36,8 @@ unless its switch is set to `0`.
   - [Land cover](#land-cover)
   - [Buildings](#buildings)
   - [Tree canopy](#tree-canopy)
+  - [Census tracts](#census-tracts)
+  - [Inundation history](#inundation-history)
 - [Elevation: the DEM stack](#elevation-the-dem-stack)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
@@ -531,6 +533,8 @@ has level and ink chips (below).
 | Land cover (see [Land cover](#land-cover))                         | ESA WorldCover 10 m, 2021 `ESA/WorldCover/v200/2021` and 2020 `ESA/WorldCover/v100/2020`, band `Map`                                                                                                     | CC BY 4.0, "© ESA WorldCover project" notice                                                                                                     |
 | Buildings (see [Buildings](#buildings))                            | Google Open Buildings 2.5D Temporal v1, 2023, `GOOGLE/Research/open-buildings-temporal/v1`; footprints from Open Buildings v3, `GOOGLE/Research/open-buildings/v3/polygons`                              | CC BY 4.0 (the temporal set: or ODbL 1.0)                                                                                                        |
 | Tree canopy (see [Tree canopy](#tree-canopy))                      | Meta and WRI canopy height 1 m, `projects/meta-forest-monitoring-okw37/assets/CanopyHeight`; ETH Global Canopy Height 2020 10 m, `users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1`                        | CC BY 4.0                                                                                                                                        |
+| Census tracts (see [Census tracts](#census-tracts))                | TRACTS: TIGER/Line 2020 tracts, `TIGER/2020/TRACT`; HOUSEHOLD INCOME: the Census Bureau's 2024 cartographic boundary tracts and ACS 5-year 2020–2024 B19013, drawn by the local server                   | US public domain                                                                                                                                 |
+| Inundation history (see [Inundation history](#inundation-history)) | Global Flood Database v1, `GLOBAL_FLOOD_DB/MODIS_EVENTS/V1` (913 events, 2000–2018, 250 m)                                                                                                               | CC BY-NC 4.0                                                                                                                                     |
 
 The ids were taken from Earth Engine's catalog records on 2026-10-17. The
 older ids, `COPERNICUS/DEM/GLO30` and `FAO/GAUL/2015/*`, are deprecated, and
@@ -1517,6 +1521,163 @@ variant's maps, the coverage boxes) and
 `src/layers/earthEngine/buildingsCanopy.test.mjs` (the rows: coverage
 words, chips, legends, the footprints' words).
 
+### Census tracts
+
+**Census tracts** (`ee-census-tracts`, ANALYSIS) has two modes, kept as
+`gev.censusTracts.mode`:
+
+- **TRACTS**: TIGER/Line 2020's 85,528 tract outlines (`TIGER/2020/TRACT`),
+  drawn by Earth Engine in the boundaries' inks (white or near-black at
+  67%, AUTO / LIGHT / DARK by the basemap).
+- **HOUSEHOLD INCOME**: each tract filled by its ACS median household
+  income (5-year 2020–2024, 2024 dollars) in seven classes (under $30k,
+  $30k, $50k, $70k, $90k, $120k, $160k+; ColorBrewer YlGnBu at 78%), with
+  thin outlines from z 10. A tract with no estimate (no households, or too
+  few) is faint grey.
+- **SURFACE TEMPERATURE**: each tract's summer land surface temperature
+  (below).
+
+**Why the income is drawn locally.** Earth Engine has no ACS asset (its
+catalogue's TIGER group is boundaries only), and colouring 85,000 tracts
+by values from elsewhere does not work inside it: a GEOID → colour
+dictionary of every tract in the map expression made a 6.0 MB request,
+the map in 8.6 s, and a first tile that had not answered after five
+minutes (2026-10-19). An uploaded table asset is not used. So
+`npm run census:build` (`scripts/census/index.mjs`) fetches what the mode
+needs into `CENSUS_CACHE_DIR` (default `.gev-cache/census`), and the local
+server draws the tiles (`server/providers/census.js`), as the Rivers draw
+HydroSHEDS v2:
+
+1. **Boundaries** (no key): the Census Bureau's 2024 cartographic boundary
+   tracts, `cb_2024_us_tract_500k.zip` (58 MB, 1:500,000, public domain),
+   downloaded once and read straight out of the ZIP (a small shapefile
+   reader, `scripts/census/shapefile.mjs`) into tract files: 85,184
+   tracts, 4.85 million points, about 42 MB (`server/providers/census/
+tractsFile.js`: degrees × 10⁶ in Int32, a 0.5° grid index).
+2. **Income** (needs **`CENSUS_API_KEY`**, free from
+   api.census.gov/data/key_signup.html): ACS 2024 5-year `B19013_001E` for
+   every tract, one request per state, a second apart. The Census API
+   refuses keyless requests (it redirects them to its key page). Without
+   the key the build skips this step and says so; the row says "Set
+   CENSUS_API_KEY in .env …, then run npm run census:build" until the
+   incomes are there.
+
+`npm run census:status` reports what is built and whether the key is set
+(never its value). `GET /api/census/layers` lists each local mode with
+its readiness, message and tile version; `GET /api/census/tile/income/<z>/
+<x>/<y>?v=<version>` draws a tile, kept under
+`tiles/income/<version>/`, the version hashing the classes and the build.
+The renderer (`server/providers/census/render.js`) fills each tract
+(even-odd rings, four sub-rows a pixel for antialiased edges) and draws
+the outlines with the Rivers' line coverage, with no canvas library.
+
+**Level of detail: tracts only where they resolve.** A tract holds about
+4,000 people: a kilometre or two across in a city, tens of kilometres in
+the country. Both modes draw below `TRACT_MAX_HEIGHT_M` (417 km, where the
+middle of a 1,600 px view drapes z 9: 300 m pixels, so a city tract is a
+few pixels across); above it the row says to come lower. Counties and
+states are the Administrative boundaries layer's. Earth Engine's outline
+tiles start at z 7 (`minZoom`), the first level that answers in about a
+second; the server answers a coarser one with a transparent tile.
+
+| Zoom | TRACTS (Earth Engine, NYC / Kansas / LA) | HOUSEHOLD INCOME (local, NYC) |
+| ---- | ---------------------------------------- | ----------------------------- |
+| 3    | 0.2–21.4 s                               | not drawn                     |
+| 4    | 3.8–12.3 s                               | not drawn                     |
+| 5    | 4.6–7.2 s                                | not drawn                     |
+| 6    | 1.0–3.9 s                                | not drawn                     |
+| 7    | 0.4–2.6 s                                | 1.13 s (6,610 tracts)         |
+| 9    | 0.5–3.2 s                                | 0.44 s (3,128); LA 0.25 s     |
+| 10   | 0.5–1.3 s                                |                               |
+| 11   |                                          | 0.14 s (811)                  |
+| 12   | 0.5–3.4 s                                | 0.06 s (286)                  |
+| 14   |                                          | 0.05 s (34)                   |
+
+(Earth Engine: cold tiles, 2026-10-19. Local: the first draw of a tile,
+with stand-in incomes; drawn tiles are then read from disk.)
+
+**SURFACE TEMPERATURE** (the third mode, also drawn by the local server):
+each tract's summer land surface temperature, the June–August 2018–2023
+mean of Landsat 8 and 9 Collection 2 Level-2 `ST_B10` (×0.00341802 + 149,
+in °C), clear pixels only (QA_PIXEL's dilated cloud, cirrus, cloud and
+shadow bits off), averaged over the tract (`reduceRegions`, mean) at 300 m,
+in seven classes (under 25 °C to 50 °C+, RdYlBu reversed). It is the
+ground's temperature, not the air's: summer roofs and roads are often over
+50 °C. Google Earth's layer shows the same kind of value per tract.
+
+It is computed once, by the build's third step (`scripts/census/lst.mjs`),
+with the server's Earth Engine service account; the owner approved the
+cost (about an hour of Earth Engine time at 300 m; 10 hours at 90 m,
+estimated from Maricopa County's 1,009 tracts, which took 90.7 s at 90 m).
+
+- **Resumable.** Each state's answer is written to `lst/<state>.json` as it
+  comes, and a state already there is skipped, so a crash repeats nothing
+  finished. A state that one request cannot answer is asked county by
+  county, each county kept the same way.
+- **The run** (2026-10-19, four requests at a time): 56 states and
+  territories in about 19 minutes. Only Nevada went county by county (its
+  statewide request failed in transit). California's 9,129 tracts came in
+  one request. The first run stopped at Hawaii: tracts with no clear
+  summer pixel had no mean, so the GEOID and value lists differed in
+  length. Such tracts are now left out (drawn as no value), and the build
+  resumed with the 10 states it had.
+- **Result:** 85,413 TIGER 2020 tracts (7.3 to 60.7 °C, median 37 °C).
+  85,077 of the 2024 boundaries' 85,184 tracts have a value. The 107
+  without are in the territories, Hawaii and Puerto Rico. Connecticut's
+  tracts are keyed across its 2022 county renumbering by their tract code,
+  unique in the state (all 879 matched).
+- **Known limit:** TIGER 2020's tracts include their water area, so a
+  shoreline tract's mean includes river or sea pixels and reads cooler
+  (along Manhattan's rivers). Masking Landsat's water bit would fix it, at
+  the cost of computing the step again.
+
+`--skip-lst` leaves the step out; `--env-root DIR` reads `.env` and the
+Earth Engine key path from another checkout (a worktree's build reads the
+main checkout's). The tiles took 0.10 to 0.15 s to draw (Phoenix z 9, NYC
+z 11, Houston z 10).
+
+Tests: `src/data/censusFlood.test.mjs` (the TRACTS expression and inks,
+the shapefile reader and tract files, the ACS step with its key and
+no-estimate codes, the polygon fill, the server's modes, messages, tiles
+and cache, the route) and `src/layers/earthEngine/census.test.mjs` (the
+income from the local server, TRACTS from Earth Engine, the row without
+the key and above the ceiling, the status check).
+
+### Inundation history
+
+**Inundation history** (`ee-inundation`, ANALYSIS) draws the Global Flood
+Database v1 (`GLOBAL_FLOOD_DB/MODIS_EVENTS/V1`; Tellman et al. 2021,
+Nature 596:80; CC BY-NC 4.0): 913 large floods of 2000–2018 mapped from
+MODIS at 250 m, one image per event. Two chips, kept as
+`gev.inundation.mode`:
+
+- **FLOOD COUNT** (the default): how many of the events flooded each
+  place (pale blue once, deep purple 10 or more).
+- **FLOODED DURATION**: the days under flood water summed over the events,
+  on a log scale (1 day to 300+ days).
+
+Each mode sums its band over the collection (`ImageCollection.reduce`,
+`Reducer.sum`), less the share of each pixel that is permanent water (the
+JRC map inside every event): sum × (1 − permanent water). Below a tenth of
+a flood, and below a day, nothing is drawn.
+
+**Level of detail: the sum of a mean pyramid.** Every band is pyramided by
+MEAN (read from the asset), so a coarse pixel holds each event's flooded
+fraction, and their sum is a count averaged over the pixel: it reads
+sensibly from orbit. Permanent water is subtracted as a share, not masked,
+because a mask would drop every coarse pixel that touches a lake or a coast.
+There is no ceiling; `maxZoom` is 10 (150 m pixels on 250 m data).
+
+| Zoom           | FLOOD COUNT | FLOODED DURATION |
+| -------------- | ----------- | ---------------- |
+| 0              | 4.51 s      | 5.22 s           |
+| 1 (2 tiles)    | 1.63–3.67 s | 2.02–3.49 s      |
+| 2 (2)          | 1.51–2.11 s | 1.61–2.20 s      |
+| 3 (3)          | 0.99–2.51 s | 0.50–1.89 s      |
+| 5, 7, 9 (Asia) | 0.97–1.52 s | 1.44–1.94 s      |
+
+(Cold tiles, 2026-10-19; maps made in 0.8 s.)
+
 ## Elevation: the DEM stack
 
 Since 2026-10-19 the terrain layers (**Terrain slope**, **Terrain aspect**,
@@ -1610,7 +1771,10 @@ since a box to the pole cannot be put into Web Mercator: "Can't transform
 The row's status line says which source draws under the middle of the
 view ("Elevation: USGS 3DEP 10 m", "Elevation: FABDEM 30 m", "Elevation:
 ArcticDEM 2 m", "Elevation: REMA 8 m", "Elevation: GMTED2010 230 m"); for
-3DEP 1 m, which is patchy, "USGS 3DEP 1 m / USGS 3DEP 10 m". The credit
+3DEP 1 m, which is patchy, "USGS 3DEP 1 m where lidar exists, else 10 m"
+(a box cannot say where the lidar is: Mount Rainier National Park has none,
+0 of the collection's images at the summit, Paradise or the west flank,
+counted live 2026-10-19). The credit
 line names the sources the view's square can show (the band at the middle
 and the finer ones down to the deepest level asked for), and the provider
 is made again when they change; each source's own entry
@@ -1659,6 +1823,19 @@ each one's projection), then mosaicked; the tiles overlap by 6 m, so their
 edges leave no gap. Slope is right in every projection tried (the same
 tiles' mean slopes agreed within about 1° between the native image, EPSG:4326 and
 EPSG:3857, at 47° N and 70° N).
+
+**Bilinear, before and after the terrain operation** (`DEM_RESAMPLE`).
+The client asks for tiles as deep as the deepest source in the view goes
+(3DEP 1 m: z 17), but where there is no lidar the 10 m beneath draws,
+magnified: at z 17 a 10 m cell is about 12 × 12 tile pixels. Read
+nearest-neighbour, the hillshade was a mosaic of flat grey squares (Mount
+Rainier's west flank, 46.9176, −121.9049, z 17, 2026-10-19). Every source
+is now read bilinearly on its own grid, and because Earth Engine computes a
+terrain operation on the source's own grid, its result is resampled
+bilinearly too: magnified, slope, aspect and hillshade shade smoothly.
+Elevation's heights are read bilinearly as well, and the contours were
+already. Tile times did not change (0.19 to 1.65 s at z 3 to 17 over Rainier,
+the Alps and Tromsø, three layers).
 
 **How it is drawn** (`server/providers/earthEngine.js`
 `demStackExpression`). One map per (layer, band): 5 × 4 = 20, made when a
@@ -1715,8 +1892,8 @@ z 2 to 16 0.2 to 1.8; REMA z 1 to 14 0.2 to 0.4.
 **Check it live** (lat, lon, camera height):
 
 - United States: Mount Rainier, 46.853, −121.760 at 20 km ("USGS 3DEP 10
-  m") and 5 km ("USGS 3DEP 1 m / USGS 3DEP 10 m"; Denver, 39.70, −105.25 at
-  3 km, has lidar).
+  m") and 5 km ("USGS 3DEP 1 m where lidar exists, else 10 m": no lidar
+  there, so 10 m, smooth; Denver, 39.70, −105.25 at 3 km, has lidar).
 - The Arctic: the Lyngen Alps, 69.60, 20.20 at 60 km ("ArcticDEM 2 m").
 - Elsewhere: the Jungfrau, 46.54, 7.96 at 20 km ("FABDEM 30 m").
 - Seams: the 49th parallel at Chilliwack Lake, 49.00, −121.40 at 20 km
@@ -3006,9 +3183,10 @@ git merge origin/main
 - `src/data/dataCredits.js`, `.env.example` and `DATA_SOURCES.md`.
 - **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (two
   places) and `src/app/sourceComposition.test.mjs` assert `layers.length`.
-  The fork's count is upstream's plus 19 (the two Baltimore layers, Recorded
-  Video, the fourteen Earth Engine overlays, the Grid and Wikipedia
-  coverage): 51 since Buildings and Tree canopy (2026-10-19). A record added to `src/data/earthEngineLayers.js` or an
+  The fork's count is upstream's plus 23 (the two Baltimore layers, Recorded
+  Video, the sixteen Earth Engine overlays, the Grid, Wikipedia
+  coverage, Localities and Street assets): 55 since Census tracts and
+  Inundation history (2026-10-19). A record added to `src/data/earthEngineLayers.js` or an
   upstream layer added later changes the number.
 - **Translations.** Upstream checks that every UI string is marked for
   translation (`npm run i18n`). Fork UI text goes through `t()`, `tn()` and

@@ -38,12 +38,12 @@ test('every acquisition source can be omitted without losing catalog membership'
 test('all acquisition sources may be absent, and enable fails before initializing or fetching', async (t) => {
   const actual = catalog({}, t);
   // Personal fork: upstream's 32 plus the two Baltimore camera layers, the
-  // Recorded Video layer, the fourteen Earth Engine overlays
+  // Recorded Video layer, the sixteen Earth Engine overlays
   // (src/data/earthEngineLayers.js; Surface water, Land cover, Elevation,
-  // Elevation contours, Forest types, Population, Buildings and Tree canopy
-  // since 2026-10-19), the Grid, the Wikipedia coverage layer, Localities
-  // and Street assets.
-  assert.equal(actual.layers.length, 53);
+  // Elevation contours, Forest types, Population, Buildings, Tree canopy,
+  // Census tracts and Inundation history since 2026-10-19), the Grid, the
+  // Wikipedia coverage layer, Localities and Street assets.
+  assert.equal(actual.layers.length, 55);
   const manager = new LayerLifecycle(
     {},
     { getSourceAvailability: actual.getSourceAvailability },
