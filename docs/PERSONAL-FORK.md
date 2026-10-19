@@ -34,6 +34,7 @@ unless its switch is set to `0`.
   - [Rivers](#rivers)
   - [Surface water](#surface-water)
   - [Land cover](#land-cover)
+- [Elevation: the DEM stack](#elevation-the-dem-stack)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
 - [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
@@ -513,17 +514,17 @@ an opacity slider (kept per layer in this browser as
 `gev.earthEngine.opacity.<id>`), and a status line. The boundaries row also
 has level and ink chips (below).
 
-| Layer                                                    | Dataset (Earth Engine id)                                                                                                                                | Licence                                                                  |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Terrain slope, Terrain aspect, Hillshade                 | Copernicus DEM GLO-30, `COPERNICUS/DEM/GLO30_2024_1` (`ee.Terrain`); above 3,000 km GMTED2010, `USGS/GMTED2010_FULL`, band `mea`                         | Copernicus DEM licence; notice required (GMTED2010: USGS, public domain) |
-| Elevation contours                                       | The terrain layers' DEMs: GMTED2010 to z 9, Copernicus DEM GLO-30 from z 10                                                                              | As the terrain layers                                                    |
-| Forest loss (2001–2025, coloured by year)                | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                                         | CC BY 4.0                                                                |
-| Forest types (see [below](#forest-types-and-population)) | JRC global map of forest types 2020 v1, `JRC/GFC2020_subtypes/V1`, band `Map` (1 naturally regenerating, 10 primary, 20 planted)                         | Free to use; citation requested                                          |
-| Population (see [below](#forest-types-and-population))   | GHSL population P2023A, `JRC/GHSL/P2023A/GHS_POP`, band `population_count`, epochs 2020 (default), 2000, 1990, 1975                                      | Reuse authorised with acknowledgement (EC reuse notice)                  |
-| Administrative boundaries                                | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from LSIB 2017, `USDOS/LSIB/2017`                                   | CC BY 4.0 (LSIB: US public domain)                                       |
-| Rivers (see [Rivers](#rivers))                           | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth                                  | HydroSHEDS licence, attribution (Natural Earth: public domain)           |
-| Surface water (see [Surface water](#surface-water))      | JRC Global Surface Water 1.4 (1984–2021, 30 m), `JRC/GSW1_4/GlobalSurfaceWater`, bands `occurrence`, `change_abs`, `seasonality`, masked by `max_extent` | Copernicus, free without restriction; "Source: EC JRC/Google"            |
-| Land cover (see [Land cover](#land-cover))               | ESA WorldCover 10 m, 2021 `ESA/WorldCover/v200/2021` and 2020 `ESA/WorldCover/v100/2020`, band `Map`                                                     | CC BY 4.0, "© ESA WorldCover project" notice                             |
+| Layer                                                              | Dataset (Earth Engine id)                                                                                                                                                                                | Licence                                                                                                                                          |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Terrain slope, Terrain aspect, Hillshade, Elevation                | The DEM stack (see [Elevation: the DEM stack](#elevation-the-dem-stack)): GMTED2010 far out, FABDEM v1-2 as the base, USGS 3DEP 10 m and 1 m, ArcticDEM 2 m and REMA 8 m where they cover (`ee.Terrain`) | FABDEM CC BY-NC-SA 4.0 (non-commercial) with the Copernicus notice; 3DEP and GMTED2010 public domain; ArcticDEM and REMA PGC/NSF acknowledgement |
+| Elevation contours (see [Elevation contours](#elevation-contours)) | The DEM stack's heights, as the Elevation layer mosaics them, band by band                                                                                                                               | As the terrain layers                                                                                                                            |
+| Forest loss (2001–2025, coloured by year)                          | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                                                                                         | CC BY 4.0                                                                                                                                        |
+| Forest types (see [below](#forest-types-and-population))           | JRC global map of forest types 2020 v1, `JRC/GFC2020_subtypes/V1`, band `Map` (1 naturally regenerating, 10 primary, 20 planted)                                                                         | Free to use; citation requested                                                                                                                  |
+| Population (see [below](#forest-types-and-population))             | GHSL population P2023A, `JRC/GHSL/P2023A/GHS_POP`, band `population_count`, epochs 2020 (default), 2000, 1990, 1975                                                                                      | Reuse authorised with acknowledgement (EC reuse notice)                                                                                          |
+| Administrative boundaries                                          | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from LSIB 2017, `USDOS/LSIB/2017`                                                                                   | CC BY 4.0 (LSIB: US public domain)                                                                                                               |
+| Rivers (see [Rivers](#rivers))                                     | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth                                                                                  | HydroSHEDS licence, attribution (Natural Earth: public domain)                                                                                   |
+| Surface water (see [Surface water](#surface-water))                | JRC Global Surface Water 1.4 (1984–2021, 30 m), `JRC/GSW1_4/GlobalSurfaceWater`, bands `occurrence`, `change_abs`, `seasonality`, masked by `max_extent`                                                 | Copernicus, free without restriction; "Source: EC JRC/Google"                                                                                    |
+| Land cover (see [Land cover](#land-cover))                         | ESA WorldCover 10 m, 2021 `ESA/WorldCover/v200/2021` and 2020 `ESA/WorldCover/v100/2020`, band `Map`                                                                                                     | CC BY 4.0, "© ESA WorldCover project" notice                                                                                                     |
 
 The ids were taken from Earth Engine's catalog records on 2026-10-17. The
 older ids, `COPERNICUS/DEM/GLO30` and `FAO/GAUL/2015/*`, are deprecated, and
@@ -629,16 +630,20 @@ Each overlay now:
   draw from orbit since 2026-10-18 (see
   [Level of detail](#level-of-detail)): Earth Engine computes them at the
   tile's scale from the elevation averaged to it. Above 3,000 km they draw
-  from GMTED2010 (`far`), below from the Copernicus DEM (`near`): the
-  Copernicus mosaic is some 26,000 images, and a z 0 to 2 tile of it took
-  Earth Engine 10 to 156 s, past the proxy's 30 s, where GMTED2010, one
-  pyramided image, answered every z 0 to 3 tile in under 0.5 s (both
-  measured 2026-10-18). Its sea, stored as 0, is masked (`seaIsZero`). The
-  terrain variants have no chips. From orbit the slope is near 0° almost
+  from GMTED2010, below from FABDEM and the finer regional sources (since
+  2026-10-19 the DEM stack, drawn by tile zoom: see
+  [Elevation: the DEM stack](#elevation-the-dem-stack)). Until then they
+  drew the Copernicus DEM below 3,000 km: that mosaic is some 26,000
+  images, and a z 0 to 2 tile of it took Earth Engine 10 to 156 s, past
+  the proxy's 30 s, where GMTED2010, one pyramided image, answered every
+  z 0 to 3 tile in under 0.5 s (both measured 2026-10-18). The terrain
+  variants have no chips. From orbit the slope is near 0° almost
   everywhere and the hillshade near flat: averaged elevation has gentle
   slopes, and mountain ranges begin to show at about z 3. The boundaries
   have no ceiling either (their first level is for far views).
-- **Goes no deeper than its `maxZoom`:** 14 for terrain, 12 otherwise.
+- **Goes no deeper than its `maxZoom`:** for terrain as deep as the
+  deepest elevation source in the view's square (17 over the United
+  States, 16 in the Arctic, 14 elsewhere; Elevation 14); 12 otherwise.
 - **Keeps `minimumLevel` at 0, on purpose.** Cesium clamps a primitive's
   level _up_ to the provider's minimum. A raised minimum would therefore
   make a planet-sized primitive ask for every tile of that level: far more
@@ -720,8 +725,9 @@ header lists the fields. Then:
 
 An image layer names an asset (a collection is mosaicked) and its band, and
 optionally a terrain operation, `selfMask` and `vis` (min, max, palette);
-or, like the terrain layers, `auto` variants (a far and a near source)
-chosen by camera height, with no chips. A features layer names a table, a
+or, like the terrain layers, the DEM stack's bands (`demVariants()` from
+`src/data/demStack.js`, `demStack: true`), drawn by tile zoom, with no
+chips. A features layer names a table, a
 `style`, its `inks`, and variants: those marked `auto` are chosen by
 camera height, the rest only by a chip. Check a table for chunks (more
 features than units) before using it: its outlines show every cut.
@@ -830,7 +836,9 @@ slider tones either one down.
 ### Elevation contours
 
 **Elevation contours** (ANALYSIS, `ee-elevation-contours`) draws contour
-lines of the terrain layers' elevation in the boundaries' inks: white
+lines of the terrain layers' elevation (the DEM stack, see
+[Elevation: the DEM stack](#elevation-the-dem-stack)) in the boundaries'
+inks: white
 (`ffffffcc`) on imagery and dark maps, near-black (`1a1a1acc`) on light ones,
 with AUTO / LIGHT / DARK ink chips. Every fifth line is an index contour,
 drawn at the ink's full alpha; the others are at 55% of it.
@@ -843,10 +851,13 @@ REFERENCE is drawn by the client from arithmetic and costs nothing.
 **Method** (`contourExpression`, `server/providers/earthEngine.js`). Earth
 Engine draws each tile from:
 
-1. the elevation, its sea (stored as 0) masked, read bilinearly. The
-   Copernicus mosaic is first given its 30 m cells (EPSG:3857, as for
-   terrain): its default projection is 1°, and resampled over 1° cells the
-   lines came out as straight diagonal ramps;
+1. the elevation: the DEM stack's band for the tile's zoom, each source
+   read bilinearly on its own grid (FABDEM's 1″, 3DEP's 1/3″ in NAD83, each
+   3DEP 1 m tile in its own UTM zone), its sea (0) masked, then the sources
+   mosaicked as the Elevation layer mosaics them (`stackContourExpression`).
+   Resampling comes before the mosaic: a mosaic's default projection is 1°,
+   and resampled over 1° cells the lines came out as straight diagonal
+   ramps (the first version, on Copernicus GLO-30);
 2. the level, `floor(dem / step)`;
 3. a line wherever the level differs from its `Image.focalMin` over the
    3 × 3 pixels about it: one pixel wide, on the upper side of each level,
@@ -856,7 +867,7 @@ Engine draws each tile from:
    the ink; the ink's alpha is the map's opacity.
 
 The level and its focal minimum are shared values in the request
-(`valueReference`), each sent once.
+(`valueReference`), each sent once, after the stack's own shared sources.
 
 **Level of detail: the step follows the zoom.** Each band names the zooms it
 draws (`zooms`, as the Rivers' bands do), so the server's `zoom` variant
@@ -866,19 +877,31 @@ Cesium's 10 draped textures). On AUTO the camera's height names the band in
 the row ("Contours every 100 m"): the heights at which the middle of a
 1,600 px view drapes those zooms.
 
-| Band   | Zooms | Step  | Index lines | Source     | Height (1,600 px view) | Cold tile times (Himalaya, Alps, Nebraska)                |
-| ------ | ----- | ----- | ----------- | ---------- | ---------------------- | --------------------------------------------------------- |
-| `c500` | 0–7   | 500 m | 2,500 m     | GMTED2010  | above 834 km           | 0.12–0.72 s (z 0–5), 0.33–0.50 s (z 6), 0.26–0.42 s (z 7) |
-| `c200` | 8–9   | 200 m | 1,000 m     | GMTED2010  | 209–834 km             | 0.17–0.35 s; 0.24–1.06 s with shared values (z 9)         |
-| `c100` | 10–11 | 100 m | 500 m       | Copernicus | 52–209 km              | 1.4–4.9 s; 3.6–7.9 s with shared values (z 11)            |
-| `c40`  | 12    | 40 m  | 200 m       | Copernicus | 26–52 km               | 1.4–2.7 s; 1.5–4.7 s with shared values                   |
-| `c20`  | 13–14 | 20 m  | 100 m       | Copernicus | below 26 km            | 0.5–4.0 s; 0.3–0.6 s with shared values (z 14)            |
+Each band of steps is cut where the DEM stack's band changes, so a tile
+draws from exactly the sources the terrain layers draw at its zoom:
+
+| Band         | Zooms | Step  | Index lines | Heights from (the stack's band)                                    | Height (1,600 px view) | Cold tile times (Rainier, Alps, Tromsø) |
+| ------------ | ----- | ----- | ----------- | ------------------------------------------------------------------ | ---------------------- | --------------------------------------- |
+| `c500-far`   | 0–5   | 500 m | 2,500 m     | GMTED2010 (`far`)                                                  | above 3,338 km         | 0.32–0.75 s (z 3, z 5)                  |
+| `c500-base`  | 6–7   | 500 m | 2,500 m     | FABDEM (`base`)                                                    | 834–3,338 km           | 0.57–0.81 s                             |
+| `c200-base`  | 8–9   | 200 m | 1,000 m     | FABDEM (`base`)                                                    | 209–834 km             | 0.33–0.71 s (z 9)                       |
+| `c100-base`  | 10    | 100 m | 500 m       | FABDEM (`base`)                                                    | 104–209 km             | 0.58–0.71 s                             |
+| `c100-polar` | 11    | 100 m | 500 m       | FABDEM (`polar`)                                                   | 52–104 km              | 0.29–1.27 s                             |
+| `c40-polar`  | 12    | 40 m  | 200 m       | FABDEM (`polar`)                                                   | 26–52 km               | 0.43–0.67 s                             |
+| `c20-fine`   | 13    | 20 m  | 100 m       | USGS 3DEP 10 m over the US, else FABDEM (`fine`)                   | 13–26 km               | 0.31–0.41 s                             |
+| `c20-finest` | 14    | 20 m  | 100 m       | USGS 3DEP 1 m lidar where it is, else 10 m, else FABDEM (`finest`) | below 13 km            | 0.29–0.46 s                             |
+
+ArcticDEM and REMA, whose heights are ellipsoidal (30 to 60 m off the
+others'), are beneath every other source, as in Elevation: they draw only
+where nothing else has heights (Greenland far out, north of 80° N,
+Antarctica), so no line jumps at a source's edge.
 
 The times are Earth Engine's first answer for each tile (measured
-2026-10-19, through the server's own expression code, one tile each over
-Everest, the Matterhorn and Nebraska per zoom; the map itself took 0.3 to
-1.0 s to make). Repeated tiles are much faster: Earth Engine keeps them. The
-slowest tile measured, 7.9 s, is a quarter of the proxy's 30 s.
+2026-10-19 through the server's own expression code, one tile each over
+Mount Rainier, the Bernese Alps and Tromsø per zoom; each map took 0.3 to
+1.6 s to make). The slowest, 1.27 s, is a twentieth of the proxy's 30 s.
+Until 2026-10-19 the contours drew GMTED2010 to z 9 and the Copernicus
+GLO-30 mosaic from z 10 (1.4 to 7.9 s a tile at z 10 to 12).
 
 **Choosing the steps.** On a slope θ, lines `step` apart in height are
 `step / tan θ` apart on the ground. On a 20° to 25° slope (tan θ about 0.4),
@@ -890,12 +913,12 @@ the usual map-scale practice too: z 9 is about 1:1,000,000 (200 to 500 m
 intervals), z 13 about 1:70,000 (20 m). Steep mountains still crowd the
 lines, as on any contour map; plains show few.
 
-**Sources.** The bands use the terrain layers' own DEM records (`DEM_FAR`,
-`DEM`), so a change of DEM there re-points the contours too. GMTED2010 draws
-to z 9: its 7.5″ cells (about 230 m) still resolve a z 9 tile's 306 m
-pixels, and it answered every tile in under 1.1 s. The Copernicus mosaic
-took 12.8 s for a z 4 tile, about 3 s at z 5 and 1.3 to 4.9 s at z 6 to 9
-(nearest-neighbour, 2026-10-19), where GMTED2010 took 0.2 to 0.6 s.
+**Sources.** The bands name the DEM stack's bands (`stack`), so a change to
+the stack (`src/data/demStack.js`) re-points the contours too, and the row
+names the source under the view and credits the sources in it as the
+terrain layers do (`demStack`). FABDEM, bare earth (Copernicus GLO-30 with
+forests and buildings removed), gives contours of the ground, not of the
+canopy and the roofs.
 
 **From orbit: aggregate, then derive.** Earth Engine computes a coarse tile
 from the elevation already averaged to that tile's scale (GMTED2010's mean
@@ -903,11 +926,11 @@ pyramid), and draws the contours of that. So a z 2 tile shows the true
 coarse shape of the land at 500 m, not the 30 m lines thinned out. There is
 no ceiling: the layer draws from orbit.
 
-**Bilinear.** Read nearest-neighbour, the 30 m Copernicus cells drew
-staircase lines at z 13 and 14 (19 and 10 m pixels). Read bilinearly, they
-are smooth, and the tiles are no slower.
+**Bilinear.** Read nearest-neighbour, 30 m cells drew staircase lines at
+z 13 and 14 (19 and 10 m pixels). Read bilinearly, each on its own grid,
+they are smooth, and the tiles are no slower.
 
-**Maps.** One map per (band, ink), ten in all, made only when a tile asks
+**Maps.** One map per (band, ink), sixteen in all, made only when a tile asks
 for one (`lazyMaps`, as the Rivers'), so the catalog request makes none.
 
 **Labels.** Contour values are not labelled. Cesium labels are forbidden
@@ -1378,6 +1401,233 @@ expression, mask and colours, the class remap and palette, the ceiling, a
 mode with digits on the tile route, the fixture) and
 `src/layers/earthEngine/earthEngine.test.mjs` (the chips, the stored mode,
 the legends, the ceiling's status line).
+
+## Elevation: the DEM stack
+
+Since 2026-10-19 the terrain layers (**Terrain slope**, **Terrain aspect**,
+**Hillshade** and the new **Elevation**, all in ANALYSIS) draw the best
+free elevation at each place and zoom instead of Copernicus GLO-30
+everywhere. The choice is one shared module, `src/data/demStack.js` (pure
+data and functions, used by the server and the client), with its tests in
+`src/data/demStack.test.mjs`.
+
+**The sources.** Each was read live with the server's service account on
+2026-10-19 (asset metadata, a point sample over land and sea, and tiles):
+
+| Source         | Earth Engine id                                                 | Pixel                  | Licence                                            | Readable | Coverage (live)                                                                                                                                            |
+| -------------- | --------------------------------------------------------------- | ---------------------- | -------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GMTED2010      | `USGS/GMTED2010_FULL`, band `mea`                               | 7.5″ (231 m)           | US public domain                                   | yes      | 56° S to 84° N; its sea is 0, and so is all of Greenland (no data); no Antarctica                                                                          |
+| FABDEM v1-2    | `projects/sat-io/open-datasets/FABDEM`, band `b1`               | 1″ (30 m), EPSG:4326   | CC BY-NC-SA 4.0, non-commercial; Copernicus notice | yes      | 19,011 1° tiles, 60° S to 80° N (none at 81° N, none in Antarctica); water inside a land tile is 0, the open sea has no tile                               |
+| USGS 3DEP 10 m | `USGS/3DEP/10m_collection`, band `elevation`                    | 1/3″ (10 m), EPSG:4269 | US public domain                                   | yes      | the United States and territories (Alaska, Hawaii, Puerto Rico, the Virgin Islands, Guam, American Samoa) with a few km of buffer; water at sea level is 0 |
+| USGS 3DEP 1 m  | `USGS/3DEP/1m`, band `elevation`                                | 1 m, UTM per project   | US public domain                                   | yes      | patchy, by lidar project (Denver yes; Mount Rainier's summit, Anchorage and the Brooks Range no); water masked                                             |
+| ArcticDEM v4.1 | `UMN/PGC/ArcticDEM/V4/2m_mosaic`, bands `elevation`, `datamask` | 2 m, EPSG:3413         | PGC/NSF acknowledgement                            | yes      | north of 50° N; heights above the WGS84 ellipsoid; water and voids filled from GLO-30 (`datamask` 0)                                                       |
+| REMA v1.1      | `UMN/PGC/REMA/V1_1/8m`, band `elevation`                        | 8 m                    | PGC/NSF acknowledgement                            | yes      | Antarctica; ellipsoidal heights; sea masked                                                                                                                |
+
+FABDEM is the community catalog's asset (the API refuses to list
+`projects/sat-io` folders, but `ImageCollection.load` reads it), and holds
+V1-2 (the catalog's changelog; V1-2 fixed V1-0's tile-edge seams over
+forests and its high-latitude misalignment). `USGS/3DEP/10m`, the single
+image, still loads but is deprecated in favour of `10m_collection`, so the
+collection is used. No `ArcticDEM/V4` 10 m or 32 m mosaic and no REMA v2
+exists in the public catalog (404); the 2 m mosaic and REMA's 8 m are
+single pyramided images, fast at every zoom, so nothing coarser is needed.
+
+**The bands.** Each tile is drawn by the band of its own zoom (through the
+server's `zoom` variant, as the Rivers are); the camera height names the
+band in the row (heights for a 1,600 px canvas, `riverHeightForCanvas`
+scales them to the pane). Bottom to top:
+
+| Band     | Zooms | Camera height   | Layers, bottom to top                                  |
+| -------- | ----- | --------------- | ------------------------------------------------------ |
+| `far`    | 0–5   | 3,338 km and up | ArcticDEM (its data mask), REMA, GMTED2010             |
+| `base`   | 6–10  | 104 to 3,338 km | ArcticDEM (its data mask), REMA, FABDEM                |
+| `polar`  | 11–12 | 26 to 104 km    | FABDEM, REMA, ArcticDEM (on land)                      |
+| `fine`   | 13    | 13 to 26 km     | FABDEM, REMA, 3DEP 10 m, ArcticDEM (on land)           |
+| `finest` | 14–17 | below 13 km     | FABDEM, REMA, 3DEP 10 m, ArcticDEM (on land), 3DEP 1 m |
+
+**Why those zooms** (`tilePixelM`: 156,543 m × cos latitude / 2^z per
+tile pixel, the way `src/maps/h3Resolution.js` sizes hexes against screen
+pixels). A finer source joins where a tile pixel becomes smaller than the
+pixel of the source beneath it, so its detail can show:
+
+- FABDEM from z 6: GMTED2010's 231 m are finer than a z 6 tile pixel
+  (2.4 km at the equator) and FABDEM's coarse tiles are slow (z 3 8.7 s,
+  z 4 3.5 to 14.8 s, z 5 1.8 to 5.8 s; z 6 to 8 under 0.7 s), so the switch
+  is at z 6, the old 3,000 km line.
+- ArcticDEM from z 11: a z 11 tile pixel at 70° N is 26 m, smaller than
+  FABDEM's 30 m (z 10: 52 m).
+- 3DEP 10 m from z 13: at 37° N (the conterminous states' middle) a z 12
+  pixel is 31 m, no finer than FABDEM; z 13 is 15.6 m.
+- 3DEP 1 m from z 14: 7.8 m at 37° N, finer than 10 m (z 13 is not).
+- REMA at every zoom: FABDEM and GMTED2010 have no Antarctica.
+
+How deep to ask (`maxZoom`, about 3 to 4 tile pixels to one source pixel
+at its region's middle latitude, FABDEM's old 14 at 40° N being 4):
+FABDEM 14, REMA 14, 3DEP 10 m 15, ArcticDEM 16, 3DEP 1 m 17. The client
+asks as deep as the deepest source in the view's square goes
+(`maxZoomInRect`): 17 over the United States, 16 in the Arctic, 14
+elsewhere. The layers' `maxZoom` is 17 (Elevation's 14: a tint shows no
+more at 1 m than at 7 m).
+
+**Regions** (boxes `[west, south, east, north]`; a box stops at 85.1°,
+since a box to the pole cannot be put into Web Mercator: "Can't transform
+(180.0,90.0)"):
+
+- **United States** (both 3DEP sources, `US_BOXES`): the conterminous
+  states `[-124.85, 24.4, -66.85, 49.0]`, Alaska `[-180, 51.2, -141, 71.6]`,
+  its panhandle `[-141, 54.6, -129.95, 60.4]`, the Aleutians west of 180°
+  `[172.4, 51.2, 180, 53.1]`, Hawaii `[-160.6, 18.8, -154.7, 22.4]`, Puerto
+  Rico and the Virgin Islands `[-67.35, 17.85, -64.5, 18.55]`, Guam and the
+  Northern Marianas `[144.55, 13.2, 146.1, 20.6]`, American Samoa
+  `[-171.15, -14.6, -168.1, -14.1]`. Read live: 3DEP 10 m has Toronto and
+  Vancouver (buffer), not Montreal, Victoria, Tijuana, Ciudad Juárez,
+  Monterrey, Nassau, Whitehorse or Fredericton. The conterminous box takes
+  in the Canadian shore of the Great Lakes and Vancouver Island's south
+  tip: there the row says 3DEP 10 m, and FABDEM draws wherever 3DEP has no
+  data.
+- **Arctic** (ArcticDEM): `[-180, 60, 180, 85.1]`. Its data reach 50° N,
+  but south of 60° FABDEM's bare earth is the better base. In Alaska north
+  of 60° it lies over 3DEP 10 m (2 m against 10 m).
+- **Antarctica** (REMA): `[-180, -85.1, 180, -60]`.
+- For naming only: FABDEM covers `[-180, -60, 180, 80]`, GMTED2010
+  `[-180, -56, 180, 84]` less Greenland `[-74, 59.5, -10.5, 84]`.
+
+The row's status line says which source draws under the middle of the
+view ("Elevation: USGS 3DEP 10 m", "Elevation: FABDEM 30 m", "Elevation:
+ArcticDEM 2 m", "Elevation: REMA 8 m", "Elevation: GMTED2010 230 m"); for
+3DEP 1 m, which is patchy, "USGS 3DEP 1 m / USGS 3DEP 10 m". The credit
+line names the sources the view's square can show (the band at the middle
+and the finer ones down to the deepest level asked for), and the provider
+is made again when they change; each source's own entry
+(`demSourceCredit` in `src/data/dataCredits.js`, keyed `dem-<source>`)
+joins the Data attribution popover the first time it draws. The row's
+tooltip is the notices of the sources in view.
+
+**Sea and no-data.** FABDEM and both 3DEP sources store water at sea level
+as 0 inside their tiles, so they mask 0 first (`seaIsZero`). That also
+fixes an old fault: the Copernicus DEM stores the sea inside every land
+tile as 0, and the old `near` variant drew those 1° squares as flat green
+(slope) or grey (hillshade) blocks over every coast (live tile `7/69/46`,
+the Adriatic). GMTED2010's 0 is masked as before. ArcticDEM fills water and
+voids from GLO-30 and marks them `datamask` 0: where it fills beneath
+(`far`, `base`) it is masked by its data mask; on top (`polar` and finer)
+by the base's land (FABDEM not 0, or where FABDEM has nothing, north of
+80° N, its data mask), because its data mask alone leaves holes over
+rough land that the base would show through as patches. REMA masks its sea
+itself.
+
+**Datums and seams.** ArcticDEM and REMA give heights above the WGS84
+ellipsoid, 30 to 60 m from the others (Oslo's fjord: 39 m against
+FABDEM's 0). So the terrain layers compute slope, aspect or hillshade on
+each source and mosaic the results, finer on top within its box and the
+base beneath it with no gap: a datum's offset makes no cliff at a box's
+edge. A seam is still visible where two sources meet, as a change of
+detail (finer sources give steeper, sharper slopes) and a line a pixel or
+two wide where the finer source's terrain kernel runs out: along 49° N
+(3DEP to FABDEM, `13/1325/2813`), at the Alaska panhandle's box edge (129.95° W), and along 60° N
+(FABDEM to ArcticDEM, `12/2123/1189` in western Norway) from z 11. The
+Elevation layer mosaics heights, so it keeps the ellipsoidal sources
+beneath the others (`bandLayers(band, {heights: true})`): they fill only
+where nothing else has heights (Greenland far out, north of 80° N,
+Antarctica).
+
+**Grids.** A collection's mosaic has no projection of its own, and the
+terrain operations need one. Given EPSG:4326 or EPSG:3857 at a scale (the
+old approach), FABDEM's and 3DEP 10 m's hillshade came out striped: the
+mosaic's grid is not the data's, and every tile is resampled into lines.
+Each now gets its own grid (`crs`, `crsTransform`): FABDEM's 1″ grid with
+pixel centres on whole arc-seconds, 3DEP 10 m's 1/3″ NAD83 grid (its 1°
+tiles start 6 pixels before their degree). 3DEP 1 m's 10 km tiles are in
+many UTM zones, so no one grid fits: each tile is drawn on its own
+(`perImage`: `Collection.map` over the images, the terrain operation in
+each one's projection), then mosaicked; the tiles overlap by 6 m, so their
+edges leave no gap. Slope is right in every projection tried (the same
+tiles' mean slopes agreed within about 1° between the native image, EPSG:4326 and
+EPSG:3857, at 47° N and 70° N).
+
+**How it is drawn** (`server/providers/earthEngine.js`
+`demStackExpression`). One map per (layer, band): 5 × 4 = 20, made when a
+tile first asks (`lazyMaps`). Each is `ImageCollection.mosaic` of
+`ImageCollection.fromImages`, one image per source: its elevation (a
+shared value, so FABDEM read for the base and for ArcticDEM's land mask is
+one node), its masks, the terrain operation (or, for Elevation, the height
+renamed to one band and type), `Image.clip` to its boxes (one box a
+`BBox`, several a planar `MultiPolygon`). Earth Engine skips a clipped
+source whose box misses the tile: the full `fine` band over the Alps or
+the Himalaya took 0.3 to 0.8 s against 0.3 s for FABDEM alone. The route
+is the usual one, `/api/earth-engine/tile/<layer>/zoom/default/<z>/<x>/<y>?v=<hash>`,
+the version hashing every band's request, and the disk cache keeps each
+band under its own hash. The coarse tiles a 3D tileset asks for (z 0 to 2
+for continent-sized primitives) come from the `far` band, never FABDEM's
+slow coarse tiles; `minimumLevel` stays 0 and each primitive takes one to
+four tiles, within the 10-texture cap.
+
+**Elevation** (`ee-elevation`). A hypsometric tint of the same stack,
+drawn from orbit by GMTED2010 (with ArcticDEM over Greenland and REMA over
+Antarctica, which GMTED2010 lacks). It shows √max(height, 0) from 0 to 80
+(`transform: 'sqrt'`), so the lowlands, where most land is, get as many
+colours as the mountains: nine stops at 0, 100, 400, 900, 1,600, 2,500,
+3,600, 4,900 and 6,400 m (legend 0, 400, 1,600, 3,600 and 6,400 m+). Its
+tiles took as long as the others' (below).
+
+**Timings** (2026-10-19, live, sequential, each run a new map at places no
+earlier run asked for; the layers' own requests; s):
+
+| Band     | Zooms timed     | Hillshade | Slope   | Aspect  | Elevation |
+| -------- | --------------- | --------- | ------- | ------- | --------- |
+| `far`    | 0–5 (11 tiles)  | 0.2–6.6   | 0.3–3.1 | 0.3–2.4 | 0.2–0.6   |
+| `base`   | 6–10 (9 tiles)  | 0.3–1.6   | 0.2–0.8 | 0.3–1.6 | 0.2–0.7   |
+| `polar`  | 11–12 (7 tiles) | 0.4–1.3   | 0.3–0.9 | 0.4–0.8 | 0.4–0.6   |
+| `fine`   | 13 (6 tiles)    | 0.4–1.0   | 0.4–1.2 | 0.3–0.8 | 0.3–3.0   |
+| `finest` | 14–17 (9 tiles) | 0.3–0.8   | 0.4–1.0 | 0.3–0.9 | 0.2–0.6   |
+
+Places: the world at z 0, North America, Australia, Greenland, the
+Himalaya, Antarctica and Europe at z 1 to 5; the Himalaya, the Ross Sea,
+the Alps, Franz Josef Land, the Andes, Siberia, Colorado, Svalbard and
+Fuji at z 6 to 10; Tromsø, Anchorage, the Alps, Svalbard, Greenland's west
+coast, McMurdo and Colorado at z 11 and 12; Mount Rainier, Anchorage,
+Svalbard, the Alps, the 49th parallel and the Antarctic Peninsula at z 13;
+Denver (z 14), Washington (z 15), San Francisco (z 16), Breckenridge
+(z 17), Rainier, Anchorage, Tromsø, the Alps and McMurdo at z 14 and 15.
+The slowest tile seen in all the runs was 8.4 s (slope, `polar`, z 12 over
+northern Norway, before the grids above); every one is far inside the
+proxy's 30 s. The sources on their own (hillshade, s): GMTED2010 z 0 to 5
+0.2 to 0.4; FABDEM z 3 8.7, z 4 3.5 to 14.8, z 5 1.8 to 5.8, z 6 to 8 0.2
+to 0.7; Copernicus GLO-30 (the old `near`) z 5 2.3 to 3.9, z 6 8.2 to 9.5;
+3DEP 10 m z 6 to 15 0.2 to 0.5; 3DEP 1 m z 13 to 17 0.3 to 0.6; ArcticDEM
+z 2 to 16 0.2 to 1.8; REMA z 1 to 14 0.2 to 0.4.
+
+**Check it live** (lat, lon, camera height):
+
+- United States: Mount Rainier, 46.853, −121.760 at 20 km ("USGS 3DEP 10
+  m") and 5 km ("USGS 3DEP 1 m / USGS 3DEP 10 m"; Denver, 39.70, −105.25 at
+  3 km, has lidar).
+- The Arctic: the Lyngen Alps, 69.60, 20.20 at 60 km ("ArcticDEM 2 m").
+- Elsewhere: the Jungfrau, 46.54, 7.96 at 20 km ("FABDEM 30 m").
+- Seams: the 49th parallel at Chilliwack Lake, 49.00, −121.40 at 20 km
+  (3DEP south, FABDEM north); the 60th parallel in western Norway, 60.00,
+  6.60 at 60 km (ArcticDEM north, FABDEM south).
+- Antarctica: McMurdo, −77.85, 166.67 at 100 km ("REMA 8 m"); Greenland from
+  8,000 km, 72, −40 (drawn now: GMTED2010 has nothing there).
+
+**Checklist** ([Level of detail](#level-of-detail)):
+
+- [x] Its record says how its detail follows the camera: a pyramid of
+      elevation (mean), terrain derived at the tile's scale from each
+      source, sources switched by zoom band and region.
+- [x] It draws from orbit (GMTED2010, with ArcticDEM and REMA).
+- [x] Its coarsest tiles were timed live (z 0 to 2: 0.2 to 4.4 s), every
+      band at its zooms (above); FABDEM's slow coarse tiles are never
+      asked for.
+- [x] Not a boundary table.
+
+Tests: `src/data/demStack.test.mjs` (the sources and their credits, the
+bands and why their zooms, heights against Cesium's drape zoom, the source
+named at a point, the sources and depth of a view),
+`src/data/earthEngine.test.mjs` (the bands' expressions in the fixture, the
+zoom variant and lazy maps) and `src/layers/earthEngine/earthEngine.test.mjs`
+(the row, the credit and the depth over Rainier, the Alps, Tromsø and from
+orbit; Elevation's tint).
 
 ## Grid (REFERENCE)
 
@@ -2368,7 +2618,9 @@ drowning the view. There are four ways to do it, by the kind of data:
   tile at the tile's own scale, so `src/data/earthEngineLayers.js` needs
   no cap for anything that averages sensibly; `maxZoom` bounds the deep
   end. Where a source is slow at the coarse end, a far variant swaps in a
-  coarser one (the terrain layers' GMTED2010 above 3,000 km). The Wikipedia
+  coarser one (the terrain layers' GMTED2010 up to z 5, above about
+  3,300 km), and where finer ones exist they join at the zoom their pixels
+  become visible (the [DEM stack](#elevation-the-dem-stack)). The Wikipedia
   coverage grid's pyramid (0.8° at z 0 down to the 0.05° base from z 4)
   sums article counts the same way.
 - **Derived quantities: aggregate, then derive.** Slope, aspect and
@@ -2497,9 +2749,10 @@ git merge origin/main
 - `src/data/dataCredits.js`, `.env.example` and `DATA_SOURCES.md`.
 - **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (two
   places) and `src/app/sourceComposition.test.mjs` assert `layers.length`.
-  The fork's count is upstream's plus 14 (the two Baltimore layers, Recorded
-  Video, the nine Earth Engine overlays, the Grid and Wikipedia coverage):
-  46 since Surface water, Land cover and Elevation contours (2026-10-19). A record added to `src/data/earthEngineLayers.js` or an
+  The fork's count is upstream's plus 17 (the two Baltimore layers, Recorded
+  Video, the twelve Earth Engine overlays, the Grid and Wikipedia coverage):
+  49 since Elevation, Elevation contours, Surface water, Land cover, Forest
+  types and Population (2026-10-19). A record added to `src/data/earthEngineLayers.js` or an
   upstream layer added later changes the number.
 - **Translations.** Upstream checks that every UI string is marked for
   translation (`npm run i18n`). Fork UI text goes through `t()`, `tn()` and

@@ -3355,5 +3355,7 @@
   "10,000+ per km²": "10 000+ на км²",
   "People per km² in {year} (GHSL)": "Жителей на км² в {year} году (GHSL)",
   "Forest types": "Типы лесов",
-  "Population": "Население"
+  "Population": "Население",
+  "Elevation": "Высота рельефа",
+  "Elevation: {source}": "Высоты: {source}"
 }

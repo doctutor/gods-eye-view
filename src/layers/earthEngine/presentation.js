@@ -92,8 +92,9 @@ export function variantLabel(variant) {
   const band = /^o(\d{1,2})$/.exec(String(variant || ''));
   if (band)
     return t('Rivers of flow orders 1 to {max}', { max: Number(band[1]) });
-  // The elevation contour bands (CONTOUR_BANDS): c500, c200, c100, c40, c20.
-  const contour = /^c(\d{1,4})$/.exec(String(variant || ''));
+  // The elevation contour bands (CONTOUR_BANDS): c500-far, c200-base…, the
+  // step and the DEM stack band it is drawn from.
+  const contour = /^c(\d{1,4})(?:-[a-z]+)?$/.exec(String(variant || ''));
   if (contour)
     return t('Contours every {step} m', { step: Number(contour[1]) });
   return VARIANT_LABELS[variant] ? t(VARIANT_LABELS[variant]) : '';
@@ -243,9 +244,10 @@ export function inkSwatch(record, ink) {
  * @param {{catalog?: object|null, layer?: object|null, variant?: string,
  *   loading?: boolean, failure?: string|null, hostless?: boolean,
  *   ceilingM?: number|null, slowDistricts?: boolean, americasV2?: boolean,
- *   mode?: string}}
+ *   mode?: string, demSource?: string}}
  *   state - `mode`: the mode drawn (Population's epoch); `americasV2`: the
- *   Rivers draw the Americas from HydroSHEDS v2; `hostless`:
+ *   Rivers draw the Americas from HydroSHEDS v2; `demSource`: a terrain
+ *   layer's elevation source under the view; `hostless`:
  *   the map stack can drape no imagery; `ceilingM`: the camera is above the
  *   layer's ceiling; `slowDistricts`: districts are forced from far out.
  */
@@ -260,6 +262,7 @@ export function statusText({
   slowDistricts = false,
   americasV2 = false,
   mode = '',
+  demSource = '',
 }) {
   if (failure)
     return t('Earth Engine unavailable: {reason}', { reason: failure });
@@ -282,6 +285,9 @@ export function statusText({
     );
   else if (variantLabel(variant)) parts.push(variantLabel(variant));
   else if (modeLabel(mode)) parts.push(modeLabel(mode));
+  // The terrain layers: the DEM drawing under the view (a proper name).
+  if (demSource && !Number.isFinite(ceilingM))
+    parts.push(t('Elevation: {source}', { source: demSource }));
   if (slowDistricts)
     parts.push(t('Districts from this height: the tiles arrive slowly'));
   if (americasV2) parts.push(t('The Americas from HydroSHEDS v2'));
@@ -311,9 +317,11 @@ export function statusText({
  *   level?: string, onLevel?: (key: string) => void, ink?: string,
  *   onInk?: (key: string) => void, inkDrawn?: string,
  *   slowDistricts?: boolean, mode?: string,
- *   onMode?: (key: string) => void}} input - `level` and `ink` are the
- *   settings ('auto' or a key); `inkDrawn` the ink in use; `mode` the
- *   mode of a layer with modes.
+ *   onMode?: (key: string) => void, americasV2?: boolean,
+ *   demSource?: string, creditTitle?: string}} input - `level` and `ink`
+ *   are the settings ('auto' or a key); `inkDrawn` the ink in use; `mode`
+ *   the mode of a layer with modes; `demSource` and `creditTitle` a terrain
+ *   layer's source under the view and the notices of those in it.
  */
 export function rowControls({
   record,
@@ -334,6 +342,8 @@ export function rowControls({
   mode = '',
   onMode = () => {},
   americasV2 = false,
+  demSource = '',
+  creditTitle = '',
 }) {
   const layer = catalog?.layers?.get?.(record.id) || null;
   const variantKeys = new Set((record.variants || []).map((v) => v.key));
@@ -419,7 +429,9 @@ export function rowControls({
       slowDistricts,
       americasV2,
       mode,
+      demSource,
     }),
-    infoTitle: layer?.attribution || '',
+    // A terrain layer: the notices of the sources in view.
+    infoTitle: creditTitle || layer?.attribution || '',
   };
 }
