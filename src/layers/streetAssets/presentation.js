@@ -62,9 +62,9 @@ export function assetCountText(key, count) {
  * @param {{type: object, mode: string, state: string, count: number,
  *   saturated?: boolean, source?: string}} status - `mode` 'pins' |
  *   'counts' | 'none'; `state` 'idle' | 'loading' | 'ready' |
- *   'unconfigured' | 'limited' | 'failed'; `source` who answered:
- *   'overture', 'sparse' (OpenStreetMap, Overture having few here) or
- *   'osm'.
+ *   'unconfigured' | 'limited' | 'failed'; `source` who answered: an
+ *   Overture index ('places', 'infrastructure' or 'roads'), 'sparse'
+ *   (OpenStreetMap, Overture having few here) or 'osm'.
  */
 export function statusText({
   type,
@@ -84,11 +84,13 @@ export function statusText({
     return t('OpenStreetMap is busy; trying again shortly');
   if (state === 'failed') return t('Street assets unavailable');
   if (state === 'loading')
-    return source === 'overture'
-      ? type.overture?.source === 'infrastructure'
-        ? t('Reading the Overture infrastructure…')
-        : t('Reading the Overture places…')
-      : t('Asking OpenStreetMap…');
+    return source === 'infrastructure'
+      ? t('Reading the Overture infrastructure…')
+      : source === 'places'
+        ? t('Reading the Overture places…')
+        : source === 'roads'
+          ? t('Reading the Overture roads…')
+          : t('Asking OpenStreetMap…');
   if (state !== 'ready') return '';
   const parts = [assetCountText(type.key, count)];
   if (saturated) parts.push(t('more than the view can show; zoom in for all'));
@@ -105,9 +107,12 @@ export function statusText({
   return parts.join(' · ');
 }
 
-/** Who answered, when it is not OpenStreetMap alone. */
+/** Who answered, when it is not OpenStreetMap alone: an Overture index by name. */
 function sourceWords(source) {
-  if (source === 'overture') return [t('from Overture Maps')];
+  if (source === 'places') return [t('from Overture Maps (places)')];
+  if (source === 'infrastructure')
+    return [t('from Overture Maps (infrastructure)')];
+  if (source === 'roads') return [t('from Overture Maps (roads)')];
   if (source === 'sparse')
     return [t('from OpenStreetMap (Overture sparse here)')];
   return [];

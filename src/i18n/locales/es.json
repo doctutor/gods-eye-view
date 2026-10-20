@@ -3427,6 +3427,7 @@
   "Run npm run overture:build -- --places for the Places layer": "Ejecuta npm run overture:build -- --places para la capa de Lugares",
   "Reading the Overture places…": "Leyendo los lugares de Overture…",
   "Reading the Overture infrastructure…": "Leyendo la infraestructura de Overture…",
+  "Reading the Overture roads…": "Leyendo las carreteras de Overture…",
   "Places unavailable": "Lugares no disponibles",
   "{count} places in view": {
     "one": "{count} lugar a la vista",
@@ -3443,7 +3444,9 @@
   "Places Overture is at least {percent}% sure of": "Lugares de los que Overture está seguro al menos en un {percent}%",
   "Electric vehicle charging stations (Overture Maps)": "Estaciones de carga de vehículos eléctricos (Overture Maps)",
   "from OpenStreetMap (Overture sparse here)": "de OpenStreetMap (Overture tiene pocos aquí)",
-  "from Overture Maps": "de Overture Maps",
+  "from Overture Maps (places)": "de Overture Maps (lugares)",
+  "from Overture Maps (infrastructure)": "de Overture Maps (infraestructura)",
+  "from Overture Maps (roads)": "de Overture Maps (carreteras)",
   "Places": "Lugares",
   "COUNT": "NÚMERO",
   "Buildings per km², 2023 (Open Buildings 2.5D Temporal)": "Edificios por km², 2023 (Open Buildings 2.5D Temporal)",

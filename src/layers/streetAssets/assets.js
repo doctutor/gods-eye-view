@@ -17,11 +17,14 @@
  * height), snapped outward to 0.05° so a small pan reuses the answer, and
  * well inside the proxy's 12° limit at every cap.
  *
- * `overture`, where a type has one: the local Overture index read first
- * when it is built (`source` 'places', 'infrastructure' or 'roads', the
- * category or class asked for, the confidence floor), at the same heights
- * and limits;
- * a view where it has fewer than `sparseBelow` features asks Overpass too.
+ * `overture`, where a type has one: the local Overture indexes read first
+ * when they are built, in order (each step's `source` 'places',
+ * 'infrastructure' or 'roads', the category or class asked for, the
+ * confidence floor), at the same heights and limits. A step is taken only
+ * when the answer so far has fewer than its `sparseBelow` features for the
+ * view, and is merged into it (mergeNear, mergeCounts); after the last,
+ * a view still that sparse asks Overpass too. Indexes not built are passed
+ * over.
  */
 const assetType = (key, fields) => Object.freeze({ key, ...fields });
 
@@ -35,6 +38,9 @@ const overture = (source, category, fields = {}) =>
     sparseBelow: OVERTURE_SPARSE_BELOW,
     ...fields,
   });
+const steps = (...list) => Object.freeze(list);
+/** A later step's point this close to one already held is the same feature. */
+export const DEDUPE_M = 25;
 
 export const ASSET_TYPES = Object.freeze([
   assetType('charging', {
@@ -46,8 +52,13 @@ export const ASSET_TYPES = Object.freeze([
     countsBelowM: 150_000,
     pinLimit: 1_500,
     countLimit: 8_000,
-    // Overture's places (Meta, Foursquare and the rest), at 50% or more.
-    overture: overture('places', 'charging'),
+    // Overture's places (Meta, Foursquare and the rest), at 50% or more;
+    // where they are sparse (as around Paris), OpenStreetMap's own through
+    // Overture's infrastructure; then Overpass.
+    overture: steps(
+      overture('places', 'charging'),
+      overture('infrastructure', 'charging'),
+    ),
   }),
   assetType('bike', {
     // Separate cycleways and roads that carry a bike lane or track.
@@ -67,7 +78,7 @@ export const ASSET_TYPES = Object.freeze([
     // Overture's roads (`-- --roads`): cycleways, and paths signed for
     // bikes. Its segments carry no painted lanes, so a view with next to
     // none asks OpenStreetMap, whose roads tagged with a lane count too.
-    overture: overture('roads', 'bike'),
+    overture: steps(overture('roads', 'bike')),
   }),
   assetType('hydrant', {
     selectors: Object.freeze(['node["emergency"="fire_hydrant"]']),
@@ -79,7 +90,7 @@ export const ASSET_TYPES = Object.freeze([
     countLimit: 12_000,
     // Overture's infrastructure is OpenStreetMap's (its release): Overpass
     // only where the release has next to none.
-    overture: overture('infrastructure', 'hydrant'),
+    overture: steps(overture('infrastructure', 'hydrant')),
   }),
   assetType('lamp', {
     selectors: Object.freeze(['node["highway"="street_lamp"]']),
@@ -89,7 +100,7 @@ export const ASSET_TYPES = Object.freeze([
     countsBelowM: 15_000,
     pinLimit: 2_000,
     countLimit: 12_000,
-    overture: overture('infrastructure', 'lamp'),
+    overture: steps(overture('infrastructure', 'lamp')),
   }),
   assetType('signals', {
     selectors: Object.freeze(['node["highway"="traffic_signals"]']),
@@ -101,7 +112,7 @@ export const ASSET_TYPES = Object.freeze([
     countsBelowM: 40_000,
     pinLimit: 2_000,
     countLimit: 12_000,
-    overture: overture('infrastructure', 'signals'),
+    overture: steps(overture('infrastructure', 'signals')),
   }),
 ]);
 
@@ -201,6 +212,50 @@ export function assetFeatures(type, mode, elements) {
     seen.add(feature.id);
     out.push(feature);
   }
+  return out;
+}
+
+const METRES_PER_DEGREE = 111_320;
+
+/**
+ * Points held, then a later step's points, without the later ones within
+ * `metres` of a held one (the held entry wins: the places' has a name and
+ * a website). Points are {lon, lat}; a view is under a degree, so one
+ * scale for longitude does.
+ */
+export function mergeNear(held, more, metres = DEDUPE_M) {
+  if (!held.length) return [...more];
+  if (!more.length) return [...held];
+  const lat0 = held.reduce((sum, p) => sum + p.lat, 0) / held.length;
+  const kx = METRES_PER_DEGREE * Math.cos((lat0 * Math.PI) / 180);
+  const xy = (p) => [p.lon * kx, p.lat * METRES_PER_DEGREE];
+  const grid = new Map();
+  for (const p of held) {
+    const [x, y] = xy(p);
+    const key = `${Math.floor(x / metres)},${Math.floor(y / metres)}`;
+    if (!grid.has(key)) grid.set(key, []);
+    grid.get(key).push([x, y]);
+  }
+  const near = ([x, y]) => {
+    const gx = Math.floor(x / metres);
+    const gy = Math.floor(y / metres);
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (const [hx, hy] of grid.get(`${gx + dx},${gy + dy}`) || [])
+          if (Math.hypot(x - hx, y - hy) <= metres) return true;
+    return false;
+  };
+  return [...held, ...more.filter((p) => !near(xy(p)))];
+}
+
+/**
+ * Counts per cell held, then a later step's: the larger per cell. Counts
+ * cannot be matched point by point, and a sum would count a station both
+ * indexes hold twice.
+ */
+export function mergeCounts(held, more) {
+  const out = new Map(held);
+  for (const [cell, n] of more) out.set(cell, Math.max(out.get(cell) || 0, n));
   return out;
 }
 

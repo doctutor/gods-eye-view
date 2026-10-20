@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
+import { latLngToCell } from 'h3-js';
 
 import {
   ASSET_KEYS,
@@ -13,6 +14,8 @@ import {
   assetQueryBox,
   assetTypeOf,
   buildAssetQuery,
+  mergeCounts,
+  mergeNear,
 } from './assets.js';
 import { rowControls, statusText } from './presentation.js';
 import { createStreetAssetsLayer, readAssetType } from './index.js';
@@ -22,6 +25,7 @@ import {
   createOverpassViewClient,
 } from '../../sources/overpassView.js';
 import { setLocale } from '../../i18n/index.js';
+import { h3ResolutionForHeight } from '../../maps/h3Resolution.js';
 
 test('five types, each with a pin height below its count height and sane limits', () => {
   assert.deepEqual(ASSET_KEYS, [
@@ -492,7 +496,7 @@ test('EV charging from the Overture places index when it is built, OpenStreetMap
   assert.ok(box.east - box.west < 1 && box.north - box.south < 1);
   assert.equal(layer._state().held.features.length, 3);
   assert.ok(credits.some((credit) => /Overture/.test(JSON.stringify(credit))));
-  assert.match(layer.getRowControls().info, /from Overture Maps/);
+  assert.match(layer.getRowControls().info, /from Overture Maps \(places\)$/);
   // Above the pin height: the server's counts through the rollup.
   viewer.camera.positionCartographic.height = 60_000;
   layer._settle();
@@ -553,14 +557,20 @@ test('EV charging where Overture is sparse: OpenStreetMap for the view, said in 
   await flush();
   assert.equal(missing.queries.length, 1);
   assert.equal(alone.layer._state().held.features.length, 2);
-  assert.match(alone.layer.getRowControls().info, /from Overture Maps$/);
+  assert.match(
+    alone.layer.getRowControls().info,
+    /from Overture Maps \(places\)$/,
+  );
   third.camera.positionCartographic.longitude += 0.01;
   third.camera.positionCartographic.latitude += 0.01;
   alone.layer._settle();
   await flush();
   assert.equal(alone.asked.filter(([kind]) => kind === 'pins').length, 2);
   assert.equal(missing.queries.length, 1, 'Overpass asked once');
-  assert.match(alone.layer.getRowControls().info, /from Overture Maps$/);
+  assert.match(
+    alone.layer.getRowControls().info,
+    /from Overture Maps \(places\)$/,
+  );
   alone.layer.disable();
 });
 
@@ -588,7 +598,7 @@ test('HYDRANTS, STREET LIGHTS and SIGNALS from Overture’s infrastructure when 
       `${asset}: the ODbL credit`,
     );
     const controls = layer.getRowControls();
-    assert.match(controls.info, /from Overture Maps$/);
+    assert.match(controls.info, /from Overture Maps \(infrastructure\)$/);
     assert.match(
       controls.chips.find((chip) => chip.id === `asset-${asset}`).title,
       /\(Overture Maps\)$/,
@@ -667,4 +677,318 @@ test('BIKE LANES stay on Overpass; a type change asks the other index once', asy
   await flush();
   assert.deepEqual(asked.at(-1).slice(0, 2), ['pins', 'signals']);
   layer.disable();
+});
+
+test('merging a later step: points within 25 m once (the earlier entry kept), the larger count per cell', () => {
+  // 1e-4 degrees of latitude is 11.1 m.
+  const held = [{ id: 'pl:1', lon: 2.35, lat: 48.85 }];
+  const more = [
+    { id: 'in:1', lon: 2.35, lat: 48.85 + 2e-4 }, // 22 m: the same station
+    { id: 'in:2', lon: 2.35, lat: 48.85 + 3e-4 }, // 33 m: another
+    { id: 'in:3', lon: 2.35 + 3.3e-4, lat: 48.85 }, // 24 m east at 48.85° N
+    { id: 'in:4', lon: 2.36, lat: 48.86 },
+  ];
+  assert.deepEqual(
+    mergeNear(held, more).map((p) => p.id),
+    ['pl:1', 'in:2', 'in:4'],
+  );
+  assert.deepEqual(mergeNear([], more), more);
+  assert.deepEqual(
+    [
+      ...mergeCounts(
+        new Map([
+          ['a', 2],
+          ['b', 1],
+        ]),
+        new Map([
+          ['a', 5],
+          ['c', 1],
+        ]),
+      ),
+    ],
+    [
+      ['a', 5],
+      ['b', 1],
+      ['c', 1],
+    ],
+  );
+});
+
+/** A fake index answering these points (pins) and these cells (counts). */
+function scriptedIndex({
+  configured = true,
+  points = [],
+  cells = [],
+  asked,
+  name,
+}) {
+  return {
+    status: async () =>
+      configured
+        ? { configured: true, version: 'abcdef012345', places: 9 }
+        : { configured: false },
+    pins: async (q) => {
+      asked.push([name, 'pins', q.category]);
+      const places = points.map(([lon, lat], i) => ({
+        id: `${name === 'places' ? 'pl' : 'in'}:1:2:${i}`,
+        at: [lon, lat],
+      }));
+      return { places, count: places.length, saturated: false };
+    },
+    counts: async (q) => {
+      asked.push([name, 'counts', q.category]);
+      return new Map(cells);
+    },
+    abort: () => {},
+  };
+}
+
+/** EV CHARGING with both indexes scripted (or not built) and a fake Overpass. */
+function evLayer({ places = {}, infrastructure = {}, overpass }) {
+  const asked = [];
+  const rollup = {};
+  const layer = createStreetAssetsLayer({
+    overpass,
+    places: scriptedIndex({ ...places, asked, name: 'places' }),
+    infrastructure: scriptedIndex({
+      ...infrastructure,
+      asked,
+      name: 'infrastructure',
+    }),
+    roads: scriptedIndex({ configured: false, asked, name: 'roads' }),
+    credits: { register: () => {} },
+    storage: { getItem: () => 'charging', setItem() {} },
+    setTimeoutImpl: (fn) => (fn(), 0),
+    clearTimeoutImpl: () => {},
+    attachRollup: (_owner, options) =>
+      Object.assign(rollup, {
+        options,
+        refresh() {},
+        detach() {},
+        isActive: () => false,
+      }),
+  });
+  return { layer, asked, rollup };
+}
+
+const atBaltimore = (n, step = 0.001) =>
+  Array.from({ length: n }, (_, i) => [-76.61 + i * step, 39.29]);
+
+test('EV CHARGING in three steps: the places, then the infrastructure where they are sparse, then Overpass', async () => {
+  // Places enough: the infrastructure is not asked.
+  {
+    const overpass = fakeOverpass([]);
+    const { layer, asked } = evLayer({
+      places: { points: atBaltimore(3) },
+      infrastructure: { points: atBaltimore(9) },
+      overpass,
+    });
+    const viewer = fakeViewer(4_000);
+    layer.init(viewer);
+    layer.enable(viewer);
+    await flush();
+    assert.deepEqual(
+      asked.map(([name, kind]) => `${name} ${kind}`),
+      ['places pins'],
+    );
+    assert.match(
+      layer.getRowControls().info,
+      /^3 .*from Overture Maps \(places\)$/,
+    );
+    layer.disable();
+  }
+  // Two places: the infrastructure's five merged in, one of them the same
+  // station 11 m away; no Overpass.
+  {
+    const overpass = fakeOverpass([]);
+    const { layer, asked } = evLayer({
+      places: {
+        points: [
+          [-76.61, 39.29],
+          [-76.6, 39.29],
+        ],
+      },
+      infrastructure: {
+        points: [
+          [-76.61, 39.2901],
+          [-76.62, 39.29],
+          [-76.63, 39.29],
+          [-76.64, 39.29],
+          [-76.65, 39.29],
+        ],
+      },
+      overpass,
+    });
+    const viewer = fakeViewer(4_000);
+    layer.init(viewer);
+    layer.enable(viewer);
+    await flush();
+    assert.deepEqual(
+      asked.map(([name, kind, category]) => `${name} ${kind} ${category}`),
+      ['places pins charging', 'infrastructure pins charging'],
+    );
+    assert.equal(overpass.queries.length, 0);
+    const ids = layer._state().held.features.map((f) => f.id);
+    assert.deepEqual(ids.slice(0, 2), ['pl:1:2:0', 'pl:1:2:1']);
+    assert.equal(ids.length, 6, 'the duplicate dropped');
+    assert.match(
+      layer.getRowControls().info,
+      /^6 .*from Overture Maps \(infrastructure\)$/,
+    );
+    layer.disable();
+  }
+  // Both sparse: Overpass for the view, said in the row.
+  {
+    const overpass = fakeOverpass(OSM_STATIONS);
+    const { layer, asked } = evLayer({
+      places: { points: atBaltimore(1) },
+      infrastructure: { points: [[-76.7, 39.3]] },
+      overpass,
+    });
+    const viewer = fakeViewer(4_000);
+    layer.init(viewer);
+    layer.enable(viewer);
+    await flush();
+    assert.equal(asked.length, 2);
+    assert.match(overpass.queries.at(-1), /amenity"="charging_station"/);
+    assert.equal(layer._state().held.features.length, 4);
+    assert.match(
+      layer.getRowControls().info,
+      /from OpenStreetMap \(Overture sparse here\)$/,
+    );
+    layer.disable();
+  }
+  // Both sparse, Overpass not configured: the two indexes' few stand.
+  {
+    const overpass = fakeOverpass(
+      new OverpassViewError('unconfigured', 'Not configured'),
+    );
+    const { layer } = evLayer({
+      places: { points: atBaltimore(1) },
+      infrastructure: { points: [[-76.7, 39.3]] },
+      overpass,
+    });
+    const viewer = fakeViewer(4_000);
+    layer.init(viewer);
+    layer.enable(viewer);
+    await flush();
+    assert.equal(layer._state().held.features.length, 2);
+    assert.match(
+      layer.getRowControls().info,
+      /^2 .*from Overture Maps \(infrastructure\)$/,
+    );
+    layer.disable();
+  }
+});
+
+test('EV CHARGING counts in three steps: the larger count per cell, then Overpass', async () => {
+  const res = 7;
+  const at = (lat, lon) => latLngToCell(lat, lon, res);
+  {
+    const overpass = fakeOverpass([]);
+    const { layer, asked, rollup } = evLayer({
+      places: { cells: [[at(39.29, -76.61), 2]] },
+      infrastructure: {
+        cells: [
+          [at(39.29, -76.61), 5],
+          [at(39.3, -76.7), 1],
+        ],
+      },
+      overpass,
+    });
+    const viewer = fakeViewer(60_000);
+    layer.init(viewer);
+    layer.enable(viewer);
+    await flush();
+    assert.deepEqual(
+      asked.map(([name, kind]) => `${name} ${kind}`),
+      ['places counts', 'infrastructure counts'],
+    );
+    assert.equal(overpass.queries.length, 0);
+    const held = rollup.options.getCounts(h3ResolutionForHeight(60_000));
+    assert.equal(held.get(at(39.29, -76.61)), 5, 'not 7: the same stations');
+    assert.match(
+      layer.getRowControls().info,
+      /^6 .*from Overture Maps \(infrastructure\)$/,
+    );
+    layer.disable();
+  }
+  {
+    const overpass = fakeOverpass(OSM_STATIONS);
+    const { layer, rollup } = evLayer({
+      places: { cells: [] },
+      infrastructure: { cells: [[at(39.29, -76.61), 2]] },
+      overpass,
+    });
+    const viewer = fakeViewer(60_000);
+    layer.init(viewer);
+    layer.enable(viewer);
+    await flush();
+    assert.match(overpass.queries.at(-1), /out center qt 8000;$/);
+    assert.equal(rollup.options.getPoints().length, 4);
+    assert.match(layer.getRowControls().info, /Overture sparse here/);
+    layer.disable();
+  }
+});
+
+test('EV CHARGING with an index not built: the other one, then Overpass', async () => {
+  // No places: the infrastructure first.
+  {
+    const overpass = fakeOverpass([]);
+    const { layer, asked } = evLayer({
+      places: { configured: false },
+      infrastructure: { points: atBaltimore(4) },
+      overpass,
+    });
+    const viewer = fakeViewer(4_000);
+    layer.init(viewer);
+    layer.enable(viewer);
+    await flush();
+    assert.deepEqual(
+      asked.map(([name, kind]) => `${name} ${kind}`),
+      ['infrastructure pins'],
+    );
+    assert.match(
+      layer.getRowControls().info,
+      /^4 .*from Overture Maps \(infrastructure\)$/,
+    );
+    layer.disable();
+  }
+  // No infrastructure: the places, then Overpass.
+  {
+    const overpass = fakeOverpass(OSM_STATIONS);
+    const { layer, asked } = evLayer({
+      places: { points: atBaltimore(2) },
+      infrastructure: { configured: false },
+      overpass,
+    });
+    const viewer = fakeViewer(4_000);
+    layer.init(viewer);
+    layer.enable(viewer);
+    await flush();
+    assert.deepEqual(
+      asked.map(([name, kind]) => `${name} ${kind}`),
+      ['places pins'],
+    );
+    assert.match(overpass.queries.at(-1), /charging_station/);
+    assert.match(layer.getRowControls().info, /Overture sparse here/);
+    layer.disable();
+  }
+  // Neither: Overpass as before, no Overture in the row.
+  {
+    const overpass = fakeOverpass(OSM_STATIONS);
+    const { layer, asked } = evLayer({
+      places: { configured: false },
+      infrastructure: { configured: false },
+      overpass,
+    });
+    const viewer = fakeViewer(4_000);
+    layer.init(viewer);
+    layer.enable(viewer);
+    await flush();
+    assert.equal(asked.length, 0);
+    assert.match(overpass.queries.at(-1), /charging_station/);
+    assert.doesNotMatch(layer.getRowControls().info, /Overture/);
+    layer.disable();
+  }
 });

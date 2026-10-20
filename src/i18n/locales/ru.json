@@ -3501,6 +3501,7 @@
   "Run npm run overture:build -- --places for the Places layer": "Запустите npm run overture:build -- --places для слоя «Места»",
   "Reading the Overture places…": "Чтение мест Overture…",
   "Reading the Overture infrastructure…": "Чтение инфраструктуры Overture…",
+  "Reading the Overture roads…": "Чтение дорог Overture…",
   "Places unavailable": "Места недоступны",
   "{count} places in view": {
     "one": "{count} место в поле зрения",
@@ -3519,7 +3520,9 @@
   "Places Overture is at least {percent}% sure of": "Места, в которых Overture уверен не менее чем на {percent}%",
   "Electric vehicle charging stations (Overture Maps)": "Зарядные станции для электромобилей (Overture Maps)",
   "from OpenStreetMap (Overture sparse here)": "из OpenStreetMap (у Overture здесь мало данных)",
-  "from Overture Maps": "из Overture Maps",
+  "from Overture Maps (places)": "из Overture Maps (места)",
+  "from Overture Maps (infrastructure)": "из Overture Maps (инфраструктура)",
+  "from Overture Maps (roads)": "из Overture Maps (дороги)",
   "Places": "Места",
   "COUNT": "ЧИСЛО",
   "Buildings per km², 2023 (Open Buildings 2.5D Temporal)": "Зданий на км², 2023 (Open Buildings 2.5D Temporal)",
