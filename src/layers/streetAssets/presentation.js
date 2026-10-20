@@ -1,4 +1,4 @@
-import { msg, t, tn } from '../../i18n/index.js';
+import { formatNumber, msg, t, tn } from '../../i18n/index.js';
 import { ASSET_TYPES } from './assets.js';
 
 /**
@@ -37,23 +37,36 @@ export const ASSET_WORDS = Object.freeze({
 
 /** How many of a type, in words. */
 export function assetCountText(key, count) {
+  // The count in the page's language: 1,246, not 1246.
+  const values = { count: formatNumber(count) };
   switch (key) {
     case 'charging':
-      return tn(count, '{count} charging station', '{count} charging stations');
+      return tn(
+        count,
+        '{count} charging station',
+        '{count} charging stations',
+        values,
+      );
     case 'bike':
       return tn(
         count,
         '{count} bike lane segment',
         '{count} bike lane segments',
+        values,
       );
     case 'hydrant':
-      return tn(count, '{count} fire hydrant', '{count} fire hydrants');
+      return tn(count, '{count} fire hydrant', '{count} fire hydrants', values);
     case 'lamp':
-      return tn(count, '{count} street light', '{count} street lights');
+      return tn(count, '{count} street light', '{count} street lights', values);
     case 'signals':
-      return tn(count, '{count} traffic signal', '{count} traffic signals');
+      return tn(
+        count,
+        '{count} traffic signal',
+        '{count} traffic signals',
+        values,
+      );
     default:
-      return String(count);
+      return formatNumber(count);
   }
 }
 
@@ -63,7 +76,8 @@ export function assetCountText(key, count) {
  *   saturated?: boolean, source?: string}} status - `mode` 'pins' |
  *   'counts' | 'none'; `state` 'idle' | 'loading' | 'ready' |
  *   'unconfigured' | 'limited' | 'failed'; `source` who answered: an
- *   Overture index ('places', 'infrastructure' or 'roads'), 'sparse'
+ *   Overture index ('places', 'infrastructure' or 'roads', or
+ *   'places+infrastructure' when both added to it), 'sparse'
  *   (OpenStreetMap, Overture having few here) or 'osm'.
  */
 export function statusText({
@@ -110,6 +124,8 @@ export function statusText({
 /** Who answered, when it is not OpenStreetMap alone: an Overture index by name. */
 function sourceWords(source) {
   if (source === 'places') return [t('from Overture Maps (places)')];
+  if (source === 'places+infrastructure')
+    return [t('from Overture Maps (places + infrastructure)')];
   if (source === 'infrastructure')
     return [t('from Overture Maps (infrastructure)')];
   if (source === 'roads') return [t('from Overture Maps (roads)')];

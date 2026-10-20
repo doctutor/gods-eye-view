@@ -367,3 +367,113 @@ test('Street assets: BIKE LANES from the roads when built, lines close in', asyn
   assert.ok(span <= 1, String(span));
   layer.disable();
 });
+
+// Personal fork (roads-card-fixes): the zoom of what is drawn on a small
+// canvas, the row's word for a click, the card through the world overlay,
+// and no imagery layer over a provider without a rectangle.
+import { normalizeOverlayEntry } from '../../overlays/worldOverlay.js';
+import { imageryRectangleDegrees } from '../../maps/imageryHost.js';
+
+test('a click asks at the zoom drawn on this canvas, and the row says what it found', async () => {
+  const paris = (width, height) => {
+    const viewer = fakeViewer({ lon: 2.35, lat: 48.86, heightM: 20_000 });
+    viewer.scene.canvas = { clientWidth: width, clientHeight: height };
+    return viewer;
+  };
+  const entries = [];
+  const overlayHost = {
+    setEntries: (source, list) => entries.push({ source, list }),
+    setVisible: () => {},
+    clearSource: () => {},
+  };
+  let answer = () => SEGMENT;
+  const source = fakeSource();
+  source.nearest = async (query) => {
+    source.asked.push(query);
+    return answer();
+  };
+  // A 1,600 px canvas drapes z 13 at 20 km; the live 717 × 472 pane z 12.
+  for (const [width, height, zoom] of [
+    [1600, 900, 13],
+    [717, 472, 12],
+  ]) {
+    const viewer = paris(width, height);
+    const layer = createRoadsLayer({
+      source,
+      overlayHost,
+      storage: memoryStorage(),
+    });
+    layer.init(viewer);
+    layer.enable(viewer);
+    await settle();
+    await layer._onClick({ x: 300, y: 200 });
+    assert.equal(source.asked.at(-1).zoom, zoom, `${width} px`);
+    assert.match(layer.getRowControls().info, /Clicked: East Lombard Street$/);
+    // The card reaches the world overlay as a valid entry.
+    const card = entries.at(-1).list[0];
+    const normalized = normalizeOverlayEntry('roads', card);
+    assert.equal(normalized.variant, 'card');
+    assert.equal(normalized.title, 'East Lombard Street');
+    // A miss says so, and closes the card.
+    answer = () => null;
+    await layer._onClick({ x: 10, y: 10 });
+    assert.match(layer.getRowControls().info, /No road here$/);
+    assert.deepEqual(entries.at(-1).list, []);
+    // A failed lookup says so too.
+    answer = () => {
+      throw new Error('HTTP 500');
+    };
+    await layer._onClick({ x: 10, y: 10 });
+    assert.match(layer.getRowControls().info, /Road lookup failed$/);
+    answer = () => SEGMENT;
+    layer.disable();
+    assert.match(layer.getRowControls().info, /^$/);
+  }
+});
+
+test('an extent that misses Web Mercator is never mounted (no undefined provider rectangle)', async () => {
+  assert.deepEqual(
+    imageryRectangleDegrees([
+      [-125, 24.4, -66.8, 49.5],
+      [-32, 34, 45, 72],
+    ]),
+    [-125, 24.4, 45, 72],
+  );
+  assert.deepEqual(
+    imageryRectangleDegrees([[-200, -95, 200, 95]]),
+    [-180, -85.05112878, 180, 85.05112878],
+  );
+  assert.equal(imageryRectangleDegrees([]), null);
+  assert.equal(imageryRectangleDegrees([[0, 86, 10, 90]]), null); // above Web Mercator
+  assert.equal(
+    imageryRectangleDegrees([
+      [NaN, 0, 1, 1],
+      [1, 1, 0, 2],
+    ]),
+    null,
+  );
+  // A build whose only region lies beyond 85.05° N: the row stays, no layer.
+  const viewer = fakeViewer();
+  const layer = createRoadsLayer({
+    source: fakeSource({
+      status: { ...STATUS, regionBoxes: { arctic: [0, 86, 10, 89] } },
+    }),
+    storage: memoryStorage(),
+  });
+  layer.init(viewer);
+  layer.enable(viewer);
+  await settle();
+  assert.equal(viewer.list.length, 0);
+  assert.equal(layer._state().mounted, false);
+  // Real regions mount, with a provider rectangle.
+  const ok = fakeViewer();
+  const roads = createRoadsLayer({
+    source: fakeSource(),
+    storage: memoryStorage(),
+  });
+  roads.init(ok);
+  roads.enable(ok);
+  await settle();
+  assert.equal(ok.list.length, 1);
+  assert.ok(ok.list[0].imageryProvider.rectangle);
+});

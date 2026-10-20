@@ -180,8 +180,17 @@ export function roadCardDetails(segment) {
 /** The card's title: the road's name, else its kind. */
 export const roadCardTitle = (segment) => segment.name || roadKind(segment);
 
-/** The status line. */
-export function statusText({ status, inRegions = true, enabled = true }) {
+/**
+ * The status line. `click` is the last click's outcome: {state: 'hit',
+ * segment} (the road's name or kind, its card on the map), 'miss' or
+ * 'failed'; the line says it even when the card cannot be placed.
+ */
+export function statusText({
+  status,
+  inRegions = true,
+  enabled = true,
+  click = null,
+}) {
   if (!enabled) return '';
   if (!status) return t('Asking the roads server…');
   if (!status.configured)
@@ -195,6 +204,10 @@ export function statusText({ status, inRegions = true, enabled = true }) {
   ];
   if (!inRegions)
     parts.push(t('built for the United States and Europe; none here'));
+  else if (click?.state === 'hit')
+    parts.push(t('Clicked: {road}', { road: roadCardTitle(click.segment) }));
+  else if (click?.state === 'miss') parts.push(t('No road here'));
+  else if (click?.state === 'failed') parts.push(t('Road lookup failed'));
   else parts.push(t('click a road for its card'));
   return parts.join(' · ');
 }
@@ -202,8 +215,9 @@ export function statusText({ status, inRegions = true, enabled = true }) {
 /**
  * @param {{mode: string, onMode: (key: string) => void, ink: string,
  *   onInk: (key: string) => void, inkDrawn: string, status: object|null,
- *   inRegions: boolean, enabled: boolean}} input `ink` the setting
- *   ('auto', 'light', 'dark'); `inkDrawn` the ink in use.
+ *   inRegions: boolean, enabled: boolean, click?: object|null}} input
+ *   `ink` the setting ('auto', 'light', 'dark'); `inkDrawn` the ink in use;
+ *   `click` the last click's outcome (statusText).
  */
 export function rowControls({
   mode,
@@ -214,6 +228,7 @@ export function rowControls({
   status,
   inRegions,
   enabled,
+  click = null,
 }) {
   return {
     chips: [
@@ -233,6 +248,6 @@ export function rowControls({
       })),
     ],
     legend: legendFor(mode, inkDrawn),
-    info: statusText({ status, inRegions, enabled }),
+    info: statusText({ status, inRegions, enabled, click }),
   };
 }

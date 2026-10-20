@@ -44,6 +44,22 @@ export function readExaggeration(storage) {
  */
 export const defaultExaggeration = (flat) => (flat ? 2 : 1);
 
+/**
+ * Whether a map stack is a flat map (a drawn basemap, where the default
+ * exaggeration is 2×) rather than imagery or the photoreal tiles (1×), from
+ * what the map-stack catalog says of it: the Countries styles, OSM and the
+ * keyless styles are maps, except the NASA marbles (satellite imagery);
+ * photoreal, Bing (Ion) and Esri imagery are not. Decided by the basemap,
+ * not by the terrain: the globe keeps Cesium World Terrain under a blank or
+ * CARTO style too. Null when there is no stack to say.
+ */
+export function isFlatBasemap(stack) {
+  if (!stack?.kind) return null;
+  if (stack.kind === 'countries-basemap' || stack.kind === 'osm') return true;
+  if (stack.kind === 'keyless-basemap') return stack.group !== 'nasa';
+  return false;
+}
+
 /** @param {{storage?: Storage|null}} [options] */
 export function createRenderModeStore({ storage } = {}) {
   const store = storageOf(storage);

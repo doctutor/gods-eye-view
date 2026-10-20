@@ -21,7 +21,7 @@ import {
   withHeader,
 } from './layerSpecs.js';
 import { LegoBrickPrimitive, buildBrickMesh } from './bricks.js';
-import { createRenderModeStore } from './renderMode.js';
+import { createRenderModeStore, isFlatBasemap } from './renderMode.js';
 import { columnCardDetails } from './presentation.js';
 
 /**
@@ -149,6 +149,15 @@ export function createLegoController({
     return !terrain || terrain instanceof cesium.EllipsoidTerrainProvider;
   }
 
+  /**
+   * Whether the basemap is a flat map (the exaggeration's default: 2×), by
+   * the active map stack's kind (isFlatBasemap); without one, by the ground.
+   */
+  function flatBasemap() {
+    const flat = isFlatBasemap(mapStackController?.getActiveStack?.());
+    return flat ?? flatGround();
+  }
+
   function windowFor(view) {
     const box = legoWindow(view.lat, view.lon, view.height);
     if (box) return box;
@@ -200,7 +209,7 @@ export function createLegoController({
     if (!layer) return clear('no-layer');
     const mode = currentMode(layer, storage);
     const flat = flatGround();
-    const exaggeration = store.getExaggeration(flat);
+    const exaggeration = store.getExaggeration(flatBasemap());
     const view = viewNow();
     if (
       !force &&
@@ -453,7 +462,7 @@ export function createLegoController({
     pickAt,
     getMode: () => store.getMode(),
     setMode: (mode) => store.setMode(mode),
-    getExaggeration: () => store.getExaggeration(flatGround()),
+    getExaggeration: () => store.getExaggeration(flatBasemap()),
     setExaggeration: (value) => store.setExaggeration(value),
     getStatus: () => _status,
     subscribe(listener) {

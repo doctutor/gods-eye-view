@@ -3370,11 +3370,31 @@
   "Street lamps (Overture Maps)": "Farolas (Overture Maps)",
   "SIGNALS": "SEMÁFOROS",
   "Traffic signals (OpenStreetMap)": "Semáforos (OpenStreetMap)",
-  "{count} charging stations": {"one":"{count} estación de carga","many":"{count} estaciones de carga","other":"{count} estaciones de carga"},
-  "{count} bike lane segments": {"one":"{count} tramo de carril bici","many":"{count} tramos de carril bici","other":"{count} tramos de carril bici"},
-  "{count} fire hydrants": {"one":"{count} hidrante","many":"{count} hidrantes","other":"{count} hidrantes"},
-  "{count} street lights": {"one":"{count} farola","many":"{count} farolas","other":"{count} farolas"},
-  "{count} traffic signals": {"one":"{count} semáforo","many":"{count} semáforos","other":"{count} semáforos"},
+  "{count} charging stations": {
+    "one": "{count} estación de carga",
+    "many": "{count} estaciones de carga",
+    "other": "{count} estaciones de carga"
+  },
+  "{count} bike lane segments": {
+    "one": "{count} tramo de carril bici",
+    "many": "{count} tramos de carril bici",
+    "other": "{count} tramos de carril bici"
+  },
+  "{count} fire hydrants": {
+    "one": "{count} hidrante",
+    "many": "{count} hidrantes",
+    "other": "{count} hidrantes"
+  },
+  "{count} street lights": {
+    "one": "{count} farola",
+    "many": "{count} farolas",
+    "other": "{count} farolas"
+  },
+  "{count} traffic signals": {
+    "one": "{count} semáforo",
+    "many": "{count} semáforos",
+    "other": "{count} semáforos"
+  },
   "Traffic signals (Overture Maps)": "Semáforos (Overture Maps)",
   "Zoom in below {height} km to draw them": "Acércate por debajo de {height} km para dibujarlos",
   "Street assets need OVERPASS_UPSTREAMS in .env": "Los elementos urbanos necesitan OVERPASS_UPSTREAMS en .env",
@@ -3445,6 +3465,7 @@
   "Electric vehicle charging stations (Overture Maps)": "Estaciones de carga de vehículos eléctricos (Overture Maps)",
   "from OpenStreetMap (Overture sparse here)": "de OpenStreetMap (Overture tiene pocos aquí)",
   "from Overture Maps (places)": "de Overture Maps (lugares)",
+  "from Overture Maps (places + infrastructure)": "de Overture Maps (lugares + infraestructura)",
   "from Overture Maps (infrastructure)": "de Overture Maps (infraestructura)",
   "from Overture Maps (roads)": "de Overture Maps (carreteras)",
   "Places": "Lugares",
@@ -3527,11 +3548,18 @@
   "Asking the roads server…": "Consultando el servidor de carreteras…",
   "Roads unavailable": "Carreteras no disponibles",
   "Run npm run overture:build -- --roads for the Roads layer": "Ejecuta npm run overture:build -- --roads para la capa Carreteras",
-  "{count} road segments": {"one":"{count} tramo de carretera","many":"{count} tramos de carretera","other":"{count} tramos de carretera"},
+  "{count} road segments": {
+    "one": "{count} tramo de carretera",
+    "many": "{count} tramos de carretera",
+    "other": "{count} tramos de carretera"
+  },
   "built for the United States and Europe; none here": "construida para Estados Unidos y Europa; aquí no hay",
   "click a road for its card": "haz clic en una carretera para ver su ficha",
   "Roads": "Carreteras",
-  "Source: Overture Maps \u00b7 {source}": "Fuente: Overture Maps · {source}",
+  "Source: Overture Maps · {source}": "Fuente: Overture Maps · {source}",
+  "Clicked: {road}": "Pulsada: {road}",
+  "No road here": "Aquí no hay ninguna carretera",
+  "Road lookup failed": "No se pudo buscar la carretera",
   "Per 100k people": "Por 100.000 habitantes",
   "Articles per 100,000 people (GHSL 2020 population against today’s Wikipedia); clear where fewer than 100 people live": "Artículos por cada 100.000 personas (población GHSL de 2020 frente a la Wikipedia actual); vacío donde viven menos de 100 personas",
   "Text per person": "Texto por persona",
