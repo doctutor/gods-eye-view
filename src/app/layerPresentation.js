@@ -8,12 +8,15 @@ export class LayerPresentation {
     manager,
     {
       weatherClock,
+      // Personal fork: controls beside group headings (LayerPanel).
+      groupHeadingControls = {},
       requestRender = governorRequestRender,
       invalidateDetection = markDetectionSourcesChanged,
     } = {},
   ) {
     this.manager = manager;
     this.weatherClock = weatherClock;
+    this.groupHeadingControls = groupHeadingControls;
     this._panel = null;
     this.pendingVisible = false;
     this._unsubscribe = manager.subscribeActivity((change) => {
@@ -38,6 +41,7 @@ export class LayerPresentation {
     if (!this._panel)
       this._panel = new LayerPanel({
         weatherClock: this.weatherClock,
+        groupHeadingControls: this.groupHeadingControls,
         getLayers: () => this.manager.getAll(),
         isEnabled: (id) => this.manager.isEnabled(id),
         setEnabled: (id, enabled, options) =>

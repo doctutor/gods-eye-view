@@ -1403,3 +1403,39 @@ body.recording-mode #right-context-rail > [data-panel-id] {
     width: 100%;
   }
 }
+
+/* Personal fork: a group heading with its own control (the ANALYSIS
+   heading's Lego render drop-down, src/layers/lego/presentation.js). */
+.data-layer-group-heading.has-group-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.data-layer-group-control {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.data-layer-group-control select {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 10px;
+  padding: 2px 4px;
+}
+
+.lego-render-status {
+  flex-basis: 100%;
+  color: var(--text-secondary);
+  font-size: 9px;
+}
