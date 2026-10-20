@@ -8,7 +8,13 @@
 export const WIKIPEDIA_COVERAGE_ENDPOINT = '/api/wikipedia-coverage';
 /** The catalog is asked for again after this long. */
 export const CATALOG_TTL_MS = 5 * 60 * 1000;
-export const VARIANT_KEYS = Object.freeze(['articles', 'text', 'count']);
+export const VARIANT_KEYS = Object.freeze([
+  'articles',
+  'text',
+  'count',
+  'capita',
+  'textcapita',
+]);
 export const TILE_MAGIC = 'WCT1';
 
 const text = (value, max = 400) =>
@@ -68,6 +74,20 @@ export function toCatalog(body) {
       : 9,
     attribution: text(body?.attribution, 200),
     variants,
+    // The people behind the per-capita variants (population.bin).
+    population:
+      body?.population?.built === true
+        ? {
+            built: true,
+            source: text(body.population.source, 80),
+            total: Number.isFinite(body.population.total)
+              ? body.population.total
+              : 0,
+            floor: Number.isFinite(body.population.floor)
+              ? body.population.floor
+              : 100,
+          }
+        : { built: false },
   };
 }
 

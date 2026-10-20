@@ -33,7 +33,24 @@ export const VARIANTS = Object.freeze([
       'Articles under each pixel, not divided by area, so it changes with the zoom',
     ),
   }),
+  Object.freeze({
+    key: 'capita',
+    label: msg('Per 100k people'),
+    title: msg(
+      'Articles per 100,000 people (GHSL 2020 population against today’s Wikipedia); clear where fewer than 100 people live',
+    ),
+  }),
+  Object.freeze({
+    key: 'textcapita',
+    label: msg('Text per person'),
+    title: msg(
+      'Bytes of article wikitext per person (GHSL 2020 population); clear where fewer than 100 people live',
+    ),
+  }),
 ]);
+
+/** The per-capita variants (the people come from population.bin). */
+const CAPITA_KEYS = Object.freeze(['capita', 'textcapita']);
 
 export const DEFAULT_VARIANT = 'articles';
 
@@ -68,6 +85,21 @@ export function statusText({
     parts.push(
       t('Article sizes are not built: run npm run wikipedia:build -- --text'),
     );
+  if (CAPITA_KEYS.includes(variant)) {
+    if (!catalog.population?.built)
+      parts.push(
+        t(
+          'Population is not built: run npm run wikipedia:build -- --population',
+        ),
+      );
+    else
+      parts.push(
+        t('People: {source}, clear under {floor}', {
+          source: catalog.population.source || 'GHSL',
+          floor: catalog.population.floor,
+        }),
+      );
+  }
   if (catalog.dumpDate)
     parts.push(t('Dump of {date}', { date: catalog.dumpDate }));
   if (catalog.articles)
@@ -159,7 +191,9 @@ export function rowControls({
     ],
     legend:
       legendDomain && (hexes || chosen?.available)
-        ? legendStops(legendDomain, { bytes: variant === 'text' })
+        ? legendStops(legendDomain, {
+            bytes: variant === 'text' || variant === 'textcapita',
+          })
         : [],
     slider: {
       label: t('Opacity {value}%', { value: Math.round(opacity * 100) }),

@@ -251,12 +251,12 @@ test("the Hexes chip switches the layer from the raster to H3 cells at the camer
   let controls = layer.getRowControls();
   assert.deepEqual(
     controls.chips.map((chip) => chip.id),
-    ['articles', 'text', 'count', 'hexes'],
+    ['articles', 'text', 'count', 'capita', 'textcapita', 'hexes'],
   );
-  assert.equal(controls.chips[3].active, false);
-  assert.equal(controls.chips[3].label, 'Hexes');
+  assert.equal(controls.chips[5].active, false);
+  assert.equal(controls.chips[5].label, 'Hexes');
 
-  controls.chips[3].onClick();
+  controls.chips[5].onClick();
   await flush();
   assert.equal(env.layers.length, 0, 'the raster leaves');
   assert.equal(env.primitives.length, 1, 'the hex surface arrives');
@@ -280,7 +280,7 @@ test("the Hexes chip switches the layer from the raster to H3 cells at the camer
     { on: true, res: 2, count: 170, failure: null },
   );
   controls = layer.getRowControls();
-  assert.equal(controls.chips[3].active, true);
+  assert.equal(controls.chips[5].active, true);
   assert.deepEqual(
     controls.legend,
     legendStops(fixture.domain),
@@ -314,7 +314,7 @@ test("the Hexes chip switches the layer from the raster to H3 cells at the camer
   assert.equal(source.calls.length, 2, 'no refetch for opacity');
 
   // Back to the raster, and off.
-  layer.getRowControls().chips[3].onClick();
+  layer.getRowControls().chips[5].onClick();
   await flush();
   assert.equal(env.primitives.length, 0);
   assert.equal(env.layers.length, 1);
@@ -425,8 +425,11 @@ test('a variant the hex grid lacks (404) greys its chip with the message, like a
   await flush();
   assert.equal(env.primitives.length, 1);
   assert.ok(
-    layer.getRowControls().chips.every((chip) => chip.state === undefined),
-    'every chip offered while the grid has the variant',
+    layer
+      .getRowControls()
+      .chips.filter((chip) => !['capita', 'textcapita'].includes(chip.id))
+      .every((chip) => chip.state === undefined),
+    'every chip offered while the grid has the variant (no people here)',
   );
   layer.getRowControls().chips[1].onClick(); // text
   await flush();
@@ -448,6 +451,8 @@ test('a variant the hex grid lacks (404) greys its chip with the message, like a
       ['articles', undefined],
       ['text', 'error'],
       ['count', undefined],
+      ['capita', 'error'],
+      ['textcapita', 'error'],
       ['hexes', undefined],
     ],
   );
@@ -458,7 +463,10 @@ test('a variant the hex grid lacks (404) greys its chip with the message, like a
   await flush();
   assert.equal(env.primitives.length, 1);
   assert.ok(
-    layer.getRowControls().chips.every((chip) => chip.state === undefined),
+    layer
+      .getRowControls()
+      .chips.filter((chip) => !['capita', 'textcapita'].includes(chip.id))
+      .every((chip) => chip.state === undefined),
   );
   layer.destroy();
 });

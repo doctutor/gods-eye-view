@@ -350,6 +350,8 @@ test('the service says to build the grid when there is none, then serves it and 
       ['articles', false],
       ['text', false],
       ['count', false],
+      ['capita', false],
+      ['textcapita', false],
     ],
   );
   assert.equal((await service.tile('articles', 0, 0, 0)).status, 503);

@@ -3,6 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REFRESH_EVERY_DAYS, buildFiles, runBuild } from './build.mjs';
+import { buildCapita, buildPopulation } from './population.mjs';
+import {
+  createEarthEngineService,
+  earthEngineSettings,
+} from '../../server/providers/earthEngine.js';
 import { rawDirFor, rawDirLabel } from '../rawDir.mjs';
 import { readGridHeader } from '../../server/providers/wikipediaCoverage/grid.js';
 import { readArrayFileHeader } from '../../server/providers/wikipediaCoverage/arrayFile.js';
@@ -16,7 +21,7 @@ import {
  * as a grid the app's ANALYSIS layer drapes on the globe.
  *
  *   node scripts/wikipedia/index.mjs build [--text] [--force] [--offline]
- *        [--limit N] [--dir DIR]
+ *        [--limit N] [--dir DIR] [--population [--env-root DIR]]
  *   node scripts/wikipedia/index.mjs status [--json] [--dir DIR]
  *
  * `build` downloads Wikimedia's GeoData dump (enwiki-latest-geo_tags.sql.gz,
@@ -31,6 +36,14 @@ import {
  * Everything lives in WIKIPEDIA_COVERAGE_DIR (default .gev-cache/wikipedia in
  * the repository): the dump, geo_tags.meta.json (ETag, Last-Modified),
  * grid.bin and runs.jsonl. The dump and the grid are never committed.
+ *
+ * `--population` (once; GHSL 2020 does not change with the dump) fetches
+ * people per cell from Earth Engine into population.bin (120 requests,
+ * counted against the day's Earth Engine budget; population.mjs), for the
+ * per-capita variants. It needs EARTH_ENGINE_KEY_FILE and
+ * EARTH_ENGINE_PROJECT, read from .env under --env-root (default the
+ * repository). Every build that finds population.bin writes capita.bin
+ * again for its grid and hexagons.
  *
  * Personal fork tooling; not part of upstream God's Eye View.
  */
@@ -71,6 +84,16 @@ const limitOf = (value) => {
     throw new Error('--limit must be a positive integer');
   return number;
 };
+
+/** The environment: .env under `root` (Vite's ladder), the process's over it. */
+async function envOf(root, env = process.env) {
+  try {
+    const { loadEnv } = await import('vite');
+    return { ...loadEnv('development', root, ''), ...env };
+  } catch {
+    return { ...env };
+  }
+}
 
 /** What `status` reports: the grid's header, its age, and the dump's. */
 export function statusOf(dir, now = () => Date.now(), rawDir = dir) {
@@ -174,6 +197,23 @@ async function main(argv) {
         ? readGridHeader(buildFiles(dir).grid).header
         : null,
     });
+    if (flags.population) {
+      const envRoot = flags['env-root']
+        ? path.resolve(String(flags['env-root']))
+        : ROOT;
+      const env = await envOf(envRoot);
+      const settings = earthEngineSettings(env, envRoot);
+      if (!settings.configured)
+        throw new Error(
+          '--population needs EARTH_ENGINE_KEY_FILE and EARTH_ENGINE_PROJECT (or --env-root)',
+        );
+      await buildPopulation({
+        dir,
+        earthEngine: createEarthEngineService({ sourceRoot: envRoot, env }),
+        log,
+      });
+    }
+    if (!result.skipped || flags.population) buildCapita({ dir, log });
     if (!result.skipped)
       for (const line of statusLines(statusOf(dir, undefined, rawDir)))
         log(line);
