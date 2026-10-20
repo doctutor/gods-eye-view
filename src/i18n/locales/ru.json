@@ -3489,6 +3489,7 @@
   "≥{percent}%": "≥{percent}%",
   "Places Overture is at least {percent}% sure of": "Места, в которых Overture уверен не менее чем на {percent}%",
   "Electric vehicle charging stations (Overture Maps)": "Зарядные станции для электромобилей (Overture Maps)",
+  "from OpenStreetMap (Overture sparse here)": "из OpenStreetMap (у Overture здесь мало данных)",
   "from Overture Maps": "из Overture Maps",
   "Places": "Места",
   "COUNT": "ЧИСЛО",

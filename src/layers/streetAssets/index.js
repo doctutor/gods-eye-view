@@ -39,11 +39,16 @@ import { PLACE_MAX_SPAN_DEGREES } from '../../data/overturePlaces.js';
  * is built (`npm run overture:build -- --places`, the Places layer's): its
  * charging stations at 50% confidence or more, pins from
  * /api/overture/places and counts from /api/overture/places/counts, so it
- * needs no Overpass; without the build, OpenStreetMap as before.
+ * needs no Overpass; without the build, OpenStreetMap as before. Where
+ * Overture is sparse (fewer than OVERTURE_SPARSE_BELOW stations for the
+ * view, as around Paris), the view asks OpenStreetMap too and shows its
+ * answer, the row saying so; without Overpass, Overture's stands.
  */
 
 export const STREET_ASSETS_LAYER_ID = 'street-assets';
 export const TYPE_STORAGE_KEY = 'gev.streetAssets.type';
+/** Fewer Overture charging stations than this for a view: ask OpenStreetMap. */
+export const OVERTURE_SPARSE_BELOW = 3;
 /** Wait this long after the camera settles before asking Overpass. */
 export const ASSET_DEBOUNCE_MS = 400;
 /** The lines' colour per ink. */
@@ -111,6 +116,8 @@ export function createStreetAssetsLayer({
   let _status = null;
   /** The Overture places index: null until asked, false when not built. */
   let _overture = null;
+  /** Overpass said it is not configured: Overture's answers stand alone. */
+  let _overpassMissing = false;
 
   const notify = () => _rowListener?.();
 
@@ -263,9 +270,10 @@ export function createStreetAssetsLayer({
     }
   }
 
-  async function fetchFor(type, mode, box) {
+  async function fetchFor(type, mode, box, fallback = null) {
     _status = { mode, state: 'loading', count: 0 };
     notify();
+    const source = fallback ? 'sparse' : 'osm';
     try {
       const limit = mode === 'pins' ? type.pinLimit : type.countLimit;
       const { elements } = await overpass.query(
@@ -279,12 +287,14 @@ export function createStreetAssetsLayer({
         box,
         features,
         saturated: elements.length >= limit,
+        source,
       };
       _status = {
         mode,
         state: 'ready',
         count: features.length,
         saturated: _held.saturated,
+        source,
       };
       drawPins();
       _rollup?.refresh?.({ force: true });
@@ -292,6 +302,12 @@ export function createStreetAssetsLayer({
     } catch (error) {
       if (error?.name === 'AbortError') return;
       const code = error instanceof OverpassViewError ? error.code : 'failed';
+      if (fallback) {
+        // OpenStreetMap could not answer: Overture's few stand.
+        if (code === 'unconfigured') _overpassMissing = true;
+        if (!_enabled || type.key !== _asset) return;
+        return show(fallback.held, fallback.status);
+      }
       _status = { mode, state: code, count: 0 };
       if (code === 'limited' && error.retryAfterMs)
         _debounce = setTimeoutImpl(
@@ -305,9 +321,19 @@ export function createStreetAssetsLayer({
   /** Whether this type draws from Overture's places (EV charging, when built). */
   const fromOverture = (type) => type.key === 'charging' && Boolean(_overture);
 
+  /** Draw an answer already in hand. */
+  function show(held, status) {
+    _held = held;
+    _status = status;
+    drawPins();
+    _rollup?.refresh?.({ force: true });
+    requestRender('street-assets');
+    notify();
+  }
+
   /** Overture's charging stations for the view: pins, or counts per cell. */
   async function fetchOverture(type, mode, box, view) {
-    _status = { mode, state: 'loading', count: 0, overture: true };
+    _status = { mode, state: 'loading', count: 0, source: 'overture' };
     notify();
     try {
       if (mode === 'pins') {
@@ -323,7 +349,14 @@ export function createStreetAssetsLayer({
           lon: place.at[0],
           lat: place.at[1],
         }));
-        _held = { type, mode, box, features, saturated: answer.saturated };
+        _held = {
+          type,
+          mode,
+          box,
+          features,
+          saturated: answer.saturated,
+          source: 'overture',
+        };
       } else {
         const res = h3ResolutionForHeight(view.height);
         const window = viewWindow(view.lat, view.lon, view.height);
@@ -342,21 +375,23 @@ export function createStreetAssetsLayer({
           features: [],
           cells: { res, map },
           saturated: false,
+          source: 'overture',
         };
       }
       const count = _held.cells
         ? [..._held.cells.map.values()].reduce((sum, n) => sum + n, 0)
         : _held.features.length;
-      _status = {
+      _held.count = count;
+      const status = {
         mode,
         state: 'ready',
         count,
         saturated: _held.saturated,
-        overture: true,
+        source: 'overture',
       };
-      drawPins();
-      _rollup?.refresh?.({ force: true });
-      requestRender('street-assets');
+      if (count < OVERTURE_SPARSE_BELOW && !_overpassMissing)
+        return fetchFor(type, mode, box, { held: _held, status });
+      return show(_held, status);
     } catch (error) {
       if (error?.name === 'AbortError') return;
       if (error?.code === 'unconfigured') {
@@ -365,7 +400,7 @@ export function createStreetAssetsLayer({
         _held = null;
         return settle();
       }
-      _status = { mode, state: 'failed', count: 0, overture: true };
+      _status = { mode, state: 'failed', count: 0, source: 'overture' };
     }
     notify();
   }
@@ -408,8 +443,9 @@ export function createStreetAssetsLayer({
       _status = {
         mode,
         state: 'ready',
-        count: _held.features.length,
+        count: _held.count ?? _held.features.length,
         saturated: _held.saturated,
+        source: _held.source,
       };
       notify();
       return;
@@ -482,6 +518,7 @@ export function createStreetAssetsLayer({
       overpass.abort?.();
       places.abort?.();
       _overture = null;
+      _overpassMissing = false;
       _removeMove?.();
       _removeMove = null;
       stopRollup();

@@ -56,8 +56,11 @@ export function assetCountText(key, count) {
 /**
  * The status line.
  * @param {{type: object, mode: string, state: string, count: number,
- *   saturated?: boolean}} status - `mode` 'pins' | 'counts' | 'none';
- *   `state` 'idle' | 'loading' | 'ready' | 'unconfigured' | 'limited' | 'failed'.
+ *   saturated?: boolean, source?: string}} status - `mode` 'pins' |
+ *   'counts' | 'none'; `state` 'idle' | 'loading' | 'ready' |
+ *   'unconfigured' | 'limited' | 'failed'; `source` who answered:
+ *   'overture', 'sparse' (OpenStreetMap, Overture having few here) or
+ *   'osm'.
  */
 export function statusText({
   type,
@@ -65,7 +68,7 @@ export function statusText({
   state,
   count = 0,
   saturated = false,
-  overture = false,
+  source = 'osm',
 }) {
   if (mode === 'none')
     return t('Zoom in below {height} km to draw them', {
@@ -77,7 +80,7 @@ export function statusText({
     return t('OpenStreetMap is busy; trying again shortly');
   if (state === 'failed') return t('Street assets unavailable');
   if (state === 'loading')
-    return overture
+    return source === 'overture'
       ? t('Reading the Overture places…')
       : t('Asking OpenStreetMap…');
   if (state !== 'ready') return '';
@@ -94,6 +97,14 @@ export function statusText({
       : t('Pins'),
   );
   return parts.join(' · ');
+}
+
+/** Who answered, when it is not OpenStreetMap alone. */
+function sourceWords(source) {
+  if (source === 'overture') return [t('from Overture Maps')];
+  if (source === 'sparse')
+    return [t('from OpenStreetMap (Overture sparse here)')];
+  return [];
 }
 
 /**
@@ -131,9 +142,7 @@ export function rowControls({
       enabled && status
         ? [
             statusText({ type, ...status }),
-            ...(overture && status.state === 'ready'
-              ? [t('from Overture Maps')]
-              : []),
+            ...(status.state === 'ready' ? sourceWords(status.source) : []),
           ].join(' · ')
         : '',
   };
