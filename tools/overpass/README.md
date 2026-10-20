@@ -43,11 +43,31 @@ osmium cat -f osm -o - /planet/planet-261012.osm.pbf |
 ```
 
 There is no intermediate file, and the PBF is read once, read-only. After the
-import it runs the image's first update (`update_overpass.sh -O <pbf>`,
-which finds the first diff from the planet's date and writes
-`/db/replicate_id`) and leaves `/db/init_done`. The entrypoint then skips its
-own init and starts serving: the dispatcher, nginx, the hourly diffs and the
-areas loop.
+import the script finds where the updates start, on the configured feed and
+without downloading anything:
+
+```sh
+pyosmium-get-changes --server "$OVERPASS_DIFF_URL" -D <the planet's date> -f /db/replicate_id
+```
+
+Then it leaves `/db/init_done`. The entrypoint skips its own init and starts
+serving: the dispatcher, nginx, the hourly diffs and the areas loop. The diffs
+from the planet's date to now are applied by that loop, while the server
+already answers.
+
+The smoke test (below) found two things the image needs here:
+
+- **The start of the updates.** The image's way of finding it,
+  `update_overpass.sh -O <pbf>`, makes pyosmium compare the feed with the one
+  the PBF's header names, string for string. It refused Geofabrik's own feed
+  for a trailing slash, and the planet's header names the minutely feed while
+  this setup uses hourly. `-D <date>` finds the same sequence on any feed.
+  Feed URLs here have no trailing slash (pyosmium adds `/state.txt` itself).
+- **`/db`'s mode.** The image's `/db` is the overpass user's home, made 0700
+  by Debian 12's adduser, and a named volume keeps that mode. Then the CGI
+  (fcgiwrap, as nginx) cannot reach the dispatcher's socket, and every query
+  answers "open64: 13 Permission denied /db/db//osm3s_osm_base". The script
+  runs `chmod o+x /db` on every start.
 
 An import cannot resume. If one stops (a reboot, Docker restarting), the
 script finds `/db/import_started` without `/db/init_done` on the next start
@@ -94,16 +114,16 @@ lower it to 4 and start again.
 Time, estimated from the OSM wiki ("on the order of 24 hours or more" for a
 planet import; areas "may take up to 24 hours"):
 
-| Phase                                            | Estimate on this PC                                     |
-| ------------------------------------------------ | ------------------------------------------------------- |
-| Download (95 GB)                                 | 2-3 h at 100 Mbit/s or more (S3 has no bandwidth limit) |
-| Import                                           | 24-48 h                                                 |
-| Catch-up diffs (from the planet's date to now)   | a few hours (one hourly diff every few minutes)         |
-| Areas (`is_in`), in the background while serving | up to 24 h for the first pass                           |
+| Phase                                                         | Estimate on this PC                                     |
+| ------------------------------------------------------------- | ------------------------------------------------------- |
+| Download (95 GB)                                              | 2-3 h at 100 Mbit/s or more (S3 has no bandwidth limit) |
+| Import                                                        | 24-48 h                                                 |
+| Catch-up diffs (from the planet's date to now), while serving | a few hours (one hourly diff every few minutes)         |
+| Areas (`is_in`), in the background while serving              | up to 24 h for the first pass                           |
 
-The server answers queries once the import and the catch-up are done. Until
-the first areas pass ends, `is_in` (the app's administrative-area lookups)
-answers nothing.
+The server answers queries once the import is done, with the planet's data
+(up to a week old) until the catch-up ends. Until the first areas pass ends,
+`is_in` (the app's administrative-area lookups) answers nothing.
 
 ## Commands
 
@@ -207,20 +227,24 @@ The hourly diffs run on their own while the container runs
 What was run to set this up, in order (2026-10-20). Requests to
 overpass-api.de were a handful, with no retry loops.
 
-| Command                                                                 | Result                                                                                                 |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `nslookup overpass-api.de` (and against 1.1.1.1)                        | 65.109.112.52, 162.55.144.139 and two IPv6 on both: DNS fine                                           |
-| `curl -4/-6 https://overpass-api.de/api/status`                         | schannel `SEC_E_ILLEGAL_MESSAGE` after TCP connects in 0.16 s                                          |
-| `openssl s_client -connect overpass-api.de:443` (and `-tls1_2`)         | TLS 1.3 works; TLS 1.2 gets alert 40: the server is TLS 1.3 only, and Windows 10's schannel has none   |
-| Node `fetch` of `/api/status` and `/api/interpreter` (app's User-Agent) | HTTP 406 from nginx: non-browser clients refused                                                       |
-| `openssl s_client` per backend, browser User-Agent, `/api/status`       | lambert: 200, "Rate limit: 2, 2 slots available now" (not blocked); gall: 502, "currently at capacity" |
-| Node `fetch` to private.coffee, maps.mail.ru, osm.jp                    | timeout after TLS, 504, expired certificate                                                            |
-| `Get-ComputerInfo`, `Win32_OptionalFeature`, `wsl --status`             | Hypervisor present; WSL and VirtualMachinePlatform enabled; WSL default version 2                      |
-| Docker Desktop installer, `wsl --update` (by the user)                  | Docker Desktop 4.96, engine 29.9.1, WSL2 backend                                                       |
-| Docker Desktop disk image location (by the manager)                     | `D:\DockerDesktop\DockerDesktopWSL`                                                                    |
-| `curl -sSIL https://planet.openstreetmap.org/pbf/planet-latest.osm.pbf` | `planet-261012.osm.pbf`, 95,380,942,829 bytes, on the AWS mirror                                       |
-| `docker compose config --quiet`                                         | the compose file is valid                                                                              |
-| `npm run overpass:status`                                               | "not answering (ECONNREFUSED)": nothing started yet                                                    |
+| Command                                                                                                                             | Result                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nslookup overpass-api.de` (and against 1.1.1.1)                                                                                    | 65.109.112.52, 162.55.144.139 and two IPv6 on both: DNS fine                                                                                                                                                              |
+| `curl -4/-6 https://overpass-api.de/api/status`                                                                                     | schannel `SEC_E_ILLEGAL_MESSAGE` after TCP connects in 0.16 s                                                                                                                                                             |
+| `openssl s_client -connect overpass-api.de:443` (and `-tls1_2`)                                                                     | TLS 1.3 works; TLS 1.2 gets alert 40: the server is TLS 1.3 only, and Windows 10's schannel has none                                                                                                                      |
+| Node `fetch` of `/api/status` and `/api/interpreter` (app's User-Agent)                                                             | HTTP 406 from nginx: non-browser clients refused                                                                                                                                                                          |
+| `openssl s_client` per backend, browser User-Agent, `/api/status`                                                                   | lambert: 200, "Rate limit: 2, 2 slots available now" (not blocked); gall: 502, "currently at capacity"                                                                                                                    |
+| Node `fetch` to private.coffee, maps.mail.ru, osm.jp                                                                                | timeout after TLS, 504, expired certificate                                                                                                                                                                               |
+| `Get-ComputerInfo`, `Win32_OptionalFeature`, `wsl --status`                                                                         | Hypervisor present; WSL and VirtualMachinePlatform enabled; WSL default version 2                                                                                                                                         |
+| Docker Desktop installer, `wsl --update` (by the user)                                                                              | Docker Desktop 4.96, engine 29.9.1, WSL2 backend                                                                                                                                                                          |
+| Docker Desktop disk image location (by the manager)                                                                                 | `D:\DockerDesktop\DockerDesktopWSL`                                                                                                                                                                                       |
+| `curl -sSIL https://planet.openstreetmap.org/pbf/planet-latest.osm.pbf`                                                             | `planet-261012.osm.pbf`, 95,380,942,829 bytes, on the AWS mirror                                                                                                                                                          |
+| `docker compose config --quiet`                                                                                                     | the compose file is valid                                                                                                                                                                                                 |
+| `npm run overpass:status`                                                                                                           | "not answering (ECONNREFUSED)": nothing started yet                                                                                                                                                                       |
+| `docker pull wiktorn/overpass-api:0.7.62`                                                                                           | 481 MB                                                                                                                                                                                                                    |
+| Smoke test: `monaco-latest.osm.pbf` from Geofabrik (693 KB, md5 OK), a Monaco diff feed in an override file, `docker compose up -d` | Imported in 4 s (78 MB database). First run: no `/db/replicate_id` (`-O` refused the feed), and every query answered "Permission denied" on the dispatcher's socket (`/db` 0700). Both fixed in `initdb/10-import-pbf.sh` |
+| Smoke test again, `docker restart`                                                                                                  | Updates from sequence 4941, diff 4942 applied; `/api/status` "Rate limit: 8, 8 slots available now"; the Node query with the app's User-Agent 200 in 168 ms with metadata; `npm run overpass:status` "answering"; healthy |
+| `docker compose down -v`                                                                                                            | The smoke container and volume removed                                                                                                                                                                                    |
 
 Add the download, the import's start and end, the database's size and the
 first verification here as they happen.

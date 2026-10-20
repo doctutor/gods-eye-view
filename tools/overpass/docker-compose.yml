@@ -35,7 +35,7 @@ services:
       # update_database holds this much before writing (the image's default
       # is 16); lower is slower and lighter. 8 for a 10 GB Docker VM.
       OVERPASS_FLUSH_SIZE: '8'
-      OVERPASS_DIFF_URL: https://planet.openstreetmap.org/replication/hour/
+      OVERPASS_DIFF_URL: https://planet.openstreetmap.org/replication/hour
       OVERPASS_UPDATE_SLEEP: '3600'
       # Areas (is_in) are built in the background once it serves, at this
       # share of one core between runs (the image's default is 1%).
