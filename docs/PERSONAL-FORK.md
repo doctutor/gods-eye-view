@@ -43,6 +43,7 @@ unless its switch is set to `0`.
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
 - [Localities (REFERENCE)](#localities-reference)
 - [Street assets (ANALYSIS)](#street-assets-analysis)
+  - [Overture infrastructure](#overture-infrastructure)
 - [Places (ANALYSIS)](#places-analysis)
 - [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
 - [Rivers: click a reach](#rivers-click-a-reach)
@@ -3159,23 +3160,40 @@ the same paced `/api/overpass` client as Localities (and the same
 charging stations need no key. Attribution © OpenStreetMap contributors
 (ODbL).
 
-**EV CHARGING from Overture, when built.** With the Places layer's index
-built (`npm run overture:build -- --places`, see Places), EV CHARGING
-draws Overture's charging stations at 50% confidence or more instead,
-with no Overpass query. Pins come from `/api/overture/places` (the box
-clipped to 1° around the view) and counts per hexagon from
-`/api/overture/places/counts`, at the same heights. The chip's title and
-the row say "Overture Maps". Without the build, or if it goes away while
-the layer is on, the type asks OpenStreetMap as before.
+**From Overture first, when built.** Four of the types read a local
+Overture index instead of Overpass when it is built, at the same heights,
+limits and boxes:
 
-Coverage differs by country (see Places): Overture has more around
-Baltimore, far fewer around Paris. So a view where Overture has fewer
-than 3 stations (pins in the box, or counts in the window) asks Overpass
-for the same box. The view then shows OpenStreetMap's answer, and the row
-ends "from OpenStreetMap (Overture sparse here)". If Overpass is not
-configured or fails, Overture's few stand; once it has said it is not
-configured, it is not asked again until the layer is turned off and on.
-Views with 3 or more stations stay with Overture.
+| Type          | Index (build)                                 | Asked for                          |
+| ------------- | --------------------------------------------- | ---------------------------------- |
+| EV charging   | places (`npm run overture:build -- --places`) | `charging`, 50% confidence or more |
+| Hydrants      | infrastructure (`-- --infrastructure`, below) | `fire_hydrant`                     |
+| Street lights | infrastructure                                | `street_lamp`                      |
+| Signals       | infrastructure                                | `traffic_signals`                  |
+
+Pins come from the index's route (`/api/overture/places` or
+`/api/overture/infrastructure`, the box clipped to 1° around the view)
+and counts per hexagon from its `/counts`. The chip's title and the row
+say "Overture Maps", and the index's credit is registered. Without the
+build, or if it goes away while the layer is on, the type asks
+OpenStreetMap as before. BIKE LANES stay with Overpass (they are ways of
+Overture's transportation theme, another build).
+
+**Sparse views fall back to OpenStreetMap.** A view where the index has
+fewer than the type's `sparseBelow` features (3 for each type; pins in
+the box, or counts in the window) asks Overpass for the same box. The
+view then shows OpenStreetMap's answer, and the row ends "from
+OpenStreetMap (Overture sparse here)". If Overpass is not configured or
+fails, Overture's few stand; once it has said it is not configured, it is
+not asked again until the layer is turned off and on. Views with more
+stay with Overture.
+
+- **EV charging:** the places' coverage differs by country (see Places):
+  more than OpenStreetMap around Baltimore, far fewer around Paris.
+- **Hydrants, street lights, signals:** the infrastructure is
+  OpenStreetMap's own, as of the release. The fallback catches places
+  with next to nothing mapped then (Lagos: no hydrants, no lamps) and,
+  with Overpass, anything mapped since.
 
 **Level of detail: pins, then counts, then nothing.** These are dense, so
 each type has two heights:
@@ -3217,6 +3235,92 @@ The signals' first pin height (10 km) filled the limit in Baltimore's
 20 km box, so their pins start at 5 km (a 4 km box held 544). OpenStreetMap
 coverage varies by city: Baltimore has only 25 hydrants mapped in a 4 km
 box.
+
+### Overture infrastructure
+
+`npm run overture:build -- --infrastructure` reads Overture's base theme,
+`type=infrastructure`, release **2026-09-23.1** (schema v2.0.0): 64
+GeoParquet files, 13.8 GB, 157,617,917 features in 4,864 row groups, all
+from OpenStreetMap (152 classes). It keeps four classes
+(`src/data/overtureInfrastructure.js`):
+
+| Class (subtype)                     | Features  | Street assets type |
+| ----------------------------------- | --------- | ------------------ |
+| `fire_hydrant` (emergency)          | 2,533,349 | HYDRANTS           |
+| `street_lamp` (transportation)      | 6,448,036 | STREET LIGHTS      |
+| `traffic_signals` (transportation)  | 2,008,803 | SIGNALS            |
+| `charging_station` (transportation) | 202,394   | (kept, not drawn)  |
+
+Charging stations are kept because they cost nothing more: they are
+OpenStreetMap's (`amenity=charging_station`), 202 k beside the places'
+56 k, and could serve EV CHARGING where the places are sparse. EV CHARGING
+does not read them yet. `crossing` (58 k in a sample of 548 k features) is
+left out: it is `highway=crossing`, which SIGNALS has never asked
+Overpass for. So is `tower/lighting` (floodlight masts, not street
+lights).
+
+- **Columns.** Eight of the 39: `bbox.xmin`, `bbox.xmax`, `bbox.ymin`,
+  `bbox.ymax`, `class`, `subtype`, `names.primary` and
+  `sources[].dataset`. The bounding box stands in for the geometry: a
+  node's box is the node, and a line's or an area's centre is its point.
+  The four box columns are 2.3 GB of the release against the geometry's
+  5.6 GB.
+- **Downloads.** 2.54 GB of those chunks, 4.83 GB with the ranges between
+  them (`fetchBytes`), checked against a 20 GB cap (`--cap-gb`). They are
+  kept under `GEV_RAW_DIR/overture/raw/<release>/infrastructure`
+  (`--drop-raw` deletes them).
+- **Index.** The places' format and code (`scripts/overture/places.mjs`
+  `POINT_BUILDS`, `server/providers/overture/placesIndex.js`
+  `POINT_INDEXES`): z 12 tiles of 12-byte points, the class as the
+  category, every feature at confidence 1, and the text holding the name
+  (if any), the class and the source. Written to
+  `.gev-cache/overture/infrastructure`; `npm run overture:status` lists
+  the counts per class.
+
+Measured (2026-10-19, 4 workers): 4.83 GB downloaded and decoded in
+8.2 min, merged in 0.9 min, 10.0 min in all. The index is 89 MB in 738
+buckets (the blocks are ZSTD-compressed; most texts are empty), plus a
+1.2 MB counts file for resolutions 0–5 (71,817 cells); the raw chunks
+are 4.8 GB on the archive. 270,548 of the features have a name.
+
+**The routes.**
+
+- `GET /api/overture/infrastructure?west&south&east&north[&zoom&class]`
+  answers a box of at most 1° that does not cross the antimeridian:
+  `{count, candidates, saturated, places: [{id, name, category, basic,
+source, confidence, at}]}`, at most 2,000. `class` is `all`, `hydrant`,
+  `lamp`, `signals` or `charging`; `zoom` (0–22) is checked and not used.
+  A box holding more keeps 2,000 spread over it by a hash of each
+  position, the same ones as the view pans.
+- `GET /api/overture/infrastructure/counts?res&class[&west&south&east&north]`
+  answers `{res, total, cells: [[h3, count]]}` for resolutions 0–7.
+
+Both answer from two worker threads (the tile pool's
+`overture-infrastructure` drawer) and are cached for a day under the
+build's version. `/api/overture/layers` says whether the build is there
+(its `infrastructure`, with the counts per class).
+
+Timings (warm unless marked; pins at Street assets' heights, 4 km for
+signals and hydrants and 3 km for lamps; direct from the index):
+
+| View                 | Signals                | Hydrants                | Street lights           |
+| -------------------- | ---------------------- | ----------------------- | ----------------------- |
+| Baltimore downtown   | 1,621, 16 ms           | 368, 7 ms               | 794, 7 ms               |
+| Columbia MD (suburb) | 235, 5 ms              | 299, 5 ms               | 221, 3 ms               |
+| Paris                | 2,000 of 6,196, 134 ms | 2,000 of 10,791, 127 ms | 2,000 of 31,850, 110 ms |
+| Tokyo, Shibuya       | 2,000 of 2,666, 28 ms  | 287, 24 ms              | 379, 10 ms              |
+| Lagos                | 65, 1 ms               | 0 (sparse)              | 0 (sparse)              |
+
+Counts per hexagon at 80% of each count height answer in 0–14 ms. The
+world at resolution 2 (1,519 cells) takes 7 ms. Through the route with
+4 tile workers, Baltimore's signals take 142 ms cold and 27 ms warm
+(261 KB), and eight saturated Paris boxes at once take 624 ms.
+
+**Licence.** Overture's infrastructure is OpenStreetMap data under the
+[ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/). The credit
+reads "© OpenStreetMap contributors, Overture Maps Foundation", linked to
+docs.overturemaps.org/attribution. The local index is a derived database,
+not to be published except under ODbL.
 
 ## Places (ANALYSIS)
 

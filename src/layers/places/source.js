@@ -1,7 +1,9 @@
-// Personal fork: the Places layer's client for the local Overture places
-// index (/api/overture/places, built by `npm run overture:build --
-// --places`): whether it is built, the pins of a box and the counts of a
-// view. A newer question of a kind aborts the one in flight.
+// Personal fork: the client for a local Overture point index: the Places
+// layer's (/api/overture/places, built by `npm run overture:build --
+// --places`) by default, or another with its own endpoint (Street assets'
+// infrastructure, streetAssets/infrastructureSource.js): whether it is
+// built, the pins of a box and the counts of a view. A newer question of a
+// kind aborts the one in flight.
 import { OVERTURE_PLACES_ENDPOINT } from '../../data/overturePlaces.js';
 import { normalizePlace } from './places.js';
 
@@ -16,11 +18,26 @@ export class PlacesError extends Error {
 
 const H3_CELL = /^[0-9a-f]{15}$/;
 
+/** The Places layer's source: the places index. */
+export const createPlacesSource = (options = {}) => createPointSource(options);
+
 /**
- * @param {{fetchImpl?: typeof fetch}} [options]
+ * @param {{fetchImpl?: typeof fetch, endpoint?: string, statusKey?: string,
+ *   categoryParam?: string, withConfidence?: boolean,
+ *   normalize?: (raw: object) => object|null, words?: string}} [options]
+ *   `statusKey`: the index's entry in /api/overture/layers;
+ *   `categoryParam`: the query's name for the category; `withConfidence`:
+ *   whether the route takes minConfidence; `normalize`: a pin checked on
+ *   the way in (null drops it).
  */
-export function createPlacesSource({
+export function createPointSource({
   fetchImpl = (...args) => globalThis.fetch(...args),
+  endpoint = OVERTURE_PLACES_ENDPOINT,
+  statusKey = 'poi',
+  categoryParam = 'category',
+  withConfidence = true,
+  normalize = normalizePlace,
+  words = 'The places index',
 } = {}) {
   const inflight = { pins: null, counts: null };
 
@@ -36,7 +53,7 @@ export function createPlacesSource({
       });
     } catch (error) {
       if (error?.name === 'AbortError') throw error;
-      throw new PlacesError('failed', 'The places index did not answer');
+      throw new PlacesError('failed', `${words} did not answer`);
     } finally {
       if (inflight[kind] === controller) inflight[kind] = null;
     }
@@ -53,20 +70,20 @@ export function createPlacesSource({
 
   const filters = ({ category, minConfidence, version }) =>
     new URLSearchParams({
-      category,
-      minConfidence: String(minConfidence),
+      [categoryParam]: category,
+      ...(withConfidence ? { minConfidence: String(minConfidence) } : {}),
       ...(version ? { v: version } : {}),
     });
 
   return {
-    /** {configured, version, places, sources}: /api/overture/layers' `poi`. */
+    /** {configured, version, places, sources}: /api/overture/layers' entry. */
     async status() {
       try {
         const response = await fetchImpl('/api/overture/layers', {
           credentials: 'same-origin',
         });
         const body = await response.json().catch(() => null);
-        const places = body?.poi;
+        const places = body?.[statusKey];
         return places?.configured && /^[0-9a-f]{12}$/.test(places.version || '')
           ? {
               configured: true,
@@ -87,12 +104,9 @@ export function createPlacesSource({
       const params = filters({ category, minConfidence, version });
       for (const side of ['west', 'south', 'east', 'north'])
         params.set(side, String(box[side]));
-      const body = await getJson(
-        `${OVERTURE_PLACES_ENDPOINT}?${params}`,
-        'pins',
-      );
+      const body = await getJson(`${endpoint}?${params}`, 'pins');
       const places = (Array.isArray(body.places) ? body.places : [])
-        .map(normalizePlace)
+        .map(normalize)
         .filter(Boolean);
       return {
         places,
@@ -107,10 +121,7 @@ export function createPlacesSource({
       if (bounds)
         for (const side of ['west', 'south', 'east', 'north'])
           params.set(side, String(bounds[side]));
-      const body = await getJson(
-        `${OVERTURE_PLACES_ENDPOINT}/counts?${params}`,
-        'counts',
-      );
+      const body = await getJson(`${endpoint}/counts?${params}`, 'counts');
       const cells = new Map();
       for (const entry of Array.isArray(body.cells) ? body.cells : []) {
         const [cell, count] = Array.isArray(entry) ? entry : [];

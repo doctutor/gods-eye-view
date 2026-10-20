@@ -12,6 +12,7 @@ export const ASSET_WORDS = Object.freeze({
   charging: Object.freeze({
     chip: msg('EV CHARGING'),
     title: msg('Electric vehicle charging stations (OpenStreetMap)'),
+    overtureTitle: msg('Electric vehicle charging stations (Overture Maps)'),
   }),
   bike: Object.freeze({
     chip: msg('BIKE LANES'),
@@ -20,14 +21,17 @@ export const ASSET_WORDS = Object.freeze({
   hydrant: Object.freeze({
     chip: msg('HYDRANTS'),
     title: msg('Fire hydrants (OpenStreetMap)'),
+    overtureTitle: msg('Fire hydrants (Overture Maps)'),
   }),
   lamp: Object.freeze({
     chip: msg('STREET LIGHTS'),
     title: msg('Street lamps (OpenStreetMap)'),
+    overtureTitle: msg('Street lamps (Overture Maps)'),
   }),
   signals: Object.freeze({
     chip: msg('SIGNALS'),
     title: msg('Traffic signals (OpenStreetMap)'),
+    overtureTitle: msg('Traffic signals (Overture Maps)'),
   }),
 });
 
@@ -81,7 +85,9 @@ export function statusText({
   if (state === 'failed') return t('Street assets unavailable');
   if (state === 'loading')
     return source === 'overture'
-      ? t('Reading the Overture places…')
+      ? type.overture?.source === 'infrastructure'
+        ? t('Reading the Overture infrastructure…')
+        : t('Reading the Overture places…')
       : t('Asking OpenStreetMap…');
   if (state !== 'ready') return '';
   const parts = [assetCountText(type.key, count)];
@@ -126,8 +132,8 @@ export function rowControls({
       id: `asset-${entry.key}`,
       label: t(ASSET_WORDS[entry.key].chip),
       title:
-        overture && entry.key === 'charging'
-          ? t('Electric vehicle charging stations (Overture Maps)')
+        overture && entry.key === asset && ASSET_WORDS[entry.key].overtureTitle
+          ? t(ASSET_WORDS[entry.key].overtureTitle)
           : t(ASSET_WORDS[entry.key].title),
       active: asset === entry.key,
       onClick: () => onAsset(entry.key),

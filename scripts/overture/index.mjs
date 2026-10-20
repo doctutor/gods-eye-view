@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openParquet, rowsOfFlat, rowsOfRepeated } from './parquet.mjs';
 import { checkRawDir, rawDirFor, rawDirLabel } from '../rawDir.mjs';
 import { buildBuildings, buildingsStatus } from './buildings.mjs';
-import { buildPlaces, placesStatus } from './places.mjs';
+import { buildInfrastructure, buildPlaces, placesStatus } from './places.mjs';
 import {
   INDEX_FORMAT,
   CELL_DEGREES,
@@ -37,6 +37,7 @@ import {
  * place of OpenStreetMap through Overpass.
  *
  *   node scripts/overture/index.mjs build [--force] [--regions a,b] [--dir DIR]
+ *     [--buildings] [--places] [--infrastructure] [--drop-raw] [--cap-gb N]
  *   node scripts/overture/index.mjs status [--json] [--dir DIR]
  *
  * `build` lists the release's division point files in Overture's public
@@ -96,6 +97,7 @@ export function parseArgs(argv) {
       flags.buildingRegions = argv[++i];
     else if (argv[i] === '--keep-raw') flags.keepRaw = true;
     else if (argv[i] === '--places') flags.places = true;
+    else if (argv[i] === '--infrastructure') flags.infrastructure = true;
     else if (argv[i] === '--drop-raw') flags.dropRaw = true;
     else if (argv[i] === '--cap-gb') flags.capGb = Number(argv[++i]);
     else throw new Error(`unknown option ${argv[i]}`);
@@ -483,6 +485,7 @@ export function status(dir, rawDir = path.join(dir, 'raw')) {
       release: DIVISIONS.release,
       buildings: buildingsStatus(dir),
       places: placesStatus(dir),
+      infrastructure: placesStatus(dir, 'infrastructure'),
     };
   return {
     built: true,
@@ -498,6 +501,7 @@ export function status(dir, rawDir = path.join(dir, 'raw')) {
     bytes: current.bytes,
     buildings: buildingsStatus(dir),
     places: placesStatus(dir),
+    infrastructure: placesStatus(dir, 'infrastructure'),
   };
 }
 
@@ -543,6 +547,15 @@ async function main() {
         ...(flags.capGb ? { capBytes: flags.capGb * 1e9 } : {}),
         userAgent: USER_AGENT,
       });
+    if (flags.infrastructure)
+      await buildInfrastructure({
+        dir,
+        rawRoot: rawDir,
+        keepRaw: !flags.dropRaw,
+        force: flags.force,
+        ...(flags.capGb ? { capBytes: flags.capGb * 1e9 } : {}),
+        userAgent: USER_AGENT,
+      });
     return;
   }
   if (flags.command === 'status') {
@@ -575,6 +588,14 @@ async function main() {
         ? `Overture places ${places.version} of ${places.builtAt}: ${places.places.toLocaleString('en')} places, ${(places.bytes / 1e9).toFixed(2)} GB in ${places.buckets} buckets; raw ${places.rawDir}`
         : 'Overture places: not built. Run npm run overture:build -- --places.',
     );
+    const { infrastructure } = answer;
+    console.log(
+      infrastructure.built
+        ? `Overture infrastructure ${infrastructure.version} of ${infrastructure.builtAt}: ${infrastructure.places.toLocaleString('en')} features, ${(infrastructure.bytes / 1e9).toFixed(2)} GB in ${infrastructure.buckets} buckets; raw ${infrastructure.rawDir}`
+        : 'Overture infrastructure: not built. Run npm run overture:build -- --infrastructure.',
+    );
+    for (const [name, n] of Object.entries(infrastructure.byClass || {}))
+      console.log(`  ${name}: ${n.toLocaleString('en')}`);
     return;
   }
   throw new Error(`unknown command ${flags.command} (build, status)`);

@@ -9,6 +9,7 @@ import {
 import { decodeRowGroup, writePart } from './buildingsParts.mjs';
 import { mergeBucket } from './buildingsMerge.mjs';
 import { decodePlacesRowGroup } from './placesParts.mjs';
+import { decodeInfrastructureRowGroup } from './infrastructureParts.mjs';
 import { mergePlacesBucket } from './placesMerge.mjs';
 
 /**
@@ -65,8 +66,23 @@ async function part({
   return { fetched, bytes, stats };
 }
 
-/** A places row group: fetched (kept on the raw archive) and decoded into a part. */
-async function placesPart({ entry, rawDir, partFile, dropRaw, userAgent }) {
+/** The point builds' row-group decoders, by build (places.mjs POINT_BUILDS). */
+const POINT_DECODERS = {
+  places: decodePlacesRowGroup,
+  infrastructure: decodeInfrastructureRowGroup,
+};
+
+/** A point build's row group: fetched (kept on the raw archive) and decoded into a part. */
+async function placesPart({
+  kind = 'places',
+  entry,
+  rawDir,
+  partFile,
+  dropRaw,
+  userAgent,
+}) {
+  const decode = POINT_DECODERS[kind];
+  if (!decode) throw new Error(`No decoder for ${kind}`);
   let fetched = 0;
   for (let attempt = 0; ; attempt++) {
     try {
@@ -88,10 +104,7 @@ async function placesPart({ entry, rawDir, partFile, dropRaw, userAgent }) {
     footers.clear();
     footers.set(entry.file, footer);
   }
-  const { buckets, stats } = decodePlacesRowGroup(
-    readRowGroupFile(rawFile),
-    footer,
-  );
+  const { buckets, stats } = decode(readRowGroupFile(rawFile), footer);
   const bytes = writePart(
     partFile,
     { file: entry.file, group: entry.group, stats },
