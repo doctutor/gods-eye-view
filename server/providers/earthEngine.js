@@ -76,6 +76,8 @@ export const DEFAULT_DAILY_TILES = 20_000;
 /** A warning is logged once a day as the tiles reach each of these shares. */
 export const BUDGET_WARNINGS = Object.freeze([50, 90]);
 const MAX_TILE_BYTES = 2 * 1024 * 1024;
+/** computePixels: 512² cells of two float bands is 2 MB. */
+const MAX_PIXELS_BYTES = 4 * 1024 * 1024;
 const TILE_TIMEOUT_MS = 30_000;
 const CACHE_DIR = path.join('.gev-cache', 'earth-engine');
 const NEEDS_KEY =
@@ -1068,6 +1070,31 @@ export function createRestBackend({
         body,
       };
     },
+    /**
+     * An expression's pixels over a grid, as NPY (image:computePixels): the
+     * raster values service's numbers (server/providers/rasterValues/).
+     * @returns {Promise<{status: number, body: Buffer|null, error?: string}>}
+     */
+    async computePixels(expression, grid) {
+      const response = await authorized(
+        `${EE_API}/projects/${encodeURIComponent(project)}/image:computePixels`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ expression, fileFormat: 'NPY', grid }),
+        },
+      );
+      if (!response.ok)
+        return {
+          status: response.status,
+          body: null,
+          error: await errorText(response),
+        };
+      const body = Buffer.from(await response.arrayBuffer());
+      if (body.length > MAX_PIXELS_BYTES)
+        return { status: 502, body: null, error: 'Pixels too large' };
+      return { status: 200, body };
+    },
   };
 }
 
@@ -1521,6 +1548,36 @@ export function createEarthEngineService({
         body: answer.body,
       };
     },
+
+    /**
+     * An expression's pixels over a grid (NPY), counted against the day's
+     * budget as one tile of the layer: the raster values service's.
+     * @returns {Promise<{status: number, body?: Buffer, error?: string}>}
+     */
+    async computePixels(layerId, expression, grid) {
+      const current = settings();
+      if (!current.configured && !backend)
+        return { status: 503, error: NEEDS_KEY };
+      if (usage().tiles >= current.dailyTiles)
+        return {
+          status: 429,
+          error: `The day's ${current.dailyTiles} Earth Engine tiles are used`,
+        };
+      const engine = backendNow();
+      if (typeof engine?.computePixels !== 'function')
+        return {
+          status: 503,
+          error: 'This Earth Engine backend has no computePixels',
+        };
+      countTile(layerId);
+      const answer = await engine.computePixels(expression, grid);
+      if (answer.status !== 200 || !answer.body)
+        return {
+          status: answer.status === 200 ? 502 : answer.status,
+          error: answer.error,
+        };
+      return { status: 200, body: answer.body };
+    },
   };
 }
 
@@ -1580,6 +1637,12 @@ export function createEarthEngineHandler({ service }) {
 }
 
 let shared = null;
+
+/** The route's service, made when first asked for: raster values count against its budget too. */
+export function sharedEarthEngineService(sourceRoot = defaultSourceRoot) {
+  shared ||= createEarthEngineService({ sourceRoot });
+  return shared;
+}
 
 /** Vite plugin: /api/earth-engine for the Earth Engine overlay layers. */
 export function earthEngineProxy({

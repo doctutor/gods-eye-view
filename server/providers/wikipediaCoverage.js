@@ -9,6 +9,7 @@ import { defaultSourceRoot } from './common/source-root.js';
 import {
   TILE_SIZE,
   VARIANTS,
+  boxValues,
   encodeTile,
   openGrid,
   tileValues,
@@ -266,6 +267,29 @@ export function createWikipediaCoverageService({
         status: 200,
         contentType: 'application/octet-stream',
         body: encodeTile(tileValues(open, variant, z, x, y)),
+      };
+    },
+
+    /**
+     * Raster values (server/providers/rasterValues/): a variant over an
+     * equal-angle box, cols × rows, as little-endian Float32.
+     * @returns {{status: number, body?: Buffer, error?: string}}
+     */
+    values(variant, box, cols, rows) {
+      if (!VARIANTS.includes(variant))
+        return { status: 404, error: 'No such variant' };
+      const open = grid();
+      if (!open) return { status: 503, error: NEEDS_BUILD };
+      if (variant === 'text' && !open.hasText)
+        return {
+          status: 503,
+          error:
+            'The grid was built without article sizes (npm run wikipedia:build -- --text)',
+        };
+      const values = boxValues(open, variant, box, cols, rows);
+      return {
+        status: 200,
+        body: Buffer.from(values.buffer, values.byteOffset, values.byteLength),
       };
     },
   };

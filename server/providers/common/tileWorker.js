@@ -15,6 +15,10 @@ const DRAWERS = Object.freeze({
     ),
   'rivers-v2': () =>
     import('../riversV2.js').then((m) => m.createRiversV2Service),
+  'raster-values': () =>
+    import('../rasterValues/selfHosted.js').then(
+      (m) => m.createSelfHostedValues,
+    ),
 });
 
 const drawerReady = (async () => {

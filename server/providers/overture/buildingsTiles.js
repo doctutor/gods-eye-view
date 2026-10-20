@@ -15,6 +15,8 @@ import {
   eachCell,
   latOfUnitY,
   openBucket,
+  unitX,
+  unitY,
 } from './buildingsFile.js';
 import { createCoverage, parseInk } from '../riversV2/render.js';
 import { encodeRgba } from '../census/render.js';
@@ -400,6 +402,161 @@ export function createBuildingsTiles({
         license: m.license,
         maxZoom: OVERTURE_BUILDINGS_MAX_ZOOM,
         footprintZoom: OVERTURE_FOOTPRINT_ZOOM,
+      };
+    },
+    /**
+     * Raster values (server/providers/rasterValues/): a mode's numbers over
+     * an equal-angle box, cols × rows, north row first, little-endian
+     * Float32: COUNT buildings per km², COVER the share of the ground built
+     * on (0 to 1), HEIGHT the mean height in metres (NaN where little is
+     * built or known, as the tiles leave it clear). Cells at least a z 14
+     * pixel (2.4 km at the equator) sum the buckets' own cells, cells at
+     * least a z 10 tile's pixel (153 m) the z 10 tiles' ('mean': sums over
+     * the cell's ground); finer cells take the z 10 pixel under their centre
+     * ('sample'). NaN outside the build's regions.
+     * @returns {{status: number, version?: string, aggregation?: string,
+     *   body?: Buffer, error?: string}}
+     */
+    values(mode, box, cols, rows) {
+      const m = manifest();
+      if (!m)
+        return {
+          status: 503,
+          error: lastError || 'Overture buildings are not built',
+        };
+      if (!MODE.has(mode)) return { status: 404, error: 'No such mode' };
+      const { west, south, east, north } = box;
+      const dx = (east - west) / cols;
+      const dy = (north - south) / rows;
+      const cos = Math.cos((((south + north) / 2) * Math.PI) / 180);
+      const cellM = dx * 111_319.49 * cos;
+      const ground = (cellZoom) => UNIT_M * 2 ** SHIFT(cellZoom) * cos;
+      const level =
+        cellM >= ground(BUCKET_ZOOM + 8) ? BUCKET_ZOOM : DENSITY_ZOOM;
+      const sample = cellM < ground(DENSITY_ZOOM + 8);
+      const kind = level === BUCKET_ZOOM ? KIND.D14 : KIND.D18;
+      const per = level === BUCKET_ZOOM ? 1 : DENSITY_PER_BUCKET;
+      const blockShift = SHIFT(level);
+      const cellShift = SHIFT(level + 8);
+      const blockOf = (tx, ty) => {
+        const b = bucket(m, Math.floor(tx / per), Math.floor(ty / per));
+        return b?.block(kind, (ty % per) * per + (tx % per)) || null;
+      };
+      const boxes = Object.values(m.regionBoxes || {});
+      const inRegions = (lat, lon) =>
+        boxes.some(
+          ([w, s, e, n]) => lat >= s && lat <= n && lon >= w && lon <= e,
+        );
+      const valueOf = (count, area, heightArea, known, km2) => {
+        if (mode === 'count') return count / km2;
+        const cover = area / (km2 * 1e6);
+        if (mode === 'cover') return cover;
+        if (
+          cover < HEIGHT_MIN_COVER ||
+          !(known > 0) ||
+          known < HEIGHT_MIN_KNOWN * area
+        )
+          return NaN;
+        return heightArea / known;
+      };
+      const out = new Float32Array(cols * rows);
+      if (sample) {
+        // Each cell reads the z 10 pixel under its centre.
+        const dense = new Map(); // block → Float32Array(256² × 4) | null
+        for (let row = 0; row < rows; row++) {
+          const lat = north - (row + 0.5) * dy;
+          const uy = unitY(lat);
+          const km2 = cellKm2(level + 8, uy);
+          for (let col = 0; col < cols; col++) {
+            const lon = west + (col + 0.5) * dx;
+            if (!inRegions(lat, lon)) {
+              out[row * cols + col] = NaN;
+              continue;
+            }
+            const ux = unitX(lon);
+            const tx = Math.floor(ux / 2 ** blockShift);
+            const ty = Math.floor(uy / 2 ** blockShift);
+            const key = ty * 2 ** level + tx;
+            if (!dense.has(key)) {
+              const raw = blockOf(tx, ty);
+              let grid = null;
+              if (raw) {
+                grid = new Float32Array(TILE * TILE * 4);
+                eachCell(raw, (cell, count, area, heightArea, known) => {
+                  grid.set([count, area, heightArea, known], cell * 4);
+                });
+              }
+              dense.set(key, grid);
+            }
+            const grid = dense.get(key);
+            const cell =
+              (Math.floor(uy / 2 ** cellShift) % TILE) * TILE +
+              (Math.floor(ux / 2 ** cellShift) % TILE);
+            out[row * cols + col] = grid
+              ? valueOf(
+                  grid[cell * 4],
+                  grid[cell * 4 + 1],
+                  grid[cell * 4 + 2],
+                  grid[cell * 4 + 3],
+                  km2,
+                )
+              : valueOf(0, 0, 0, 0, km2);
+          }
+        }
+      } else {
+        // The blocks' cells summed into the cell holding their centre.
+        const sums = new Float64Array(cols * rows * 4);
+        const x0 = Math.floor(unitX(west) / 2 ** blockShift);
+        const x1 = Math.floor(unitX(east) / 2 ** blockShift);
+        const y0 = Math.floor(unitY(north) / 2 ** blockShift);
+        const y1 = Math.floor(unitY(south) / 2 ** blockShift);
+        for (let ty = y0; ty <= y1; ty++)
+          for (let tx = x0; tx <= x1; tx++) {
+            const raw = blockOf(tx, ty);
+            if (!raw) continue;
+            eachCell(raw, (cell, count, area, heightArea, known) => {
+              const ux = (tx * TILE + (cell % TILE) + 0.5) * 2 ** cellShift;
+              const uy =
+                (ty * TILE + Math.floor(cell / TILE) + 0.5) * 2 ** cellShift;
+              const col = Math.floor(
+                ((ux / 2 ** WORLD_BITS) * 360 - 180 - west) / dx,
+              );
+              const row = Math.floor((north - latOfUnitY(uy)) / dy);
+              if (col < 0 || col >= cols || row < 0 || row >= rows) return;
+              const at = (row * cols + col) * 4;
+              sums[at] += count;
+              sums[at + 1] += area;
+              sums[at + 2] += heightArea;
+              sums[at + 3] += known;
+            });
+          }
+        for (let row = 0; row < rows; row++) {
+          const top = north - row * dy;
+          const lat = top - dy / 2;
+          const km2 =
+            6371.0088 ** 2 *
+            ((dx * Math.PI) / 180) *
+            (Math.sin((top * Math.PI) / 180) -
+              Math.sin(((top - dy) * Math.PI) / 180));
+          for (let col = 0; col < cols; col++) {
+            const i = row * cols + col;
+            out[i] = inRegions(lat, west + (col + 0.5) * dx)
+              ? valueOf(
+                  sums[i * 4],
+                  sums[i * 4 + 1],
+                  sums[i * 4 + 2],
+                  sums[i * 4 + 3],
+                  km2,
+                )
+              : NaN;
+          }
+        }
+      }
+      return {
+        status: 200,
+        version: m.version,
+        aggregation: sample ? 'sample' : 'mean',
+        body: Buffer.from(out.buffer, out.byteOffset, out.byteLength),
       };
     },
     /** One tile: {status, body?, version, empty?}. */

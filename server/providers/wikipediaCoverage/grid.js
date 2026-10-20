@@ -382,6 +382,81 @@ export function tileValues(grid, variant, z, x, y, size = TILE_SIZE) {
   return out;
 }
 
+/**
+ * Personal fork (raster values, server/providers/rasterValues/): the values
+ * over an equal-angle box of cols × rows cells, row 0 at the north edge:
+ * articles (or bytes) per km² of the grid's cells whose centres fall in each
+ * (from the coarsest level whose cells still fit one), or for 'count' the
+ * articles in it; a cell finer than the grid's takes its share of the
+ * count by ground.
+ * @returns {Float32Array}
+ */
+export function boxValues(
+  grid,
+  variant,
+  { west, south, east, north },
+  cols,
+  rows,
+) {
+  if (!VARIANTS.includes(variant))
+    throw new RangeError(`No variant ${variant}`);
+  const dx = (east - west) / cols;
+  const dy = (north - south) / rows;
+  const pixelDeg = Math.min(dx, dy);
+  let index = 0;
+  while (index + 1 < LEVELS && levelShape(index + 1).cellDeg <= pixelDeg)
+    index += 1;
+  const level = grid.level(index);
+  const { width, height, counts, bytes } = level;
+  const cellDeg = levelShape(index).cellDeg;
+  if (variant === 'text' && !bytes)
+    throw new RangeError('The grid was built without article sizes');
+  const source = variant === 'text' ? bytes : counts;
+  const areas = rowAreas(index);
+  const finer = pixelDeg < cellDeg;
+  const out = new Float32Array(cols * rows);
+  const spans = new Array(cols);
+  for (let i = 0; i < cols; i++)
+    spans[i] = cellSpan(
+      west + i * dx,
+      west + (i + 1) * dx,
+      cellDeg,
+      width,
+      -180,
+      1,
+    );
+  for (let j = 0; j < rows; j++) {
+    const top = north - j * dy;
+    const bottom = top - dy;
+    const [rowFirst, rowLast] = cellSpan(bottom, top, cellDeg, height, 90, -1);
+    const groundKm2 = finer
+      ? EARTH_RADIUS_KM *
+        EARTH_RADIUS_KM *
+        dx *
+        RAD *
+        (Math.sin(top * RAD) - Math.sin(bottom * RAD))
+      : 0;
+    for (let i = 0; i < cols; i++) {
+      const [colFirst, colLast] = spans[i];
+      let total = 0;
+      let area = 0;
+      for (let row = rowFirst; row <= rowLast; row++) {
+        const start = row * width;
+        for (let col = colFirst; col <= colLast; col++)
+          total += source[start + col];
+        area += areas[row] * (colLast - colFirst + 1);
+      }
+      out[j * cols + i] =
+        variant !== 'count'
+          ? total / area
+          : finer
+            ? (total / area) * groundKm2
+            : total;
+    }
+  }
+  return out;
+}
+
 export const TILE_MAGIC = 'WCT1';
 
 /** A tile's values as the bytes the client reads: magic, width, height, dtype 1 (Float32), values. */

@@ -8,7 +8,7 @@ import { admitSameSite } from './common/same-site.js';
 import { keepTile } from './common/tileCache.js';
 import { createTilePool } from './common/tilePool.js';
 import { defaultSourceRoot } from './common/source-root.js';
-import { openTracts } from './census/tractsFile.js';
+import { COORD_SCALE, openTracts } from './census/tractsFile.js';
 import { EMPTY_PNG } from './riversV2/render.js';
 import {
   TILE_SIZE,
@@ -290,6 +290,81 @@ export function createCensusService({
       });
       if (raster.empty) return { status: 200, version, body: null };
       return { status: 200, version, body: encodeRgba(raster) };
+    },
+
+    /**
+     * Raster values (server/providers/rasterValues/): each cell of an
+     * equal-angle box (cols × rows, north row first) takes the value of the
+     * tract its centre falls in, NaN outside the tracts or where a tract has
+     * none; little-endian Float32.
+     * @returns {{status: number, version?: string, body?: Buffer, error?: string}}
+     */
+    values(mode, box, cols, rows) {
+      if (!CENSUS_LOCAL_MODES.includes(mode))
+        return { status: 404, error: 'No such mode' };
+      const open = build();
+      const status = modeStatus(open, mode);
+      if (!status.ready) return { status: 503, error: status.message };
+      const out = new Float32Array(cols * rows).fill(NaN);
+      const values = open.values[mode] || {};
+      const { west, south, east, north } = box;
+      const dx = (east - west) / cols;
+      const dy = (north - south) / rows;
+      for (const t of open.tracts.tractsIn(box)) {
+        const value = values[open.tracts.geoids[t]];
+        if (!Number.isFinite(value)) continue;
+        fillByCentres(open.tracts.ringsOf(t), (row, first, last) =>
+          out.fill(value, row * cols + first, row * cols + last + 1),
+        );
+      }
+      /** Even-odd fill of a tract's rings over the cells whose centres they hold. */
+      function fillByCentres(rings, span) {
+        let top = -Infinity;
+        let bottom = Infinity;
+        for (const ring of rings)
+          for (let i = 1; i < ring.length; i += 2) {
+            if (ring[i] > top) top = ring[i];
+            if (ring[i] < bottom) bottom = ring[i];
+          }
+        const rowFirst = Math.max(
+          0,
+          Math.ceil((north - top / COORD_SCALE) / dy - 0.5),
+        );
+        const rowLast = Math.min(
+          rows - 1,
+          Math.floor((north - bottom / COORD_SCALE) / dy - 0.5),
+        );
+        const crossings = [];
+        for (let row = rowFirst; row <= rowLast; row++) {
+          const y = (north - (row + 0.5) * dy) * COORD_SCALE;
+          crossings.length = 0;
+          for (const ring of rings) {
+            const n = ring.length / 2;
+            for (let i = 0, j = n - 1; i < n; j = i++) {
+              const yi = ring[i * 2 + 1];
+              const yj = ring[j * 2 + 1];
+              if (yi > y === yj > y) continue;
+              const xi = ring[i * 2];
+              const xj = ring[j * 2];
+              crossings.push(xi + ((y - yi) / (yj - yi)) * (xj - xi));
+            }
+          }
+          crossings.sort((a, b) => a - b);
+          for (let k = 0; k + 1 < crossings.length; k += 2) {
+            // Cells whose centre x lies in [crossings[k], crossings[k + 1]).
+            const from = (crossings[k] / COORD_SCALE - west) / dx - 0.5;
+            const to = (crossings[k + 1] / COORD_SCALE - west) / dx - 0.5;
+            const first = Math.max(0, Math.ceil(from));
+            const last = Math.min(cols - 1, Math.ceil(to) - 1);
+            if (last >= first) span(row, first, last);
+          }
+        }
+      }
+      return {
+        status: 200,
+        version: censusTileVersion(mode, open.manifest.buildId),
+        body: Buffer.from(out.buffer, out.byteOffset, out.byteLength),
+      };
     },
 
     /** Stop the tile workers. */
