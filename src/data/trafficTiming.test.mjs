@@ -162,7 +162,11 @@ test('traffic timing pairs real ordering to the scheduling change and guards re-
       configFile: false,
       appType: 'custom',
       logLevel: 'silent',
-      server: { middlewareMode: true },
+      // Personal fork: no watcher and no dependency scan. This server only
+      // SSR-loads one module; watching or scanning the checkout walked the
+      // worker worktrees and the caches and took about two minutes.
+      server: { middlewareMode: true, watch: null },
+      optimizeDeps: { noDiscovery: true, entries: [] },
       plugins: [{
         name: 'traffic-timing-test-hooks',
         transform(code, id) {

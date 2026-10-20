@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { BROWSER_CSP, createBrowserViteConfig } from '../../build/vite.js';
+import { createFilter } from 'vite';
+import {
+  BROWSER_CSP,
+  DEV_SCAN_ENTRIES,
+  DEV_WATCH_IGNORED,
+  createBrowserViteConfig,
+} from '../../build/vite.js';
 import standaloneConfig, * as compatibility from '../../vite.config.js';
 import * as providers from '../../server/providers/local.js';
 
@@ -236,4 +242,34 @@ test('the CSP admits the event media embeds and the Maps JavaScript API, and no 
   }
   // X posts load in X's own frames.
   assert.ok(frames.includes('https://platform.twitter.com'));
+});
+
+// Personal fork: the dev server neither watches nor scans worker worktrees
+// and caches (build/vite.js DEV_WATCH_IGNORED, DEV_SCAN_ENTRIES).
+test('the dev server ignores worktrees and caches and scans only the app document', () => {
+  const config = createBrowserViteConfig();
+  assert.deepEqual(config.server.watch.ignored, [...DEV_WATCH_IGNORED]);
+  assert.deepEqual(config.optimizeDeps.entries, ['index.html']);
+  assert.deepEqual([...DEV_SCAN_ENTRIES], ['index.html']);
+  // Vite's own matcher (picomatch, dotfiles included).
+  const ignored = createFilter(config.server.watch.ignored, null, {
+    resolve: false,
+  });
+  for (const file of [
+    'C:/repo/.claude/worktrees/ev-infrastructure/index.html',
+    'C:/repo/.gev-cache/earth-engine/tiles/a/1/2/3.png',
+    'C:/repo/.gev-cache.old/camindex/probe/cam.html',
+    'C:/repo/.gev-secrets/earth-engine.json',
+    'C:/repo/node_modules/cesium/index.js',
+  ])
+    assert.ok(ignored(file), file);
+  for (const file of [
+    'C:/repo/index.html',
+    'C:/repo/src/main.js',
+    'C:/repo/src/ui/templates/layer-panels.html',
+    'C:/repo/server/providers/local.js',
+  ])
+    assert.ok(!ignored(file), file);
+  // Serving is unchanged: the same deny list.
+  assert.ok(config.server.fs.deny.includes('**/.git/**'));
 });

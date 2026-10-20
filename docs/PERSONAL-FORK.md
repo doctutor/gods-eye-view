@@ -4282,6 +4282,20 @@ drowning the view. There are four ways to do it, by the kind of data:
 
 ## Smaller additions
 
+- **What the dev server watches and scans** (`build/vite.js`). Vite's
+  watcher ignores `.claude/` (the worker worktrees, each a full checkout
+  with its own `index.html`), `.gev-cache*` (the tile and data caches, a
+  junction to another drive), `.gev-secrets/` and `node_modules/`, so a new
+  worktree or a deleted cache page no longer reloads the app; and the
+  dependency scanner starts from `index.html` alone rather than every
+  `*.html` in the tree (camindex fixtures, the template fragments,
+  `tools/cesium-render.html`, which its own script serves). Measured
+  2026-10-20 against the main checkout with a bare Vite on port 4179: the
+  dependency scan 156 s to 11.6 s (18 entries to 1), the watched paths
+  33,563 to 2,557, server ready 130 ms to 118 ms. `src/data/trafficTiming.test.mjs`
+  builds its own server, now without a watcher or a scan: 123 s to 0.9 s
+  in the main checkout. Upstream has none of these folders, so the ignores
+  are harmless there.
 - **Frame cache.** Camera stills are kept for their Cache-Control lifetime (at
   most an hour, 500 frames or 64 MB), so an open panel asks OpenCCTV at most
   every 10 minutes and Windy every 2.5 minutes
