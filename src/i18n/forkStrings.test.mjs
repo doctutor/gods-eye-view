@@ -23,6 +23,7 @@ const FORK_FILES = [
   'src/layers/earthEngine/',
   'src/layers/grid/',
   'src/layers/wikipediaCoverage/',
+  'src/layers/lego/',
   'src/layers/localities/',
   'src/layers/streetAssets/',
   'src/layers/places/',

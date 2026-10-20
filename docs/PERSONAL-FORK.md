@@ -47,6 +47,7 @@ unless its switch is set to `0`.
 - [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
 - [Rivers: click a reach](#rivers-click-a-reach)
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
+- [Lego rendering mode](#lego-rendering-mode)
 - [Level of detail](#level-of-detail)
 
 - [Keyless basemaps (MAP SOURCE)](#keyless-basemaps-map-source)
@@ -3545,6 +3546,118 @@ what would move; `--only rivers,overture` limits it. Planned on
 files, 4.82 GB; overture 513, 1.02 GB; census 1, 0.06 GB; wikipedia the
 dump and its metadata, 0.05 GB). After moving, set `GEV_RAW_DIR` to the
 archive in `.env`, or the builds will download again.
+
+## Lego rendering mode
+
+Height instead of colour, for raster layers (`src/layers/lego/`). A
+drop-down beside the **ANALYSIS** heading picks **Render: Colour** (the
+default) or **Render: Lego**, kept as `gev.render.mode`. In Lego, the
+raster layer turned on last (an Earth Engine image layer, the Census tracts'
+raster modes, or Wikipedia coverage; vector and point layers are untouched)
+is also built as bricks: each cell of its values grid around the camera is
+one column of stacked **2×2 bricks**, as tall as its value and in its own
+ramp's colour snapped to the classic Lego palette. The colour imagery stays
+beneath, so nodata and zero cells still read. A second drop-down, shown in
+Lego, sets the elevation exaggeration, 1× to 5× (`gev.render.legoExaggeration`,
+default 1×; its tooltip suggests 2× for flat country), and a line under the
+heading says what is built ("Elevation: 199,809 columns of 54 m bricks").
+
+**The brick.** Classic brick 3003 (design 300323) proportions: the footprint
+is the cell, square; a brick is 0.6 of its width tall (a 30 m cell stacks
+18 m bricks, a 10 m cell 6 m bricks); four studs 0.3 of the width across
+and about 0.1 high. Columns are quantised to the nearest whole brick.
+
+**Height.** Elevation (`ee-elevation`): the true height (× exaggeration)
+over the brick height; nothing at or below sea level. Any other raster: its
+legend range (`legendMin` to `legendMax` from the values header, on the
+layer's own scale: log for the log ramps such as Population and Wikipedia
+coverage, square root for elevation) onto 1 to 40 bricks; nodata and zero
+are no column. Forty bricks is 24 cell widths at any zoom, so a dense
+layer reads as a bar chart close in and a forest of towers from far out
+(`MAX_VALUE_BRICKS` in `model.js` is the knob).
+
+**Colour.** The layer's own ramp at the value (its Earth Engine
+visualization palette, the Wikipedia inferno stops; elevation its
+hypsometric tint), snapped to the nearest Lego colour by CIE L\*a\*b\*
+distance. The palette is the classic solid set, hex values from
+[Rebrickable's colour table](https://rebrickable.com/colors/) (its
+downloadable `colors.csv.gz`, read 2026-10-20); the greys are the classic
+ones (to 2007), not the bluish ones:
+
+| Colour        | LEGO name              | Rebrickable id | Hex       |
+| ------------- | ---------------------- | -------------- | --------- |
+| White         | White                  | 15             | `#ffffff` |
+| Bright red    | Bright Red             | 4              | `#c91a09` |
+| Bright blue   | Bright Blue            | 1              | `#0055bf` |
+| Bright yellow | Bright Yellow          | 14             | `#f2cd37` |
+| Black         | Black                  | 0              | `#05131d` |
+| Dark green    | Dark Green             | 2              | `#237841` |
+| Light grey    | Grey                   | 7              | `#9ba19d` |
+| Dark grey     | Dark Grey              | 8              | `#6d6e5c` |
+| Tan           | Brick Yellow           | 19             | `#e4cd9e` |
+| Orange        | Bright Orange          | 25             | `#fe8a18` |
+| Brown         | Earth Orange           | 6              | `#583927` |
+| Lime          | Bright Yellowish Green | 27             | `#bbe90b` |
+| Medium blue   | Medium Blue            | 73             | `#5a93db` |
+| Dark red      | Dark Red               | 320            | `#720e0f` |
+| Reddish brown | Reddish Brown          | 70             | `#582a12` |
+| Sand green    | Sand Green             | 378            | `#a0bcac` |
+
+**Base.** On the flat basemaps (blank, Positron, dark, Countries: no
+photoreal tileset and an ellipsoid terrain) the columns stand on the
+ellipsoid. On photoreal tiles or terrain each column stands on its cell's
+ground height, read from the elevation values of the same window and cells;
+elevation's own columns are the height and always rise from the ellipsoid.
+
+**Level of detail and budget.** The window is the Earth Engine overlays'
+(a square six camera heights across, at least 40 km; a planet-wide view
+takes 60° around the point under the camera). It is cut into cells square
+in metres, the coarsest of: what fits 200,000 columns, what fits 512 a
+side, and the layer's native cell (30 m for the DEM stack, 10 m for land
+cover and forest types, 100 m for population, 5 km for Wikipedia
+coverage); so native resolution close in, coarser as the camera rises
+(`cellsForWindow`). It is rebuilt when the camera settles out of the
+window's middle half or its height doubles or halves (the overlays'
+`viewMoved`: the hysteresis), 300 ms after it settles; the old bricks are
+freed.
+
+**Rendering.** One mesh, one draw call (`bricks.js`): every column a box on
+its cell's lat/lon corners in a local frame at the window's centre (so
+neighbours abut exactly and the Earth's curvature is kept), its top face and
+only the parts of its sides a taller neighbour does not hide (at 200,000
+columns over a massif, 233,000 to 274,000 faces instead of a million). The
+vertices are interleaved, 28 bytes each (position, normal, colour, the
+face's coordinates, the height in bricks), drawn by a Cesium `DrawCommand`
+with its own shader: a seam at every brick height on the sides, four studs
+on each top (lit on the sunward rim, a little shadow on the far side),
+darkened bevels at every edge, and a matte-plastic light (a soft key light,
+a sky fill, a broad faint highlight); log depth when the scene uses it.
+
+**Click.** A click on a column (`scene.pickPosition`, then the cell and its
+neighbours by height) opens a card through the world overlay: "N bricks =
+the value in the layer's units", the cell size, the column centre's
+latitude and longitude, and the source. Esc or another click closes it.
+
+**Data.** The values come from the local server's `GET
+/api/raster/values?layer&mode&west&south&east&north&cells` (a JSON header
+and float32 cells; `src/data/rasterValues.js` fetches, decodes and keeps the
+last 12 grids). Until that service is served the row says "Lego needs the
+raster values service (/api/raster/values)" and Colour is unchanged.
+
+**Timings** (headless Chrome 2026-10-20, ANGLE on a GeForce GTX 1080 Ti,
+1600 × 900, a synthetic massif seen from 40 km, the camera turning every
+frame; the frame interval is capped by the display rate):
+
+| Columns       | Faces   | Build  | Frame median | p95    | Max     |
+| ------------- | ------- | ------ | ------------ | ------ | ------- |
+| 50,176        | 58,049  | 313 ms | 6.9 ms       | 7.8 ms | 11.4 ms |
+| 99,856        | 117,438 | 472 ms | 6.9 ms       | 7.7 ms | 10.1 ms |
+| 199,809       | 233,283 | 818 ms | 6.9 ms       | 8.0 ms | 13.1 ms |
+| none (Colour) | —       | —      | 6.9 ms       | 7.8 ms | 13.0 ms |
+
+Build is decode + columns + mesh + upload, on the main thread. A real
+massif or city keeps more sides (up to about 500,000 faces for the
+synthetic city), still one draw call.
 
 ## Level of detail
 

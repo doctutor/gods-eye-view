@@ -3331,8 +3331,16 @@
   "OpenStreetMap is busy; trying again shortly": "OpenStreetMap está ocupado; se reintentará en breve",
   "OpenStreetMap places unavailable": "Lugares de OpenStreetMap no disponibles",
   "{count}+ OpenStreetMap places": "{count}+ lugares de OpenStreetMap",
-  "{count} OpenStreetMap places": {"one":"{count} lugar de OpenStreetMap","many":"{count} lugares de OpenStreetMap","other":"{count} lugares de OpenStreetMap"},
-  "{count} Natural Earth places": {"one":"{count} lugar de Natural Earth","many":"{count} lugares de Natural Earth","other":"{count} lugares de Natural Earth"},
+  "{count} OpenStreetMap places": {
+    "one": "{count} lugar de OpenStreetMap",
+    "many": "{count} lugares de OpenStreetMap",
+    "other": "{count} lugares de OpenStreetMap"
+  },
+  "{count} Natural Earth places": {
+    "one": "{count} lugar de Natural Earth",
+    "many": "{count} lugares de Natural Earth",
+    "other": "{count} lugares de Natural Earth"
+  },
   "Locality": "Localidad",
   "Municipality": "Municipio",
   "County": "Condado",
@@ -3343,7 +3351,11 @@
   "Reading the Overture index…": "Leyendo el índice de Overture…",
   "Overture places unavailable": "Lugares de Overture no disponibles",
   "{count}+ Overture places": "{count}+ lugares de Overture",
-  "{count} Overture places": {"one":"{count} lugar de Overture","many":"{count} lugares de Overture","other":"{count} lugares de Overture"},
+  "{count} Overture places": {
+    "one": "{count} lugar de Overture",
+    "many": "{count} lugares de Overture",
+    "other": "{count} lugares de Overture"
+  },
   "DOTS": "PUNTOS",
   "A dot at each named place": "Un punto en cada lugar con nombre",
   "EV CHARGING": "CARGA EV",
@@ -3356,11 +3368,31 @@
   "Street lamps (OpenStreetMap)": "Farolas (OpenStreetMap)",
   "SIGNALS": "SEMÁFOROS",
   "Traffic signals (OpenStreetMap)": "Semáforos (OpenStreetMap)",
-  "{count} charging stations": {"one":"{count} estación de carga","many":"{count} estaciones de carga","other":"{count} estaciones de carga"},
-  "{count} bike lane segments": {"one":"{count} tramo de carril bici","many":"{count} tramos de carril bici","other":"{count} tramos de carril bici"},
-  "{count} fire hydrants": {"one":"{count} hidrante","many":"{count} hidrantes","other":"{count} hidrantes"},
-  "{count} street lights": {"one":"{count} farola","many":"{count} farolas","other":"{count} farolas"},
-  "{count} traffic signals": {"one":"{count} semáforo","many":"{count} semáforos","other":"{count} semáforos"},
+  "{count} charging stations": {
+    "one": "{count} estación de carga",
+    "many": "{count} estaciones de carga",
+    "other": "{count} estaciones de carga"
+  },
+  "{count} bike lane segments": {
+    "one": "{count} tramo de carril bici",
+    "many": "{count} tramos de carril bici",
+    "other": "{count} tramos de carril bici"
+  },
+  "{count} fire hydrants": {
+    "one": "{count} hidrante",
+    "many": "{count} hidrantes",
+    "other": "{count} hidrantes"
+  },
+  "{count} street lights": {
+    "one": "{count} farola",
+    "many": "{count} farolas",
+    "other": "{count} farolas"
+  },
+  "{count} traffic signals": {
+    "one": "{count} semáforo",
+    "many": "{count} semáforos",
+    "other": "{count} semáforos"
+  },
   "Zoom in below {height} km to draw them": "Acércate por debajo de {height} km para dibujarlos",
   "Street assets need OVERPASS_UPSTREAMS in .env": "Los elementos urbanos necesitan OVERPASS_UPSTREAMS en .env",
   "Street assets unavailable": "Elementos urbanos no disponibles",
@@ -3412,8 +3444,16 @@
   "Run npm run overture:build -- --places for the Places layer": "Ejecuta npm run overture:build -- --places para la capa de Lugares",
   "Reading the Overture places…": "Leyendo los lugares de Overture…",
   "Places unavailable": "Lugares no disponibles",
-  "{count} places in view": {"one":"{count} lugar a la vista","many":"{count} lugares a la vista","other":"{count} lugares a la vista"},
-  "{count} places": {"one":"{count} lugar","many":"{count} lugares","other":"{count} lugares"},
+  "{count} places in view": {
+    "one": "{count} lugar a la vista",
+    "many": "{count} lugares a la vista",
+    "other": "{count} lugares a la vista"
+  },
+  "{count} places": {
+    "one": "{count} lugar",
+    "many": "{count} lugares",
+    "other": "{count} lugares"
+  },
   "the most confident; zoom in for more": "los más seguros; acércate para ver más",
   "≥{percent}%": "≥{percent}%",
   "Places Overture is at least {percent}% sure of": "Lugares de los que Overture está seguro al menos en un {percent}%",
@@ -3430,5 +3470,23 @@
   "META 1 M": "META 1 M",
   "Canopy height, Meta and WRI, 1 m (2018–2020 imagery)": "Altura del dosel, Meta y WRI, 1 m (imágenes de 2018–2020)",
   "ETH 10 M": "ETH 10 M",
-  "Canopy height, ETH Zürich, 10 m (2020), to compare: taller in tall forest": "Altura del dosel, ETH Zúrich, 10 m (2020), para comparar: más alta en el bosque alto"
+  "Canopy height, ETH Zürich, 10 m (2020), to compare: taller in tall forest": "Altura del dosel, ETH Zúrich, 10 m (2020), para comparar: más alta en el bosque alto",
+  "Render: Colour": "Dibujo: Color",
+  "Render: Lego": "Dibujo: Lego",
+  "{count} bricks = {value}": {
+    "one": "{count} ladrillo = {value}",
+    "many": "{count} ladrillos = {value}",
+    "other": "{count} ladrillos = {value}"
+  },
+  "Cell {size} m": "Celda de {size} m",
+  "Source: {source}": "Fuente: {source}",
+  "Turn on a raster layer to build it in bricks": "Activa una capa ráster para construirla con ladrillos",
+  "Building bricks…": "Construyendo ladrillos…",
+  "Lego needs the raster values service (/api/raster/values)": "Lego necesita el servicio de valores ráster (/api/raster/values)",
+  "Lego bricks unavailable": "Ladrillos Lego no disponibles",
+  "{layer}: {count} columns of {size} m bricks": "{layer}: {count} columnas de ladrillos de {size} m",
+  "Render mode for raster layers": "Modo de dibujo de las capas ráster",
+  "Colour: the layers as images. Lego: each cell a column of 2×2 bricks, as tall as its value": "Color: las capas como imágenes. Lego: cada celda, una columna de ladrillos 2×2 tan alta como su valor",
+  "Elevation exaggeration": "Exageración de la elevación",
+  "Elevation exaggeration: 1× is true height; 2× suits flat country": "Exageración de la elevación: 1× es la altura real; 2× va bien en terreno llano"
 }

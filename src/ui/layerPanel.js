@@ -239,8 +239,12 @@ export class LayerPanel {
     subscribeRowControls,
     onHiddenRefresh = () => {},
     weatherClock,
+    // Personal fork: a control beside a group heading, by the group's English
+    // label: (document) => {element, destroy} (the Lego render drop-down).
+    groupHeadingControls = {},
   }) {
     this.weatherClock = weatherClock;
+    this.groupHeadingControls = groupHeadingControls || {};
     this.getAll = getLayers;
     this.isEnabled = isEnabled;
     this.setEnabled = setEnabled;
@@ -334,6 +338,20 @@ export class LayerPanel {
         const heading = document.createElement('h3');
         heading.className = 'data-layer-group-heading';
         heading.textContent = t(group);
+        // Personal fork: a group's own control beside its heading.
+        const makeControl = this.groupHeadingControls[group];
+        if (typeof makeControl === 'function') {
+          try {
+            const control = makeControl(document);
+            if (control?.element) {
+              heading.classList.add('has-group-control');
+              heading.appendChild(control.element);
+              this._removers.push(() => control.destroy?.());
+            }
+          } catch (error) {
+            console.warn(`[Data] ${group} heading control error:`, error);
+          }
+        }
         this._toggleContainer.appendChild(heading);
       }
       previousGroup = group;

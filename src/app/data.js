@@ -1,6 +1,8 @@
 import { LayerLifecycle } from '../data/lifecycle.js';
 import { LayerPresentation } from './layerPresentation.js';
 import { createCyberSonarScene } from '../cyberSonarScene.js';
+// Personal fork: the Lego rendering mode for raster layers (src/layers/lego/).
+import { createApplicationLego } from './lego.js';
 /** Register the application layer catalog before allowing state restoration. */
 export function createApplicationData({
   scene: { viewer, mapStackController },
@@ -22,8 +24,16 @@ export function createApplicationData({
         `Data layers could not be destroyed: ${[...dataManager.layers.keys()].join(', ')}`,
       );
   });
+  // Personal fork: Lego mode, its drop-down beside the ANALYSIS heading.
+  const lego = createApplicationLego({
+    viewer,
+    dataManager,
+    mapStackController,
+  });
+  defer(() => lego.destroy());
   const presentation = new LayerPresentation(dataManager, {
     weatherClock: catalog?.weatherClock,
+    groupHeadingControls: lego.headingControls,
   });
   defer(() => presentation.destroy());
   onData?.(dataManager);
