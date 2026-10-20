@@ -3166,9 +3166,16 @@ with no Overpass query. Pins come from `/api/overture/places` (the box
 clipped to 1° around the view) and counts per hexagon from
 `/api/overture/places/counts`, at the same heights. The chip's title and
 the row say "Overture Maps". Without the build, or if it goes away while
-the layer is on, the type asks OpenStreetMap as before. Coverage differs
-by country (see Places): Overture has more around Baltimore, far fewer
-around Paris.
+the layer is on, the type asks OpenStreetMap as before.
+
+Coverage differs by country (see Places): Overture has more around
+Baltimore, far fewer around Paris. So a view where Overture has fewer
+than 3 stations (pins in the box, or counts in the window) asks Overpass
+for the same box. The view then shows OpenStreetMap's answer, and the row
+ends "from OpenStreetMap (Overture sparse here)". If Overpass is not
+configured or fails, Overture's few stand; once it has said it is not
+configured, it is not asked again until the layer is turned off and on.
+Views with 3 or more stations stay with Overture.
 
 **Level of detail: pins, then counts, then nothing.** These are dense, so
 each type has two heights:
@@ -3338,7 +3345,8 @@ unless marked cold):
 (see Street assets). Overture's charging stations are uneven by country:
 12,455 in the conterminous US, 11,058 in Germany and 10,284 in the UK,
 but only 37 around Paris (24 within 25 km of the centre, none within
-5 km). OpenStreetMap maps many more there.
+5 km). OpenStreetMap maps many more there, so a sparse view asks it
+instead (see Street assets).
 
 **Licences.** The places are Overture's, drawn from several sources with
 their own licences. Each place keeps its `sources[].dataset`, shown on
