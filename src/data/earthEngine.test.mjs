@@ -426,6 +426,104 @@ test('the service account signs its own token request and keeps the token', asyn
   });
 });
 
+test('sign-in under load: a 200 without a readable token, no answer and 5xx are tried again with backoff; a refused key is not', async () => {
+  const { privateKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+  });
+  const key = JSON.stringify({
+    type: 'service_account',
+    client_email: 'gods-eye-view-earth-engine@example.iam.gserviceaccount.com',
+    private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    token_uri: 'https://oauth2.googleapis.com/token',
+  });
+  const quiet = console.warn;
+  console.warn = () => {};
+  try {
+    let clock = 1_700_000_000_000;
+    const slept = [];
+    const make = (answers) => {
+      let calls = 0;
+      const auth = createServiceAccountAuth({
+        keyFile: 'unused',
+        readKey: () => key,
+        now: () => clock,
+        sleep: async (ms) => slept.push(ms),
+        fetchImpl: async () => {
+          const answer = answers[Math.min(calls, answers.length - 1)];
+          calls += 1;
+          return answer();
+        },
+      });
+      return { auth, calls: () => calls };
+    };
+    const ok = (token) => () =>
+      Response.json({ access_token: token, expires_in: 3600 });
+    const timeout = () => {
+      throw Object.assign(
+        new Error('The operation was aborted due to timeout'),
+        {
+          name: 'TimeoutError',
+        },
+      );
+    };
+    // Before: a 200 whose body read was cut short read as "sign-in failed (200)".
+    const cut = make([
+      () => new Response('{"access_tok', { status: 200 }),
+      ok('after-cut'),
+    ]);
+    assert.equal(await cut.auth.token(), 'after-cut');
+    assert.equal(cut.calls(), 2);
+    assert.deepEqual(slept, [500]);
+    // No answer twice (the exchange timed out), then a token; every caller
+    // waiting meanwhile shares the one exchange.
+    slept.length = 0;
+    const slow = make([timeout, timeout, ok('after-timeouts')]);
+    const tokens = await Promise.all(
+      Array.from({ length: 5 }, () => slow.auth.token()),
+    );
+    assert.deepEqual(new Set(tokens), new Set(['after-timeouts']));
+    assert.equal(slow.calls(), 3);
+    assert.deepEqual(slept, [500, 1000]);
+    // A 503 is tried again; a refused key is not.
+    const busy = make([
+      () => new Response('{}', { status: 503 }),
+      ok('after-503'),
+    ]);
+    assert.equal(await busy.auth.token(), 'after-503');
+    const refused = make([
+      () =>
+        Response.json(
+          {
+            error: 'invalid_grant',
+            error_description: 'Invalid JWT Signature.',
+          },
+          { status: 400 },
+        ),
+    ]);
+    await assert.rejects(
+      refused.auth.token(),
+      /sign-in failed \(400: Invalid JWT Signature\.\)/,
+    );
+    assert.equal(refused.calls(), 1);
+    // Four tries in all, then the last reason.
+    slept.length = 0;
+    const down = make([timeout]);
+    await assert.rejects(down.auth.token(), /got no answer/);
+    assert.equal(down.calls(), 4);
+    assert.deepEqual(slept, [500, 1000, 2000]);
+    // In its last five minutes the token still serves while a new one is fetched.
+    const early = make([ok('first'), ok('second')]);
+    assert.equal(await early.auth.token(), 'first');
+    clock += (3600 - 60 - 4 * 60) * 1000;
+    assert.equal(await early.auth.token(), 'first', 'served while renewing');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(early.calls(), 2);
+    assert.equal(await early.auth.token(), 'second');
+  } finally {
+    console.warn = quiet;
+  }
+});
+
 test('the REST backend makes maps with the token, retries a 401 once, and returns Earth Engine’s words', async () => {
   const calls = [];
   let tokens = 0;

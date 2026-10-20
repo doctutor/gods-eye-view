@@ -1,5 +1,4 @@
 import * as Cesium from 'cesium';
-import { viewMoved, viewRectangleDegrees } from '../earthEngine/index.js';
 import {
   RasterValuesError,
   createRasterValuesClient,
@@ -9,6 +8,8 @@ import {
   boxSizeM,
   brickHeightM,
   cellsForWindow,
+  legoViewMoved,
+  legoWindow,
   columnCardEntry,
   gridColumns,
 } from './model.js';
@@ -36,12 +37,12 @@ import { columnCardDetails } from './presentation.js';
  * values of the same window and cells (elevation's own columns are the
  * height and always rise from the ellipsoid).
  *
- * Level of detail: the window is the Earth Engine overlays' (a square six
- * camera heights across, at least 40 km), cut into at most 512 cells a side
- * and 200,000 in all, never finer than the layer's native cells
- * (cellsForWindow); rebuilt when the camera settles out of the window's
- * middle half or its height doubles or halves (viewMoved), the old bricks
- * freed. One primitive, one draw call (bricks.js). A click on a column opens
+ * Level of detail: the window is fitted to the ground in view (a square
+ * 2.5 camera heights across, at least 10 km: legoWindow), cut into at most
+ * 512 cells a side and 200,000 in all, never finer than the layer's native
+ * cells (cellsForWindow); rebuilt when the camera settles out of the
+ * window's middle half or its height doubles or halves (legoViewMoved), the
+ * old bricks freed. One primitive, one draw call (bricks.js). A click on a column opens
  * a card through the world overlay (N bricks = the value, the cell size,
  * its centre, the source); Esc or another click closes it.
  */
@@ -149,7 +150,7 @@ export function createLegoController({
   }
 
   function windowFor(view) {
-    const box = viewRectangleDegrees(view.lat, view.lon, view.height);
+    const box = legoWindow(view.lat, view.lon, view.height);
     if (box) return box;
     const dLon = Math.min(
       180,
@@ -198,8 +199,8 @@ export function createLegoController({
     const layer = activeLayer();
     if (!layer) return clear('no-layer');
     const mode = currentMode(layer, storage);
-    const exaggeration = store.getExaggeration();
     const flat = flatGround();
+    const exaggeration = store.getExaggeration(flat);
     const view = viewNow();
     if (
       !force &&
@@ -208,7 +209,7 @@ export function createLegoController({
       _built.mode === mode &&
       _built.exaggeration === exaggeration &&
       _built.flat === flat &&
-      !viewMoved(_built.view, view)
+      !legoViewMoved(_built.view, view)
     )
       return;
     const spec = layerSpec(layer, mode);
@@ -452,7 +453,7 @@ export function createLegoController({
     pickAt,
     getMode: () => store.getMode(),
     setMode: (mode) => store.setMode(mode),
-    getExaggeration: () => store.getExaggeration(),
+    getExaggeration: () => store.getExaggeration(flatGround()),
     setExaggeration: (value) => store.setExaggeration(value),
     getStatus: () => _status,
     subscribe(listener) {

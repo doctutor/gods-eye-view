@@ -4032,8 +4032,10 @@ is also built as bricks: each cell of its values grid around the camera is
 one column of stacked **2×2 bricks**, as tall as its value and in its own
 ramp's colour snapped to the classic Lego palette. The colour imagery stays
 beneath, so nodata and zero cells still read. A second drop-down, shown in
-Lego, sets the elevation exaggeration, 1× to 5× (`gev.render.legoExaggeration`,
-default 1×; its tooltip suggests 2× for flat country), and a line under the
+Lego, sets the elevation exaggeration, 1× to 5× (`gev.render.legoExaggeration`).
+Until one is chosen it is 2× on a flat basemap, where the columns stand on
+the ellipsoid and low country barely rises, and 1× on terrain or the
+photoreal tiles, whose own relief carries the columns. A line under the
 heading says what is built ("Elevation: 199,809 columns of 54 m bricks").
 
 **The brick.** Classic brick 3003 (design 300323) proportions: the footprint
@@ -4083,17 +4085,33 @@ ellipsoid. On photoreal tiles or terrain each column stands on its cell's
 ground height, read from the elevation values of the same window and cells;
 elevation's own columns are the height and always rise from the ellipsoid.
 
-**Level of detail and budget.** The window is the Earth Engine overlays'
-(a square six camera heights across, at least 40 km; a planet-wide view
-takes 60° around the point under the camera). It is cut into cells square
+**Level of detail and budget.** The window is fitted to the ground in view
+(`legoWindow`): a square 2.5 camera heights across, at least 10 km, around
+the point under the middle of the view; a planet-wide view takes 60° around
+it. On a 1,600 × 900 canvas (Cesium's 60° field of view across the width)
+a camera at height h looking straight down sees 1.15 h × 0.65 h of ground;
+tilted to −45° it sees from 0.49 h before that point to 0.96 h past it,
+1.27 h to each side at the far edge. The square holds both, but for the
+far corners of the tilted view. Until 2026-10-20 the window was the Earth
+Engine overlays' (six heights, at least 40 km): the budget then went on
+ground off screen. It is cut into cells square
 in metres, the coarsest of: what fits 200,000 columns, what fits 512 a
 side, and the layer's native cell (30 m for the DEM stack, 10 m for land
 cover and forest types, 100 m for population, 5 km for Wikipedia
 coverage); so native resolution close in, coarser as the camera rises
 (`cellsForWindow`). It is rebuilt when the camera settles out of the
-window's middle half or its height doubles or halves (the overlays'
-`viewMoved`: the hysteresis), 300 ms after it settles; the old bricks are
-freed.
+window's middle half or its height doubles or halves (`legoViewMoved`, the
+overlays' hysteresis on Lego's window), 300 ms after it settles; the old
+bricks are freed. Over the DEM stack's 30 m cells:
+
+| Camera height | Window, before → now | Brick height, before → now |
+| ------------- | -------------------- | -------------------------- |
+| 80 km         | 479 → 200 km         | 644 → 268 m                |
+| 40 km         | 240 → 100 km         | 322 → 134 m                |
+| 20 km         | 120 → 50 km          | 161 → 67 m                 |
+| 10 km         | 60 → 25 km           | 80 → 34 m                  |
+| 5 km          | 40 → 12.5 km         | 54 → 18 m (native)         |
+| 3 km          | 40 → 10 km           | 54 → 18 m (native)         |
 
 **Rendering.** One mesh, one draw call (`bricks.js`): every column a box on
 its cell's lat/lon corners in a local frame at the window's centre (so

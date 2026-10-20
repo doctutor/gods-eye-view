@@ -9,8 +9,11 @@ import {
   COLUMN_BUDGET,
   LEGO_PALETTE,
   MAX_CELLS_PER_SIDE,
+  boxSizeM,
   brickHeightM,
   cellsForWindow,
+  legoViewMoved,
+  legoWindow,
   columnCardEntry,
   columnColor,
   elevationBricks,
@@ -30,6 +33,7 @@ import {
   EXAGGERATION_STORAGE_KEY,
   RENDER_MODE_STORAGE_KEY,
   createRenderModeStore,
+  readExaggeration,
   readRenderMode,
 } from './renderMode.js';
 import { columnCardDetails, legoStatusText } from './presentation.js';
@@ -266,7 +270,7 @@ test('the render mode and exaggeration are kept in this browser', () => {
   assert.equal(storage.map.get(RENDER_MODE_STORAGE_KEY), 'lego');
   assert.equal(storage.map.get(EXAGGERATION_STORAGE_KEY), '2');
   assert.deepEqual(seen, [
-    { mode: 'lego', exaggeration: 1 },
+    { mode: 'lego', exaggeration: null },
     { mode: 'lego', exaggeration: 2 },
   ]);
   const again = createRenderModeStore({ storage });
@@ -460,4 +464,52 @@ test('the controller: off in colour, bricks for the last raster layer on, a base
   await lego.rebuild({ force: true });
   assert.equal(lego.getStatus().state, 'off');
   lego.destroy();
+});
+
+test('the exaggeration defaults to 2× on a flat basemap and 1× on terrain until chosen', () => {
+  const storage = memoryStorage();
+  assert.equal(readExaggeration(storage), null);
+  const store = createRenderModeStore({ storage });
+  assert.equal(store.isExaggerationSet(), false);
+  assert.equal(store.getExaggeration(true), 2);
+  assert.equal(store.getExaggeration(false), 1);
+  // Choosing the default still counts as a choice, kept on every ground.
+  store.setExaggeration(1);
+  assert.equal(store.isExaggerationSet(), true);
+  assert.equal(store.getExaggeration(true), 1);
+  assert.equal(storage.map.get(EXAGGERATION_STORAGE_KEY), '1');
+  const chosen = createRenderModeStore({
+    storage: memoryStorage({ [EXAGGERATION_STORAGE_KEY]: '3' }),
+  });
+  assert.equal(chosen.getExaggeration(true), 3);
+  assert.equal(chosen.getExaggeration(false), 3);
+});
+
+test('the window fits the ground in view: 2.5 camera heights, at least 10 km', () => {
+  const bricksAt = (heightM) => {
+    const size = boxSizeM(legoWindow(39.29, -76.61, heightM));
+    const { cellSizeM } = cellsForWindow({ ...size, nativeM: 30 });
+    return { widthKm: size.widthM / 1000, brickM: brickHeightM(cellSizeM) };
+  };
+  const at40 = bricksAt(40_000);
+  assert.ok(Math.abs(at40.widthKm - 100) < 0.5, String(at40.widthKm));
+  assert.ok(Math.abs(at40.brickM - 134) < 2, String(at40.brickM));
+  assert.ok(Math.abs(bricksAt(10_000).brickM - 34) < 1);
+  // Below about 5 km the 30 m elevation cells are native: 18 m bricks.
+  assert.equal(Math.round(bricksAt(5_000).brickM), 18);
+  assert.equal(Math.round(bricksAt(2_000).brickM), 18);
+  assert.ok(Math.abs(bricksAt(2_000).widthKm - 10) < 0.1);
+  // A planet-wide height has no window of its own.
+  assert.equal(legoWindow(0, 0, 10_000_000), null);
+  // Rebuilt past the window's middle half, or at twice or half the height.
+  const made = { lat: 39.29, lon: -76.61, height: 40_000 };
+  assert.equal(legoViewMoved(made, { ...made, height: 70_000 }), false);
+  assert.equal(legoViewMoved(made, { ...made, height: 90_000 }), true);
+  assert.equal(legoViewMoved(made, { ...made, height: 19_000 }), true);
+  // 25 km is half of the 50 km half-side: 20 km stays, 30 km rebuilds.
+  assert.equal(
+    legoViewMoved(made, { ...made, lat: 39.29 + 20 / 111.2 }),
+    false,
+  );
+  assert.equal(legoViewMoved(made, { ...made, lat: 39.29 + 30 / 111.2 }), true);
 });

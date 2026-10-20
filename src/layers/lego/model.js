@@ -197,6 +197,58 @@ export function cellsForWindow({
 }
 
 const EARTH_RADIUS_M = 6_371_000;
+
+/**
+ * Lego's window: a square LEGO_WINDOW_FACTOR camera heights across around
+ * the point under the middle of the view, at least LEGO_MIN_WINDOW_M. On a
+ * 1,600 × 900 canvas (Cesium's 60° field of view across the width) a
+ * camera at height h looking straight down sees 1.15 h × 0.65 h of ground;
+ * tilted to −45° it sees from 0.49 h before the middle point to 0.96 h past
+ * it, 1.27 h to each side at the far edge. A square of 2.5 h (1.25 h each
+ * way) holds both; only the far corners of the tilted view fall outside.
+ */
+export const LEGO_WINDOW_FACTOR = 2.5;
+export const LEGO_MIN_WINDOW_M = 10_000;
+/** Past this half-side the window is the planet's view (legoWindow returns null). */
+const LEGO_WORLD_HALF_M = 5_000_000;
+
+/** The window's half-side in metres for a camera height. */
+export const legoHalfM = (heightM) =>
+  Math.max(LEGO_MIN_WINDOW_M, LEGO_WINDOW_FACTOR * Number(heightM)) / 2;
+
+/** The window around a point for a camera height, in degrees, or null for a planet-wide view. */
+export function legoWindow(lat, lon, heightM) {
+  const half = legoHalfM(heightM);
+  if (!Number.isFinite(half) || half >= LEGO_WORLD_HALF_M) return null;
+  const dLat = (half / EARTH_RADIUS_M) * (180 / Math.PI);
+  const dLon = dLat / Math.max(0.05, Math.cos((lat * Math.PI) / 180));
+  return {
+    west: Math.max(-180, lon - dLon),
+    south: Math.max(-85, lat - dLat),
+    east: Math.min(180, lon + dLon),
+    north: Math.min(85, lat + dLat),
+  };
+}
+
+/**
+ * Whether the view has left the one a window was built for: its height
+ * doubled or halved, or its middle point past the window's middle half
+ * (the Earth Engine overlays' rule, on Lego's window).
+ */
+export function legoViewMoved(made, now) {
+  if (!made) return true;
+  if (!Number.isFinite(now.height) || !Number.isFinite(made.height))
+    return true;
+  const ratio = now.height / made.height;
+  if (ratio > 2 || ratio < 0.5) return true;
+  const half = legoHalfM(made.height);
+  const toRad = Math.PI / 180;
+  const dy = (now.lat - made.lat) * toRad * EARTH_RADIUS_M;
+  const dx =
+    (now.lon - made.lon) * toRad * EARTH_RADIUS_M * Math.cos(made.lat * toRad);
+  return Math.max(Math.abs(dx), Math.abs(dy)) > half / 2;
+}
+
 /** A lat/lon box's width and height in metres (at its middle latitude). */
 export function boxSizeM({ west, south, east, north }) {
   const toRad = Math.PI / 180;

@@ -79,6 +79,12 @@ const MAX_TILE_BYTES = 2 * 1024 * 1024;
 /** computePixels: 512² cells of two float bands is 2 MB. */
 const MAX_PIXELS_BYTES = 4 * 1024 * 1024;
 const TILE_TIMEOUT_MS = 30_000;
+/** A token exchange is tried this many times while it may pass (no answer, 429, 5xx, a 200 without a token)… */
+export const SIGN_IN_ATTEMPTS = 4;
+/** …waiting this long before the second, doubling after. */
+export const SIGN_IN_BACKOFF_MS = 500;
+/** A token this close to its end is renewed in the background while it still serves. */
+export const SIGN_IN_EARLY_MS = 5 * 60 * 1000;
 const CACHE_DIR = path.join('.gev-cache', 'earth-engine');
 const NEEDS_KEY =
   'Set EARTH_ENGINE_KEY_FILE and EARTH_ENGINE_PROJECT in .env to draw the Earth Engine layers';
@@ -905,9 +911,16 @@ export function earthEngineSettings(
 
 /**
  * An OAuth access token for the service account, from a JWT it signs
- * itself (RS256, node:crypto); kept until a minute before it expires.
+ * itself (RS256, node:crypto); kept until a minute before it expires, and
+ * renewed in the background in its last SIGN_IN_EARLY_MS. An exchange
+ * that gets no answer, a 429 or 5xx, or a 200 whose body cannot be read
+ * (a loaded machine times the read out) is tried again, SIGN_IN_ATTEMPTS
+ * times with a doubling wait; a refused key (400, 401, 403) fails at once.
+ * Every request waiting meanwhile shares the one exchange.
  * @param {{keyFile: string, fetchImpl?: typeof fetch, now?: () => number,
- *   scope?: string, readKey?: (file: string) => string}} options
+ *   scope?: string, readKey?: (file: string) => string, attempts?: number,
+ *   backoffMs?: number, timeoutMs?: number,
+ *   sleep?: (ms: number) => Promise<void>}} options
  */
 export function createServiceAccountAuth({
   keyFile,
@@ -915,19 +928,30 @@ export function createServiceAccountAuth({
   now = () => Date.now(),
   scope = EE_SCOPE,
   readKey = (file) => fs.readFileSync(file, 'utf8'),
+  attempts = SIGN_IN_ATTEMPTS,
+  backoffMs = SIGN_IN_BACKOFF_MS,
+  timeoutMs = TILE_TIMEOUT_MS,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
   let held = null;
   let inflight = null;
 
-  async function fresh() {
+  /** One token exchange: the token, or an Error whose `retry` says whether to try again. */
+  async function exchange() {
     let key;
     try {
       key = JSON.parse(readKey(keyFile));
     } catch {
-      throw new Error('The Earth Engine key file is not readable JSON');
+      throw Object.assign(
+        new Error('The Earth Engine key file is not readable JSON'),
+        { retry: false },
+      );
     }
     if (!key?.client_email || !key?.private_key)
-      throw new Error('The Earth Engine key file is not a service-account key');
+      throw Object.assign(
+        new Error('The Earth Engine key file is not a service-account key'),
+        { retry: false },
+      );
     const issued = Math.floor(now() / 1000);
     const audience = key.token_uri || TOKEN_URL;
     const unsigned = `${base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))}.${base64url(
@@ -943,34 +967,89 @@ export function createServiceAccountAuth({
       .createSign('RSA-SHA256')
       .update(unsigned)
       .sign(key.private_key);
-    const response = await fetchImpl(audience, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion: `${unsigned}.${base64url(signature)}`,
-      }).toString(),
-      signal: AbortSignal.timeout(TILE_TIMEOUT_MS),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok || !body?.access_token)
-      throw new Error(
-        `Earth Engine sign-in failed (${response.status}${body?.error ? `: ${String(body.error_description || body.error).slice(0, 160)}` : ''})`,
+    let response;
+    try {
+      response = await fetchImpl(audience, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+          assertion: `${unsigned}.${base64url(signature)}`,
+        }).toString(),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      // No answer (a timeout, a dropped connection): try again.
+      throw Object.assign(
+        new Error(
+          `Earth Engine sign-in got no answer (${String(error?.message || error).slice(0, 120)})`,
+        ),
+        { retry: true },
       );
-    held = {
-      token: body.access_token,
-      expiresAt: now() + (Number(body.expires_in) || 3600) * 1000 - 60_000,
-    };
-    return held.token;
+    }
+    // The body is read on its own: a 200 whose body times out or arrives
+    // broken is not a refusal, and is tried again.
+    let body = null;
+    let unreadable = '';
+    try {
+      body = await response.json();
+    } catch (error) {
+      unreadable = String(error?.message || error).slice(0, 120);
+    }
+    if (response.ok && body?.access_token) {
+      held = {
+        token: body.access_token,
+        expiresAt: now() + (Number(body.expires_in) || 3600) * 1000 - 60_000,
+      };
+      return held.token;
+    }
+    if (response.ok)
+      throw Object.assign(
+        new Error(
+          `Earth Engine sign-in answered ${response.status} without a token (${unreadable || 'no access_token'})`,
+        ),
+        { retry: true },
+      );
+    throw Object.assign(
+      new Error(
+        `Earth Engine sign-in failed (${response.status}${body?.error ? `: ${String(body.error_description || body.error).slice(0, 160)}` : ''})`,
+      ),
+      // A refused key (400, 401, 403) stays refused; the rest may pass.
+      { retry: response.status === 429 || response.status >= 500 },
+    );
   }
+
+  /** The exchange, tried again after SIGN_IN_BACKOFF_MS (doubling) while it may pass. */
+  async function fresh() {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await exchange();
+      } catch (error) {
+        if (!error.retry || attempt >= attempts) throw error;
+        console.warn(
+          `[EarthEngine] sign-in attempt ${attempt} of ${attempts} failed, trying again: ${error.message}`,
+        );
+        await sleep(backoffMs * 2 ** (attempt - 1));
+      }
+    }
+  }
+
+  const refresh = () =>
+    (inflight ||= fresh().finally(() => {
+      inflight = null;
+    }));
 
   return {
     async token() {
-      if (held && now() < held.expiresAt) return held.token;
-      inflight ||= fresh().finally(() => {
-        inflight = null;
-      });
-      return inflight;
+      if (held && now() < held.expiresAt) {
+        // Close to its end, a new one is asked for while this one serves.
+        if (now() > held.expiresAt - SIGN_IN_EARLY_MS)
+          refresh().catch((error) =>
+            console.warn('[EarthEngine] early sign-in failed:', error.message),
+          );
+        return held.token;
+      }
+      return refresh();
     },
     forget() {
       held = null;
