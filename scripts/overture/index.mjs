@@ -9,6 +9,7 @@ import { openParquet, rowsOfFlat, rowsOfRepeated } from './parquet.mjs';
 import { checkRawDir, rawDirFor, rawDirLabel } from '../rawDir.mjs';
 import { buildBuildings, buildingsStatus } from './buildings.mjs';
 import { buildInfrastructure, buildPlaces, placesStatus } from './places.mjs';
+import { buildRoads, roadsStatus } from './roads.mjs';
 import {
   INDEX_FORMAT,
   CELL_DEGREES,
@@ -20,7 +21,9 @@ import {
   DOWNLOAD_CAP_BYTES,
   OVERTURE_BUCKET,
   REGIONS,
+  ROADS_REGIONS,
   overtureCacheDir,
+  overtureRoadsDir,
 } from '../../server/providers/overture/sources.js';
 import {
   OVERTURE_ATTRIBUTION,
@@ -37,7 +40,8 @@ import {
  * place of OpenStreetMap through Overpass.
  *
  *   node scripts/overture/index.mjs build [--force] [--regions a,b] [--dir DIR]
- *     [--buildings] [--places] [--infrastructure] [--drop-raw] [--cap-gb N]
+ *     [--buildings] [--places] [--infrastructure] [--roads]
+ *     [--road-regions a,b] [--drop-raw] [--cap-gb N]
  *   node scripts/overture/index.mjs status [--json] [--dir DIR]
  *
  * `build` lists the release's division point files in Overture's public
@@ -65,6 +69,15 @@ import {
  */
 export const overtureRawDir = (dir, env) =>
   rawDirFor('overture', path.join(dir, 'raw'), env);
+
+/**
+ * The roads build's directory: OVERTURE_ROADS_DIR when set, else roads/ in
+ * the Overture cache this run uses (`--dir`), like the other builds.
+ */
+export const roadsDirFor = (dir, env = process.env) =>
+  String(env.OVERTURE_ROADS_DIR || '').trim()
+    ? overtureRoadsDir(env, ROOT)
+    : path.join(dir, 'roads');
 
 /** A file's path for the manifest: relative inside the cache, else absolute. */
 export function cachePath(dir, file) {
@@ -98,6 +111,8 @@ export function parseArgs(argv) {
     else if (argv[i] === '--keep-raw') flags.keepRaw = true;
     else if (argv[i] === '--places') flags.places = true;
     else if (argv[i] === '--infrastructure') flags.infrastructure = true;
+    else if (argv[i] === '--roads') flags.roads = true;
+    else if (argv[i] === '--road-regions') flags.roadRegions = argv[++i];
     else if (argv[i] === '--drop-raw') flags.dropRaw = true;
     else if (argv[i] === '--cap-gb') flags.capGb = Number(argv[++i]);
     else throw new Error(`unknown option ${argv[i]}`);
@@ -486,6 +501,7 @@ export function status(dir, rawDir = path.join(dir, 'raw')) {
       buildings: buildingsStatus(dir),
       places: placesStatus(dir),
       infrastructure: placesStatus(dir, 'infrastructure'),
+      roads: roadsStatus(roadsDirFor(dir)),
     };
   return {
     built: true,
@@ -502,6 +518,7 @@ export function status(dir, rawDir = path.join(dir, 'raw')) {
     buildings: buildingsStatus(dir),
     places: placesStatus(dir),
     infrastructure: placesStatus(dir, 'infrastructure'),
+    roads: roadsStatus(roadsDirFor(dir)),
   };
 }
 
@@ -544,6 +561,19 @@ async function main() {
         rawRoot: rawDir,
         keepRaw: !flags.dropRaw,
         force: flags.force,
+        ...(flags.capGb ? { capBytes: flags.capGb * 1e9 } : {}),
+        userAgent: USER_AGENT,
+      });
+    if (flags.roads || flags.roadRegions)
+      await buildRoads({
+        dir,
+        roadsDir: roadsDirFor(dir),
+        rawRoot: rawDir,
+        regions: String(flags.roadRegions || ROADS_REGIONS.join(','))
+          .split(',')
+          .map((name) => name.trim())
+          .filter(Boolean),
+        keepRaw: !flags.dropRaw,
         ...(flags.capGb ? { capBytes: flags.capGb * 1e9 } : {}),
         userAgent: USER_AGENT,
       });
@@ -596,6 +626,12 @@ async function main() {
     );
     for (const [name, n] of Object.entries(infrastructure.byClass || {}))
       console.log(`  ${name}: ${n.toLocaleString('en')}`);
+    const { roads } = answer;
+    console.log(
+      roads.built
+        ? `Overture roads ${roads.version} of ${roads.builtAt}: ${roads.segments.toLocaleString('en')} segments (${roads.regions.join(', ')}), ${(roads.bytes / 1e9).toFixed(2)} GB in ${roads.containers} containers`
+        : 'Overture roads: not built. Run npm run overture:build -- --roads.',
+    );
     return;
   }
   throw new Error(`unknown command ${flags.command} (build, status)`);

@@ -123,6 +123,8 @@ const PANEL_GROUPS = [
       'street-assets',
       // Personal fork: Overture Maps places (src/layers/places/).
       'places',
+      // Personal fork: Overture Maps roads (src/layers/roads/).
+      'roads',
     ],
   },
 ];

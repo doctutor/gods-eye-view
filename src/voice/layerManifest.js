@@ -434,6 +434,7 @@ export const VOICE_OFF_LAYERS = Object.freeze({
   localities: 'personal fork layer',
   'street-assets': 'personal fork layer',
   places: 'personal fork layer',
+  roads: 'personal fork layer',
 });
 
 const TYPE_NAMES = Object.freeze({
