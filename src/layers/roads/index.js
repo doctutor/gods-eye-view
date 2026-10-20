@@ -2,6 +2,8 @@ import * as Cesium from 'cesium';
 import { resolveImageryHost } from '../../maps/imageryHost.js';
 import { activeLuminance, readInkSetting, resolveInk } from '../../maps/ink.js';
 import { drapeZoomForHeight } from '../../data/demStack.js';
+import { riverHeightForCanvas } from '../../data/earthEngineLayers.js';
+import { imageryRectangleDegrees } from '../../maps/imageryHost.js';
 import { isSurfacePick, pickGroundPosition } from '../../data/scenePick.js';
 import { ROAD_MODES } from '../../data/overtureRoads.js';
 import { createRoadsSource, roadsImageryOptions } from './source.js';
@@ -85,6 +87,8 @@ export function createRoadsLayer({
   let _removeMove = null;
   let _rowListener = null;
   let _selected = null; // {segment, at: [lon, lat]}
+  /** The last click's outcome for the row: {state: 'hit'|'miss'|'failed', segment?}. */
+  let _click = null;
 
   const notify = () => _rowListener?.();
 
@@ -171,17 +175,24 @@ export function createRoadsLayer({
       return;
     unmount();
     const { boxes, ...rest } = options;
-    const extent = [
-      Math.min(...boxes.map((b) => b[0])),
-      Math.min(...boxes.map((b) => b[1])),
-      Math.max(...boxes.map((b) => b[2])),
-      Math.max(...boxes.map((b) => b[3])),
-    ];
+    // The build's regions, clipped to Web Mercator. A provider whose
+    // rectangle misses the tiling scheme's has none (Cesium intersects the
+    // two), and an imagery layer over it throws "Expected rectangle to be
+    // typeof object" on every frame: such an extent is not mounted.
+    const extent = imageryRectangleDegrees(boxes);
+    if (!extent) {
+      notify();
+      return;
+    }
     const provider = new cesium.UrlTemplateImageryProvider({
       ...rest,
       tilingScheme: new cesium.WebMercatorTilingScheme(),
       rectangle: cesium.Rectangle.fromDegrees(...extent),
     });
+    if (!provider.rectangle) {
+      notify();
+      return;
+    }
     _imagery = new cesium.ImageryLayer(provider, { alpha: ROADS_ALPHA });
     host.collection.add(_imagery);
     _collection = host.collection;
@@ -247,28 +258,44 @@ export function createRoadsLayer({
     }
     const ground = pickGroundPosition(_viewer, position);
     if (!ground) {
+      _click = null;
       if (_selected) {
         _selected = null;
         drawCard();
       }
+      notify();
       return;
     }
     const carto = cesium.Cartographic.fromCartesian(ground);
     const lon = cesium.Math.toDegrees(carto.longitude);
     const lat = cesium.Math.toDegrees(carto.latitude);
+    // The zoom the tiles are drawn at here: Cesium drapes coarser tiles on a
+    // smaller canvas (a 717 px pane at 20 km: z 12, not a 1,600 px one's
+    // z 13), so the server's 8 px tolerance is 8 pixels of what is drawn.
+    const canvas = _viewer?.scene?.canvas;
     const zoom = drapeZoomForHeight(
-      _viewer?.camera?.positionCartographic?.height,
+      riverHeightForCanvas(
+        _viewer?.camera?.positionCartographic?.height,
+        canvas?.clientWidth,
+        canvas?.clientHeight,
+      ),
     );
     let segment = null;
+    let failed = false;
     try {
       segment = await source.nearest({ lon, lat, zoom });
     } catch (error) {
       if (error?.name === 'AbortError') return;
       segment = null;
+      failed = true;
     }
     if (!_enabled) return;
     _selected = segment ? { segment, at: [lon, lat] } : null;
+    _click = segment
+      ? { state: 'hit', segment }
+      : { state: failed ? 'failed' : 'miss' };
     drawCard();
+    notify();
   }
 
   function attachClick() {
@@ -350,6 +377,7 @@ export function createRoadsLayer({
       }
       _handler = null;
       _selected = null;
+      _click = null;
       overlayHost?.clearSource?.(ROADS_SOURCE);
       overlayHost?.setVisible?.(ROADS_SOURCE, false);
       unmount();
@@ -383,6 +411,7 @@ export function createRoadsLayer({
         status: _status,
         inRegions: inRegions(),
         enabled: _enabled,
+        click: _click,
       });
     },
 
@@ -410,6 +439,7 @@ export function createRoadsLayer({
       url: _imagery?.imageryProvider?.url || '',
       collection: _collection,
       selected: _selected,
+      click: _click,
     }),
     _onClick: onClick,
     _loadStatus: loadStatus,

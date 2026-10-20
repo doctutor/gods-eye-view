@@ -513,3 +513,64 @@ test('the window fits the ground in view: 2.5 camera heights, at least 10 km', (
   );
   assert.equal(legoViewMoved(made, { ...made, lat: 39.29 + 30 / 111.2 }), true);
 });
+
+// Personal fork (roads-card-fixes): the exaggeration's default follows the
+// basemap kind, not the terrain provider.
+import { isFlatBasemap } from './renderMode.js';
+
+test('the default exaggeration: 2× on drawn maps, 1× on imagery and photoreal, whatever the terrain', async () => {
+  assert.equal(
+    isFlatBasemap({ kind: 'keyless-basemap', group: 'blank' }),
+    true,
+  );
+  assert.equal(
+    isFlatBasemap({ kind: 'keyless-basemap', group: 'light' }),
+    true,
+  );
+  assert.equal(isFlatBasemap({ kind: 'keyless-basemap', group: 'dark' }), true);
+  assert.equal(isFlatBasemap({ kind: 'countries-basemap' }), true);
+  assert.equal(isFlatBasemap({ kind: 'osm' }), true);
+  assert.equal(
+    isFlatBasemap({ kind: 'keyless-basemap', group: 'nasa' }),
+    false,
+  );
+  assert.equal(isFlatBasemap({ kind: 'photoreal' }), false);
+  assert.equal(isFlatBasemap({ kind: 'ion' }), false);
+  assert.equal(isFlatBasemap({ kind: 'esri-imagery' }), false);
+  assert.equal(isFlatBasemap(null), null);
+  // Blank black over Cesium World Terrain (the live case): 2×, nothing stored.
+  let stack = { kind: 'keyless-basemap', group: 'blank', id: 'blank-black' };
+  const controller = {
+    getActiveStack: () => stack,
+    getImageryHostTileset: () => null,
+    subscribe: () => () => {},
+  };
+  const viewer = fakeViewer({ terrain: true });
+  const lego = createLegoController({
+    viewer,
+    layers: {
+      getAll: () => [],
+      isEnabled: () => false,
+      subscribeActivity: () => () => {},
+    },
+    mapStackController: controller,
+    store: createRenderModeStore({ storage: memoryStorage() }),
+    values: {
+      fetch: async () => {
+        throw new Error('unused');
+      },
+    },
+    setTimeoutImpl: () => 0,
+    clearTimeoutImpl: () => {},
+  });
+  assert.equal(lego.getExaggeration(), 2);
+  stack = { kind: 'photoreal', id: 'photoreal' };
+  assert.equal(lego.getExaggeration(), 1);
+  stack = { kind: 'countries-basemap', id: 'countries-simple-dark' };
+  assert.equal(lego.getExaggeration(), 2);
+  // A chosen exaggeration wins everywhere.
+  lego.setExaggeration(3);
+  stack = { kind: 'photoreal', id: 'photoreal' };
+  assert.equal(lego.getExaggeration(), 3);
+  lego.destroy();
+});

@@ -685,6 +685,7 @@ export function createEarthEngineLayer({
       tilingScheme: new cesium.WebMercatorTilingScheme(),
       ...(extentRectangle ? { rectangle: extentRectangle } : {}),
     });
+    if (!provider.rectangle) return;
     _v2Imagery = new cesium.ImageryLayer(provider, {
       alpha: _opacity,
       ...(clip ? { rectangle: clip } : {}),
@@ -741,6 +742,9 @@ export function createEarthEngineLayer({
       tilingScheme: new cesium.WebMercatorTilingScheme(),
       rectangle: cesium.Rectangle.fromDegrees(...extent),
     });
+    // A provider rectangle that misses Web Mercator's is undefined, and a
+    // layer over it throws in every frame (src/maps/imageryHost.js).
+    if (!provider.rectangle) return null;
     const layer = new cesium.ImageryLayer(provider, {
       alpha: _opacity,
       rectangle: cesium.Rectangle.fromDegrees(...clip),
