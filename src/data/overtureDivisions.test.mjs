@@ -263,6 +263,8 @@ test('the Parquet reader: levels, a map column, a dictionary, zstd', (t) => {
       typeLength: 0,
       maxDef: 4,
       maxRep: 1,
+      // The map's entries exist from definition level 3.
+      repeatedDefs: [3],
     });
     const keys = rowsOfRepeated(
       parquet.column(0, 'names.common.key_value.key'),
