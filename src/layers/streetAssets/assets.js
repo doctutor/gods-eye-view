@@ -16,8 +16,24 @@
  * The query box is the ground a nadir view sees (half-side one camera
  * height), snapped outward to 0.05° so a small pan reuses the answer, and
  * well inside the proxy's 12° limit at every cap.
+ *
+ * `overture`, where a type has one: the local Overture index read first
+ * when it is built (`source` 'places' or 'infrastructure', the category or
+ * class asked for, the confidence floor), at the same heights and limits;
+ * a view where it has fewer than `sparseBelow` features asks Overpass too.
  */
 const assetType = (key, fields) => Object.freeze({ key, ...fields });
+
+/** Fewer Overture features than this for a view: ask OpenStreetMap. */
+export const OVERTURE_SPARSE_BELOW = 3;
+const overture = (source, category, fields = {}) =>
+  Object.freeze({
+    source,
+    category,
+    minConfidence: 0.5,
+    sparseBelow: OVERTURE_SPARSE_BELOW,
+    ...fields,
+  });
 
 export const ASSET_TYPES = Object.freeze([
   assetType('charging', {
@@ -29,6 +45,8 @@ export const ASSET_TYPES = Object.freeze([
     countsBelowM: 150_000,
     pinLimit: 1_500,
     countLimit: 8_000,
+    // Overture's places (Meta, Foursquare and the rest), at 50% or more.
+    overture: overture('places', 'charging'),
   }),
   assetType('bike', {
     // Separate cycleways and roads that carry a bike lane or track.
@@ -54,6 +72,9 @@ export const ASSET_TYPES = Object.freeze([
     countsBelowM: 25_000,
     pinLimit: 2_000,
     countLimit: 12_000,
+    // Overture's infrastructure is OpenStreetMap's (its release): Overpass
+    // only where the release has next to none.
+    overture: overture('infrastructure', 'hydrant'),
   }),
   assetType('lamp', {
     selectors: Object.freeze(['node["highway"="street_lamp"]']),
@@ -63,6 +84,7 @@ export const ASSET_TYPES = Object.freeze([
     countsBelowM: 15_000,
     pinLimit: 2_000,
     countLimit: 12_000,
+    overture: overture('infrastructure', 'lamp'),
   }),
   assetType('signals', {
     selectors: Object.freeze(['node["highway"="traffic_signals"]']),
@@ -74,6 +96,7 @@ export const ASSET_TYPES = Object.freeze([
     countsBelowM: 40_000,
     pinLimit: 2_000,
     countLimit: 12_000,
+    overture: overture('infrastructure', 'signals'),
   }),
 ]);
 

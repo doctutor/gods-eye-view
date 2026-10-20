@@ -24,6 +24,9 @@ import {
   eachCountCell,
 } from '../../server/providers/overture/placesFile.js';
 import {
+  INFRASTRUCTURE,
+  INFRASTRUCTURE_CAP_BYTES,
+  INFRASTRUCTURE_COLUMNS,
   PLACES,
   PLACES_CAP_BYTES,
   PLACE_COLUMNS,
@@ -33,10 +36,16 @@ import {
   CATEGORY_SLOTS,
   COUNT_THRESHOLDS,
 } from '../../src/data/overturePlaces.js';
+import { INFRASTRUCTURE_CLASSES } from '../../src/data/overtureInfrastructure.js';
 
 /**
- * The Overture places step of `npm run overture:build` (--places): the
- * world's points of interest for the Places layer.
+ * The Overture point steps of `npm run overture:build`: --places, the
+ * world's points of interest for the Places layer, and --infrastructure,
+ * the base theme's fire hydrants, street lamps, traffic signals and
+ * charging stations for Street assets (infrastructureParts.mjs). Both write
+ * the same index (placesFile.js) under their own directory. The steps below
+ * are the places'; the infrastructure's are alike, with its own columns
+ * (8 of 39, 4.8 GB of downloads of the 13.8 GB) and a 20 GB cap.
  *
  * 1. Plan: the 16 files' footers (fetched once, kept under
  *    raw/<release>/places/footers/), every row group, ten columns
@@ -61,32 +70,50 @@ const readJson = (file) => {
   }
 };
 
-/** The places build the server reads now, or null. */
-export function currentPlaces(dir) {
-  const pointer = readJson(path.join(dir, 'places', 'current.json'));
+/**
+ * The point indexes the step builds, by name: what each reads (the worker
+ * decodes their row groups by the same name).
+ */
+export const POINT_BUILDS = Object.freeze({
+  places: Object.freeze({
+    name: 'places',
+    source: PLACES,
+    columns: PLACE_COLUMNS,
+    capBytes: PLACES_CAP_BYTES,
+    inputs: Object.freeze({}),
+  }),
+  infrastructure: Object.freeze({
+    name: 'infrastructure',
+    source: INFRASTRUCTURE,
+    columns: INFRASTRUCTURE_COLUMNS,
+    capBytes: INFRASTRUCTURE_CAP_BYTES,
+    inputs: Object.freeze({
+      classes: INFRASTRUCTURE_CLASSES.map((c) => `${c.code}:${c.class}`),
+    }),
+  }),
+});
+
+/** A point build the server reads now (the places by default), or null. */
+export function currentPoints(dir, name = 'places') {
+  const pointer = readJson(path.join(dir, name, 'current.json'));
   if (!/^manifest-[0-9a-f]{12}\.json$/.test(pointer?.manifest || ''))
     return null;
-  return readJson(path.join(dir, 'places', pointer.manifest));
+  return readJson(path.join(dir, name, pointer.manifest));
 }
+export const currentPlaces = (dir) => currentPoints(dir, 'places');
 
 const partId = (entry) =>
   `${entry.file.slice(5, 10)}-${String(entry.group).padStart(3, '0')}`;
 
+/** Add a part's stats: numbers summed, tallies (objects) summed per key. */
 function addStats(into, stats) {
-  for (const key of [
-    'read',
-    'kept',
-    'lowConfidence',
-    'closed',
-    'unnamed',
-    'withWebsite',
-    'withPhone',
-  ])
-    into[key] = (into[key] || 0) + (stats[key] || 0);
-  for (const key of ['byDataset', 'byCategory']) {
-    into[key] ||= {};
-    for (const [k, v] of Object.entries(stats[key] || {}))
-      into[key][k] = (into[key][k] || 0) + v;
+  for (const [key, value] of Object.entries(stats || {})) {
+    if (typeof value === 'number') into[key] = (into[key] || 0) + value;
+    else if (value && typeof value === 'object') {
+      into[key] ||= {};
+      for (const [k, v] of Object.entries(value))
+        into[key][k] = (into[key][k] || 0) + v;
+    }
   }
   return into;
 }
@@ -127,56 +154,68 @@ export function writeGlobalCounts(bucketFiles, target) {
   return { bytes: writer.finish(), cells: cellsTotal };
 }
 
+export const buildPlaces = (options) => buildPoints('places', options);
+export const buildInfrastructure = (options) =>
+  buildPoints('infrastructure', options);
+
 /**
+ * @param {'places'|'infrastructure'} kindName A POINT_BUILDS key.
  * @param {{dir: string, rawRoot?: string|null, keepRaw?: boolean,
  *   capBytes?: number, workers?: number, userAgent?: string, log?: Function,
  *   force?: boolean}} options
  */
-export async function buildPlaces({
-  dir,
-  rawRoot = null,
-  keepRaw = true,
-  capBytes = PLACES_CAP_BYTES,
-  workers = Math.max(2, Math.min(12, os.cpus().length - 2)),
-  userAgent,
-  log = console.log,
-  force = false,
-}) {
+export async function buildPoints(
+  kindName,
+  {
+    dir,
+    rawRoot = null,
+    keepRaw = true,
+    capBytes = POINT_BUILDS[kindName].capBytes,
+    workers = Math.max(2, Math.min(12, os.cpus().length - 2)),
+    userAgent,
+    log = console.log,
+    force = false,
+  },
+) {
+  const kind = POINT_BUILDS[kindName];
+  const { name: label, source } = kind;
   const started = Date.now();
   const rawDir = path.join(
     rawRoot || path.join(dir, 'raw'),
-    PLACES.release,
-    'places',
+    source.release,
+    label,
   );
   checkRawDir(rawDir);
-  const outDir = path.join(dir, 'places');
-  const previous = currentPlaces(dir);
+  const outDir = path.join(dir, label);
+  const previous = currentPoints(dir, label);
 
   // 1. Plan.
-  const files = await listBuildingFiles({ userAgent, prefix: PLACES.prefix });
+  const files = await listBuildingFiles({ userAgent, prefix: source.prefix });
   const footers = await Promise.all(
     files.map((file) => fileFooter(file, rawDir, { userAgent })),
   );
   const plan = planRowGroups(files, footers, [REGIONS.world], {
     openBuildings: [],
-    columns: PLACE_COLUMNS,
+    columns: kind.columns,
   });
   const inputs = files.map(({ name, size }) => ({ name, size }));
+  // The places' id hashes what it always did, so their build stays current.
   const runId = crypto
     .createHash('sha256')
     .update(
       JSON.stringify({
         format: 1,
-        release: PLACES.release,
+        release: source.release,
         inputs,
-        columns: PLACE_COLUMNS,
+        columns: kind.columns,
+        ...kind.inputs,
       }),
     )
     .digest('hex')
     .slice(0, 12);
   if (!force && previous?.inputsId === runId) {
     log(
-      `[overture] places ${previous.version} is current (${previous.places.toLocaleString('en')} places); --force to redo it`,
+      `[overture] ${label} ${previous.version} is current (${previous.places.toLocaleString('en')} points); --force to redo it`,
     );
     return previous;
   }
@@ -190,11 +229,11 @@ export async function buildPlaces({
     return { id, entry: { ...entry, size }, partFile };
   });
   log(
-    `[overture] places: ${tasks.length.toLocaleString('en')} row groups, ${(toFetch / 1e9).toFixed(2)} GB to fetch into ${rawDir}`,
+    `[overture] ${label}: ${tasks.length.toLocaleString('en')} row groups, ${(toFetch / 1e9).toFixed(2)} GB to fetch into ${rawDir}`,
   );
   if (toFetch > capBytes)
     throw new Error(
-      `The places need ${(toFetch / 1e9).toFixed(1)} GB of downloads, past the ${(capBytes / 1e9).toFixed(1)} GB cap (--cap-gb)`,
+      `The ${label} need ${(toFetch / 1e9).toFixed(1)} GB of downloads, past the ${(capBytes / 1e9).toFixed(1)} GB cap (--cap-gb)`,
     );
 
   // 2. Parts.
@@ -207,6 +246,7 @@ export async function buildPlaces({
       tasks.map(async (task) => {
         if (!fs.existsSync(task.partFile)) {
           const result = await pool.run('places-part', {
+            kind: label,
             entry: task.entry,
             rawDir,
             partFile: task.partFile,
@@ -218,7 +258,7 @@ export async function buildPlaces({
         finished += 1;
         if (finished % 250 === 0)
           log(
-            `[overture] places: ${finished.toLocaleString('en')} of ${tasks.length.toLocaleString('en')} row groups, ${(fetched / 1e9).toFixed(2)} GB fetched, ${((Date.now() - t1) / 60000).toFixed(1)} min`,
+            `[overture] ${label}: ${finished.toLocaleString('en')} of ${tasks.length.toLocaleString('en')} row groups, ${(fetched / 1e9).toFixed(2)} GB fetched, ${((Date.now() - t1) / 60000).toFixed(1)} min`,
           );
       }),
     );
@@ -264,7 +304,7 @@ export async function buildPlaces({
           merged += 1;
           if (merged % 100 === 0)
             log(
-              `[overture] places: ${merged} of ${keys.length} buckets merged`,
+              `[overture] ${label}: ${merged} of ${keys.length} buckets merged`,
             );
         }
       }),
@@ -285,7 +325,7 @@ export async function buildPlaces({
       version,
       inputsId: runId,
       builtAt: new Date().toISOString(),
-      release: PLACES.release,
+      release: source.release,
       places: Object.values(buckets).reduce((sum, b) => sum + b.places, 0),
       bytes:
         Object.values(buckets).reduce((sum, b) => sum + b.bytes, 0) +
@@ -332,7 +372,7 @@ export async function buildPlaces({
         }
     fs.rmSync(path.join(outDir, 'parts'), { recursive: true, force: true });
     log(
-      `[overture] places ${version}: ${manifest.places.toLocaleString('en')} places in ${keys.length} buckets, ${(manifest.bytes / 1e9).toFixed(2)} GB; parts ${(partSeconds / 60).toFixed(1)} min, merge ${(mergeSeconds / 60).toFixed(1)} min`,
+      `[overture] ${label} ${version}: ${manifest.places.toLocaleString('en')} points in ${keys.length} buckets, ${(manifest.bytes / 1e9).toFixed(2)} GB; parts ${(partSeconds / 60).toFixed(1)} min, merge ${(mergeSeconds / 60).toFixed(1)} min`,
     );
     return manifest;
   } finally {
@@ -340,9 +380,9 @@ export async function buildPlaces({
   }
 }
 
-/** What overture:status says about the places. */
-export function placesStatus(dir) {
-  const manifest = currentPlaces(dir);
+/** What overture:status says about a point build (the places by default). */
+export function placesStatus(dir, name = 'places') {
+  const manifest = currentPoints(dir, name);
   if (!manifest) return { built: false };
   return {
     built: true,
@@ -353,6 +393,7 @@ export function placesStatus(dir) {
     buckets: Object.keys(manifest.buckets).length,
     rawDir: manifest.rawDir,
     byDataset: manifest.stats?.byDataset || {},
+    ...(manifest.stats?.byClass ? { byClass: manifest.stats.byClass } : {}),
     seconds: manifest.seconds,
   };
 }

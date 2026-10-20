@@ -394,15 +394,9 @@ test('a newer query aborts the one in flight', async () => {
 });
 
 /** A Street assets layer on EV charging with a fake Overpass and places index. */
-function chargingLayer({
-  configured = true,
-  stations = 3,
-  cells = 7,
-  overpass,
-}) {
-  const asked = [];
-  const credits = [];
-  const places = {
+/** A fake Overture index: built or not, `stations` pins, one cell of `cells`. */
+function fakeIndex({ configured, stations, cells, prefix, asked }) {
+  return {
     status: async () =>
       configured
         ? { configured: true, version: 'abcdef012345', places: 9 }
@@ -410,7 +404,7 @@ function chargingLayer({
     pins: async (q) => {
       asked.push(['pins', q.category, q.minConfidence, q.box]);
       const places = Array.from({ length: stations }, (_, i) => ({
-        id: `pl:1:2:${i}`,
+        id: `${prefix}:1:2:${i}`,
         at: [-76.61 + i * 0.001, 39.29],
       }));
       return { places, count: places.length, saturated: false };
@@ -421,12 +415,37 @@ function chargingLayer({
     },
     abort: () => {},
   };
+}
+
+/**
+ * A Street assets layer on `asset`, its Overture index (`source`, places or
+ * infrastructure) faked and the other one not built.
+ */
+function overtureLayer({
+  asset = 'charging',
+  source = 'places',
+  configured = true,
+  stations = 3,
+  cells = 7,
+  overpass,
+}) {
+  const asked = [];
+  const credits = [];
+  const index = fakeIndex({
+    configured,
+    stations,
+    cells,
+    prefix: source === 'places' ? 'pl' : 'in',
+    asked,
+  });
+  const other = fakeIndex({ configured: false, asked: [] });
   const rollup = {};
   const layer = createStreetAssetsLayer({
     overpass,
-    places,
+    places: source === 'places' ? index : other,
+    infrastructure: source === 'infrastructure' ? index : other,
     credits: { register: (_viewer, credit) => credits.push(credit) },
-    storage: { getItem: () => 'charging', setItem() {} },
+    storage: { getItem: () => asset, setItem() {} },
     setTimeoutImpl: (fn) => (fn(), 0),
     clearTimeoutImpl: () => {},
     attachRollup: (_owner, options) =>
@@ -439,6 +458,7 @@ function chargingLayer({
   });
   return { layer, asked, credits, rollup };
 }
+const chargingLayer = (options) => overtureLayer(options);
 
 const fakeOverpass = (answer) => {
   const queries = [];
@@ -542,4 +562,109 @@ test('EV charging where Overture is sparse: OpenStreetMap for the view, said in 
   assert.equal(missing.queries.length, 1, 'Overpass asked once');
   assert.match(alone.layer.getRowControls().info, /from Overture Maps$/);
   alone.layer.disable();
+});
+
+test('HYDRANTS, STREET LIGHTS and SIGNALS from Overture’s infrastructure when built: their class, its credit, the chip saying so', async () => {
+  for (const [asset, below, pattern] of [
+    ['hydrant', 4_000, /emergency"="fire_hydrant/],
+    ['lamp', 2_000, /highway"="street_lamp/],
+    ['signals', 4_000, /highway"="traffic_signals/],
+  ]) {
+    const overpass = fakeOverpass([]);
+    const { layer, asked, credits, rollup } = overtureLayer({
+      asset,
+      source: 'infrastructure',
+      overpass,
+    });
+    const viewer = fakeViewer(below);
+    layer.init(viewer);
+    layer.enable(viewer);
+    await flush();
+    assert.equal(overpass.queries.length, 0, `${asset}: no Overpass`);
+    assert.deepEqual(asked.at(-1).slice(0, 2), ['pins', asset]);
+    assert.equal(layer._state().held.features.length, 3);
+    assert.ok(
+      credits.some((credit) => credit.key === 'overture-infrastructure'),
+      `${asset}: the ODbL credit`,
+    );
+    const controls = layer.getRowControls();
+    assert.match(controls.info, /from Overture Maps$/);
+    assert.match(
+      controls.chips.find((chip) => chip.id === `asset-${asset}`).title,
+      /\(Overture Maps\)$/,
+    );
+    // Above the pin height: the index's counts through the rollup.
+    viewer.camera.positionCartographic.height = below * 3;
+    layer._settle();
+    await flush();
+    const [kind, res, category] = asked.at(-1);
+    assert.deepEqual([kind, category], ['counts', asset]);
+    assert.equal(rollup.options.getCounts(res).get('872a1072bffffff'), 7);
+    assert.equal(overpass.queries.length, 0);
+    layer.disable();
+
+    // Sparse (two in the view): OpenStreetMap for it, said in the row.
+    const osm = fakeOverpass(OSM_STATIONS);
+    const sparse = overtureLayer({
+      asset,
+      source: 'infrastructure',
+      stations: 2,
+      overpass: osm,
+    });
+    const second = fakeViewer(below);
+    sparse.layer.init(second);
+    sparse.layer.enable(second);
+    await flush();
+    assert.match(osm.queries.at(-1), pattern);
+    assert.equal(sparse.layer._state().held.features.length, 4);
+    assert.match(
+      sparse.layer.getRowControls().info,
+      /from OpenStreetMap \(Overture sparse here\)$/,
+    );
+    sparse.layer.disable();
+
+    // Not built: Overpass as before, the chip says OpenStreetMap.
+    const plain = fakeOverpass([]);
+    const unbuilt = overtureLayer({
+      asset,
+      source: 'infrastructure',
+      configured: false,
+      overpass: plain,
+    });
+    const third = fakeViewer(below);
+    unbuilt.layer.init(third);
+    unbuilt.layer.enable(third);
+    await flush();
+    assert.match(plain.queries.at(-1), pattern);
+    assert.match(
+      unbuilt.layer
+        .getRowControls()
+        .chips.find((chip) => chip.id === `asset-${asset}`).title,
+      /\(OpenStreetMap\)$/,
+    );
+    unbuilt.layer.disable();
+  }
+});
+
+test('BIKE LANES stay on Overpass; a type change asks the other index once', async () => {
+  const overpass = fakeOverpass([]);
+  const { layer, asked } = overtureLayer({
+    asset: 'bike',
+    source: 'infrastructure',
+    overpass,
+  });
+  const viewer = fakeViewer(4_000);
+  layer.init(viewer);
+  layer.enable(viewer);
+  await flush();
+  assert.match(overpass.queries.at(-1), /cycleway/);
+  assert.equal(asked.length, 0, 'no Overture index for bike lanes');
+  // On to signals: the infrastructure index answers.
+  layer
+    .getRowControls()
+    .chips.find((c) => c.id === 'asset-signals')
+    .onClick();
+  await flush();
+  assert.deepEqual(asked.at(-1).slice(0, 2), ['pins', 'signals']);
+  layer.disable();
 });

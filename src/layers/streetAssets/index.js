@@ -7,6 +7,7 @@ import {
 } from '../../sources/overpassView.js';
 import {
   ASSET_KEYS,
+  OVERTURE_SPARSE_BELOW,
   assetFeatures,
   assetModeForHeight,
   assetQueryBox,
@@ -17,6 +18,10 @@ import {
 import { rowControls } from './presentation.js';
 import { createPlacesSource } from '../places/source.js';
 import { PLACES_CREDIT } from '../places/index.js';
+import {
+  INFRASTRUCTURE_CREDIT,
+  createInfrastructureSource,
+} from './infrastructureSource.js';
 import { viewWindow } from '../../maps/h3Cells.js';
 import { h3ResolutionForHeight } from '../../maps/h3Resolution.js';
 import { PLACE_MAX_SPAN_DEGREES } from '../../data/overturePlaces.js';
@@ -35,20 +40,26 @@ import { PLACE_MAX_SPAN_DEGREES } from '../../data/overturePlaces.js';
  * The pins are point primitives (no Cesium labels); the lines are clamped
  * to the ground and the 3D tiles. Rebuilt when the camera settles.
  *
- * EV CHARGING comes from the local Overture places index instead when it
- * is built (`npm run overture:build -- --places`, the Places layer's): its
- * charging stations at 50% confidence or more, pins from
- * /api/overture/places and counts from /api/overture/places/counts, so it
- * needs no Overpass; without the build, OpenStreetMap as before. Where
- * Overture is sparse (fewer than OVERTURE_SPARSE_BELOW stations for the
- * view, as around Paris), the view asks OpenStreetMap too and shows its
- * answer, the row saying so; without Overpass, Overture's stands.
+ * A type with an `overture` source (assets.js) reads a local Overture index
+ * instead when it is built, so it needs no Overpass: EV CHARGING the places
+ * (`npm run overture:build -- --places`, the Places layer's, at 50%
+ * confidence or more); HYDRANTS, STREET LIGHTS and SIGNALS the
+ * infrastructure (`-- --infrastructure`, OpenStreetMap's own through
+ * Overture). Pins from the index's route, counts from its /counts; without
+ * the build, OpenStreetMap as before. Where the index is sparse (fewer than
+ * the type's `sparseBelow` for the view, as the places around Paris), the
+ * view asks OpenStreetMap too and shows its answer, the row saying so;
+ * without Overpass, Overture's stands. BIKE LANES are Overpass's alone.
  */
 
 export const STREET_ASSETS_LAYER_ID = 'street-assets';
 export const TYPE_STORAGE_KEY = 'gev.streetAssets.type';
-/** Fewer Overture charging stations than this for a view: ask OpenStreetMap. */
-export const OVERTURE_SPARSE_BELOW = 3;
+export { OVERTURE_SPARSE_BELOW };
+/** Each Overture index's credit, registered when it answers. */
+const INDEX_CREDITS = Object.freeze({
+  places: PLACES_CREDIT,
+  infrastructure: INFRASTRUCTURE_CREDIT,
+});
 /** Wait this long after the camera settles before asking Overpass. */
 export const ASSET_DEBOUNCE_MS = 400;
 /** The lines' colour per ink. */
@@ -92,6 +103,7 @@ export function createStreetAssetsLayer({
   credits = null,
   overpass = createOverpassViewClient(),
   places = createPlacesSource(),
+  infrastructure = createInfrastructureSource(),
   storage,
   picking = null,
   attachRollup = attachPointRollup,
@@ -114,8 +126,12 @@ export function createStreetAssetsLayer({
   let _held = null;
   /** {mode, state, count, saturated} for the row. */
   let _status = null;
-  /** The Overture places index: null until asked, false when not built. */
-  let _overture = null;
+  /** The Overture indexes, by source name. */
+  const indexes = { places, infrastructure };
+  /** Each index asked: its status when built, false when not. */
+  const _built = new Map();
+  /** The indexes whose status is on its way. */
+  const _asking = new Set();
   /** Overpass said it is not configured: Overture's answers stand alone. */
   let _overpassMissing = false;
 
@@ -318,8 +334,10 @@ export function createStreetAssetsLayer({
     notify();
   }
 
-  /** Whether this type draws from Overture's places (EV charging, when built). */
-  const fromOverture = (type) => type.key === 'charging' && Boolean(_overture);
+  /** The built Overture index a type draws from, or null (Overpass). */
+  const overtureOf = (type) =>
+    (type.overture && _built.get(type.overture.source)) || null;
+  const fromOverture = (type) => Boolean(overtureOf(type));
 
   /** Draw an answer already in hand. */
   function show(held, status) {
@@ -331,17 +349,25 @@ export function createStreetAssetsLayer({
     notify();
   }
 
-  /** Overture's charging stations for the view: pins, or counts per cell. */
+  /** A type's features for the view from its Overture index: pins, or counts per cell. */
   async function fetchOverture(type, mode, box, view) {
+    const {
+      source: name,
+      category,
+      minConfidence,
+      sparseBelow,
+    } = type.overture;
+    const index = indexes[name];
+    const { version } = _built.get(name);
     _status = { mode, state: 'loading', count: 0, source: 'overture' };
     notify();
     try {
       if (mode === 'pins') {
-        const answer = await places.pins({
+        const answer = await index.pins({
           box: clipBox(box, view),
-          category: 'charging',
-          minConfidence: 0.5,
-          version: _overture.version,
+          category,
+          minConfidence,
+          version,
         });
         if (!_enabled || type.key !== _asset) return;
         const features = answer.places.map((place) => ({
@@ -360,12 +386,12 @@ export function createStreetAssetsLayer({
       } else {
         const res = h3ResolutionForHeight(view.height);
         const window = viewWindow(view.lat, view.lon, view.height);
-        const map = await places.counts({
+        const map = await index.counts({
           res,
           bounds: window,
-          category: 'charging',
-          minConfidence: 0.5,
-          version: _overture.version,
+          category,
+          minConfidence,
+          version,
         });
         if (!_enabled || type.key !== _asset) return;
         _held = {
@@ -389,14 +415,14 @@ export function createStreetAssetsLayer({
         saturated: _held.saturated,
         source: 'overture',
       };
-      if (count < OVERTURE_SPARSE_BELOW && !_overpassMissing)
+      if (count < sparseBelow && !_overpassMissing)
         return fetchFor(type, mode, box, { held: _held, status });
       return show(_held, status);
     } catch (error) {
       if (error?.name === 'AbortError') return;
       if (error?.code === 'unconfigured') {
         // The build went away: OpenStreetMap from here on.
-        _overture = false;
+        _built.set(name, false);
         _held = null;
         return settle();
       }
@@ -411,12 +437,19 @@ export function createStreetAssetsLayer({
     clearTimeoutImpl(_debounce);
     _debounce = null;
     const type = assetTypeOf(_asset);
-    if (type.key === 'charging' && _overture === null) {
-      places.status().then((status) => {
-        _overture = status?.configured ? status : false;
-        if (_overture) credits?.register?.(_viewer, PLACES_CREDIT);
-        if (_enabled) settle();
-      });
+    const name = type.overture?.source;
+    if (name && !_built.has(name)) {
+      // Whether its index is built, asked once while the layer is on.
+      if (!_asking.has(name)) {
+        _asking.add(name);
+        indexes[name].status().then((status) => {
+          _asking.delete(name);
+          _built.set(name, status?.configured ? status : false);
+          if (status?.configured)
+            credits?.register?.(_viewer, INDEX_CREDITS[name]);
+          if (_enabled) settle();
+        });
+      }
       return;
     }
     const view = viewNow();
@@ -516,8 +549,9 @@ export function createStreetAssetsLayer({
       clearTimeoutImpl(_debounce);
       _debounce = null;
       overpass.abort?.();
-      places.abort?.();
-      _overture = null;
+      for (const index of Object.values(indexes)) index.abort?.();
+      _built.clear();
+      _asking.clear();
       _overpassMissing = false;
       _removeMove?.();
       _removeMove = null;
@@ -561,7 +595,7 @@ export function createStreetAssetsLayer({
         inkColor: LINE_COLORS[ink()] || LINE_COLORS.light,
         status: _status,
         enabled: _enabled,
-        overture: _asset === 'charging' && Boolean(_overture),
+        overture: fromOverture(assetTypeOf(_asset)),
       });
     },
 
