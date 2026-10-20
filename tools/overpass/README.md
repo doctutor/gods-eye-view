@@ -96,20 +96,23 @@ since the updates come from the replication diffs.
 ## Memory and time
 
 This PC has a Ryzen 7 1800X (8 cores, 16 threads) and 16 GB of RAM. Docker
-Desktop's VM gets half the RAM by default (8 GB). For the import, give it
-10 GB and 8 processors in `%UserProfile%\.wslconfig`:
+Desktop's VM gets half the RAM by default (8 GB), and it stays there: the
+desktop keeps the other half. `update_database` holds up to its flush size
+before writing to disk, so `OVERPASS_FLUSH_SIZE` in `.env` is set to 4 for
+the 8 GB VM. The image's default is 16, and lower values are lighter and
+slower. If the import is killed for memory (`docker inspect gev-overpass`
+shows `OOMKilled: true`), lower it to 2 and start again (`docker compose
+down -v`).
+
+With a bigger VM, for example 10 GB and 8 processors in
+`%UserProfile%\.wslconfig` (then `wsl --shutdown` and restart Docker
+Desktop), 8 is enough:
 
 ```ini
 [wsl2]
 memory=10GB
 processors=8
 ```
-
-Then run `wsl --shutdown` and start Docker Desktop again. This is a
-recommendation only: nothing here writes that file. `OVERPASS_FLUSH_SIZE=8`
-(the image's default is 16) keeps `update_database` lighter. If the import is
-killed for memory (`docker inspect gev-overpass` shows `OOMKilled: true`),
-lower it to 4 and start again.
 
 Time, estimated from the OSM wiki ("on the order of 24 hours or more" for a
 planet import; areas "may take up to 24 hours"):
