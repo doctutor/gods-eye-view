@@ -26,15 +26,23 @@ export function readRenderMode(storage) {
   }
 }
 
-/** The stored exaggeration (1 to 5), else 1. */
+/** The stored exaggeration (1 to 5), else null (never chosen). */
 export function readExaggeration(storage) {
   try {
-    const value = Number(storage?.getItem(EXAGGERATION_STORAGE_KEY));
-    return Number.isInteger(value) && value >= 1 && value <= 5 ? value : 1;
+    const raw = storage?.getItem(EXAGGERATION_STORAGE_KEY);
+    const value = raw === null || raw === undefined ? NaN : Number(raw);
+    return Number.isInteger(value) && value >= 1 && value <= 5 ? value : null;
   } catch {
-    return 1;
+    return null;
   }
 }
+
+/**
+ * The exaggeration when none was chosen: 2× on a flat basemap (columns on
+ * the ellipsoid, where low country barely rises), 1× on terrain or the
+ * photoreal tiles (the columns stand on the ground's own relief).
+ */
+export const defaultExaggeration = (flat) => (flat ? 2 : 1);
 
 /** @param {{storage?: Storage|null}} [options] */
 export function createRenderModeStore({ storage } = {}) {
@@ -60,7 +68,10 @@ export function createRenderModeStore({ storage } = {}) {
   };
   return {
     getMode: () => mode,
-    getExaggeration: () => exaggeration,
+    /** The chosen exaggeration, else the default for the ground (flat or not). */
+    getExaggeration: (flat = true) => exaggeration ?? defaultExaggeration(flat),
+    /** Whether the user chose one (gev.render.legoExaggeration). */
+    isExaggerationSet: () => exaggeration !== null,
     setMode(next) {
       if (!RENDER_MODES.includes(next) || next === mode) return;
       mode = next;
