@@ -88,21 +88,34 @@ import_pbf() {
       "--flush-size=$flush"
   kill "$monitor" 2>/dev/null || true
 
-  import_log "Database written ($(du -sh /db/db | cut -f1)); applying the diffs since $version"
+  import_log "Database written ($(du -sh /db/db | cut -f1))"
   cp -r /app/etc/rules /db/db
-  chown -R overpass:overpass /db/*
-  # As the image does after its init: the first diffs, their start found
-  # from the planet's date (pyosmium-get-changes -O), then /db/replicate_id.
-  /app/bin/update_overpass.sh -O "$pbf"
-  if [[ ! -s /db/replicate_id ]]; then
-    import_log "No /db/replicate_id after the first update: the hourly updates cannot start."
-    import_log "Write the planet's replication sequence number into /db/replicate_id (see README.md)."
+  # Where the updates start: the sequence of OVERPASS_DIFF_URL's feed at
+  # the planet's date, found without downloading (-D). Not -O, as the image
+  # does: that refuses a feed other than the one the PBF's header names (the
+  # planet's says minutely; this uses hourly), even for a trailing slash.
+  # The update loop then catches up while the server answers.
+  if [[ -n "${OVERPASS_DIFF_URL}" ]]; then
+    /app/venv/bin/pyosmium-get-changes -v --cookie /db/cookie.jar \
+      --server "${OVERPASS_DIFF_URL}" -D "$version" -f /db/replicate_id
+    if [[ -s /db/replicate_id ]]; then
+      import_log "Updates start at sequence $(cat /db/replicate_id) of ${OVERPASS_DIFF_URL}"
+    else
+      import_log "No /db/replicate_id: the updates cannot start (see README.md)."
+      exit 1
+    fi
   fi
   touch /db/init_done
   rm -f /db/import_started
   chown -R overpass:overpass /db/*
-  import_log "Done. Serving now; areas (is_in) are built in the background."
+  import_log "Done. Serving now; the updates catch up and the areas (is_in) are built in the background."
 }
+
+# Every start: the CGI (fcgiwrap, as nginx) must reach the dispatcher's
+# socket in /db/db, but the image's /db is the overpass user's home, made
+# 0700 by Debian 12's adduser, and a named volume keeps that mode ("open64:
+# 13 Permission denied /db/db//osm3s_osm_base").
+chmod o+x /db
 
 if [[ ! -f /db/init_done ]]; then
   import_pbf
