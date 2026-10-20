@@ -178,7 +178,7 @@ test('the row: a chip per type, the swatch, what is drawn at this height', () =>
   assert.deepEqual(row.legend, [{ label: 'STREET LIGHTS', color: '#ffd166' }]);
   assert.equal(
     row.info,
-    '4200 street lights · Counts per hexagon; pins below 3 km',
+    '4,200 street lights · Counts per hexagon; pins below 3 km',
   );
   assert.equal(
     rowControls({
@@ -203,7 +203,7 @@ test('the row: a chip per type, the swatch, what is drawn at this height', () =>
       count: 2000,
       saturated: true,
     }),
-    '2000 street lights · more than the view can show; zoom in for all · Pins',
+    '2,000 street lights · more than the view can show; zoom in for all · Pins',
   );
   assert.match(
     statusText({ type: lamp, mode: 'pins', state: 'unconfigured' }),
@@ -774,8 +774,9 @@ function evLayer({ places = {}, infrastructure = {}, overpass }) {
 const atBaltimore = (n, step = 0.001) =>
   Array.from({ length: n }, (_, i) => [-76.61 + i * step, 39.29]);
 
-test('EV CHARGING in three steps: the places, then the infrastructure where they are sparse, then Overpass', async () => {
-  // Places enough: the infrastructure is not asked.
+test('EV CHARGING merges the places and the infrastructure whenever both are built; Overpass where the merge is sparse', async () => {
+  // Places enough: the infrastructure is asked too, its own stations added
+  // (the first three are the places' three, 0 m away: dropped).
   {
     const overpass = fakeOverpass([]);
     const { layer, asked } = evLayer({
@@ -788,34 +789,26 @@ test('EV CHARGING in three steps: the places, then the infrastructure where they
     layer.enable(viewer);
     await flush();
     assert.deepEqual(
-      asked.map(([name, kind]) => `${name} ${kind}`),
-      ['places pins'],
+      asked.map(([name, kind, category]) => `${name} ${kind} ${category}`),
+      ['places pins charging', 'infrastructure pins charging'],
     );
+    assert.equal(overpass.queries.length, 0);
+    const ids = layer._state().held.features.map((f) => f.id);
+    assert.deepEqual(ids.slice(0, 3), ['pl:1:2:0', 'pl:1:2:1', 'pl:1:2:2']);
+    assert.equal(ids.length, 9);
     assert.match(
       layer.getRowControls().info,
-      /^3 .*from Overture Maps \(places\)$/,
+      /^9 .*from Overture Maps \(places \+ infrastructure\)$/,
     );
     layer.disable();
   }
-  // Two places: the infrastructure's five merged in, one of them the same
-  // station 11 m away; no Overpass.
+  // The infrastructure adds nothing new (all within 25 m): the places alone.
   {
     const overpass = fakeOverpass([]);
-    const { layer, asked } = evLayer({
-      places: {
-        points: [
-          [-76.61, 39.29],
-          [-76.6, 39.29],
-        ],
-      },
+    const { layer } = evLayer({
+      places: { points: atBaltimore(4) },
       infrastructure: {
-        points: [
-          [-76.61, 39.2901],
-          [-76.62, 39.29],
-          [-76.63, 39.29],
-          [-76.64, 39.29],
-          [-76.65, 39.29],
-        ],
+        points: atBaltimore(4).map(([lon, lat]) => [lon, lat + 1e-4]),
       },
       overpass,
     });
@@ -823,17 +816,28 @@ test('EV CHARGING in three steps: the places, then the infrastructure where they
     layer.init(viewer);
     layer.enable(viewer);
     await flush();
-    assert.deepEqual(
-      asked.map(([name, kind, category]) => `${name} ${kind} ${category}`),
-      ['places pins charging', 'infrastructure pins charging'],
-    );
-    assert.equal(overpass.queries.length, 0);
-    const ids = layer._state().held.features.map((f) => f.id);
-    assert.deepEqual(ids.slice(0, 2), ['pl:1:2:0', 'pl:1:2:1']);
-    assert.equal(ids.length, 6, 'the duplicate dropped');
+    assert.equal(layer._state().held.features.length, 4);
     assert.match(
       layer.getRowControls().info,
-      /^6 .*from Overture Maps \(infrastructure\)$/,
+      /^4 .*from Overture Maps \(places\)$/,
+    );
+    layer.disable();
+  }
+  // No places here (Paris): the infrastructure's alone, so named.
+  {
+    const overpass = fakeOverpass([]);
+    const { layer } = evLayer({
+      places: { points: [] },
+      infrastructure: { points: atBaltimore(5) },
+      overpass,
+    });
+    const viewer = fakeViewer(4_000);
+    layer.init(viewer);
+    layer.enable(viewer);
+    await flush();
+    assert.match(
+      layer.getRowControls().info,
+      /^5 .*from Overture Maps \(infrastructure\)$/,
     );
     layer.disable();
   }
@@ -875,19 +879,57 @@ test('EV CHARGING in three steps: the places, then the infrastructure where they
     assert.equal(layer._state().held.features.length, 2);
     assert.match(
       layer.getRowControls().info,
-      /^2 .*from Overture Maps \(infrastructure\)$/,
+      /^2 .*from Overture Maps \(places \+ infrastructure\)$/,
     );
     layer.disable();
   }
 });
 
-test('EV CHARGING counts in three steps: the larger count per cell, then Overpass', async () => {
+test('a Berlin-like view: 376 places and 1,020 infrastructure stations, 150 of them the same, shown as 1,246', async () => {
+  // A grid of stations 100 m apart (0.0009° of latitude, 0.00147° of
+  // longitude at 52.5° N); the infrastructure's first 150 are 11 m from
+  // the places' first 150, the rest elsewhere.
+  const grid = (n, row0) =>
+    Array.from({ length: n }, (_, i) => [
+      13.3 + (i % 40) * 0.00147,
+      52.5 + (row0 + Math.floor(i / 40)) * 0.0009,
+    ]);
+  const places = grid(376, 0);
+  const near = places.slice(0, 150).map(([lon, lat]) => [lon, lat + 1e-4]);
+  const infrastructure = [...near, ...grid(870, 20)];
+  const overpass = fakeOverpass([]);
+  const { layer } = evLayer({
+    places: { points: places },
+    infrastructure: { points: infrastructure },
+    overpass,
+  });
+  const viewer = fakeViewer(4_000);
+  layer.init(viewer);
+  layer.enable(viewer);
+  await flush();
+  const held = layer._state().held;
+  assert.equal(held.features.length, 376 + 1_020 - 150);
+  assert.equal(held.saturated, false, 'under the 1,500 pin limit');
+  assert.match(
+    layer.getRowControls().info,
+    /^1,246 charging stations · Pins · from Overture Maps \(places \+ infrastructure\)$/,
+  );
+  assert.equal(overpass.queries.length, 0);
+  layer.disable();
+});
+
+test('EV CHARGING counts merged: the larger count per cell from both, then Overpass where still sparse', async () => {
   const res = 7;
   const at = (lat, lon) => latLngToCell(lat, lon, res);
   {
     const overpass = fakeOverpass([]);
     const { layer, asked, rollup } = evLayer({
-      places: { cells: [[at(39.29, -76.61), 2]] },
+      places: {
+        cells: [
+          [at(39.29, -76.61), 2],
+          [at(39.35, -76.5), 3],
+        ],
+      },
       infrastructure: {
         cells: [
           [at(39.29, -76.61), 5],
@@ -907,9 +949,10 @@ test('EV CHARGING counts in three steps: the larger count per cell, then Overpas
     assert.equal(overpass.queries.length, 0);
     const held = rollup.options.getCounts(h3ResolutionForHeight(60_000));
     assert.equal(held.get(at(39.29, -76.61)), 5, 'not 7: the same stations');
+    assert.equal(held.get(at(39.35, -76.5)), 3);
     assert.match(
       layer.getRowControls().info,
-      /^6 .*from Overture Maps \(infrastructure\)$/,
+      /^9 .*from Overture Maps \(places \+ infrastructure\)$/,
     );
     layer.disable();
   }

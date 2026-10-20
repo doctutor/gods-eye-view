@@ -3521,6 +3521,7 @@
   "Electric vehicle charging stations (Overture Maps)": "Зарядные станции для электромобилей (Overture Maps)",
   "from OpenStreetMap (Overture sparse here)": "из OpenStreetMap (у Overture здесь мало данных)",
   "from Overture Maps (places)": "из Overture Maps (места)",
+  "from Overture Maps (places + infrastructure)": "из Overture Maps (места + инфраструктура)",
   "from Overture Maps (infrastructure)": "из Overture Maps (инфраструктура)",
   "from Overture Maps (roads)": "из Overture Maps (дороги)",
   "Places": "Места",

@@ -3342,13 +3342,13 @@ Overture indexes instead of Overpass when they are built, at the same
 heights, limits and boxes. Each type has its steps in order
 (`src/layers/streetAssets/assets.js`); an index not built is passed over:
 
-| Type          | Steps (index: asked for)                                                                                        |
-| ------------- | --------------------------------------------------------------------------------------------------------------- |
-| EV charging   | places (`npm run overture:build -- --places`): `charging`, 50% or more; then infrastructure: `charging_station` |
-| Bike lanes    | roads (`-- --roads`, see [Roads](#roads-analysis)): cycleways and paths signed for bikes                        |
-| Hydrants      | infrastructure (`-- --infrastructure`, below): `fire_hydrant`                                                   |
-| Street lights | infrastructure: `street_lamp`                                                                                   |
-| Signals       | infrastructure: `traffic_signals`                                                                               |
+| Type          | Steps (index: asked for)                                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| EV charging   | places (`npm run overture:build -- --places`): `charging`, 50% or more; and infrastructure: `charging_station`, always merged |
+| Bike lanes    | roads (`-- --roads`, see [Roads](#roads-analysis)): cycleways and paths signed for bikes                                      |
+| Hydrants      | infrastructure (`-- --infrastructure`, below): `fire_hydrant`                                                                 |
+| Street lights | infrastructure: `street_lamp`                                                                                                 |
+| Signals       | infrastructure: `traffic_signals`                                                                                             |
 
 Pins come from the index's route (`/api/overture/places`,
 `/api/overture/infrastructure` or `/api/roads/bike`, the box clipped to 1°
@@ -3362,7 +3362,9 @@ OpenStreetMap as before.
 **Sparse views take the next step.** A step is taken only when the answer
 so far has fewer than the type's `sparseBelow` features for the view (3
 for each type; pins in the box, or counts in the window), and its answer
-is merged in:
+is merged in. EV CHARGING takes both of its steps whenever both indexes
+are built (`mergeSteps`), sparse or not, and the row says "(places +
+infrastructure)" when each added stations. The merge:
 
 - **Pins:** a later step's point within 25 m of one already held is the
   same feature, and the earlier entry stays (the places' has a name and a
@@ -3378,13 +3380,19 @@ is not asked again until the layer is turned off and on.
 
 - **EV charging:** the places' coverage differs by country (see Places),
   and the infrastructure's charging stations are OpenStreetMap's (202 k
-  world-wide against the places' 56 k). Measured at Street assets' 4 km
-  box: Baltimore downtown has 56 places stations (the places answer);
-  Paris has none, so the infrastructure answers with 465; Lagos has none
-  and 2, so it asks Overpass (blocked from this machine, so the 2 stand).
-  Berlin has 376 places stations, and the infrastructure would add 870
-  more (1,020, 150 of them within 25 m of a place); a view with 3 places
-  or more never asks it.
+  world-wide against the places' 56 k); each has stations the other
+  lacks, so both are shown. Measured at Street assets' 4 km box:
+
+  | View               | Places | Infrastructure | Within 25 m | Shown                           |
+  | ------------------ | ------ | -------------- | ----------- | ------------------------------- |
+  | Baltimore downtown | 56     | 40             | 5           | 91 (places + infrastructure)    |
+  | Berlin             | 376    | 1,020          | 150         | 1,246 (places + infrastructure) |
+  | Paris              | 0      | 465            | 0           | 465 (infrastructure)            |
+  | Lagos              | 0      | 2              | 0           | Overpass; blocked here, the 2   |
+
+  Counts within 60 km of Paris: the places 203, the infrastructure 6,001,
+  6,050 merged (the larger per cell).
+
 - **Hydrants, street lights, signals:** the infrastructure is
   OpenStreetMap's own, as of the release. The fallback catches places
   with next to nothing mapped then (Lagos: no hydrants, no lamps) and,
