@@ -40,6 +40,31 @@ export const BROWSER_CSP = [
   "frame-ancestors 'none'",
 ].join('; ');
 
+/**
+ * Paths the dev server never watches. Personal fork: `.claude/` holds the
+ * Claude Code worker worktrees (each a full checkout with its own
+ * index.html) and `.gev-cache*` the local tile and data caches (a junction
+ * to another drive, tens of thousands of files); watched, a worktree's
+ * index.html or a deleted cache page reloaded the app, and the watcher
+ * crawled them at every start. None of them exists upstream, so the
+ * ignores are harmless there.
+ */
+export const DEV_WATCH_IGNORED = Object.freeze([
+  '**/.claude/**',
+  '**/.gev-cache*/**',
+  '**/.gev-secrets/**',
+  '**/node_modules/**',
+]);
+
+/**
+ * The dependency scanner's entries: the app's one document. By default Vite
+ * crawls the tree for every *.html (scraped camindex fixtures, the template
+ * fragments, tools/cesium-render.html, which its own Node script serves) and
+ * the crawl walked the worktrees and caches: 156 s against 11 s with this
+ * (2026-10-20; docs/PERSONAL-FORK.md, "Smaller additions").
+ */
+export const DEV_SCAN_ENTRIES = Object.freeze(['index.html']);
+
 /** Response headers shared by the dev and preview servers. */
 export const BROWSER_HEADERS = Object.freeze({
   'X-Frame-Options': 'DENY',
@@ -76,6 +101,8 @@ export function createBrowserViteConfig({
     // server is still serving optimized module URLs from.
     ...(command === 'build' ? { cacheDir: 'node_modules/.vite-build' } : {}),
     optimizeDeps: {
+      // Personal fork: scan the app's document only (DEV_SCAN_ENTRIES).
+      entries: [...DEV_SCAN_ENTRIES],
       // First reached through the SDR worker or a dynamic import. Pre-bundle
       // them at startup so first use cannot invalidate already-transformed
       // URLs with Vite's "Outdated Optimize Dep" 504 response.
@@ -95,6 +122,8 @@ export function createBrowserViteConfig({
       // Host-header check. LAN hostnames are added explicitly (see
       // build/allowedHosts.js); IP addresses are always accepted.
       allowedHosts: [...allowedHosts],
+      // Personal fork: worktrees and caches are not the app's sources.
+      watch: { ignored: [...DEV_WATCH_IGNORED] },
       fs: {
         deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/ENVIRONMENT'],
       },
