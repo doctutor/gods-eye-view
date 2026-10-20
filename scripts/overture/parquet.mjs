@@ -138,18 +138,21 @@ const CODECS = [
 
 /**
  * The schema as leaf columns: each with its dotted path, physical type,
- * and the maximum definition and repetition levels along the way.
+ * and the maximum definition and repetition levels along the way;
+ * `repeatedDefs` the definition level at which each repeated ancestor's
+ * element exists (outermost first).
  */
 function leavesOf(elements) {
   const leaves = [];
   let index = 1; // 0 is the root
-  function walk(path, maxDef, maxRep) {
+  function walk(path, maxDef, maxRep, repeatedDefs = []) {
     const element = elements[index++];
     const name = text(element[4]);
     const repetition = element[3] ?? 0; // 0 REQUIRED, 1 OPTIONAL, 2 REPEATED
     const def = maxDef + (repetition === 0 ? 0 : 1);
     const rep = maxRep + (repetition === 2 ? 1 : 0);
     const here = [...path, name];
+    const repeated = repetition === 2 ? [...repeatedDefs, def] : repeatedDefs;
     const children = element[5] || 0;
     if (!children) {
       leaves.push({
@@ -158,10 +161,11 @@ function leavesOf(elements) {
         typeLength: element[2] || 0,
         maxDef: def,
         maxRep: rep,
+        repeatedDefs: repeated,
       });
       return;
     }
-    for (let i = 0; i < children; i++) walk(here, def, rep);
+    for (let i = 0; i < children; i++) walk(here, def, rep, repeated);
   }
   const rootChildren = elements[0][5] || 0;
   for (let i = 0; i < rootChildren; i++) walk([], 0, 0);
@@ -586,6 +590,24 @@ export function rowsOfRepeated({ values, def, rep }, leaf) {
     const row = out[out.length - 1];
     if (def[i] === leaf.maxDef) row.push(values[v++]);
     else if (def[i] >= elementDef) row.push(null);
+  }
+  return out;
+}
+
+/**
+ * Per-row lists of lists of a column repeated twice (a list inside a list's
+ * elements): each row's outer elements, each the list of its defined
+ * inner values.
+ */
+export function rowsOfNested({ values, def, rep }, leaf) {
+  const [outerDef] = leaf.repeatedDefs;
+  const out = [];
+  let v = 0;
+  for (let i = 0; i < rep.length; i++) {
+    if (rep[i] === 0) out.push([]);
+    const row = out[out.length - 1];
+    if (rep[i] <= 1 && def[i] >= outerDef) row.push([]);
+    if (def[i] === leaf.maxDef) row[row.length - 1].push(values[v++]);
   }
   return out;
 }

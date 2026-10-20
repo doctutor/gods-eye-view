@@ -22,6 +22,8 @@ import {
   INFRASTRUCTURE_CREDIT,
   createInfrastructureSource,
 } from './infrastructureSource.js';
+import { ROADS_CREDIT } from '../roads/index.js';
+import { createRoadsSource } from '../roads/source.js';
 import { viewWindow } from '../../maps/h3Cells.js';
 import { h3ResolutionForHeight } from '../../maps/h3Resolution.js';
 import { PLACE_MAX_SPAN_DEGREES } from '../../data/overturePlaces.js';
@@ -45,11 +47,13 @@ import { PLACE_MAX_SPAN_DEGREES } from '../../data/overturePlaces.js';
  * (`npm run overture:build -- --places`, the Places layer's, at 50%
  * confidence or more); HYDRANTS, STREET LIGHTS and SIGNALS the
  * infrastructure (`-- --infrastructure`, OpenStreetMap's own through
- * Overture). Pins from the index's route, counts from its /counts; without
- * the build, OpenStreetMap as before. Where the index is sparse (fewer than
- * the type's `sparseBelow` for the view, as the places around Paris), the
- * view asks OpenStreetMap too and shows its answer, the row saying so;
- * without Overpass, Overture's stands. BIKE LANES are Overpass's alone.
+ * Overture); BIKE LANES the roads (`-- --roads`: cycleways and paths
+ * signed for bikes, as lines; their middle points for the counts). Pins
+ * from the index's route, counts from its /counts; without the build,
+ * OpenStreetMap as before. Where the index is sparse (fewer than the
+ * type's `sparseBelow` for the view, as the places around Paris), the view
+ * asks OpenStreetMap too and shows its answer, the row saying so; without
+ * Overpass, Overture's stands.
  */
 
 export const STREET_ASSETS_LAYER_ID = 'street-assets';
@@ -59,7 +63,10 @@ export { OVERTURE_SPARSE_BELOW };
 const INDEX_CREDITS = Object.freeze({
   places: PLACES_CREDIT,
   infrastructure: INFRASTRUCTURE_CREDIT,
+  roads: ROADS_CREDIT,
 });
+/** The roads route's widest box for bike lanes (BIKE_MAX_SPAN_DEGREES). */
+const ROADS_MAX_SPAN_DEGREES = 1;
 /** Wait this long after the camera settles before asking Overpass. */
 export const ASSET_DEBOUNCE_MS = 400;
 /** The lines' colour per ink. */
@@ -104,6 +111,7 @@ export function createStreetAssetsLayer({
   overpass = createOverpassViewClient(),
   places = createPlacesSource(),
   infrastructure = createInfrastructureSource(),
+  roads = createRoadsSource(),
   storage,
   picking = null,
   attachRollup = attachPointRollup,
@@ -127,7 +135,7 @@ export function createStreetAssetsLayer({
   /** {mode, state, count, saturated} for the row. */
   let _status = null;
   /** The Overture indexes, by source name. */
-  const indexes = { places, infrastructure };
+  const indexes = { places, infrastructure, roads };
   /** Each index asked: its status when built, false when not. */
   const _built = new Map();
   /** The indexes whose status is on its way. */
@@ -362,7 +370,33 @@ export function createStreetAssetsLayer({
     _status = { mode, state: 'loading', count: 0, source: 'overture' };
     notify();
     try {
-      if (mode === 'pins') {
+      if (name === 'roads') {
+        // Lines for pins, their middle points for counts.
+        const answer = await index.bikeLines(
+          clipBox(box, view, ROADS_MAX_SPAN_DEGREES),
+          { points: mode === 'counts' },
+        );
+        if (!_enabled || type.key !== _asset) return;
+        const features =
+          mode === 'pins'
+            ? answer.lines.map((entry, i) => ({
+                id: `road/${i}`,
+                coords: entry.line,
+              }))
+            : answer.points.map(([lon, lat], i) => ({
+                id: `road/${i}`,
+                lon,
+                lat,
+              }));
+        _held = {
+          type,
+          mode,
+          box,
+          features,
+          saturated: answer.saturated,
+          source: 'overture',
+        };
+      } else if (mode === 'pins') {
         const answer = await index.pins({
           box: clipBox(box, view),
           category,
@@ -490,9 +524,9 @@ export function createStreetAssetsLayer({
     }, ASSET_DEBOUNCE_MS);
   }
 
-  /** A pins box no wider than the places route answers, around the view. */
-  function clipBox(box, view) {
-    const half = PLACE_MAX_SPAN_DEGREES / 2 - 0.001;
+  /** A pins box no wider than the places route answers (or `span`), around the view. */
+  function clipBox(box, view, span = PLACE_MAX_SPAN_DEGREES) {
+    const half = span / 2 - 0.001;
     return {
       west: Math.max(box.west, view.lon - half),
       east: Math.min(box.east, view.lon + half),

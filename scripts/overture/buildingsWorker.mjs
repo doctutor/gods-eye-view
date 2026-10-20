@@ -11,6 +11,8 @@ import { mergeBucket } from './buildingsMerge.mjs';
 import { decodePlacesRowGroup } from './placesParts.mjs';
 import { decodeInfrastructureRowGroup } from './infrastructureParts.mjs';
 import { mergePlacesBucket } from './placesMerge.mjs';
+import { decodeRoadsRowGroup } from './roadsParts.mjs';
+import { mergeRoadsContainer } from './roadsMerge.mjs';
 
 /**
  * A worker of the Overture buildings step: fetches and decodes row groups
@@ -114,16 +116,65 @@ async function placesPart({
   return { fetched, bytes, stats };
 }
 
+/** A roads row group: fetched (kept on the raw archive) and decoded into a part. */
+async function roadsPart({
+  entry,
+  rawDir,
+  partFile,
+  region,
+  earlier,
+  dropRaw,
+  userAgent,
+}) {
+  let fetched = 0;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      fetched = await fetchRowGroup(entry, rawDir, { userAgent });
+      break;
+    } catch (error) {
+      if (attempt >= 4) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 2000 * (attempt + 1)));
+    }
+  }
+  const rawFile = rowGroupFile(rawDir, entry);
+  let footer = footers.get(entry.file);
+  if (!footer) {
+    footer = await fileFooter(
+      { name: entry.file, key: entry.key, size: entry.size },
+      rawDir,
+      { userAgent },
+    );
+    footers.clear();
+    footers.set(entry.file, footer);
+  }
+  const { buckets, stats } = decodeRoadsRowGroup(
+    readRowGroupFile(rawFile),
+    footer,
+    { region, earlier },
+  );
+  const bytes = writePart(
+    partFile,
+    { file: entry.file, group: entry.group, stats },
+    buckets,
+  );
+  if (dropRaw) fs.rmSync(rawFile, { force: true });
+  return { fetched, bytes, stats };
+}
+
 parentPort.on('message', async ({ id, type, job }) => {
   try {
     const result =
-      type === 'part'
-        ? await part(job)
-        : type === 'places-part'
-          ? await placesPart(job)
-          : type === 'places-merge'
-            ? mergePlacesBucket(job)
-            : mergeBucket(job);
+      type === 'roads-part'
+        ? await roadsPart(job)
+        : type === 'roads-merge'
+          ? mergeRoadsContainer(job)
+          : type === 'part'
+            ? await part(job)
+            : type === 'places-part'
+              ? await placesPart(job)
+              : type === 'places-merge'
+                ? mergePlacesBucket(job)
+                : mergeBucket(job);
     parentPort.postMessage({ id, result });
   } catch (error) {
     parentPort.postMessage({ id, error: String(error?.stack || error) });

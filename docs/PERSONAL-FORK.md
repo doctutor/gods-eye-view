@@ -46,6 +46,7 @@ unless its switch is set to `0`.
 - [Street assets (ANALYSIS)](#street-assets-analysis)
   - [Overture infrastructure](#overture-infrastructure)
 - [Places (ANALYSIS)](#places-analysis)
+- [Roads (ANALYSIS)](#roads-analysis)
 - [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
 - [Rivers: click a reach](#rivers-click-a-reach)
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
@@ -3352,8 +3353,8 @@ Pins come from the index's route (`/api/overture/places` or
 and counts per hexagon from its `/counts`. The chip's title and the row
 say "Overture Maps", and the index's credit is registered. Without the
 build, or if it goes away while the layer is on, the type asks
-OpenStreetMap as before. BIKE LANES stay with Overpass (they are ways of
-Overture's transportation theme, another build).
+OpenStreetMap as before. BIKE LANES read Overture's roads when they are
+built (see [Roads](#roads-analysis)).
 
 **Sparse views fall back to OpenStreetMap.** A view where the index has
 fewer than the type's `sparseBelow` features (3 for each type; pins in
@@ -3654,6 +3655,200 @@ change apply here: Overture transformed the data to its schema, and this
 build keeps a subset of its columns and places. Overture's attribution
 page adds "Foursquare data was transformed to the Overture schema" to the
 release.
+
+## Roads (ANALYSIS)
+
+**Roads** (`roads`, ANALYSIS) draws Overture Maps' road segments as
+self-hosted tiles: OpenStreetMap's, and TomTom's where Overture's sources
+say so. The tiles drape on the globe or on the photoreal tiles. The
+segments come from the transportation theme of release 2026-09-23.1
+(`theme=transportation/type=segment`, 128 files, 72 GB). The build covers
+the conterminous US and Europe.
+
+Three modes, kept as `gev.roads.mode`:
+
+- **NETWORK** (the default): roads by class, the major ones on top.
+- **SPEED**: the speed limit on a ramp from 30 to 130+ km/h (the legend
+  gives mph too). Roads without a limit are thin grey.
+- **SURFACE**: paved (paved, paving stones, metal), unpaved (unpaved,
+  gravel, dirt) or not mapped.
+
+Three ink chips, kept as `gev.roads.ink`: AUTO follows the basemap, LIGHT
+gives bright colours for dark maps, DARK deep colours for light maps.
+Tunnels and roads under construction are drawn faint, bridges over the
+rest.
+
+**A click on a road opens its card**: name, class (or subclass: ramp,
+sidewalk, crossing, alley), bridge or tunnel, speed limit in its own unit,
+surface, bicycles (designated, allowed, not allowed) and source. The click
+asks `GET /api/roads/nearest?lon=&lat=&zoom=`. The server finds the
+nearest road drawn at that zoom within 8 px. A path, sidewalk or crossing
+counts 3 px further than it is, so a click on a street finds the street,
+not the pavement mapped beside it. A click off any road closes the card.
+
+**Lanes are not in Overture's schema.** The 2026-09 segment schema has
+`width_rules`, but no lane count, so the card has no lanes. Nor does it
+mark painted cycle lanes on roads: OpenStreetMap's `cycleway=lane` tags
+do not survive into Overture. What it has for bicycles is the access
+restrictions, whose modes name bicycles (designated, allowed, denied).
+
+### Level of detail: classes by zoom, a level per band of zooms
+
+Each class is drawn from the tile zoom the camera heights in the brief
+give (`ROAD_CLASSES` in `src/data/overtureRoads.js`). Ramps (a `link`
+flag or subclass) join with the secondary roads, at z 9.
+
+| Classes                                                               | From | Camera height (1,600 px canvas) |
+| --------------------------------------------------------------------- | ---- | ------------------------------- |
+| motorway, trunk                                                       | z 0  | orbit                           |
+| primary                                                               | z 7  | about 1,000 km                  |
+| secondary, tertiary, ramps                                            | z 9  | about 300 km                    |
+| residential, living street, unclassified, other                       | z 12 | about 50 km                     |
+| service, pedestrian, footway, steps, cycleway, path, track, bridleway | z 14 | about 10 km                     |
+
+The build keeps six levels (`ROAD_LEVELS`). Each holds the classes drawn
+by its last zoom. Its coordinates sit on a grid of a quarter pixel at that
+zoom (the last level keeps Overture's own 0.15 m), simplified to half a
+pixel (Douglas-Peucker). The levels are z 0–4, 5–6, 7–8, 9–11, 12–13 and
+14–17.
+
+On a coarse grid many short segments snap onto the same points. They
+merge into one line there and are kept once. A segment shorter than a grid
+cell vanishes, but its neighbours' shared ends snap together, so no gap
+opens.
+
+Each level's lines are cut into pieces no longer than a quarter of a block
+(a z `block` tile: the level's first zoom or half of it). A piece is kept
+in the block holding its ends' middle, so a tile reads only the blocks it
+meets, widened by an eighth of a block. The blocks sit in bucket files
+(`server/providers/overture/roadsFile.js`): one file per level and z 6
+tile, one per level for the two coarse levels.
+
+| Level   | Grid | Block | US segments (pieces) | US size |
+| ------- | ---- | ----- | -------------------- | ------- |
+| z 0–4   | 2^14 | z 2   | 181,900              | 0.9 MB  |
+| z 5–6   | 2^16 | z 4   | 370,360              | 2.0 MB  |
+| z 7–8   | 2^18 | z 6   | 1,382,564            | 8.3 MB  |
+| z 9–11  | 2^21 | z 8   | 6,670,305            | 55 MB   |
+| z 12–13 | 2^23 | z 11  | 28,134,384           | 321 MB  |
+| z 14–17 | 2^28 | z 13  | 69,518,639           | 1.71 GB |
+
+### The build
+
+`npm run overture:build -- --roads` (`scripts/overture/roads.mjs`) runs
+in three steps, as the buildings do:
+
+1. **Plan.** It reads the 128 files' footers, fetched once and kept with
+   the raw downloads. It plans the row groups whose boxes meet a region,
+   and the column chunks of the twelve columns it reads (`ROAD_COLUMNS`:
+   geometry, subtype, class, subclass, primary name, surface, flags, max
+   speed and its unit, access types and their modes, source datasets).
+   Those are about half of each row group: ids and connectors stay behind.
+   The plan is checked against a 60 GB cap (`--cap-gb`).
+2. **Parts.** Each row group is fetched by HTTP range and decoded in
+   worker threads (`roadsParts.mjs`). A road segment whose middle point is
+   in the region goes onto every level that draws its class. Rail and
+   water segments are left out. Attributes:
+   - the flags: bridge, tunnel, link and under construction from
+     `road_flags`, link also from the subclass;
+   - bicycles from the access restrictions whose modes name bicycles,
+     each restriction's type paired with its own modes
+     (`rowsOfNested` in `parquet.mjs`);
+   - the first `road_surface`;
+   - the highest max speed, in its unit (the conditional limits, for
+     trucks or school hours, are lower);
+   - TomTom when a source dataset says so;
+   - the primary name.
+
+   The raw row groups are kept (`GEV_RAW_DIR`), so a rebuild fetches
+   nothing; `--drop-raw` drops them.
+
+3. **Merge.** Each container a part reached is written again from its
+   earlier file and the parts (`roadsMerge.mjs`). On the coarse levels,
+   pieces the grid made identical are kept once.
+
+Regions add up: `--road-regions europe` after the US keeps the US. A
+part on disk is done, so a stopped build repeats nothing finished. The
+build lives in `.gev-cache/overture/roads`, like the other Overture
+builds; `OVERTURE_ROADS_DIR` may point it elsewhere. Each rebuild drops
+the tiles drawn from the build before it.
+
+| Region          | Row groups | Rows read | Kept    | Fetched  | Derived | Time                          |
+| --------------- | ---------- | --------- | ------- | -------- | ------- | ----------------------------- |
+| conterminous-us | 3,001      | 64.7 M    | 62.9 M  | 8.43 GB  | 2.09 GB | parts 16.9 min, merge 2.3 min |
+| europe          | 5,118      | 109.9 M   | 107.6 M | 15.97 GB | 3.80 GB | parts 32.5 min, merge 4.6 min |
+| both            | 8,119      | 174.6 M   | 170.5 M | 24.4 GB  | 5.89 GB |                               |
+
+By source: the US 61.6 M OpenStreetMap and 1.3 M TomTom, Europe 104.1 M
+and 3.5 M. Named: 24.1 M and 31.7 M. With a speed limit: 5.1 M and
+13.9 M. With a surface: 15.5 M and 38.4 M. Designated for bicycles: 471 k
+and 1.57 M.
+
+The size table above is the US alone. With Europe the six levels hold
+0.36 M, 0.70 M, 3.0 M, 18.0 M, 76.3 M and 189.0 M pieces (2.0 MB, 4.1 MB,
+20 MB, 157 MB, 852 MB and 4.85 GB).
+
+### Serving and timings
+
+`server/providers/overtureRoads.js` serves `/api/roads`:
+
+- `/layers`: the build's status.
+- `/tile/<mode>/<ink>/<z>/<x>/<y>?v=`: drawn in the shared tile pool's
+  `overture-roads` workers, and kept on disk under the build's version.
+- `/nearest`: the click.
+- `/bike`: Street assets' bike lanes.
+
+A tile reads its level's blocks and draws each class's lines as
+antialiased capsules (the Rivers' coverage rasters), widths by class
+growing with the zoom (`roadWidth`).
+
+Tile draw times, live on 2026-10-20 (12 tiles a view, first draws, one
+thread; a kept tile serves from disk):
+
+| View (camera height)         | Zoom | Median | Slowest |
+| ---------------------------- | ---- | ------ | ------- |
+| Europe and the US from orbit | z 3  | 36 ms  | 214 ms  |
+| A US interstate, 1,000 km    | z 7  | 71 ms  | 209 ms  |
+| Baltimore, 100 km            | z 11 | 22 ms  | 134 ms  |
+| Baltimore, 20 km             | z 13 | 16 ms  | 89 ms   |
+| Baltimore, 20 km, SPEED      | z 13 | 30 ms  | 99 ms   |
+| Paris, 20 km                 | z 13 | 27 ms  | 115 ms  |
+| Paris, 20 km, SPEED          | z 13 | 32 ms  | 128 ms  |
+| Baltimore, 3 km              | z 16 | 12 ms  | 83 ms   |
+| Paris, 3 km                  | z 16 | 12 ms  | 103 ms  |
+
+The slowest tile of each view is the first to open a block; its
+neighbours reuse it. In a worker thread a first tile took 299 ms with the
+worker's start; a kept tile serves in 2 ms.
+
+The click answers in 5 to 100 ms. Bike lanes for a 0.2° box over
+Baltimore take 163 ms (1,391 lines); a 1° box of middle points for the
+counts takes 1.0 s (10,081 points).
+
+### Street assets' BIKE LANES
+
+BIKE LANES now read the roads when they are built. Below 8 km they draw
+cycleways and paths signed for bicycles (designated or allowed) as lines.
+Up to 30 km they draw those lines' middle points as H3 counts. Both come
+from `/api/roads/bike`, the box clipped to 1° around the view.
+
+A view with fewer than 3 asks OpenStreetMap through Overpass as the other
+types do, and Overpass's answer includes roads tagged with a painted lane
+(Overture has no such lanes). Without the build, BIKE LANES are
+Overpass's as before.
+
+Tests:
+
+- `src/data/overtureRoads.test.mjs`:
+  - the classes, colours and levels;
+  - a line's pieces;
+  - the block codec and the nested lists;
+  - a small build through parts and merge;
+  - the tiles at z 5 and z 16, the click, the bike lanes, and the route.
+- `src/layers/roads/roads.test.mjs`:
+  - the layer's imagery, chips, inks and legends;
+  - the card, the status words and the source;
+  - Street assets' BIKE LANES from the roads.
 
 ## H3 hexes (resolution by perspective)
 
@@ -4023,7 +4218,11 @@ drowning the view. There are four ways to do it, by the kind of data:
   decade of upstream area at z 5, 7, 8 and 9 (the Rivers' v1 bands at the
   zooms Cesium drapes at their heights), to every 1 km² stream from z 11, each band
   simplified to half a pixel at its own zooms (see
-  [Rivers: HydroSHEDS v2](#rivers-hydrosheds-v2-for-the-americas)).
+  [Rivers: HydroSHEDS v2](#rivers-hydrosheds-v2-for-the-americas)). Roads
+  draw by class with the zoom (motorways and trunks from orbit, streets
+  from z 12, paths from z 14), each of six levels on its own grid and
+  simplified to half a pixel at its last zoom (see
+  [Roads](#roads-analysis)).
 
 **Checklist for a new data layer:**
 
@@ -4095,10 +4294,10 @@ git merge origin/main
 - `src/data/dataCredits.js`, `.env.example` and `DATA_SOURCES.md`.
 - **Layer counts in tests.** `src/app/constructCatalog.test.mjs` (two
   places) and `src/app/sourceComposition.test.mjs` assert `layers.length`.
-  The fork's count is upstream's plus 23 (the two Baltimore layers, Recorded
+  The fork's count is upstream's plus 25 (the two Baltimore layers, Recorded
   Video, the sixteen Earth Engine overlays, the Grid, Wikipedia
-  coverage, Localities and Street assets): 55 since Census tracts and
-  Inundation history (2026-10-19). A record added to `src/data/earthEngineLayers.js` or an
+  coverage, Localities, Street assets, Places and Roads): 57 since Roads
+  (2026-10-20). A record added to `src/data/earthEngineLayers.js` or an
   upstream layer added later changes the number.
 - **Translations.** Upstream checks that every UI string is marked for
   translation (`npm run i18n`). Fork UI text goes through `t()`, `tn()` and

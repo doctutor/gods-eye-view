@@ -18,8 +18,9 @@
  * well inside the proxy's 12° limit at every cap.
  *
  * `overture`, where a type has one: the local Overture index read first
- * when it is built (`source` 'places' or 'infrastructure', the category or
- * class asked for, the confidence floor), at the same heights and limits;
+ * when it is built (`source` 'places', 'infrastructure' or 'roads', the
+ * category or class asked for, the confidence floor), at the same heights
+ * and limits;
  * a view where it has fewer than `sparseBelow` features asks Overpass too.
  */
 const assetType = (key, fields) => Object.freeze({ key, ...fields });
@@ -63,6 +64,10 @@ export const ASSET_TYPES = Object.freeze([
     countsBelowM: 30_000,
     pinLimit: 2_500,
     countLimit: 10_000,
+    // Overture's roads (`-- --roads`): cycleways, and paths signed for
+    // bikes. Its segments carry no painted lanes, so a view with next to
+    // none asks OpenStreetMap, whose roads tagged with a lane count too.
+    overture: overture('roads', 'bike'),
   }),
   assetType('hydrant', {
     selectors: Object.freeze(['node["emergency"="fire_hydrant"]']),

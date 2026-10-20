@@ -70,6 +70,35 @@ export const INFRASTRUCTURE_COLUMNS = Object.freeze([
   'names.primary',
   'sources.list.element.dataset',
 ]);
+/**
+ * The transportation theme's segments (roads, rails, waterways): 128
+ * GeoParquet files (72 GB) in this release, OpenStreetMap's and TomTom's.
+ */
+export const ROADS = Object.freeze({
+  release: OVERTURE_RELEASE,
+  theme: 'transportation',
+  type: 'segment',
+  prefix: `release/${OVERTURE_RELEASE}/theme=transportation/type=segment/`,
+});
+/** The roads step's fetched column chunks may not add up to more than this. */
+export const ROADS_CAP_BYTES = 60 * 1024 ** 3;
+/** The columns the roads step reads: about half of each row group (no ids or connectors). */
+export const ROAD_COLUMNS = Object.freeze([
+  'geometry',
+  'subtype',
+  'class',
+  'subclass',
+  'names.primary',
+  'road_surface.list.element.value',
+  'road_flags.list.element.values.list.element',
+  'speed_limits.list.element.max_speed.value',
+  'speed_limits.list.element.max_speed.unit',
+  'access_restrictions.list.element.access_type',
+  'access_restrictions.list.element.when.mode.list.element',
+  'sources.list.element.dataset',
+]);
+/** The regions the roads step keeps by default. */
+export const ROADS_REGIONS = Object.freeze(['conterminous-us', 'europe']);
 /** The buildings step's fetched column chunks may not add up to more than this. */
 export const BUILDINGS_CAP_BYTES = 25 * 1024 ** 3;
 /** The downloads may not add up to more than this. */
@@ -100,4 +129,19 @@ export function overtureCacheDir(
   return dir
     ? path.resolve(sourceRoot, dir)
     : path.join(sourceRoot, '.gev-cache', 'overture');
+}
+
+/**
+ * The roads build's directory (OVERTURE_ROADS_DIR, else roads/ in the
+ * Overture cache): the derived files want a fast local disk (D:), the raw
+ * downloads stay with GEV_RAW_DIR.
+ */
+export function overtureRoadsDir(
+  env = process.env,
+  sourceRoot = process.cwd(),
+) {
+  const dir = String(env.OVERTURE_ROADS_DIR || '').trim();
+  return dir
+    ? path.resolve(sourceRoot, dir)
+    : path.join(overtureCacheDir(env, sourceRoot), 'roads');
 }
