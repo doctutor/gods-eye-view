@@ -9,6 +9,8 @@ import {
   ASSET_KEYS,
   OVERTURE_SPARSE_BELOW,
   assetFeatures,
+  mergeCounts,
+  mergeNear,
   assetModeForHeight,
   assetQueryBox,
   assetTypeOf,
@@ -51,9 +53,11 @@ import { PLACE_MAX_SPAN_DEGREES } from '../../data/overturePlaces.js';
  * signed for bikes, as lines; their middle points for the counts). Pins
  * from the index's route, counts from its /counts; without the build,
  * OpenStreetMap as before. Where the index is sparse (fewer than the
- * type's `sparseBelow` for the view, as the places around Paris), the view
- * asks OpenStreetMap too and shows its answer, the row saying so; without
- * Overpass, Overture's stands.
+ * type's `sparseBelow` for the view), the next one is asked (EV CHARGING:
+ * the places, then the infrastructure's charging stations, as around
+ * Paris), its answer merged in; after the last, the view asks
+ * OpenStreetMap too and shows its answer, the row saying which answered;
+ * without Overpass, Overture's stands.
  */
 
 export const STREET_ASSETS_LAYER_ID = 'street-assets';
@@ -342,10 +346,10 @@ export function createStreetAssetsLayer({
     notify();
   }
 
-  /** The built Overture index a type draws from, or null (Overpass). */
-  const overtureOf = (type) =>
-    (type.overture && _built.get(type.overture.source)) || null;
-  const fromOverture = (type) => Boolean(overtureOf(type));
+  /** A type's Overture steps whose index is built, in order. */
+  const overtureSteps = (type) =>
+    (type.overture || []).filter((step) => _built.get(step.source));
+  const fromOverture = (type) => overtureSteps(type).length > 0;
 
   /** Draw an answer already in hand. */
   function show(held, status) {
@@ -357,112 +361,145 @@ export function createStreetAssetsLayer({
     notify();
   }
 
-  /** A type's features for the view from its Overture index: pins, or counts per cell. */
-  async function fetchOverture(type, mode, box, view) {
-    const {
-      source: name,
-      category,
-      minConfidence,
-      sparseBelow,
-    } = type.overture;
+  /**
+   * One step's answer for the view, as what is held: pins (or lines), or
+   * counts per cell. Null when the view moved on.
+   */
+  async function askStep(step, type, mode, box, view) {
+    const { source: name, category, minConfidence } = step;
     const index = indexes[name];
     const { version } = _built.get(name);
-    _status = { mode, state: 'loading', count: 0, source: 'overture' };
-    notify();
-    try {
-      if (name === 'roads') {
-        // Lines for pins, their middle points for counts.
-        const answer = await index.bikeLines(
-          clipBox(box, view, ROADS_MAX_SPAN_DEGREES),
-          { points: mode === 'counts' },
-        );
-        if (!_enabled || type.key !== _asset) return;
-        const features =
-          mode === 'pins'
-            ? answer.lines.map((entry, i) => ({
-                id: `road/${i}`,
-                coords: entry.line,
-              }))
-            : answer.points.map(([lon, lat], i) => ({
-                id: `road/${i}`,
-                lon,
-                lat,
-              }));
-        _held = {
-          type,
-          mode,
-          box,
-          features,
-          saturated: answer.saturated,
-          source: 'overture',
-        };
-      } else if (mode === 'pins') {
-        const answer = await index.pins({
-          box: clipBox(box, view),
-          category,
-          minConfidence,
-          version,
-        });
-        if (!_enabled || type.key !== _asset) return;
-        const features = answer.places.map((place) => ({
-          id: place.id,
-          lon: place.at[0],
-          lat: place.at[1],
-        }));
-        _held = {
-          type,
-          mode,
-          box,
-          features,
-          saturated: answer.saturated,
-          source: 'overture',
-        };
-      } else {
-        const res = h3ResolutionForHeight(view.height);
-        const window = viewWindow(view.lat, view.lon, view.height);
-        const map = await index.counts({
-          res,
-          bounds: window,
-          category,
-          minConfidence,
-          version,
-        });
-        if (!_enabled || type.key !== _asset) return;
-        _held = {
-          type,
-          mode,
-          box,
-          features: [],
-          cells: { res, map },
-          saturated: false,
-          source: 'overture',
-        };
-      }
-      const count = _held.cells
-        ? [..._held.cells.map.values()].reduce((sum, n) => sum + n, 0)
-        : _held.features.length;
-      _held.count = count;
-      const status = {
-        mode,
-        state: 'ready',
-        count,
-        saturated: _held.saturated,
-        source: 'overture',
-      };
-      if (count < sparseBelow && !_overpassMissing)
-        return fetchFor(type, mode, box, { held: _held, status });
-      return show(_held, status);
-    } catch (error) {
-      if (error?.name === 'AbortError') return;
-      if (error?.code === 'unconfigured') {
-        // The build went away: OpenStreetMap from here on.
-        _built.set(name, false);
-        _held = null;
-        return settle();
-      }
-      _status = { mode, state: 'failed', count: 0, source: 'overture' };
+    let held;
+    if (name === 'roads') {
+      // Lines for pins, their middle points for counts.
+      const answer = await index.bikeLines(
+        clipBox(box, view, ROADS_MAX_SPAN_DEGREES),
+        { points: mode === 'counts' },
+      );
+      const features =
+        mode === 'pins'
+          ? answer.lines.map((entry, i) => ({
+              id: `road/${i}`,
+              coords: entry.line,
+            }))
+          : answer.points.map(([lon, lat], i) => ({
+              id: `road/${i}`,
+              lon,
+              lat,
+            }));
+      held = { features, saturated: answer.saturated };
+    } else if (mode === 'pins') {
+      const answer = await index.pins({
+        box: clipBox(box, view),
+        category,
+        minConfidence,
+        version,
+      });
+      const features = answer.places.map((place) => ({
+        id: place.id,
+        lon: place.at[0],
+        lat: place.at[1],
+      }));
+      held = { features, saturated: answer.saturated };
+    } else {
+      const res = h3ResolutionForHeight(view.height);
+      const window = viewWindow(view.lat, view.lon, view.height);
+      const map = await index.counts({
+        res,
+        bounds: window,
+        category,
+        minConfidence,
+        version,
+      });
+      held = { features: [], cells: { res, map }, saturated: false };
     }
+    if (!_enabled || type.key !== _asset) return null;
+    return { type, mode, box, source: name, ...held };
+  }
+
+  /** A held answer's count: its features, or its cells' counts summed. */
+  const heldCount = (held) =>
+    held.cells
+      ? [...held.cells.map.values()].reduce((sum, n) => sum + n, 0)
+      : held.features.length;
+
+  /** An answer so far and a later step's, merged: near points once, the larger count per cell. */
+  function mergeHeld(held, more) {
+    if (held.cells && more.cells)
+      return {
+        ...more,
+        cells: {
+          res: more.cells.res,
+          map: mergeCounts(held.cells.map, more.cells.map),
+        },
+        saturated: held.saturated || more.saturated,
+      };
+    const lines = held.type.geometry === 'line' && held.mode === 'pins';
+    let features = lines
+      ? [...held.features, ...more.features]
+      : mergeNear(held.features, more.features);
+    let saturated = held.saturated || more.saturated;
+    const limit = held.type.pinLimit;
+    if (held.mode === 'pins' && features.length > limit) {
+      features = features.slice(0, limit);
+      saturated = true;
+    }
+    return { ...more, features, saturated };
+  }
+
+  /**
+   * A type's features for the view from its built Overture indexes, in its
+   * order: each step taken only while the answer so far is sparse, merged
+   * into it; then, still sparse, Overpass (fetchFor), the answer so far
+   * standing if it cannot.
+   */
+  async function fetchOverture(type, mode, box, view) {
+    const steps = overtureSteps(type);
+    _status = { mode, state: 'loading', count: 0, source: steps[0].source };
     notify();
+    let held = null;
+    let step = null;
+    for (step of steps) {
+      let answer;
+      try {
+        answer = await askStep(step, type, mode, box, view);
+      } catch (error) {
+        if (error?.name === 'AbortError') return;
+        if (error?.code === 'unconfigured') {
+          // The build went away: the next step, or OpenStreetMap, from here on.
+          _built.set(step.source, false);
+          _held = null;
+          return settle();
+        }
+        if (held) break; // what the earlier steps found stands
+        _status = { mode, state: 'failed', count: 0, source: step.source };
+        notify();
+        return;
+      }
+      if (!answer) return;
+      if (held && answer.source !== held.source)
+        _status = { ..._status, source: answer.source };
+      held = held ? mergeHeld(held, answer) : answer;
+      held.count = heldCount(held);
+      if (held.count >= step.sparseBelow) break;
+    }
+    _held = held;
+    const status = {
+      mode,
+      state: 'ready',
+      count: held.count,
+      saturated: held.saturated,
+      source: held.source,
+    };
+    if (held.count < step.sparseBelow && !_overpassMissing)
+      return fetchFor(type, mode, box, { held, status });
+    try {
+      show(held, status);
+    } catch {
+      // The pins could not be drawn (the scene went, or WebGL refused them).
+      _status = { mode, state: 'failed', count: 0, source: held.source };
+      notify();
+    }
   }
 
   /** The camera settled: ask for the type's features or counts for the view. */
@@ -471,10 +508,13 @@ export function createStreetAssetsLayer({
     clearTimeoutImpl(_debounce);
     _debounce = null;
     const type = assetTypeOf(_asset);
-    const name = type.overture?.source;
-    if (name && !_built.has(name)) {
-      // Whether its index is built, asked once while the layer is on.
-      if (!_asking.has(name)) {
+    const unknown = (type.overture || [])
+      .map((step) => step.source)
+      .filter((name) => !_built.has(name));
+    if (unknown.length) {
+      // Whether its indexes are built, each asked once while the layer is on.
+      for (const name of unknown) {
+        if (_asking.has(name)) continue;
         _asking.add(name);
         indexes[name].status().then((status) => {
           _asking.delete(name);

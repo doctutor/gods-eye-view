@@ -3337,36 +3337,54 @@ the same paced `/api/overpass` client as Localities (and the same
 charging stations need no key. Attribution © OpenStreetMap contributors
 (ODbL).
 
-**From Overture first, when built.** Four of the types read a local
-Overture index instead of Overpass when it is built, at the same heights,
-limits and boxes:
+**From Overture first, when built.** Five of the types read local
+Overture indexes instead of Overpass when they are built, at the same
+heights, limits and boxes. Each type has its steps in order
+(`src/layers/streetAssets/assets.js`); an index not built is passed over:
 
-| Type          | Index (build)                                 | Asked for                          |
-| ------------- | --------------------------------------------- | ---------------------------------- |
-| EV charging   | places (`npm run overture:build -- --places`) | `charging`, 50% confidence or more |
-| Hydrants      | infrastructure (`-- --infrastructure`, below) | `fire_hydrant`                     |
-| Street lights | infrastructure                                | `street_lamp`                      |
-| Signals       | infrastructure                                | `traffic_signals`                  |
+| Type          | Steps (index: asked for)                                                                                        |
+| ------------- | --------------------------------------------------------------------------------------------------------------- |
+| EV charging   | places (`npm run overture:build -- --places`): `charging`, 50% or more; then infrastructure: `charging_station` |
+| Bike lanes    | roads (`-- --roads`, see [Roads](#roads-analysis)): cycleways and paths signed for bikes                        |
+| Hydrants      | infrastructure (`-- --infrastructure`, below): `fire_hydrant`                                                   |
+| Street lights | infrastructure: `street_lamp`                                                                                   |
+| Signals       | infrastructure: `traffic_signals`                                                                               |
 
-Pins come from the index's route (`/api/overture/places` or
-`/api/overture/infrastructure`, the box clipped to 1° around the view)
-and counts per hexagon from its `/counts`. The chip's title and the row
-say "Overture Maps", and the index's credit is registered. Without the
-build, or if it goes away while the layer is on, the type asks
-OpenStreetMap as before. BIKE LANES read Overture's roads when they are
-built (see [Roads](#roads-analysis)).
+Pins come from the index's route (`/api/overture/places`,
+`/api/overture/infrastructure` or `/api/roads/bike`, the box clipped to 1°
+around the view) and counts per hexagon from its `/counts`. The chip's
+title says "Overture Maps", the row names the index that answered ("from
+Overture Maps (places)", "(infrastructure)" or "(roads)"), and each
+index's credit is registered. Without the builds, or if one goes away
+while the layer is on, the type takes its next step, then asks
+OpenStreetMap as before.
 
-**Sparse views fall back to OpenStreetMap.** A view where the index has
-fewer than the type's `sparseBelow` features (3 for each type; pins in
-the box, or counts in the window) asks Overpass for the same box. The
-view then shows OpenStreetMap's answer, and the row ends "from
+**Sparse views take the next step.** A step is taken only when the answer
+so far has fewer than the type's `sparseBelow` features for the view (3
+for each type; pins in the box, or counts in the window), and its answer
+is merged in:
+
+- **Pins:** a later step's point within 25 m of one already held is the
+  same feature, and the earlier entry stays (the places' has a name and a
+  website); the merged list keeps to the type's pin limit.
+- **Counts:** the larger count per cell. Counts cannot be matched point
+  by point, and a sum would count a station both indexes hold twice.
+
+After the last step, a view still that sparse asks Overpass for the same
+box; it then shows OpenStreetMap's answer, and the row ends "from
 OpenStreetMap (Overture sparse here)". If Overpass is not configured or
-fails, Overture's few stand; once it has said it is not configured, it is
-not asked again until the layer is turned off and on. Views with more
-stay with Overture.
+fails, the indexes' few stand; once it has said it is not configured, it
+is not asked again until the layer is turned off and on.
 
-- **EV charging:** the places' coverage differs by country (see Places):
-  more than OpenStreetMap around Baltimore, far fewer around Paris.
+- **EV charging:** the places' coverage differs by country (see Places),
+  and the infrastructure's charging stations are OpenStreetMap's (202 k
+  world-wide against the places' 56 k). Measured at Street assets' 4 km
+  box: Baltimore downtown has 56 places stations (the places answer);
+  Paris has none, so the infrastructure answers with 465; Lagos has none
+  and 2, so it asks Overpass (blocked from this machine, so the 2 stand).
+  Berlin has 376 places stations, and the infrastructure would add 870
+  more (1,020, 150 of them within 25 m of a place); a view with 3 places
+  or more never asks it.
 - **Hydrants, street lights, signals:** the infrastructure is
   OpenStreetMap's own, as of the release. The fallback catches places
   with next to nothing mapped then (Lagos: no hydrants, no lamps) and,
@@ -3421,17 +3439,16 @@ GeoParquet files, 13.8 GB, 157,617,917 features in 4,864 row groups, all
 from OpenStreetMap (152 classes). It keeps four classes
 (`src/data/overtureInfrastructure.js`):
 
-| Class (subtype)                     | Features  | Street assets type |
-| ----------------------------------- | --------- | ------------------ |
-| `fire_hydrant` (emergency)          | 2,533,349 | HYDRANTS           |
-| `street_lamp` (transportation)      | 6,448,036 | STREET LIGHTS      |
-| `traffic_signals` (transportation)  | 2,008,803 | SIGNALS            |
-| `charging_station` (transportation) | 202,394   | (kept, not drawn)  |
+| Class (subtype)                     | Features  | Street assets type  |
+| ----------------------------------- | --------- | ------------------- |
+| `fire_hydrant` (emergency)          | 2,533,349 | HYDRANTS            |
+| `street_lamp` (transportation)      | 6,448,036 | STREET LIGHTS       |
+| `traffic_signals` (transportation)  | 2,008,803 | SIGNALS             |
+| `charging_station` (transportation) | 202,394   | EV CHARGING, second |
 
-Charging stations are kept because they cost nothing more: they are
-OpenStreetMap's (`amenity=charging_station`), 202 k beside the places'
-56 k, and could serve EV CHARGING where the places are sparse. EV CHARGING
-does not read them yet. `crossing` (58 k in a sample of 548 k features) is
+Charging stations are OpenStreetMap's (`amenity=charging_station`), 202 k
+beside the places' 56 k: EV CHARGING reads them where the places are
+sparse (see "From Overture first"). `crossing` (58 k in a sample of 548 k features) is
 left out: it is `highway=crossing`, which SIGNALS has never asked
 Overpass for. So is `tower/lighting` (floodlight masts, not street
 lights).
