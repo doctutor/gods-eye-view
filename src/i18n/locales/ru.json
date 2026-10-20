@@ -3444,11 +3444,36 @@
   "Street lamps (Overture Maps)": "Уличные фонари (Overture Maps)",
   "SIGNALS": "СВЕТОФОРЫ",
   "Traffic signals (OpenStreetMap)": "Светофоры (OpenStreetMap)",
-  "{count} charging stations": {"one":"{count} зарядная станция","few":"{count} зарядные станции","many":"{count} зарядных станций","other":"{count} зарядных станций"},
-  "{count} bike lane segments": {"one":"{count} участок велодорожки","few":"{count} участка велодорожек","many":"{count} участков велодорожек","other":"{count} участков велодорожек"},
-  "{count} fire hydrants": {"one":"{count} пожарный гидрант","few":"{count} пожарных гидранта","many":"{count} пожарных гидрантов","other":"{count} пожарных гидрантов"},
-  "{count} street lights": {"one":"{count} уличный фонарь","few":"{count} уличных фонаря","many":"{count} уличных фонарей","other":"{count} уличных фонарей"},
-  "{count} traffic signals": {"one":"{count} светофор","few":"{count} светофора","many":"{count} светофоров","other":"{count} светофоров"},
+  "{count} charging stations": {
+    "one": "{count} зарядная станция",
+    "few": "{count} зарядные станции",
+    "many": "{count} зарядных станций",
+    "other": "{count} зарядных станций"
+  },
+  "{count} bike lane segments": {
+    "one": "{count} участок велодорожки",
+    "few": "{count} участка велодорожек",
+    "many": "{count} участков велодорожек",
+    "other": "{count} участков велодорожек"
+  },
+  "{count} fire hydrants": {
+    "one": "{count} пожарный гидрант",
+    "few": "{count} пожарных гидранта",
+    "many": "{count} пожарных гидрантов",
+    "other": "{count} пожарных гидрантов"
+  },
+  "{count} street lights": {
+    "one": "{count} уличный фонарь",
+    "few": "{count} уличных фонаря",
+    "many": "{count} уличных фонарей",
+    "other": "{count} уличных фонарей"
+  },
+  "{count} traffic signals": {
+    "one": "{count} светофор",
+    "few": "{count} светофора",
+    "many": "{count} светофоров",
+    "other": "{count} светофоров"
+  },
   "Traffic signals (Overture Maps)": "Светофоры (Overture Maps)",
   "Zoom in below {height} km to draw them": "Приблизьтесь ниже {height} км, чтобы их показать",
   "Street assets need OVERPASS_UPSTREAMS in .env": "Для городской инфраструктуры нужен OVERPASS_UPSTREAMS в .env",
@@ -3604,9 +3629,17 @@
   "Asking the roads server…": "Запрос к серверу дорог…",
   "Roads unavailable": "Дороги недоступны",
   "Run npm run overture:build -- --roads for the Roads layer": "Запустите npm run overture:build -- --roads для слоя «Дороги»",
-  "{count} road segments": {"one":"{count} участок дороги","few":"{count} участка дороги","many":"{count} участков дорог","other":"{count} участков дорог"},
+  "{count} road segments": {
+    "one": "{count} участок дороги",
+    "few": "{count} участка дороги",
+    "many": "{count} участков дорог",
+    "other": "{count} участков дорог"
+  },
   "built for the United States and Europe; none here": "собраны для США и Европы; здесь их нет",
   "click a road for its card": "нажмите на дорогу, чтобы открыть карточку",
   "Roads": "Дороги",
-  "Source: Overture Maps \u00b7 {source}": "Источник: Overture Maps · {source}"
+  "Source: Overture Maps · {source}": "Источник: Overture Maps · {source}",
+  "Clicked: {road}": "Выбрано: {road}",
+  "No road here": "Здесь нет дороги",
+  "Road lookup failed": "Не удалось найти дорогу"
 }
