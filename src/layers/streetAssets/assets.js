@@ -24,7 +24,8 @@
  * when the answer so far has fewer than its `sparseBelow` features for the
  * view, and is merged into it (mergeNear, mergeCounts); after the last,
  * a view still that sparse asks Overpass too. Indexes not built are passed
- * over.
+ * over. With `mergeSteps`, every built step is asked and merged, sparse or
+ * not.
  */
 const assetType = (key, fields) => Object.freeze({ key, ...fields });
 
@@ -52,13 +53,15 @@ export const ASSET_TYPES = Object.freeze([
     countsBelowM: 150_000,
     pinLimit: 1_500,
     countLimit: 8_000,
-    // Overture's places (Meta, Foursquare and the rest), at 50% or more;
-    // where they are sparse (as around Paris), OpenStreetMap's own through
-    // Overture's infrastructure; then Overpass.
+    // Overture's places (Meta, Foursquare and the rest), at 50% or more,
+    // and OpenStreetMap's own through Overture's infrastructure, merged:
+    // each has stations the other lacks (Paris: the places have 203 within
+    // 60 km, the infrastructure 6,001). Overpass where both are sparse.
     overture: steps(
       overture('places', 'charging'),
       overture('infrastructure', 'charging'),
     ),
+    mergeSteps: true,
   }),
   assetType('bike', {
     // Separate cycleways and roads that carry a bike lane or track.

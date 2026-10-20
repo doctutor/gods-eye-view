@@ -57,7 +57,9 @@ import { PLACE_MAX_SPAN_DEGREES } from '../../data/overturePlaces.js';
  * the places, then the infrastructure's charging stations, as around
  * Paris), its answer merged in; after the last, the view asks
  * OpenStreetMap too and shows its answer, the row saying which answered;
- * without Overpass, Overture's stands.
+ * without Overpass, Overture's stands. EV CHARGING merges both indexes
+ * whenever both are built (`mergeSteps`), Overpass only where the merge is
+ * still sparse.
  */
 
 export const STREET_ASSETS_LAYER_ID = 'street-assets';
@@ -479,9 +481,18 @@ export function createStreetAssetsLayer({
       if (!answer) return;
       if (held && answer.source !== held.source)
         _status = { ..._status, source: answer.source };
+      // The indexes that added something, for the row ("places +
+      // infrastructure"); with none, the last one asked.
+      const before = held?.count ?? 0;
+      const sources = held?.sources ?? [];
       held = held ? mergeHeld(held, answer) : answer;
       held.count = heldCount(held);
-      if (held.count >= step.sparseBelow) break;
+      held.sources =
+        held.count > before ? [...sources, answer.source] : sources;
+      held.source = held.sources.length
+        ? held.sources.join('+')
+        : answer.source;
+      if (!type.mergeSteps && held.count >= step.sparseBelow) break;
     }
     _held = held;
     const status = {
