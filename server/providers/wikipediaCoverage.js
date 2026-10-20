@@ -7,13 +7,21 @@ import zlib from 'node:zlib';
 import { admitSameSite } from './common/same-site.js';
 import { defaultSourceRoot } from './common/source-root.js';
 import {
+  CAPITA_VARIANTS,
+  PEOPLE_FLOOR,
+  PER_PEOPLE,
   TILE_SIZE,
   VARIANTS,
   boxValues,
+  capitaTileValues,
   encodeTile,
   openGrid,
   tileValues,
 } from './wikipediaCoverage/grid.js';
+import {
+  openCapitaFile,
+  openPopulationFile,
+} from './wikipediaCoverage/population.js';
 import {
   H3_VARIANTS,
   RESOLUTIONS,
@@ -44,7 +52,11 @@ import {
  *
  * Variants: `articles` (per km²), `text` (bytes of wikitext per km², when
  * the build included the page table), `count` (articles under each pixel
- * or in each hexagon).
+ * or in each hexagon), and per capita (population.bin and capita.bin
+ * beside the grid, `npm run wikipedia:build -- --population`): `capita`
+ * (articles per 100,000 people) and `textcapita` (wikitext bytes per
+ * person), 0 where fewer than 100 people live under the pixel or in the
+ * hexagon.
  */
 
 export const WIKIPEDIA_COVERAGE_ROUTE = '/api/wikipedia-coverage';
@@ -53,6 +65,10 @@ export const MAX_ZOOM = 9;
 export const ATTRIBUTION = 'Wikipedia, CC BY-SA 4.0 — Wikimedia GeoData';
 export const NEEDS_BUILD =
   'Run npm run wikipedia:build to build the Wikipedia coverage grid';
+export const POPULATION_ATTRIBUTION =
+  'Population: GHSL P2023A 2020, European Commission, Joint Research Centre';
+export const NEEDS_POPULATION =
+  'Run npm run wikipedia:build -- --population for the per-capita variants';
 export const NEEDS_H3 =
   'Run npm run wikipedia:build to build the Wikipedia coverage hexagons';
 /** More cells than this in one answer is a 413: ask at a coarser resolution. */
@@ -121,9 +137,50 @@ export function createWikipediaCoverageService({
   gridFile = coverageGridFile(env, sourceRoot),
   h3File = path.join(path.dirname(gridFile), 'h3.bin'),
   h3MaxCells = H3_MAX_CELLS,
+  populationFile = path.join(path.dirname(gridFile), 'population.bin'),
+  capitaFile = path.join(path.dirname(gridFile), 'capita.bin'),
 } = {}) {
   const gridWatch = createFileWatch(gridFile, openGrid, now, 'grid');
   const h3Watch = createFileWatch(h3File, openH3File, now, 'h3.bin');
+  const populationWatch = createFileWatch(
+    populationFile,
+    openPopulationFile,
+    now,
+    'population.bin',
+  );
+  const capitaWatch = createFileWatch(
+    capitaFile,
+    openCapitaFile,
+    now,
+    'capita.bin',
+  );
+  /**
+   * The people and the per-capita tables, when both are built for the grid
+   * on disk (capita.bin names the grid it was made for); else null.
+   */
+  function perCapita() {
+    const open = grid();
+    const people = populationWatch.current();
+    const capita = capitaWatch.current();
+    if (!open || !people || !capita) return null;
+    if (capita.header.gridBuiltAt !== open.header.builtAt) return null;
+    return { people, capita };
+  }
+
+  /** What /layers says about the people. */
+  function populationSummary() {
+    const joined = perCapita();
+    if (!joined) return { built: false, message: NEEDS_POPULATION };
+    const { header } = joined.people;
+    return {
+      built: true,
+      source: header.source?.name || null,
+      total: header.total || 0,
+      builtAt: header.builtAt || null,
+      floor: PEOPLE_FLOOR,
+      perPeople: PER_PEOPLE,
+    };
+  }
   /** The grid, opened (again) when the file is new or changed; null when none. */
   const grid = () => gridWatch.current();
   const hexes = () => h3Watch.current();
@@ -154,7 +211,11 @@ export function createWikipediaCoverageService({
             ? `The Wikipedia coverage grid is not readable: ${gridWatch.error()}`
             : NEEDS_BUILD,
           attribution: ATTRIBUTION,
-          variants: VARIANTS.map((key) => ({ key, available: false })),
+          variants: [...VARIANTS, ...CAPITA_VARIANTS].map((key) => ({
+            key,
+            available: false,
+          })),
+          population: { built: false, message: NEEDS_POPULATION },
           h3: h3Summary(),
         };
       const { header } = open;
@@ -171,24 +232,49 @@ export function createWikipediaCoverageService({
         tileUrl: `${WIKIPEDIA_COVERAGE_ROUTE}/tile/{variant}/{z}/{x}/{y}`,
         tileSize: TILE_SIZE,
         maxZoom: MAX_ZOOM,
-        attribution: ATTRIBUTION,
-        variants: VARIANTS.map((key) => {
-          const domain = header.domains?.[key] || null;
-          const available = Boolean(domain) && (key !== 'text' || open.hasText);
-          return {
-            key,
-            available,
-            ...(available
-              ? {
-                  domain: {
-                    min: domain.min,
-                    max: domain.max,
-                    median: domain.median,
-                  },
-                }
-              : {}),
-          };
-        }),
+        // GHSL asks for the source to be acknowledged once its people are used.
+        attribution: perCapita()
+          ? `${ATTRIBUTION} · ${POPULATION_ATTRIBUTION}`
+          : ATTRIBUTION,
+        variants: [
+          ...VARIANTS.map((key) => {
+            const domain = header.domains?.[key] || null;
+            const available =
+              Boolean(domain) && (key !== 'text' || open.hasText);
+            return {
+              key,
+              available,
+              ...(available
+                ? {
+                    domain: {
+                      min: domain.min,
+                      max: domain.max,
+                      median: domain.median,
+                    },
+                  }
+                : {}),
+            };
+          }),
+          ...CAPITA_VARIANTS.map((key) => {
+            const domain = perCapita()?.capita.header.domains?.[key] || null;
+            const available =
+              Boolean(domain) && (key !== 'textcapita' || open.hasText);
+            return {
+              key,
+              available,
+              ...(available
+                ? {
+                    domain: {
+                      min: domain.min,
+                      max: domain.max,
+                      median: domain.median,
+                    },
+                  }
+                : {}),
+            };
+          }),
+        ],
+        population: populationSummary(),
         h3: h3Summary(),
       };
     },
@@ -200,7 +286,8 @@ export function createWikipediaCoverageService({
     async h3(res, variant, box) {
       if (!RESOLUTIONS.includes(res))
         return { status: 400, message: 'Resolution must be 0 to 7' };
-      if (!H3_VARIANTS.includes(variant))
+      const capita = CAPITA_VARIANTS.includes(variant);
+      if (!H3_VARIANTS.includes(variant) && !capita)
         return { status: 400, message: 'No such variant' };
       if (!box)
         return {
@@ -209,20 +296,30 @@ export function createWikipediaCoverageService({
         };
       const open = hexes();
       if (!open) return { status: 503, message: NEEDS_H3 };
-      if (variant === 'text' && !open.hasText)
+      if ((variant === 'text' || variant === 'textcapita') && !open.hasText)
         return {
           status: 404,
           message:
             'The hexagons were built without article sizes (npm run wikipedia:build -- --text)',
         };
       const table = open.table(res);
-      const answer = queryCells(table, variant, box, { maxCells: h3MaxCells });
+      // Per capita: the people of capita.bin, made for these very hexagons.
+      const joined = capita ? perCapita() : null;
+      if (capita && joined?.capita.header.h3BuiltAt !== open.header.builtAt)
+        return { status: 503, message: NEEDS_POPULATION };
+      const answer = queryCells(table, variant, box, {
+        maxCells: h3MaxCells,
+        people: joined ? joined.capita.people(res) : null,
+      });
       if (answer.tooMany)
         return {
           status: 413,
           message: `More than ${h3MaxCells} cells at resolution ${res} in this box: ask at a coarser resolution or for a smaller box`,
         };
-      const domain = table.domains?.[variant] || null;
+      const domain = capita
+        ? joined.capita.header.resolutions.find((entry) => entry.res === res)
+            ?.domains?.[variant] || null
+        : table.domains?.[variant] || null;
       return {
         status: 200,
         body: {
@@ -242,7 +339,8 @@ export function createWikipediaCoverageService({
      * @returns {Promise<{status: number, body?: Buffer, contentType?: string, error?: string}>}
      */
     async tile(variant, z, x, y) {
-      if (!VARIANTS.includes(variant))
+      const capita = CAPITA_VARIANTS.includes(variant);
+      if (!VARIANTS.includes(variant) && !capita)
         return { status: 404, error: 'No such variant' };
       const limit = 2 ** z;
       if (
@@ -257,12 +355,23 @@ export function createWikipediaCoverageService({
         return { status: 400, error: 'Tile out of range' };
       const open = grid();
       if (!open) return { status: 503, error: NEEDS_BUILD };
-      if (variant === 'text' && !open.hasText)
+      if ((variant === 'text' || variant === 'textcapita') && !open.hasText)
         return {
           status: 404,
           error:
             'The grid was built without article sizes (npm run wikipedia:build -- --text)',
         };
+      if (capita) {
+        const joined = perCapita();
+        if (!joined) return { status: 503, error: NEEDS_POPULATION };
+        return {
+          status: 200,
+          contentType: 'application/octet-stream',
+          body: encodeTile(
+            capitaTileValues(open, joined.people, variant, z, x, y),
+          ),
+        };
+      }
       return {
         status: 200,
         contentType: 'application/octet-stream',

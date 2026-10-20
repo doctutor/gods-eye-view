@@ -273,7 +273,11 @@ test('the catalog and tiles are checked on the way in', () => {
   assert.equal(catalog.dumpDate, '');
   assert.equal(catalog.maxZoom, 14);
   assert.equal(catalog.articles, 1_259_442);
-  assert.deepEqual([...catalog.variants.keys()], ['articles', 'text', 'count']);
+  assert.deepEqual(
+    [...catalog.variants.keys()],
+    ['articles', 'text', 'count', 'capita', 'textcapita'],
+  );
+  assert.deepEqual(catalog.population, { built: false });
   assert.equal(catalog.variants.get('text').available, false);
   const empty = toCatalog({
     configured: false,
@@ -282,7 +286,7 @@ test('the catalog and tiles are checked on the way in', () => {
   assert.equal(empty.configured, false);
   assert.equal(
     empty.variants.size,
-    3,
+    5,
     'every variant is listed, none available',
   );
   assert.equal(
@@ -453,6 +457,9 @@ test('the layer drapes the chosen variant at its stored opacity; chips switch it
       ['articles', true, undefined],
       ['text', false, 'error'],
       ['count', false, undefined],
+      // No population.bin on this server: the per-capita chips are greyed.
+      ['capita', false, 'error'],
+      ['textcapita', false, 'error'],
       // The Hexes mode's toggle (hexes.test.mjs covers it).
       ['hexes', false, undefined],
     ],
@@ -677,7 +684,7 @@ test('the opacity store, the credit and the status words', () => {
   assert.equal(DEFAULT_VARIANT, 'articles');
   assert.deepEqual(
     VARIANTS.map((v) => v.key),
-    ['articles', 'text', 'count'],
+    ['articles', 'text', 'count', 'capita', 'textcapita'],
   );
   assert.equal(
     statusText({ failure: 'HTTP 500' }),

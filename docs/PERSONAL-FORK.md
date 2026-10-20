@@ -42,6 +42,7 @@ unless its switch is set to `0`.
 - [Raster values (for Lego mode)](#raster-values-for-lego-mode)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
+  - [Per capita](#per-capita)
 - [Localities (REFERENCE)](#localities-reference)
 - [Street assets (ANALYSIS)](#street-assets-analysis)
   - [Overture infrastructure](#overture-infrastructure)
@@ -2598,6 +2599,128 @@ fixture `src/data/fixtures/wikipedia-coverage-h3-europe.json` (resolution
 2 over Europe, synthetic densities) and drawn with real Cesium in headless
 Chrome from that fixture; the live route (server/providers/
 wikipediaCoverage.js, from local-fixes `181f947a`) answers the same shape.
+
+### Per capita
+
+Two more chips: **Per 100k people** (`capita`, articles per 100,000
+people) and **Text per person** (`textcapita`, wikitext bytes per person).
+The people are GHSL's 2020 residents (P2023A), the same as the Population
+layer's 2020 chip.
+
+**The join is made once, at build time, so a tile is a local divide.**
+`npm run wikipedia:build -- --population` (`scripts/wikipedia/
+population.mjs`):
+
+- fetches the Population layer's 2020 density (people per km², without the
+  map's log ramp or its 1 per km² floor) onto the grid's 0.05° base;
+- does it with Earth Engine's `image:computePixels`, in tiles of 512 × 512
+  cells: 120 requests for the world, each counted against the day's Earth
+  Engine budget as a tile;
+- multiplies each cell's density by its area: people per cell;
+- keeps each tile as it arrives (`population-parts/`, removed once
+  `population.bin` is written), so a stopped run repeats nothing;
+- writes `population.bin` (every pyramid level, summed in Float64 and kept
+  as Float32), then `capita.bin`.
+
+Earth Engine reads the pyramid level nearest 0.05°. GHSL's pyramid is
+MEAN, so a cell's density is the mean of the 100 m pixels under it. It
+needs `EARTH_ENGINE_KEY_FILE` and `EARTH_ENGINE_PROJECT`, from `.env`
+under `--env-root` (default the repository).
+
+`capita.bin` holds what depends on both the people and the dump:
+
+- the grid's per-capita ramp domains;
+- the people of every hexagon in `h3.bin`, in its tables' order.
+
+Every `wikipedia:build` that finds `population.bin` writes it again, so the
+monthly dump refresh keeps it current. Its header names the `builtAt` of
+the grid and of the hexagons it was made for. The server refuses a
+per-capita answer (503) from a `capita.bin` made for another build.
+
+Built 2026-10-20: 120 requests in 129 s; 7.794 billion people (GHSL's own
+2020 total is about 7.8 billion); `population.bin` 138.1 MB, `capita.bin`
+5.6 MB (written in 16.7 s). The Wikipedia directory grows from 320.6 MB
+(grid and hexagons) to 464.3 MB.
+
+**The floor.** A pixel or a hexagon with fewer than 100 people
+(`PEOPLE_FLOOR`) has no per-capita value and is drawn clear: otherwise a
+lighthouse with one resident, or a research station, would top the ramp.
+The floor applies to the people summed under the pixel (or in the
+hexagon), the same cells whose articles are summed, so it never divides
+one cell's articles by another's people.
+
+**Tiles.** `capitaTileValues` in `grid.js` sums, for each pixel, the
+articles (or bytes) and the people of the same grid cells at the level the
+zoom reads. The value is articles ÷ people × 100,000, or bytes ÷ people.
+The articles, text and count tiles go through the old path untouched.
+Byte-checked on 2026-10-20 against local-fixes `198671f8` on the real grid:
+18 tiles and 9 hexagon answers of the old variants are identical; only the
+catalog changes (two more variants, a `population` summary, and GHSL in
+the attribution once the population is built).
+
+**Hexagons.** Resolutions 0 to 5 (about 250 km² and up, several base
+cells each) sum the people of the base cells whose centres they hold:
+each populated cell's resolution-5 hexagon, then its parents. Resolutions
+6 and 7 (36 km² and 5 km², finer than a 31 km² base cell) take the
+density of the base cell under their centre, times their own area. The
+rollup is Σ articles ÷ Σ people of the same hexagon; hexagons under the
+floor are left out.
+
+**The ramp** is the layer's log ramp between the 5th and 99.5th
+percentiles of the cells over the floor:
+
+| Variant                  | Floor of the ramp | Median | Ceiling |
+| ------------------------ | ----------------- | ------ | ------- |
+| Per 100k people (grid)   | 3.7               | 119    | 3,200   |
+| Text per person (grid)   | 0.17 B            | 4.7 B  | 269 B   |
+| Per 100k people (H3 r 2) | 1.3               | 24     | 20,700  |
+| Per 100k people (H3 r 4) | 0.9               | 24     | 6,300   |
+
+Timed on 2026-10-20 (24 tiles a view; the first tile reads the levels it
+needs from `population.bin`):
+
+| View                        | Zoom | First tile | Median |
+| --------------------------- | ---- | ---------- | ------ |
+| Europe, 3,000 km            | z 5  | 164 ms     | 1 ms   |
+| India, 3,000 km             | z 6  | 176 ms     | 3 ms   |
+| The United States, 2,000 km | z 6  | 150 ms     | 2 ms   |
+| London (z 9, the deepest)   | z 9  | 144 ms     | 2 ms   |
+
+Hexagons over Europe answer in 8 ms (resolution 2, 95 cells) and 9 ms
+(resolution 4, 3,387 cells).
+
+**What it shows.** Western and northern Europe read high (hundreds of
+articles per 100,000), cities darker than the country around them: more
+residents for each article. India and the Gangetic plain read low (a few
+per 100,000), the Himalaya and its hill stations higher. In the United
+States the Midwest and the East are dense with small towns that each have
+an article, so they read high. The West's settlements read high too, as
+scattered dots between empty land under the floor.
+
+**Caveats.**
+
+- The people are GHSL's 2020 residents; the articles are today's
+  Wikipedia. Five years of growth (and of articles) are not matched.
+- GHSL counts where people live, not where they work or visit. A business
+  district, an airport or a national park full of articles and with few
+  residents reads very high.
+- English Wikipedia's geotags, so the layer measures English coverage per
+  person, not the world's knowledge.
+- A 0.05° cell is 5.5 km. Close in, the layer stops at z 9 and Cesium
+  stretches its cells.
+
+Tests: `server/providers/wikipediaCoveragePerCapita.test.mjs`:
+
+- the floor and the values;
+- people summed up the pyramid;
+- tiles at z 9 and z 2 over a tiny fixture: a cell over the floor, one
+  under it, one with no articles;
+- the hexagons' people at resolutions 7 and 2;
+- a stale `capita.bin` refused;
+- the Earth Engine step against a mock: 120 tiles, density × area,
+  resumed with nothing fetched twice.
+
+The existing tests now list the two chips.
 
 ## Rivers: HydroSHEDS v2 for the Americas
 

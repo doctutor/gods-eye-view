@@ -35,6 +35,22 @@ export const LEVELS = 5;
 export const TILE_SIZE = 256;
 /** The variants a tile can be asked for. */
 export const VARIANTS = Object.freeze(['articles', 'text', 'count']);
+/**
+ * The per-capita variants (population.js, which needs the population
+ * files): articles per PER_PEOPLE people, wikitext bytes per person; 0
+ * under PEOPLE_FLOOR people.
+ */
+export const CAPITA_VARIANTS = Object.freeze(['capita', 'textcapita']);
+export const PEOPLE_FLOOR = 100;
+export const PER_PEOPLE = 100_000;
+
+/** A per-capita value from sums: 0 under the floor. */
+export function capitaValue(variant, articles, bytes, people) {
+  if (!(people >= PEOPLE_FLOOR)) return 0;
+  return variant === 'textcapita'
+    ? (bytes || 0) / people
+    : (articles / people) * PER_PEOPLE;
+}
 const EARTH_RADIUS_KM = 6371.0088;
 const RAD = Math.PI / 180;
 
@@ -377,6 +393,77 @@ export function tileValues(grid, variant, z, x, y, size = TILE_SIZE) {
         area += areas[row] * (colLast - colFirst + 1);
       }
       out[j * size + i] = variant === 'count' ? total : total / area;
+    }
+  }
+  return out;
+}
+
+/**
+ * One Web Mercator tile's per-capita values (population.js): for each
+ * pixel, the articles per 100,000 people (or wikitext bytes per person) of
+ * the cells under it, both summed over the same cells; 0 where they hold
+ * fewer than PEOPLE_FLOOR people.
+ * @param {{level: Function}} grid an opened grid
+ * @param {{level: Function}} population an opened population.bin
+ * @param {'capita'|'textcapita'} variant
+ * @returns {Float32Array} size × size, row 0 at the north edge
+ */
+export function capitaTileValues(
+  grid,
+  population,
+  variant,
+  z,
+  x,
+  y,
+  size = TILE_SIZE,
+) {
+  if (!CAPITA_VARIANTS.includes(variant))
+    throw new RangeError(`No per-capita variant ${variant}`);
+  const limit = 2 ** z;
+  if (
+    !Number.isInteger(z) ||
+    z < 0 ||
+    !Number.isInteger(x) ||
+    !Number.isInteger(y) ||
+    x < 0 ||
+    y < 0 ||
+    x >= limit ||
+    y >= limit
+  )
+    throw new RangeError(`Tile ${z}/${x}/${y} is out of range`);
+  const index = levelForZoom(z, size);
+  const level = grid.level(index);
+  const people = population.level(index);
+  const { width, height, counts, bytes } = level;
+  const cellDeg = levelShape(level.level).cellDeg;
+  if (variant === 'textcapita' && !bytes)
+    throw new RangeError('The grid was built without article sizes');
+  const out = new Float32Array(size * size);
+  const span = 1 / (size * limit);
+  const cols = new Array(size);
+  for (let i = 0; i < size; i++) {
+    const west = -180 + 360 * (x * size + i) * span;
+    const east = -180 + 360 * (x * size + i + 1) * span;
+    cols[i] = cellSpan(west, east, cellDeg, width, -180, 1);
+  }
+  for (let j = 0; j < size; j++) {
+    const top = mercatorLat((y * size + j) * span);
+    const bottom = mercatorLat((y * size + j + 1) * span);
+    const [rowFirst, rowLast] = cellSpan(bottom, top, cellDeg, height, 90, -1);
+    for (let i = 0; i < size; i++) {
+      const [colFirst, colLast] = cols[i];
+      let articles = 0;
+      let text = 0;
+      let persons = 0;
+      for (let row = rowFirst; row <= rowLast; row++) {
+        const start = row * width;
+        for (let col = colFirst; col <= colLast; col++) {
+          articles += counts[start + col];
+          if (bytes) text += bytes[start + col];
+          persons += people[start + col];
+        }
+      }
+      out[j * size + i] = capitaValue(variant, articles, text, persons);
     }
   }
   return out;

@@ -3642,5 +3642,11 @@
   "Source: Overture Maps · {source}": "Источник: Overture Maps · {source}",
   "Clicked: {road}": "Выбрано: {road}",
   "No road here": "Здесь нет дороги",
-  "Road lookup failed": "Не удалось найти дорогу"
+  "Road lookup failed": "Не удалось найти дорогу",
+  "Per 100k people": "На 100 тыс. жителей",
+  "Articles per 100,000 people (GHSL 2020 population against today’s Wikipedia); clear where fewer than 100 people live": "Статей на 100 000 человек (население GHSL 2020 года против сегодняшней Википедии); пусто, где живёт меньше 100 человек",
+  "Text per person": "Текста на человека",
+  "Bytes of article wikitext per person (GHSL 2020 population); clear where fewer than 100 people live": "Байт викитекста статей на человека (население GHSL 2020 года); пусто, где живёт меньше 100 человек",
+  "Population is not built: run npm run wikipedia:build -- --population": "Население не построено: запустите npm run wikipedia:build -- --population",
+  "People: {source}, clear under {floor}": "Население: {source}, пусто меньше {floor}"
 }

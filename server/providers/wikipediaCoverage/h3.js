@@ -2,7 +2,7 @@
 // (server/providers/wikipediaCoverage.js). Not part of upstream God's Eye View.
 import * as h3 from 'h3-js';
 import { createPacker, openArrayFile } from './arrayFile.js';
-import { quantile } from './grid.js';
+import { CAPITA_VARIANTS, capitaValue, quantile } from './grid.js';
 
 /**
  * The same articles as the grid, aggregated into H3 hexagons so a "per
@@ -258,19 +258,44 @@ export function parseBbox(query) {
  * variant's value: a scan of the table's centres (typed arrays, a few ms
  * for the 1.26 M cells of resolution 7), so an ocean-sized box costs the
  * same as a city and nothing is enumerated that is empty.
+ * The per-capita variants need `people` (capita.bin's, in the table's
+ * order) and leave out the cells under the floor.
  * @returns {{cells: Array<[string, number]>}|{tooMany: number}}
  */
-export function queryCells(table, variant, box, { maxCells = 20_000 } = {}) {
-  if (!H3_VARIANTS.includes(variant))
+export function queryCells(
+  table,
+  variant,
+  box,
+  { maxCells = 20_000, people = null } = {},
+) {
+  const capita = CAPITA_VARIANTS.includes(variant);
+  if (!H3_VARIANTS.includes(variant) && !capita)
     throw new RangeError(`No variant ${variant}`);
-  if (variant === 'text' && !table.bytes)
+  if ((variant === 'text' || variant === 'textcapita') && !table.bytes)
     throw new RangeError('The tables were built without article sizes');
+  if (capita && people?.length !== table.lat.length)
+    throw new RangeError('No people for these hexagons');
   const cells = [];
   const n = table.lat.length;
   for (let i = 0; i < n; i++) {
     const lat = table.lat[i];
     if (lat < box.south || lat > box.north) continue;
     if (!lonInside(table.lon[i], box.west, box.east)) continue;
+    if (capita) {
+      const value = capitaValue(
+        variant,
+        table.articles[i],
+        table.bytes?.[i] || 0,
+        people[i],
+      );
+      if (!(value > 0)) continue;
+      if (cells.length >= maxCells) return { tooMany: cells.length + 1 };
+      cells.push([
+        h3.splitLongToH3Index(table.indexLo[i], table.indexHi[i]),
+        value,
+      ]);
+      continue;
+    }
     if (cells.length >= maxCells) return { tooMany: cells.length + 1 };
     const value =
       variant === 'count'
