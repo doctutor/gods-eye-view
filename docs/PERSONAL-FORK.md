@@ -39,6 +39,7 @@ unless its switch is set to `0`.
   - [Census tracts](#census-tracts)
   - [Inundation history](#inundation-history)
 - [Elevation: the DEM stack](#elevation-the-dem-stack)
+- [Raster values (for Lego mode)](#raster-values-for-lego-mode)
 - [Grid (REFERENCE)](#grid-reference)
 - [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
 - [Localities (REFERENCE)](#localities-reference)
@@ -2133,6 +2134,180 @@ named at a point, the sources and depth of a view),
 zoom variant and lazy maps) and `src/layers/earthEngine/earthEngine.test.mjs`
 (the row, the credit and the depth over Rainier, the Alps, Tromsø and from
 orbit; Elevation's tint).
+
+## Raster values (for Lego mode)
+
+`GET /api/raster/values` answers numbers, not coloured tiles, for a raster
+layer over a view window: what the client's Lego mode raises as heights.
+The DEM stack's heights come first; they are also the base height for every
+other layer on the photoreal tiles. The service is
+`server/providers/rasterValues.js`, with the Earth Engine adapters in
+`rasterValues/earthEngineValues.js` and the self-hosted ones in
+`rasterValues/selfHosted.js`. The encoding, the window's grid and the
+client's fetch are in `src/data/rasterValues.js`.
+
+```
+GET /api/raster/values?layer=<layerId>&mode=<modeKey or ''>
+    &west=&south=&east=&north=&cells=<max cells a side, ≤ 512>
+```
+
+**The answer** is `application/octet-stream`:
+
+- a little-endian uint32, the header's length;
+- the UTF-8 JSON header, padded with spaces to 4 bytes;
+- the values as little-endian Float32, row-major, the north row and the
+  west column first.
+
+The header holds `schema` ('raster-values/1'), `layer`, `mode` (the key
+used; '' for a layer without modes), `cols`, `rows`, the box, `cellSizeM`
+(a cell's width at the window's centre), `units`, `nodata`, `min` and
+`max` (of this grid; null when it is all nodata), `legendMin` and
+`legendMax` (the layer's display range, in the same units), `source` (the
+name shown to the user), `version` (a hash of what the values are made
+from) and `aggregation` ('mean', 'sum', 'mode' or 'sample'). Nodata is NaN.
+JSON has no NaN, so the header's `nodata` is the string "NaN", and
+`decodeRasterValues` turns it back into NaN. Elevation and the terrain
+layers add `band`, the DEM stack's band read.
+
+**The grid.** `cells` is the longer side, measured in ground metres at the
+centre; the other side keeps the cells about square. Elevation and the
+terrain layers never go finer than the stack's own cell in the window
+(`stackNativeM`): 3DEP 1 m in the US, 2 m ArcticDEM, else FABDEM's 30 m. So
+a 2 km window at 512 cells gets 66 × 66 cells of 30 m. Their band is the
+one a map tile of the cell's size would draw (`bandForZoom`).
+
+**Errors** are JSON `{error}`:
+
+- 400: bad parameters;
+- 404: a layer or mode without values;
+- 413: more than 512 cells a side;
+- 503: the data is not built, or Earth Engine is not set up (the message
+  says what to run);
+- 429: the day's Earth Engine budget is used.
+
+`?v=` is ignored. Each Earth Engine answer counts as one tile against the
+day's budget (`EARTH_ENGINE_DAILY_TILES`), as a map tile does.
+
+**Kept on disk** under
+`.gev-cache/raster-values/<layer>/<mode>/<version>/<hash>.bin` for 30
+days, the hash being of the layer, mode, box and cells. A changed
+expression, build or grid file makes a new version. Answers in flight are
+shared. The self-hosted sources are computed in two worker threads, the
+shared tile pool's `raster-values` drawer
+(`server/providers/common/tileWorker.js`).
+
+**Earth Engine** values come from `image:computePixels` as NPY. The
+expression is the layer's own (`expressionFor`), less what only colours
+it: Elevation's √, the log10 ramps and the `atLeast` floors, so a field's 0
+people is 0, not nodata. Two float bands come back: `v`, the value
+unmasked to 0, and `m`, `Image.mask`. Nodata is exactly where `m` is 0, so
+no sentinel can collide with a real value. Earth Engine reads the pyramid
+level nearest the cell. A coarse cell is that level's mean, or its mode
+for the categorical assets (MODE pyramids).
+
+| Layer (mode)                      | Source                            | Units                | Aggregation |
+| --------------------------------- | --------------------------------- | -------------------- | ----------- |
+| Elevation                         | DEM stack (FABDEM, 3DEP, GMTED …) | m                    | mean        |
+| Slope                             | DEM stack                         | °                    | mean        |
+| Aspect                            | DEM stack                         | °                    | sample      |
+| Population (each epoch)           | GHSL P2023A                       | people/km²           | mean        |
+| Surface water (occurrence/change) | JRC GSW 1.4                       | %                    | mean        |
+| Surface water (seasonality)       | JRC GSW 1.4                       | months               | mean        |
+| Tree canopy (META 1 M, ETH 10 M)  | Meta and WRI / ETH                | m                    | mean        |
+| Buildings (COUNT/COVER/HEIGHT)    | Open Buildings 2.5D (2023)        | per km², fraction, m | mean        |
+| Forest types                      | JRC forest types 2020             | class 1–3            | mode        |
+| Land cover (2021, 2020)           | ESA WorldCover                    | class 0–10           | mode        |
+| Forest loss                       | Hansen GFC                        | years since 2000     | mode        |
+| Inundation (count, duration)      | Global Flood Database v1          | count, days          | mean        |
+
+Classes are the legend's indices: Forest types 1 natural, 2 primary, 3
+planted; Land cover 0 to 10 in `LAND_COVER_CLASSES` order. Aspect is
+computed per cell from heights averaged to that cell, since a mean of
+compass bearings means nothing.
+
+**Self-hosted** values are computed from the fork's own builds:
+
+| Layer (mode)                      | Source                              | Units                | Aggregation   |
+| --------------------------------- | ----------------------------------- | -------------------- | ------------- |
+| Buildings, outside Open Buildings | Overture buildings (density blocks) | per km², fraction, m | mean / sample |
+| Census tracts (income)            | ACS 2020–2024, per tract            | USD                  | sample        |
+| Census tracts (lst)               | Landsat summer LST, per tract       | °C                   | sample        |
+| Wikipedia coverage (articles)     | grid.bin pyramid                    | articles/km²         | mean          |
+| Wikipedia coverage (text)         | grid.bin pyramid                    | bytes/km²            | mean          |
+| Wikipedia coverage (count)        | grid.bin pyramid                    | articles             | sum           |
+
+- **Buildings** answers as the layer draws: Overture's build where the
+  window's centre is outside Open Buildings and inside one of the build's
+  regions, else Earth Engine. Overture's cells are summed from the
+  buckets' z 14-pixel cells (2.4 km), or the z 10 tiles' (153 m), into the
+  cell holding their centre, then divided by the cell's ground ('mean').
+  A cell finer than 153 m takes the z 10 pixel under its centre
+  ('sample'). HEIGHT is NaN where the tiles leave it clear (under 5%
+  built, or under a quarter of it with known heights). Outside the regions
+  it is NaN.
+- **Census tracts** fill each cell with the value of the tract under its
+  centre (even-odd, so holes stay out). It is NaN outside the tracts and
+  where a tract has no estimate. TRACTS (the outlines) has no values.
+- **Wikipedia coverage** sums the grid's cells whose centres fall in each
+  cell, from the coarsest level whose cells still fit one. A cell finer
+  than 0.05° takes its share of the count by ground.
+
+**Skipped:**
+
+- Rivers (v2 and Earth Engine), Administrative boundaries and Census tract
+  outlines: they are lines, not rasters.
+- Hillshade: shading, not a quantity.
+- Elevation contours: lines.
+
+**Timings**, live on 2026-10-19, with an empty disk cache, through the
+worker pool. Each value is the time for one window at 128, 256 and 512
+cells. A self-hosted source's first answer in a worker includes reading
+its build (0.3 to 0.9 s). A kept answer serves in 2 to 5 ms.
+
+| Layer (mode), window                   | 128    | 256    | 512    |
+| -------------------------------------- | ------ | ------ | ------ |
+| Elevation, Alps 0.5° (base, 30 m)      | 1.73 s | 1.02 s | 1.61 s |
+| Elevation, Baltimore 0.1°              | 0.72 s | 0.64 s | 1.09 s |
+| Elevation, Europe 20° (far)            | 0.66 s | 0.77 s | 0.83 s |
+| Slope, Alps                            | 0.55 s | 1.41 s | 1.33 s |
+| Population, Paris                      | 0.32 s | 0.51 s | 0.94 s |
+| Surface water occurrence, Louisiana    | 0.53 s | 0.49 s | 1.07 s |
+| Tree canopy (META 1 M), Cascades       | 0.53 s | 0.64 s | 0.98 s |
+| Buildings COUNT, Lagos (EE)            | 0.45 s | 0.49 s | 1.03 s |
+| Land cover 2021, Alps                  | 0.41 s | 0.48 s | 0.65 s |
+| Forest types, Germany                  | 0.28 s | 0.44 s | 0.80 s |
+| Inundation count, Bangladesh           | 0.96 s | 0.96 s | 3.73 s |
+| Buildings HEIGHT, Baltimore (Overture) | 0.38 s | 0.07 s | 0.10 s |
+| Buildings COUNT, Europe (Overture)     | 0.92 s | 0.51 s | 0.58 s |
+| Census income, Baltimore               | 0.35 s | 0.03 s | 0.03 s |
+| Census LST, the United States          | 0.23 s | 0.20 s | 0.24 s |
+| Wikipedia articles, Europe             | 0.05 s | 0.15 s | 0.59 s |
+| Wikipedia count, London                | 0.01 s | 0.01 s | 0.02 s |
+
+**The client** uses `createRasterValuesClient()` from
+`src/data/rasterValues.js`. Its `get({layer, mode, box, cells})` resolves
+to `{header, values}` (a Float32Array). It keeps an in-memory LRU keyed as
+the server's cache (64 answers), makes one request per key however many
+ask, and does not keep failures. A failure rejects with an Error carrying
+`status`.
+
+```
+curl -s "http://localhost:4173/api/raster/values?layer=ee-elevation&mode=&west=7.5&south=45.8&east=8&north=46.2&cells=256" -o alps.bin
+curl -s "http://localhost:4173/api/raster/values?layer=ee-buildings&mode=height&west=-76.65&south=39.25&east=-76.55&north=39.33&cells=256" -o baltimore-heights.bin
+```
+
+Tests: `src/data/rasterValues.test.mjs` covers the encoding's round trip,
+the parameters, the grid and the client.
+`server/providers/rasterValues.test.mjs` covers:
+
+- Elevation through a mocked computePixels: the grid sent, the band, NaN
+  where masked, counted as a tile, kept on disk;
+- the modes' units and legends;
+- 400, 404, 413, 429 and 503;
+- Wikipedia coverage on a tiny grid;
+- census tracts with a hole;
+- the NPY reader;
+- the route.
 
 ## Grid (REFERENCE)
 

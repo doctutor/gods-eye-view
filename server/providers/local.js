@@ -37,6 +37,8 @@ import { riverReachProxy } from './riverReach.js';
 import { censusProxy } from './census.js';
 // Personal fork: the Localities layer's Overture places close in.
 import { overtureProxy } from './overture.js';
+// Personal fork: raster values (numbers, not tiles) for the Lego mode.
+import { rasterValuesProxy } from './rasterValues.js';
 import { keySetupEndpoint } from '../standalone/key-setup.js';
 import { weatherProxy } from './weather.js';
 import { firePerimetersProxy } from './firePerimeters.js';
@@ -84,6 +86,7 @@ function localProviderPlugins({ realtime } = {}) {
     riverReachProxy({ sourceRoot: defaultSourceRoot }),
     censusProxy({ sourceRoot: defaultSourceRoot }),
     overtureProxy({ sourceRoot: defaultSourceRoot }),
+    rasterValuesProxy({ sourceRoot: defaultSourceRoot }),
     firePerimetersProxy(),
     gnssIntegrityProxy(),
     keySetupEndpoint(),

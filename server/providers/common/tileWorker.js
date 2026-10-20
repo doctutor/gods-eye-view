@@ -11,6 +11,10 @@ const DRAWERS = Object.freeze({
     import('../overture/placesIndex.js').then((m) => m.createPlacesIndex),
   'rivers-v2': () =>
     import('../riversV2.js').then((m) => m.createRiversV2Service),
+  'raster-values': () =>
+    import('../rasterValues/selfHosted.js').then(
+      (m) => m.createSelfHostedValues,
+    ),
 });
 
 const drawerReady = (async () => {
