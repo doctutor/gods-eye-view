@@ -1,0 +1,64 @@
+# Personal fork: a local Overpass API for the app's OVERPASS_UPSTREAMS
+# (wiktorn/overpass-api, a full planet with metadata, no attic, hourly
+# updates). See README.md for disk, time and the commands. Not part of
+# upstream God's Eye View.
+#
+#   cd tools/overpass && cp .env.example .env   # then set PLANET_DIR
+#   docker compose up -d && docker compose logs -f
+name: gev-overpass
+
+services:
+  overpass:
+    image: wiktorn/overpass-api:0.7.62
+    container_name: gev-overpass
+    restart: unless-stopped
+    # Localhost only: the app's server is the one client.
+    ports:
+      - '127.0.0.1:${OVERPASS_PORT:-12345}:80'
+    volumes:
+      # The database, in Docker's own disk image (Docker Desktop's "Disk
+      # image location", D:\DockerDesktop\DockerDesktopWSL here): a Windows
+      # folder mounted here would be far too slow for Overpass's random
+      # reads and writes.
+      - overpass-db:/db
+      # The planet PBF, read once by the import (initdb/10-import-pbf.sh).
+      - '${PLANET_DIR:?set PLANET_DIR in tools/overpass/.env}:/planet:ro'
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    environment:
+      # The import itself is initdb/10-import-pbf.sh (PBF streamed into
+      # update_database, no XML file); these are the image's settings it
+      # and the server read.
+      PLANET_PBF: '/planet/${PLANET_FILE:-planet-latest.osm.pbf}'
+      OVERPASS_MODE: init
+      OVERPASS_META: 'yes'
+      OVERPASS_COMPRESSION: gz
+      # update_database holds this much before writing (the image's default
+      # is 16); lower is slower and lighter. 8 for a 10 GB Docker VM.
+      OVERPASS_FLUSH_SIZE: '8'
+      OVERPASS_DIFF_URL: https://planet.openstreetmap.org/replication/hour/
+      OVERPASS_UPDATE_SLEEP: '3600'
+      # Areas (is_in) are built in the background once it serves, at this
+      # share of one core between runs (the image's default is 1%).
+      OVERPASS_USE_AREAS: 'true'
+      OVERPASS_RULES_LOAD: '10'
+      OVERPASS_STOP_AFTER_INIT: 'false'
+      OVERPASS_FASTCGI_PROCESSES: '8'
+      # Every request comes from one address (the app's server through
+      # Docker's NAT): allow a few at once, and the same query twice.
+      OVERPASS_RATE_LIMIT: '8'
+      OVERPASS_ALLOW_DUPLICATE_QUERIES: 'yes'
+      # Memory for all running queries together (4 GiB), and the longest
+      # a query may run (the app's proxy asks for 30 s at most).
+      OVERPASS_SPACE: '4294967296'
+      OVERPASS_MAX_TIMEOUT: 300s
+    # Let a write in progress finish on `docker compose stop`.
+    stop_grace_period: 2m
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: '3'
+
+volumes:
+  overpass-db:
+    name: gev-overpass-db

@@ -64,6 +64,7 @@
     "census:status": "node scripts/census/index.mjs status",
     "overture:build": "node scripts/overture/index.mjs build",
     "overture:status": "node scripts/overture/index.mjs status",
+    "overpass:status": "node scripts/overpass-status.mjs",
     "raw:archive": "node scripts/raw-archive.mjs",
     "qa:transit": "node scripts/qa-transit.mjs",
     "mcp": "node server/mcp/stdio.js"
