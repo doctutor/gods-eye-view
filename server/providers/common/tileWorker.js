@@ -9,6 +9,10 @@ const DRAWERS = Object.freeze({
   census: () => import('../census.js').then((m) => m.createCensusService),
   'overture-places': () =>
     import('../overture/placesIndex.js').then((m) => m.createPlacesIndex),
+  'overture-infrastructure': () =>
+    import('../overture/placesIndex.js').then(
+      (m) => m.createInfrastructureIndex,
+    ),
   'rivers-v2': () =>
     import('../riversV2.js').then((m) => m.createRiversV2Service),
   'raster-values': () =>

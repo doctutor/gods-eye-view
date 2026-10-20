@@ -1,6 +1,7 @@
-// Personal fork: the Places layer's answers from the Overture places index
-// (placesFile.js), built by `npm run overture:build -- --places`. Not part
-// of upstream God's Eye View.
+// Personal fork: answers from the Overture point indexes (placesFile.js):
+// the Places layer's from the places (`npm run overture:build -- --places`)
+// and Street assets' from the infrastructure (`-- --infrastructure`). Not
+// part of upstream God's Eye View.
 import fs from 'node:fs';
 import path from 'node:path';
 import { WORLD_BITS, openBucket, unitX, unitY } from './buildingsFile.js';
@@ -22,6 +23,10 @@ import {
   placeCategory,
   placeCategoryOfCode,
 } from '../../../src/data/overturePlaces.js';
+import {
+  infrastructureClass,
+  infrastructureClassOfCode,
+} from '../../../src/data/overtureInfrastructure.js';
 
 const SLOTS = CATEGORY_SLOTS * COUNT_THRESHOLDS.length;
 const BLOCK_SHIFT = WORLD_BITS - PLACE_BLOCK_ZOOM;
@@ -48,15 +53,47 @@ export function spread(x, y) {
 }
 
 /**
- * @param {{dir: string, now?: () => number, maxOpen?: number}} options
- *   `dir`: the Overture cache directory (its places/).
+ * The point indexes, by name: their directory under the cache, the words
+ * their errors use, their ids' prefix and their categories (a key's code,
+ * a code's key).
  */
-export function createPlacesIndex({
+export const POINT_INDEXES = Object.freeze({
+  places: Object.freeze({
+    name: 'places',
+    words: 'Overture places',
+    idPrefix: 'pl',
+    codeOf: (key) => placeCategory(key)?.code || 0,
+    keyOf: (code) => placeCategoryOfCode(code)?.key || 'other',
+  }),
+  infrastructure: Object.freeze({
+    name: 'infrastructure',
+    words: 'Overture infrastructure',
+    idPrefix: 'in',
+    codeOf: (key) => infrastructureClass(key)?.code || 0,
+    keyOf: (code) => infrastructureClassOfCode(code)?.key || 'other',
+  }),
+});
+
+/** The Places layer's index (dir/places). */
+export const createPlacesIndex = (options) =>
+  createPointIndex({ ...options, kind: POINT_INDEXES.places });
+/** Street assets' index of Overture's infrastructure (dir/infrastructure). */
+export const createInfrastructureIndex = (options) =>
+  createPointIndex({ ...options, kind: POINT_INDEXES.infrastructure });
+
+/**
+ * @param {{dir: string, now?: () => number, maxOpen?: number,
+ *   kind?: object}} options
+ *   `dir`: the Overture cache directory (its places/ or infrastructure/);
+ *   `kind`: a POINT_INDEXES entry.
+ */
+export function createPointIndex({
   dir,
   now = () => Date.now(),
   maxOpen = 64,
+  kind = POINT_INDEXES.places,
 }) {
-  const root = path.join(dir, 'places');
+  const root = path.join(dir, kind.name);
   const pointer = path.join(root, 'current.json');
   let held = null;
   let checkedAt = -Infinity;
@@ -98,7 +135,7 @@ export function createPlacesIndex({
       held = null;
       closeAll();
       lastError = String(error?.message || error).slice(0, 200);
-      console.warn('[Overture] places not readable:', lastError);
+      console.warn(`[Overture] ${kind.name} not readable:`, lastError);
     }
     return held?.manifest || null;
   }
@@ -178,6 +215,7 @@ export function createPlacesIndex({
         builtAt: m.builtAt,
         places: m.places,
         sources: m.stats?.byDataset || {},
+        ...(m.stats?.byClass ? { byClass: m.stats.byClass } : {}),
       };
     },
 
@@ -190,9 +228,9 @@ export function createPlacesIndex({
       if (!m)
         return {
           status: 503,
-          error: lastError || 'Overture places are not built',
+          error: lastError || `${kind.words} are not built`,
         };
-      const code = placeCategory(category)?.code || 0;
+      const code = kind.codeOf(category);
       const t = thresholdIndex(minConfidence);
       const out = new Map();
       if (GLOBAL_RESOLUTIONS.includes(res)) {
@@ -266,9 +304,9 @@ export function createPlacesIndex({
       if (!m)
         return {
           status: 503,
-          error: lastError || 'Overture places are not built',
+          error: lastError || `${kind.words} are not built`,
         };
-      const code = placeCategory(category)?.code || 0;
+      const code = kind.codeOf(category);
       const floor = Math.round(minConfidence * 250);
       const x0 = unitX(west);
       const x1 = unitX(east);
@@ -329,9 +367,9 @@ export function createPlacesIndex({
         block.texts ||= decodeTexts(block.b.block(PLACE_KIND.T, block.local));
         const text = block.texts[place.i] || {};
         return {
-          id: `pl:${block.local}:${place.x}:${place.y}`,
+          id: `${kind.idPrefix}:${block.local}:${place.x}:${place.y}`,
           name: text.name,
-          category: placeCategoryOfCode(place.cat)?.key || 'other',
+          category: kind.keyOf(place.cat),
           ...(text.basic ? { basic: text.basic } : {}),
           ...(text.website ? { website: text.website } : {}),
           ...(text.phone ? { phone: text.phone } : {}),

@@ -10,7 +10,10 @@ import { defaultSourceRoot } from './common/source-root.js';
 import { openIndex } from './overture/divisionsFile.js';
 import { NEEDS_BUILD, overtureCacheDir } from './overture/sources.js';
 import { createBuildingsTiles } from './overture/buildingsTiles.js';
-import { createPlacesIndex } from './overture/placesIndex.js';
+import {
+  createInfrastructureIndex,
+  createPlacesIndex,
+} from './overture/placesIndex.js';
 import { createTilePool as createSharedPool } from './common/tilePool.js';
 import {
   PLACE_CATEGORIES,
@@ -19,6 +22,11 @@ import {
   PLACE_MAX_SPAN_DEGREES,
   PLACE_PIN_LIMIT,
 } from '../../src/data/overturePlaces.js';
+import {
+  INFRASTRUCTURE_CLASSES,
+  INFRASTRUCTURE_MAX_SPAN_DEGREES,
+  INFRASTRUCTURE_PIN_LIMIT,
+} from '../../src/data/overtureInfrastructure.js';
 import { createTilePool } from './overture/buildingsTilePool.js';
 import { keepTile } from './common/tileCache.js';
 
@@ -57,6 +65,12 @@ import {
  *       confident first, at most 1,500, `saturated` when more matched
  *   GET /api/overture/places/counts?res=[&west=&south=&east=&north=&category=&minConfidence=]
  *       the same places counted per H3 cell of a resolution (0–7)
+ *   GET /api/overture/infrastructure?west=&south=&east=&north=[&zoom=&class=]
+ *       Street assets' fire hydrants, street lamps, traffic signals or
+ *       charging stations in a box under a degree (Overture's base theme,
+ *       from OpenStreetMap), at most 2,000 spread over it
+ *   GET /api/overture/infrastructure/counts?res=[&west=&south=&east=&north=&class=]
+ *       the same counted per H3 cell of a resolution (0–7)
  *   GET /api/overture/divisions?west=&south=&east=&north=&zoom=[&v=]
  *       the places named at `zoom` in the box: those whose zoom (the
  *       build's, from prominence and kind) the view reaches, the most
@@ -154,6 +168,24 @@ export function createOvertureService({
     placesPool
       ? placesPool.render(method, [query], `${method}/${JSON.stringify(query)}`)
       : places[method](query);
+  // Street assets' answers from the infrastructure index, likewise.
+  const infrastructure = createInfrastructureIndex({ dir, now });
+  const infrastructurePool =
+    tileWorkers > 0
+      ? createSharedPool({
+          drawer: 'overture-infrastructure',
+          options: { dir },
+          size: Math.min(2, tileWorkers),
+        })
+      : null;
+  const askInfrastructure = (method, query) =>
+    infrastructurePool
+      ? infrastructurePool.render(
+          method,
+          [query],
+          `${method}/${JSON.stringify(query)}`,
+        )
+      : infrastructure[method](query);
   /** Tile file → the draw (and write) in flight. */
   const drawingTiles = new Map();
   let held = null;
@@ -214,6 +246,7 @@ export function createOvertureService({
           license: OVERTURE_LICENSE,
           buildings: buildings.status(),
           poi: places.status(),
+          infrastructure: infrastructure.status(),
         };
       const { manifest } = build;
       return {
@@ -229,6 +262,7 @@ export function createOvertureService({
         maxSpanDegrees: OVERTURE_MAX_SPAN_DEGREES,
         buildings: buildings.status(),
         poi: places.status(),
+        infrastructure: infrastructure.status(),
       };
     },
 
@@ -318,12 +352,20 @@ export function createOvertureService({
     /** The Places layer's H3 counts; `query` from parseCountsQuery. */
     placeCounts: (query) => askPlaces('counts', query),
 
+    /** Street assets' pins; `query` from parseInfrastructureQuery. */
+    infrastructurePins: (query) => askInfrastructure('pins', query),
+
+    /** Street assets' H3 counts; `query` from parseInfrastructureCountsQuery. */
+    infrastructureCounts: (query) => askInfrastructure('counts', query),
+
     /** Stop the tile workers and close the open files. */
     async close() {
       await pool?.close();
       await placesPool?.close();
+      await infrastructurePool?.close();
       buildings.close();
       places.close();
+      infrastructure.close();
     },
 
     /** The places of a view; `query` from parseDivisionsQuery. */
@@ -389,6 +431,60 @@ export function parseCountsQuery(params) {
     window = box;
   }
   const filters = parseFilters(params);
+  if (filters.error) return filters;
+  return { res, window, ...filters };
+}
+
+const CLASS_KEYS = new Set([
+  'all',
+  ...INFRASTRUCTURE_CLASSES.map((c) => c.key),
+]);
+
+/** The infrastructure's class filter: `class`, a class key or all. */
+function parseClass(params) {
+  const key = params.get('class') || 'all';
+  if (!CLASS_KEYS.has(key)) return { error: 'No such class' };
+  // One confidence for every feature (the class is OpenStreetMap's tag).
+  return { category: key, minConfidence: 0.5 };
+}
+
+/**
+ * Street assets' pins query (a box under INFRASTRUCTURE_MAX_SPAN_DEGREES,
+ * a class), checked; or {error}. `zoom` is checked and not used: the cap
+ * and the spread by position thin a full box.
+ */
+export function parseInfrastructureQuery(params) {
+  const box = parseBox(params);
+  if (box.error) return box;
+  if (params.has('zoom')) {
+    const zoom = Number(params.get('zoom'));
+    if (!Number.isInteger(zoom) || zoom < 0 || zoom > 22)
+      return { error: 'zoom is 0 to 22' };
+  }
+  if (
+    box.north - box.south > INFRASTRUCTURE_MAX_SPAN_DEGREES ||
+    box.east - box.west > INFRASTRUCTURE_MAX_SPAN_DEGREES
+  )
+    return {
+      error: `The box is wider than ${INFRASTRUCTURE_MAX_SPAN_DEGREES} degree`,
+    };
+  if (box.west > box.east) return { error: 'The box crosses the antimeridian' };
+  const filters = parseClass(params);
+  if (filters.error) return filters;
+  return { ...box, ...filters, limit: INFRASTRUCTURE_PIN_LIMIT };
+}
+
+/** Street assets' counts query (a resolution, an optional window, a class), checked; or {error}. */
+export function parseInfrastructureCountsQuery(params) {
+  const res = Number(params.get('res'));
+  if (!PLACE_COUNT_RESOLUTIONS.includes(res)) return { error: 'res is 0 to 7' };
+  let window = null;
+  if (params.has('west')) {
+    const box = parseBox(params);
+    if (box.error) return box;
+    window = box;
+  }
+  const filters = parseClass(params);
   if (filters.error) return filters;
   return { res, window, ...filters };
 }
@@ -477,6 +573,25 @@ export function createOvertureHandler({ service }) {
         const answer = await (route === '/places'
           ? service.placePins(query)
           : service.placeCounts(query));
+        if (answer.status !== 200)
+          return sendJson(res, answer.status, { error: answer.error });
+        const asked = url.searchParams.get('v');
+        return sendJson(
+          res,
+          200,
+          { version: answer.version, ...answer.body },
+          asked === answer.version ? 'private, max-age=86400' : 'no-store',
+        );
+      }
+      if (route === '/infrastructure' || route === '/infrastructure/counts') {
+        const query =
+          route === '/infrastructure'
+            ? parseInfrastructureQuery(url.searchParams)
+            : parseInfrastructureCountsQuery(url.searchParams);
+        if (query.error) return sendJson(res, 400, { error: query.error });
+        const answer = await (route === '/infrastructure'
+          ? service.infrastructurePins(query)
+          : service.infrastructureCounts(query));
         if (answer.status !== 200)
           return sendJson(res, answer.status, { error: answer.error });
         const asked = url.searchParams.get('v');

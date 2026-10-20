@@ -43,6 +43,33 @@ export const PLACE_COLUMNS = Object.freeze([
   'sources.list.element.dataset',
   'operating_status',
 ]);
+/**
+ * The base theme's infrastructure features (from OpenStreetMap): 64
+ * GeoParquet files (13.8 GB, 158 M features) in this release.
+ */
+export const INFRASTRUCTURE = Object.freeze({
+  release: OVERTURE_RELEASE,
+  theme: 'base',
+  type: 'infrastructure',
+  prefix: `release/${OVERTURE_RELEASE}/theme=base/type=infrastructure/`,
+});
+/** The infrastructure step's downloads may not add up to more than this. */
+export const INFRASTRUCTURE_CAP_BYTES = 20 * 1024 ** 3;
+/**
+ * The columns the infrastructure step reads: the bounding box stands in for
+ * the geometry (a point's box is the point; a line's or an area's centre is
+ * its representative point), 2.3 GB of the release against 5.6 GB.
+ */
+export const INFRASTRUCTURE_COLUMNS = Object.freeze([
+  'bbox.xmin',
+  'bbox.xmax',
+  'bbox.ymin',
+  'bbox.ymax',
+  'class',
+  'subtype',
+  'names.primary',
+  'sources.list.element.dataset',
+]);
 /** The buildings step's fetched column chunks may not add up to more than this. */
 export const BUILDINGS_CAP_BYTES = 25 * 1024 ** 3;
 /** The downloads may not add up to more than this. */
