@@ -3700,5 +3700,7 @@
   "Unit {unit}": "Квартира {unit}",
   "Building": "Здание",
   "and {count} more": "и ещё {count}",
-  "Property sales (US)": "Продажи недвижимости (США)"
+  "Property sales (US)": "Продажи недвижимости (США)",
+  "Titles": "Подписи",
+  "names on markers": "названия на маркерах"
 }
