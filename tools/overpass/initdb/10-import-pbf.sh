@@ -19,24 +19,16 @@ import_log() {
   echo "$(date -u '+%FT%TZ') [import] $*" | tee -a /db/import.log
 }
 
-# Every 10 minutes: how much of the PBF osmium has read (the pipe holds it
-# to update_database's pace, so this is the import's progress).
+# Every 10 minutes (IMPORT_PROGRESS_SECONDS): how far osmium has read the
+# PBF, from its own progress bar in /db/import-progress.txt. The pipe holds
+# osmium to update_database's pace, so this is the import's progress.
+# (Reading osmium's /proc/<pid>/io from here was refused: always 0%.)
 import_progress() {
-  local pbf="$1"
-  local total
-  total=$(stat -c %s "$pbf")
-  while sleep 600; do
-    local pid=""
-    for p in /proc/[0-9]*; do
-      if tr '\0' ' ' <"$p/cmdline" 2>/dev/null | grep -q '^osmium cat'; then
-        pid="${p#/proc/}"
-        break
-      fi
-    done
-    [[ -n "$pid" ]] || return 0
-    local read
-    read=$(awk '/^rchar:/ { print $2 }' "/proc/$pid/io" 2>/dev/null || echo 0)
-    import_log "read $((read / 1000000000)) of $((total / 1000000000)) GB of the planet ($((read * 100 / total))%); database $(du -sh /db/db 2>/dev/null | cut -f1)"
+  local every="${IMPORT_PROGRESS_SECONDS:-600}"
+  while sleep "$every"; do
+    local percent
+    percent=$(tr '\r' '\n' </db/import-progress.txt 2>/dev/null | grep -o '[0-9]*%' | tail -n 1 || true)
+    import_log "planet read ${percent:-0%}; database $(du -sh /db/db 2>/dev/null | cut -f1)"
   done
 }
 
@@ -79,14 +71,20 @@ import_pbf() {
   echo "${OVERPASS_COOKIE_JAR_CONTENTS}" >>/db/cookie.jar
   chown -R overpass:overpass /db/cookie.jar /db/changes.log /db/diffs
 
-  import_progress "$pbf" &
+  import_progress &
   local monitor=$!
+  # osmium's bar (and any error of its) goes to /db/import-progress.txt.
   # shellcheck disable=SC2086 # $meta is one flag or none
-  osmium cat --no-progress -f osm -o - "$pbf" |
+  if ! osmium cat --progress -f osm -o - "$pbf" 2>/db/import-progress.txt |
     /app/bin/update_database --db-dir=/db/db/ $meta "--version=$version" \
       "--compression-method=$compression" "--map-compression-method=$compression" \
-      "--flush-size=$flush"
+      "--flush-size=$flush"; then
+    kill "$monitor" 2>/dev/null || true
+    import_log "The import failed: $(tr '\r' '\n' </db/import-progress.txt | grep -v '^\[' | tail -n 3 | tr '\n' ' ')"
+    exit 1
+  fi
   kill "$monitor" 2>/dev/null || true
+  import_log "planet read 100%"
 
   import_log "Database written ($(du -sh /db/db | cut -f1))"
   cp -r /app/etc/rules /db/db

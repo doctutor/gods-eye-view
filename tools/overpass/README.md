@@ -179,10 +179,10 @@ docker exec gev-overpass tail -n 5 /db/changes.log       # the hourly updates
 docker system df -v                                      # the volume's size on D:
 ```
 
-The progress lines read like
-`[import] read 40 of 95 GB of the planet (42%); database 96G`. That is how
-much of the PBF osmium has read; the pipe holds it to `update_database`'s
-pace, so it tracks the import.
+The progress lines read like `[import] planet read 42%; database 96G`. The
+percentage is osmium's own progress bar (`osmium cat --progress`, kept in
+`/db/import-progress.txt`): how much of the PBF it has read. The pipe holds
+osmium to `update_database`'s pace, so the percentage tracks the import.
 
 ### 4. Verify
 
