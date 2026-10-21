@@ -9,6 +9,9 @@ import {
   KEYLESS_BASEMAPS,
   KEYLESS_BASEMAP_IDS,
   KEYLESS_BASEMAP_GROUPS,
+  basemapKeys,
+  cartoApiKey,
+  keylessBasemapDescriptor,
   keylessBasemapRecord,
 } from './keylessBasemapCatalog.js';
 import {
@@ -18,6 +21,7 @@ import {
   keylessBasemapUsesNetwork,
   stadiaMapsKey,
   stadiaTemplate,
+  withTileKey,
 } from './keylessBasemaps.js';
 import { createDefaultMapSources } from './defaultSources.js';
 import { MapSourceController } from './controller.js';
@@ -261,9 +265,82 @@ test('a Stadia key is appended only when set, and only read from its own variabl
   // Only Stadia styles carry the key.
   const carto = await createKeylessBasemapImagery(
     keylessBasemapRecord('carto-positron'),
-    { cesium, stadiaKey: 'key-1' },
+    { cesium, stadiaKey: 'key-1', keys: { carto: '' } },
   );
   assert.doesNotMatch(carto.options.url, /key-1/);
+});
+
+test('a CARTO key goes on the four CARTO URLs as ?key=, and its absence shows a note', async () => {
+  assert.equal(cartoApiKey(undefined), '');
+  assert.equal(cartoApiKey({ STADIA_MAPS_API_KEY: 'other' }), '');
+  assert.equal(cartoApiKey({ CARTO_API_KEY: '  carto-1 ' }), 'carto-1');
+  assert.deepEqual(basemapKeys({ CARTO_API_KEY: 'carto-1' }), {
+    carto: 'carto-1',
+  });
+  assert.equal(withTileKey('https://h/t.png', 'key', ''), 'https://h/t.png');
+  assert.equal(
+    withTileKey('https://h/t.png', 'key', 'a b'),
+    'https://h/t.png?key=a%20b',
+  );
+  assert.equal(
+    withTileKey('https://h/t.png?x=1', 'key', 'k'),
+    'https://h/t.png?x=1&key=k',
+  );
+  const cartoIds = [
+    ['carto-positron', 'light_all'],
+    ['carto-positron-nolabels', 'light_nolabels'],
+    ['carto-dark-matter', 'dark_all'],
+    ['carto-dark-matter-nolabels', 'dark_nolabels'],
+  ];
+  const { cesium } = fakeCesium();
+  for (const [id, style] of cartoIds) {
+    const record = keylessBasemapRecord(id);
+    const template = `https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}.png`;
+    const keyed = await createKeylessBasemapImagery(record, {
+      cesium,
+      stadiaKey: '',
+      keys: { carto: 'carto-1' },
+    });
+    assert.equal(keyed.options.url, `${template}?key=carto-1`);
+    const unkeyed = await createKeylessBasemapImagery(record, {
+      cesium,
+      stadiaKey: 'stadia-1',
+      keys: { carto: '' },
+    });
+    assert.equal(unkeyed.options.url, template, 'still loads, watermarked');
+    assert.equal(
+      keylessBasemapDescriptor(record, { keys: { carto: '' } }).note,
+      'CARTO key needed to remove the watermark',
+    );
+    assert.equal(
+      keylessBasemapDescriptor(record, { keys: { carto: 'carto-1' } }).note,
+      null,
+    );
+  }
+  // Only the CARTO styles take the key, or show the note.
+  for (const record of KEYLESS_BASEMAPS) {
+    if (cartoIds.some(([id]) => id === record.id)) continue;
+    assert.equal(
+      keylessBasemapDescriptor(record, { keys: { carto: '' } }).note,
+      record.note,
+      record.id,
+    );
+  }
+  const stadia = await createKeylessBasemapImagery(
+    keylessBasemapRecord('stamen-toner'),
+    { cesium, stadiaKey: '', keys: { carto: 'carto-1' } },
+  );
+  assert.doesNotMatch(stadia.options.url, /carto-1/);
+  const opentopo = await createKeylessBasemapImagery(
+    keylessBasemapRecord('opentopomap'),
+    { cesium, stadiaKey: '', keys: { carto: 'carto-1' } },
+  );
+  assert.doesNotMatch(opentopo.options.url, /carto-1/);
+  // Optional like Stadia's: hidden from the missing-key count, client-side.
+  const row = KEY_SETUP_KEYS.find((key) => key.id === 'carto-basemaps');
+  assert.deepEqual(row.envVars, ['CARTO_API_KEY']);
+  assert.equal(row.hidden, true);
+  assert.equal(row.clientExposed, true);
 });
 
 test('network styles fall back to OSM like Esri; blank and bundled styles do not watch tiles', () => {

@@ -5,7 +5,7 @@
 
 import * as Cesium from 'cesium';
 import { t } from '../i18n/index.js';
-import { keylessBasemapRecord } from './keylessBasemapCatalog.js';
+import { basemapKeys, keylessBasemapRecord } from './keylessBasemapCatalog.js';
 
 const GIBS_SUBDOMAINS = ['a', 'b', 'c'];
 const STADIA_TILES = 'https://tiles.stadiamaps.com/tiles';
@@ -28,6 +28,12 @@ export function gibsStaticTemplate(layer, format, maximumLevel) {
   return `https://gibs-{s}.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/GoogleMapsCompatible_Level${maximumLevel}/{z}/{y}/{x}.${format}`;
 }
 
+/** A tile template with an optional key appended as ?param= (or &param=). */
+export function withTileKey(url, param, key = '') {
+  if (!key) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}${param}=${encodeURIComponent(key)}`;
+}
+
 /** The Stadia tile template for a style, with the key appended when set. */
 export function stadiaTemplate(style, format, key = '') {
   const base = `${STADIA_TILES}/${style}/{z}/{x}/{y}.${format}`;
@@ -38,12 +44,13 @@ export function stadiaTemplate(style, format, key = '') {
  * Build the imagery provider for one record. Blank styles have none and
  * resolve to null: the controller then paints the globe `globeBaseColor`.
  * @param {object} record A KEYLESS_BASEMAPS entry.
- * @param {{ cesium?: object, stadiaKey?: string }} [options]
+ * @param {{ cesium?: object, stadiaKey?: string, keys?: Record<string, string> }} [options]
+ *   `keys`: the optional keys of 'xyz' styles (basemapKeys(): CARTO's).
  * @returns {Promise<object | null>}
  */
 export async function createKeylessBasemapImagery(
   record,
-  { cesium = Cesium, stadiaKey = stadiaMapsKey() } = {},
+  { cesium = Cesium, stadiaKey = stadiaMapsKey(), keys = basemapKeys() } = {},
 ) {
   const { tiles } = record;
   const credit = record.credit || undefined;
@@ -57,7 +64,9 @@ export async function createKeylessBasemapImagery(
       );
     case 'xyz':
       return new cesium.UrlTemplateImageryProvider({
-        url: tiles.url,
+        url: tiles.key
+          ? withTileKey(tiles.url, tiles.key.param, keys[tiles.key.name])
+          : tiles.url,
         subdomains: tiles.subdomains,
         minimumLevel: 0,
         maximumLevel: tiles.maximumLevel,

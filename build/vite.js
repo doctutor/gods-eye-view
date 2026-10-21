@@ -81,6 +81,7 @@ export function createBrowserViteConfig({
   cesiumToken,
   mapillaryToken,
   stadiaMapsKey, // Personal fork: optional Stadia Maps key for the Stamen styles
+  cartoKey, // Personal fork: optional CARTO key, without which CARTO watermarks its tiles
   host = 'localhost',
   port = 4173,
   allowedHosts = DEFAULT_ALLOWED_HOSTS,
@@ -148,6 +149,9 @@ export function createBrowserViteConfig({
       'import.meta.env.STADIA_MAPS_API_KEY': JSON.stringify(
         stadiaMapsKey ?? '',
       ),
+      // Personal fork: a CARTO basemaps key is a client key too (?key= on
+      // the tile URLs); without one the tiles carry a watermark.
+      'import.meta.env.CARTO_API_KEY': JSON.stringify(cartoKey ?? ''),
     },
     build: { chunkSizeWarningLimit: 1500 },
   };

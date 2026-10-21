@@ -47,7 +47,15 @@ test('explicit build inputs preserve browser-only defines, plugin order and loop
     'import.meta.env.MAPILLARY_CLIENT_TOKEN': '""',
     // Personal fork: the optional Stadia Maps key for the Stamen basemaps.
     'import.meta.env.STADIA_MAPS_API_KEY': '""',
+    // Personal fork: the optional CARTO key for the CARTO basemaps.
+    'import.meta.env.CARTO_API_KEY': '""',
   });
+  assert.equal(
+    createBrowserViteConfig({ cartoKey: 'carto-fixture' }).define[
+      'import.meta.env.CARTO_API_KEY'
+    ],
+    '"carto-fixture"',
+  );
   assert.equal(
     createBrowserViteConfig({ stadiaMapsKey: 'stadia-fixture' }).define[
       'import.meta.env.STADIA_MAPS_API_KEY'

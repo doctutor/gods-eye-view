@@ -53,6 +53,6 @@ export const MAP_STACKS = [
     luminance: 'light',
   },
   // Personal fork: the keyless styles, then the Countries basemap styles.
-  ...KEYLESS_BASEMAPS.map(keylessBasemapDescriptor),
+  ...KEYLESS_BASEMAPS.map((record) => keylessBasemapDescriptor(record)),
   ...COUNTRIES_BASEMAPS.map(countriesBasemapDescriptor),
 ];

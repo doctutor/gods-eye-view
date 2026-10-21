@@ -3151,8 +3151,8 @@ whose tiles fail twice both fall back to OSM, as Esri does upstream.
 | ------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------- |
 | Blank   | Blank (black), Blank (white)                  | No imagery at all: the bare globe painted with `globe.baseColor`                                                        | —          | none                                                                            |
 | Light   | Natural Earth II                              | CesiumJS's bundled tile set (`Assets/Textures/NaturalEarthII`)                                                          | 0–2        | Natural Earth (public domain)                                                   |
-| Light   | CARTO Positron, Positron (no labels)          | `basemaps.cartocdn.com` (`light_all`, `light_nolabels`)                                                                 | 0–20       | © OpenStreetMap contributors © CARTO                                            |
-| Dark    | CARTO Dark Matter, Dark Matter (no labels)    | `basemaps.cartocdn.com` (`dark_all`, `dark_nolabels`)                                                                   | 0–20       | © OpenStreetMap contributors © CARTO                                            |
+| Light   | CARTO Positron, Positron (no labels)          | `basemaps.cartocdn.com` (`light_all`, `light_nolabels`), `?key=` from `CARTO_API_KEY` when set                          | 0–20       | © OpenStreetMap contributors © CARTO                                            |
+| Dark    | CARTO Dark Matter, Dark Matter (no labels)    | `basemaps.cartocdn.com` (`dark_all`, `dark_nolabels`), `?key=` from `CARTO_API_KEY` when set                            | 0–20       | © OpenStreetMap contributors © CARTO                                            |
 | Terrain | OpenTopoMap                                   | `tile.opentopomap.org`                                                                                                  | 0–17       | Map data © OpenStreetMap contributors, SRTM; map style © OpenTopoMap (CC-BY-SA) |
 | NASA    | NASA Black Marble                             | GIBS WMTS, `VIIRS_Black_Marble` (2016 night lights), EPSG:3857, `GoogleMapsCompatible_Level8`                           | 0–8        | NASA GIBS (ESDIS)                                                               |
 | NASA    | NASA Blue Marble                              | GIBS WMTS, `BlueMarble_NextGeneration`, EPSG:3857, `GoogleMapsCompatible_Level8`                                        | 0–8        | NASA GIBS (ESDIS)                                                               |
@@ -3166,8 +3166,16 @@ watercolor tile is an empty 204).
 **Fair use.** OpenTopoMap is a volunteer-run service for interactive use:
 the style stays within 17 levels, and nothing bulk-loads it. GIBS is NASA's
 public service and keyless. CARTO's raster basemaps are free for
-non-commercial use with attribution. Stadia Maps serves the Stamen styles to
-`localhost` without a key; from any other origin set `STADIA_MAPS_API_KEY`
+non-commercial use with attribution, but without a key CARTO watermarks the
+tiles "API KEY REQUIRED". Set `CARTO_API_KEY` in `.env` (free at
+carto.com/basemaps/apikey, no account, 5M requests a month non-commercial;
+keys registered before 2026-09-23 keep working until 2026-11-30) and it is
+appended to the four CARTO tile URLs as `?key=`. Without it the styles still
+load, watermarked, and the picker notes "CARTO key needed to remove the
+watermark". It is client-exposed and injected the same way as Stadia's key,
+and is registered as the hidden row `carto-basemaps`.
+
+Stadia Maps serves the Stamen styles to `localhost` without a key; from any other origin set `STADIA_MAPS_API_KEY`
 in `.env` (free at client.stadiamaps.com). The key is appended to tile URLs
 the browser loads, so like `MAPILLARY_CLIENT_TOKEN` it is client-exposed by
 design (`build/vite.js` injects it; restrict it to your domain at Stadia).

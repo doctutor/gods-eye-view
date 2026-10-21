@@ -10,6 +10,8 @@
 //   shortLabel  the status chip's text (upstream: '3D', 'SAT', 'OSM')
 //   group       KEYLESS_BASEMAP_GROUPS id, how the "More styles" picker groups it
 //   note        a short remark the picker shows when the style is active
+//   noteWithoutKey  the remark instead, while the style's optional key
+//               (tiles.key) is not set
 //   tiles       how to draw it (see the `type` values below)
 //   credit      attribution the provider carries, and the static credit line
 //   luminance   'dark' | 'light': how the style reads, so overlays pick an ink
@@ -18,7 +20,9 @@
 // `tiles.type`:
 //   'blank'    no imagery; the bare globe painted `baseColor` (r, g, b, 0..1)
 //   'bundled'  a tile set shipped inside CesiumJS, by module-relative path
-//   'xyz'      a {z}/{x}/{y} template on a public host, with `subdomains`
+//   'xyz'      a {z}/{x}/{y} template on a public host, with `subdomains`;
+//              `key` {name, param}: an optional key appended as ?param=
+//              when set (CARTO: CARTO_API_KEY, see cartoApiKey)
 //   'gibs'     a static NASA GIBS WMTS layer (EPSG:3857, y before x)
 //   'stadia'   a Stadia Maps style, keyless on localhost, with an optional key
 
@@ -53,6 +57,27 @@ export const KEYLESS_BASEMAP_GROUPS = Object.freeze([
 ]);
 
 const CARTO_MAX_LEVEL = 20;
+/**
+ * CARTO's raster basemaps carry an "API KEY REQUIRED" watermark unless the
+ * tile URL has ?key= (a free key from carto.com/basemaps/apikey). Without one
+ * the styles still load, watermarked.
+ */
+const CARTO_KEY = Object.freeze({ name: 'carto', param: 'key' });
+const CARTO_WATERMARK_NOTE = msg('CARTO key needed to remove the watermark');
+
+/**
+ * The optional CARTO basemaps key (CARTO_API_KEY in .env, injected by
+ * build/vite.js like STADIA_MAPS_API_KEY). Client-exposed by design: it goes
+ * on tile URLs the browser loads. Read once per call and never logged.
+ */
+export function cartoApiKey(env = import.meta.env) {
+  return String(env?.CARTO_API_KEY || '').trim();
+}
+
+/** The optional keys the styles can take, by `tiles.key.name`. */
+export function basemapKeys(env = import.meta.env) {
+  return { carto: cartoApiKey(env) };
+}
 /** The bundled Natural Earth II tile set has levels 0 to 2 only. */
 export const NATURAL_EARTH_II_MAX_LEVEL = 2;
 /** OpenTopoMap serves nothing deeper, and asks hobby use to stay gentle. */
@@ -102,9 +127,11 @@ export const KEYLESS_BASEMAPS = Object.freeze([
     shortLabel: 'LIGHT',
     group: 'light',
     note: null,
+    noteWithoutKey: CARTO_WATERMARK_NOTE,
     tiles: Object.freeze({
       type: 'xyz',
       url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+      key: CARTO_KEY,
       subdomains: ['a', 'b', 'c', 'd'],
       maximumLevel: CARTO_MAX_LEVEL,
       alpha: false,
@@ -118,9 +145,11 @@ export const KEYLESS_BASEMAPS = Object.freeze([
     shortLabel: 'LIGHT −',
     group: 'light',
     note: null,
+    noteWithoutKey: CARTO_WATERMARK_NOTE,
     tiles: Object.freeze({
       type: 'xyz',
       url: 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png',
+      key: CARTO_KEY,
       subdomains: ['a', 'b', 'c', 'd'],
       maximumLevel: CARTO_MAX_LEVEL,
       alpha: false,
@@ -134,9 +163,11 @@ export const KEYLESS_BASEMAPS = Object.freeze([
     shortLabel: 'DARK',
     group: 'dark',
     note: null,
+    noteWithoutKey: CARTO_WATERMARK_NOTE,
     tiles: Object.freeze({
       type: 'xyz',
       url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      key: CARTO_KEY,
       subdomains: ['a', 'b', 'c', 'd'],
       maximumLevel: CARTO_MAX_LEVEL,
       alpha: false,
@@ -150,9 +181,11 @@ export const KEYLESS_BASEMAPS = Object.freeze([
     shortLabel: 'DARK −',
     group: 'dark',
     note: null,
+    noteWithoutKey: CARTO_WATERMARK_NOTE,
     tiles: Object.freeze({
       type: 'xyz',
       url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png',
+      key: CARTO_KEY,
       subdomains: ['a', 'b', 'c', 'd'],
       maximumLevel: CARTO_MAX_LEVEL,
       alpha: false,
@@ -283,8 +316,17 @@ export function keylessBasemapRecord(id) {
   return byId.get(id) || null;
 }
 
-/** The `MAP_STACKS` descriptor for one record (see catalog.js). */
-export function keylessBasemapDescriptor(record) {
+/**
+ * The `MAP_STACKS` descriptor for one record (see catalog.js). A style
+ * whose optional key is missing carries its `noteWithoutKey`.
+ * @param {object} record
+ * @param {{ keys?: Record<string, string> }} [options] basemapKeys()
+ */
+export function keylessBasemapDescriptor(
+  record,
+  { keys = basemapKeys() } = {},
+) {
+  const missingKey = record.tiles.key && !keys[record.tiles.key.name];
   return {
     id: record.id,
     label: record.label,
@@ -292,7 +334,8 @@ export function keylessBasemapDescriptor(record) {
     kind: 'keyless-basemap',
     requiresIon: false,
     group: record.group,
-    note: record.note,
+    note:
+      missingKey && record.noteWithoutKey ? record.noteWithoutKey : record.note,
     luminance: record.luminance,
   };
 }

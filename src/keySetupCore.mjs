@@ -136,6 +136,18 @@ export const KEY_SETUP_KEYS = Object.freeze([
     clientExposed: true,
     hidden: true,
   }),
+  // Personal fork: optional too; the CARTO styles load without a key, with
+  // an "API KEY REQUIRED" watermark.
+  Object.freeze({
+    id: 'carto-basemaps',
+    title: 'CARTO BASEMAPS', // i18n-ignore: provider product name; row is hidden
+    unlocks: msg('CARTO map styles without the watermark'),
+    getUrl: 'https://carto.com/basemaps/apikey',
+    envVars: Object.freeze(['CARTO_API_KEY']),
+    tier: 'free',
+    clientExposed: true,
+    hidden: true,
+  }),
 ]);
 
 /** Hostnames a Provider Settings request may arrive under or originate from. */

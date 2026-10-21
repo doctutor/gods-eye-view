@@ -202,8 +202,18 @@ test('the placeholder shows while a chip is active; otherwise the style, lit, wi
     'Far-out views only: three zoom levels, bundled with Cesium',
   );
 
+  // No CARTO_API_KEY in the test env: the CARTO styles say why they are
+  // watermarked.
   syncMapStackMore(more, 'carto-positron');
   assert.equal(select(more).value, 'carto-positron');
+  assert.equal(note(more).hidden, false);
+  assert.equal(
+    note(more).textContent,
+    'CARTO key needed to remove the watermark',
+  );
+
+  syncMapStackMore(more, 'stamen-toner');
+  assert.equal(select(more).value, 'stamen-toner');
   assert.equal(note(more).hidden, true, 'no note for an unlimited style');
   assert.equal(note(more).textContent, '');
 
