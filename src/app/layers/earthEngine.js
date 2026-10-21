@@ -7,6 +7,7 @@ import { createRiversV2Source } from '../../layers/riversV2/source.js';
 import { createCensusSource } from '../../layers/census/source.js';
 import { createOvertureBuildingsSource } from '../../layers/earthEngine/overtureBuildings.js';
 import { governorRequestRender } from '../../renderGovernor.js';
+import { colourScales as sharedColourScales } from '../../maps/colourScale.js';
 import {
   HYDROSHEDS_V2_CREDIT,
   OVERTURE_BUILDINGS_CREDIT,
@@ -24,12 +25,14 @@ import { overlayHost } from './overlayHost.js';
  * source. The Rivers record also gets its names (world-overlay labels), its
  * clicks (a reach traced to the sea) and HydroSHEDS v2 over the Americas;
  * the terrain layers credit their DEM stack's sources (demSourceCredit).
+ * Every windowable layer draws the shared colour-scale store's choice.
  */
 export function createApplicationEarthEngineLayers({
   source = createEarthEngineSource(),
   riversV2 = createRiversV2Source(),
   census = createCensusSource(),
   overtureBuildings = createOvertureBuildingsSource(),
+  colourScales = sharedColourScales(),
 } = {}) {
   const credits = { register: registerDynamicCredit };
   return EARTH_ENGINE_LAYERS.map((record) =>
@@ -64,6 +67,7 @@ export function createApplicationEarthEngineLayers({
       // Buildings: Overture's outside Open Buildings, when built.
       overtureSource: record.overture ? overtureBuildings : null,
       overtureCredit: record.overture ? OVERTURE_BUILDINGS_CREDIT : null,
+      colourScales,
     }),
   );
 }

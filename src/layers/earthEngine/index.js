@@ -21,6 +21,19 @@ import {
   rowControls,
 } from './presentation.js';
 import { ZOOM_VARIANT, tileTemplate } from './source.js';
+// Personal fork: the shared colour-scale model's choice for this layer.
+import {
+  eeScaleDefaults,
+  eeSliderRange,
+  encodeScaleToken,
+  takesScale,
+} from '../../data/earthEngineScale.js';
+import { scaleKey } from '../../maps/colourScale.js';
+import { scaleRowControl } from '../../ui/colourScaleWidget.js';
+import { censusScaleControl } from '../census/source.js';
+
+/** Wait this long after a colour scale settles before asking for new tiles. */
+export const SCALE_DEBOUNCE_MS = 300;
 import { riversV2ImageryOptions, riversV2Ready } from '../riversV2/source.js';
 import {
   inOvertureBuildings,
@@ -285,8 +298,69 @@ export function createEarthEngineLayer({
   demCredit = null,
   overtureSource = null,
   overtureCredit = null,
+  colourScales = null,
+  setTimeoutImpl = (...args) => setTimeout(...args),
+  clearTimeoutImpl = (...args) => clearTimeout(...args),
 }) {
   const store = storageOf(storage);
+  /** The colour-scale model's subscription and the pending rebuild. */
+  let _offScales = null;
+  let _scaleTimer = null;
+  /**
+   * The token of the colour scale chosen for a mode ('' for the layer's own
+   * look: no model, a layer without a window, or the default scale), so an
+   * untouched layer keeps its map, its hash and its tiles.
+   */
+  function scaleTokenFor(mode) {
+    if (!colourScales?.getScale) return '';
+    const modeKey = mode === 'default' ? '' : mode;
+    if (!takesScale(record.id, modeKey)) return '';
+    let model = null;
+    try {
+      // The store learns this layer (mode)'s defaults before it is asked.
+      colourScales.get?.(
+        scaleKey(record.id, modeKey),
+        eeScaleDefaults(record.id, modeKey),
+      );
+      model = colourScales.getScale(record.id, modeKey);
+    } catch {
+      model = null;
+    }
+    return model ? encodeScaleToken(record.id, modeKey, model) : '';
+  }
+  /**
+   * The row's colour-scale widget for the mode drawn: the Earth Engine
+   * window, or a local mode's (the Census tracts' income and LST); null
+   * without the app's store or a window.
+   */
+  function scaleControl() {
+    if (!colourScales?.get) return null;
+    if (localMode()) return censusScaleControl(_mode, colourScales);
+    const mode = record.modes?.length ? _mode : '';
+    const defaults = eeScaleDefaults(record.id, mode);
+    if (!defaults || !takesScale(record.id, mode)) return null;
+    return scaleRowControl({
+      store: colourScales,
+      key: scaleKey(record.id, mode),
+      defaults,
+      auto: defaults.range,
+      range: eeSliderRange(record.id, mode),
+    });
+  }
+  /** A scale changed: draw it once it has settled (only this layer's keys). */
+  function onScaleChange(key) {
+    if (
+      typeof key === 'string' &&
+      key !== record.id &&
+      !key.startsWith(`${record.id}:`)
+    )
+      return;
+    clearTimeoutImpl(_scaleTimer);
+    _scaleTimer = setTimeoutImpl(() => {
+      _scaleTimer = null;
+      if (_enabled) sync();
+    }, SCALE_DEBOUNCE_MS);
+  }
   let _viewer = null;
   let _enabled = false;
   let _imagery = null;
@@ -582,7 +656,8 @@ export function createEarthEngineLayer({
     const demSources = record.demStack
       ? demSourcesInView(record, wantedVariant(), box, maximumLevel)
       : [];
-    const key = `${variant}|${ink}|${version}|${mode}|${v2Version}|${maximumLevel}|${demSources.map((entry) => entry.key).join(',')}|${overtureOptions?.url || ''}`;
+    const scaleToken = scaleTokenFor(mode);
+    const key = `${variant}|${ink}|${version}|${mode}|${v2Version}|${maximumLevel}|${demSources.map((entry) => entry.key).join(',')}|${overtureOptions?.url || ''}|${scaleToken}`;
     if (
       _imagery &&
       _mountedKey === key &&
@@ -609,7 +684,7 @@ export function createEarthEngineLayer({
             ?.minZoom ??
           0);
     const provider = new cesium.UrlTemplateImageryProvider({
-      url: tileTemplate(record.id, variant, ink, version, mode),
+      url: tileTemplate(record.id, variant, ink, version, mode, scaleToken),
       tilingScheme: new cesium.WebMercatorTilingScheme(),
       minimumLevel,
       maximumLevel,
@@ -938,6 +1013,10 @@ export function createEarthEngineLayer({
       _overtureStatus = overtureSource?.last?.() || _overtureStatus;
       names?.enable();
       clicks?.enable(_viewer);
+      if (colourScales?.subscribe && !_offScales) {
+        const off = colourScales.subscribe(onScaleChange);
+        _offScales = typeof off === 'function' ? off : null;
+      }
       sync();
       void loadCatalog();
       void loadV2();
@@ -947,6 +1026,10 @@ export function createEarthEngineLayer({
 
     disable() {
       _enabled = false;
+      _offScales?.();
+      _offScales = null;
+      clearTimeoutImpl(_scaleTimer);
+      _scaleTimer = null;
       _removeMoveListener?.();
       _removeMoveListener = null;
       unmount();
@@ -1027,6 +1110,7 @@ export function createEarthEngineLayer({
           record.demStack && _demSources.length
             ? demCreditText(_demSources)
             : '',
+        scale: scaleControl(),
       });
     },
 

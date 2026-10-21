@@ -1,5 +1,7 @@
 import { msg, t, tn, translateKnown } from '../../i18n/index.js';
 import { NO_IMAGERY_HOST } from '../../maps/imageryHost.js';
+import { isDefaultScale } from '../../maps/colourScale.js';
+import { scaleRowLegend } from '../../ui/colourScaleWidget.js';
 import {
   POPULATION_MODES,
   inkColor,
@@ -480,6 +482,7 @@ export function rowControls({
   creditTitle = '',
   localMessage = '',
   outsideCoverage = '',
+  scale = null,
 }) {
   const layer = catalog?.layers?.get?.(record.id) || null;
   const variantKeys = new Set((record.variants || []).map((v) => v.key));
@@ -546,7 +549,13 @@ export function rowControls({
       );
   return {
     chips,
-    legend,
+    // Personal fork: a chosen colour scale's legend (an untouched row keeps
+    // the layer's own), and the scale widget's descriptor.
+    legend:
+      scale && !isDefaultScale(scale.model, scale.defaults)
+        ? scaleRowLegend(scale)
+        : legend,
+    ...(scale ? { scale } : {}),
     slider: {
       label: t('Opacity {value}%', { value: Math.round(opacity * 100) }),
       min: 0,

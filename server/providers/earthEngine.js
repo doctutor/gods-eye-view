@@ -20,6 +20,13 @@ import {
   layerVariants,
   modeRecord,
 } from '../../src/data/earthEngineLayers.js';
+// Personal fork: a user's colour scale for a raster layer (window, palette).
+import {
+  decodeScaleToken,
+  drawnScaleKey,
+  drawnWindow,
+  takesScale,
+} from '../../src/data/earthEngineScale.js';
 import {
   DEM_RESAMPLE,
   bandLayers,
@@ -451,7 +458,7 @@ export function contourExpression(
  * - `scale`: × a factor (Population: a count per equal-area cell to one
  *   per km²); `atLeast`: values below it masked; `log10`: the logarithm.
  */
-function imageNode(layer, variant, modeKey) {
+function imageNode(layer, variant, modeKey, window = null) {
   const mode = layer.modes?.length ? modeRecord(layer, modeKey) : null;
   const steps = { ...layer, ...mode };
   let node = assetNode(
@@ -512,8 +519,56 @@ function imageNode(layer, variant, modeKey) {
         image2: imageConstant(steps.atLeast),
       }),
     });
-  if (steps.log10) node = invoke('Image.log10', { value: node });
+  // A chosen colour scale draws in its own transform (and may hide what
+  // lies outside its window); otherwise the layer's native log10, if any.
+  if (window) node = hideOutside(transformNode(node, window.transform), window);
+  else if (steps.log10) node = invoke('Image.log10', { value: node });
   return node;
+}
+
+/**
+ * An image in the transform a chosen scale asks for, in place of the
+ * layer's native one: log → log10 (zero and below masked first), sqrt →
+ * the root of the non-negative part, linear → as it is.
+ */
+function transformNode(node, transform) {
+  if (transform === 'log')
+    return invoke('Image.log10', {
+      value: invoke('Image.updateMask', {
+        image: node,
+        mask: invoke('Image.gt', { image1: node, image2: imageConstant(0) }),
+      }),
+    });
+  if (transform === 'sqrt')
+    return invoke('Image.sqrt', {
+      value: invoke('Image.max', { image1: node, image2: imageConstant(0) }),
+    });
+  return node;
+}
+
+/** With "outside: hide", the image masked below the window's floor and above its ceiling. */
+function hideOutside(node, window) {
+  if (!window?.hide) return node;
+  const above = invoke('Image.updateMask', {
+    image: node,
+    mask: invoke('Image.gte', {
+      image1: node,
+      image2: imageConstant(window.min),
+    }),
+  });
+  return invoke('Image.updateMask', {
+    image: above,
+    mask: invoke('Image.lte', {
+      image1: node,
+      image2: imageConstant(window.max),
+    }),
+  });
+}
+
+/** The window a chosen scale draws (drawn space), or null for the layer's own visualization. */
+function windowFor(layer, scale) {
+  if (!scale || layer?.kind === 'features' || layer?.contour) return null;
+  return drawnWindow(scale);
 }
 
 /** The colours a map draws with: the mode's for an image layer with modes, else the layer's. */
@@ -615,7 +670,11 @@ const DEM_IMAGE = '_dem';
  * body a value too), each drawn in its own projection, then mosaicked. The
  * Elevation layer (`heights`) mosaics the heights themselves.
  */
-function demStackExpression(layer, variant, { resample = DEM_RESAMPLE } = {}) {
+function demStackExpression(
+  layer,
+  variant,
+  { resample = DEM_RESAMPLE, window = null } = {},
+) {
   const band = demBand(variant.stack);
   const values = {};
   const refs = new Map();
@@ -714,7 +773,8 @@ function demStackExpression(layer, variant, { resample = DEM_RESAMPLE } = {}) {
       images: { arrayValue: { values: images } },
     }),
   });
-  if (layer.transform === 'sqrt')
+  if (window) node = hideOutside(transformNode(node, window.transform), window);
+  else if (layer.transform === 'sqrt')
     node = invoke('Image.sqrt', {
       value: invoke('Image.max', {
         image1: node,
@@ -751,10 +811,10 @@ function stackContourExpression(layer, variant) {
  * Collection.style in the ink, `overlay.width` px, unfilled, and blended on
  * top. The map has no visualization of its own (the result is RGB).
  */
-export function overlayExpression(layer, variant, ink, modeKey) {
-  const vis = visFor(layer, modeKey);
+export function overlayExpression(layer, variant, ink, modeKey, window = null) {
+  const vis = window || visFor(layer, modeKey);
   const picture = invoke('Image.visualize', {
-    image: imageNode(layer, variant, modeKey),
+    image: imageNode(layer, variant, modeKey, window),
     min: constant(vis.min),
     max: constant(vis.max),
     palette: constant([...vis.palette]),
@@ -794,7 +854,10 @@ export function expressionFor(
   variant = layerVariants(layer)[0],
   ink = layerInks(layer)[0],
   mode = layerModes(layer)[0],
+  scale = null,
 ) {
+  // Personal fork: a chosen colour scale (src/data/earthEngineScale.js).
+  const window = windowFor(layer, scale);
   // Contour lines (Elevation contours) have their own expression: of the
   // DEM stack's heights for a `stack` variant, else of the variant's asset.
   if (layer.contour) {
@@ -807,13 +870,16 @@ export function expressionFor(
     );
   }
   // The terrain layers and Elevation: the DEM stack's band.
-  if (variant?.stack) return demStackExpression(layer, variant);
+  if (variant?.stack) return demStackExpression(layer, variant, { window });
   // A band with an `overlay` (Buildings' footprints up close): the mode's
   // picture with a table's outlines in the ink on top.
   if (layer.kind !== 'features' && variant?.overlay)
-    return overlayExpression(layer, variant, ink, mode);
+    return overlayExpression(layer, variant, ink, mode, window);
   if (layer.kind !== 'features')
-    return { values: { 0: imageNode(layer, variant, mode) }, result: '0' };
+    return {
+      values: { 0: imageNode(layer, variant, mode, window) },
+      result: '0',
+    };
   let node = assetNode(variant.asset);
   const filter = featureFilter(layer, variant, mode);
   if (filter) node = invoke('Collection.filter', { collection: node, filter });
@@ -841,26 +907,33 @@ export function mapRequestHash(
   variant,
   ink = layerInks(layer)[0],
   mode = layerModes(layer)[0],
+  scale = null,
 ) {
   return crypto
     .createHash('sha256')
-    .update(JSON.stringify(mapRequestFor(layer, variant, ink, mode)))
+    .update(JSON.stringify(mapRequestFor(layer, variant, ink, mode, scale)))
     .digest('hex')
     .slice(0, 12);
 }
 
-/** The body of the request that makes a layer variant's map in an ink (and mode). */
+/**
+ * The body of the request that makes a layer variant's map in an ink (and
+ * mode, and a chosen colour scale: its window and stops become the
+ * visualization, in the layer's drawn space).
+ */
 export function mapRequestFor(
   layer,
   variant,
   ink = layerInks(layer)[0],
   mode = layerModes(layer)[0],
+  scale = null,
 ) {
   const body = {
-    expression: expressionFor(layer, variant, ink, mode),
+    expression: expressionFor(layer, variant, ink, mode, scale),
     fileFormat: 'PNG',
   };
-  const vis = variant?.overlay ? null : visFor(layer, mode);
+  const window = windowFor(layer, scale);
+  const vis = variant?.overlay ? null : window || visFor(layer, mode);
   if (layer.contour) {
     // The lines in the ink; the ink's alpha (RRGGBBAA) is the map's opacity.
     const color = inkColor(layer, ink);
@@ -1100,13 +1173,14 @@ export function createRestBackend({
       variant,
       ink = layerInks(layer)[0],
       mode = layerModes(layer)[0],
+      scale = null,
     ) {
       const response = await authorized(
         `${EE_API}/projects/${encodeURIComponent(project)}/maps?fields=name`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(mapRequestFor(layer, variant, ink, mode)),
+          body: JSON.stringify(mapRequestFor(layer, variant, ink, mode, scale)),
         },
       );
       if (!response.ok) throw new Error(await errorText(response));
@@ -1221,11 +1295,17 @@ export function variantForZoom(layer, z) {
 }
 
 /** "<layer>/<variant>/<ink>", or "<layer>/<mode>/<variant>/<ink>" for a layer with modes. */
-export function mapKey(layer, variant, ink, mode = 'default') {
-  return mode === 'default'
-    ? `${layer.id}/${variant.key}/${ink}`
-    : `${layer.id}/${mode}/${variant.key}/${ink}`;
+export function mapKey(layer, variant, ink, mode = 'default', scaleToken = '') {
+  const base =
+    mode === 'default'
+      ? `${layer.id}/${variant.key}/${ink}`
+      : `${layer.id}/${mode}/${variant.key}/${ink}`;
+  // Personal fork: a chosen colour scale is its own map.
+  return scaleToken ? `${base}|s=${scaleToken}` : base;
 }
+
+/** Maps made for chosen colour scales kept per session (the oldest go first). */
+export const SCALED_MAPS_KEPT = 48;
 
 const crcTable = new Uint32Array(256).map((_, n) => {
   let c = n;
@@ -1309,14 +1389,29 @@ export function createEarthEngineService({
     return made.backend;
   }
 
-  /** A (variant, ink[, mode])'s map, made again once old; the old one serves if that fails. */
+  /** Keys of maps made for chosen scales, oldest first (SCALED_MAPS_KEPT). */
+  const scaled = [];
+  function keepScaled(key) {
+    const at = scaled.indexOf(key);
+    if (at >= 0) scaled.splice(at, 1);
+    scaled.push(key);
+    while (scaled.length > SCALED_MAPS_KEPT) {
+      const old = scaled.shift();
+      maps.delete(old);
+      hashes.delete(old);
+    }
+  }
+
+  /** A (variant, ink[, mode][, scale])'s map, made again once old; the old one serves if that fails. */
   async function mapFor(
     layer,
     variant,
     ink,
-    { force = false, mode = 'default' } = {},
+    { force = false, mode = 'default', scale = null } = {},
   ) {
-    const key = mapKey(layer, variant, ink, mode);
+    const token = scale ? drawnScaleKey(scale) : '';
+    const key = mapKey(layer, variant, ink, mode, token);
+    if (token) keepScaled(key);
     const held = maps.get(key) || {};
     maps.set(key, held);
     if (!force && held.name && now() < held.expiresAt) return held;
@@ -1324,8 +1419,9 @@ export function createEarthEngineService({
       try {
         const engine = backendNow();
         if (!engine) throw new Error(NEEDS_KEY);
-        const { name } =
-          mode === 'default'
+        const { name } = scale
+          ? await engine.createMap(layer, variant, ink, mode, scale)
+          : mode === 'default'
             ? await engine.createMap(layer, variant, ink)
             : await engine.createMap(layer, variant, ink, mode);
         Object.assign(held, {
@@ -1392,10 +1488,27 @@ export function createEarthEngineService({
 
   /** mapKey → the hash of its map request (fixed per process). */
   const hashes = new Map();
-  const tileFile = (layer, variant, ink, z, x, y, mode = 'default') => {
-    const key = mapKey(layer, variant, ink, mode);
+  const tileFile = (
+    layer,
+    variant,
+    ink,
+    z,
+    x,
+    y,
+    mode = 'default',
+    scale = null,
+  ) => {
+    const key = mapKey(
+      layer,
+      variant,
+      ink,
+      mode,
+      scale ? drawnScaleKey(scale) : '',
+    );
+    // A chosen scale's request hashes differently, so its tiles have a
+    // directory of their own under the same layer, mode, variant and ink.
     if (!hashes.has(key))
-      hashes.set(key, mapRequestHash(layer, variant, ink, mode));
+      hashes.set(key, mapRequestHash(layer, variant, ink, mode, scale));
     return path.join(
       dir,
       'tiles',
@@ -1546,7 +1659,16 @@ export function createEarthEngineService({
      * for a layer without modes.
      * @returns {Promise<{status: number, contentType?: string, body?: Buffer, error?: string, cached?: boolean, blank?: boolean}>}
      */
-    async tile(layerId, variantKey, ink, z, x, y, mode = 'default') {
+    async tile(
+      layerId,
+      variantKey,
+      ink,
+      z,
+      x,
+      y,
+      mode = 'default',
+      scaleToken = '',
+    ) {
       const layer = byId.get(layerId);
       let variant = layer
         ? variantKey === ZOOM_VARIANT && zoomMatched(layer)
@@ -1558,6 +1680,15 @@ export function createEarthEngineService({
         return { status: 404, error: 'No such ink' };
       if (!layerModes(layer).includes(mode))
         return { status: 404, error: 'No such mode' };
+      // Personal fork: a chosen colour scale (the route's `s`, the shared
+      // model's fields), resolved against this layer (mode)'s defaults.
+      const modeKey = mode === 'default' ? '' : mode;
+      if (scaleToken && !takesScale(layerId, modeKey))
+        return { status: 400, error: 'This layer takes no colour scale' };
+      const scale = scaleToken
+        ? decodeScaleToken(layerId, modeKey, scaleToken)
+        : null;
+      if (scaleToken && !scale) return { status: 400, error: 'Bad scale' };
       const limit = 2 ** z;
       if (z > (layer.maxZoom ?? 12) || x >= limit || y >= limit)
         return { status: 400, error: 'Tile out of range' };
@@ -1576,7 +1707,7 @@ export function createEarthEngineService({
           };
         variant = coarse;
       }
-      const file = tileFile(layer, variant, ink, z, x, y, mode);
+      const file = tileFile(layer, variant, ink, z, x, y, mode, scale);
       try {
         const stat = fs.statSync(file);
         if (now() - stat.mtimeMs < TILE_TTL_MS)
@@ -1597,14 +1728,14 @@ export function createEarthEngineService({
           status: 429,
           error: `The day's ${current.dailyTiles} Earth Engine tiles are used`,
         };
-      let held = await mapFor(layer, variant, ink, { mode });
+      let held = await mapFor(layer, variant, ink, { mode, scale });
       if (!held.name) return { status: 502, error: held.error || 'No map' };
       const engine = backendNow();
       countTile(layerId);
       let answer = await engine.fetchTile(held.name, z, x, y);
       // An expired map is made again, once.
       if ([400, 404].includes(answer.status)) {
-        held = await mapFor(layer, variant, ink, { force: true, mode });
+        held = await mapFor(layer, variant, ink, { force: true, mode, scale });
         if (held.name) {
           countTile(layerId);
           answer = await engine.fetchTile(held.name, z, x, y);
@@ -1687,6 +1818,10 @@ export function createEarthEngineHandler({ service }) {
         const [layer, mode, variant, ink, z, x, y] = plain
           ? [plain[1], 'default', ...plain.slice(2)]
           : moded.slice(1);
+        // Personal fork: `s`, a chosen colour scale's token.
+        const scaleToken =
+          new URL(req.url || '/', 'http://localhost').searchParams.get('s') ||
+          '';
         const answer = await service.tile(
           layer,
           variant,
@@ -1694,7 +1829,11 @@ export function createEarthEngineHandler({ service }) {
           Number(z),
           Number(x),
           Number(y),
-          ...(mode === 'default' ? [] : [mode]),
+          ...(scaleToken
+            ? [mode, scaleToken]
+            : mode === 'default'
+              ? []
+              : [mode]),
         );
         if (answer.status !== 200)
           return sendJson(res, answer.status, {

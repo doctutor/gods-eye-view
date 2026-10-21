@@ -101,10 +101,14 @@ export function tileTemplate(
   ink = 'default',
   version,
   mode = 'default',
+  scaleToken = '',
 ) {
-  const query = /^[0-9a-f]{12}$/.test(String(version || ''))
-    ? `?v=${version}`
-    : '';
+  // Personal fork: `s`, a chosen colour scale (src/data/earthEngineScale.js
+  // encodeScaleToken); the browser keeps each scale's tiles apart by URL.
+  const params = [];
+  if (/^[0-9a-f]{12}$/.test(String(version || ''))) params.push(`v=${version}`);
+  if (scaleToken) params.push(`s=${encodeURIComponent(scaleToken)}`);
+  const query = params.length ? `?${params.join('&')}` : '';
   const moded = mode && mode !== 'default' ? `${mode}/` : '';
   return `${EARTH_ENGINE_ENDPOINT}/tile/${layerId}/${moded}${variantKey}/${ink}/{z}/{x}/{y}${query}`;
 }
