@@ -18,9 +18,12 @@ import {
   currentMode,
   isLegoLayer,
   layerSpec,
+  legoColourScale,
+  withColourScale,
   withHeader,
 } from './layerSpecs.js';
 import { LegoBrickPrimitive, buildBrickMesh } from './bricks.js';
+import { colourScales, encodeScaleFields } from '../../maps/colourScale.js';
 import { createRenderModeStore, isFlatBasemap } from './renderMode.js';
 import { columnCardDetails } from './presentation.js';
 
@@ -67,6 +70,8 @@ export function createLegoController({
   overlayHost = null,
   mapStackController = null,
   store = createRenderModeStore(),
+  // The colour scales (src/maps/colourScale.js): Lego maps their window.
+  scales = colourScales(),
   values = createRasterValuesClient(),
   cesium = Cesium,
   requestRender = () => {},
@@ -211,6 +216,8 @@ export function createLegoController({
     const flat = flatGround();
     const exaggeration = store.getExaggeration(flatBasemap());
     const view = viewNow();
+    const colourScale = legoColourScale(scales, layer, mode);
+    const scaleToken = colourScale ? encodeScaleFields(colourScale) : '';
     if (
       !force &&
       _built &&
@@ -218,6 +225,7 @@ export function createLegoController({
       _built.mode === mode &&
       _built.exaggeration === exaggeration &&
       _built.flat === flat &&
+      _built.scaleToken === scaleToken &&
       !legoViewMoved(_built.view, view)
     )
       return;
@@ -250,7 +258,7 @@ export function createLegoController({
         base.header.cols === grid.header.cols &&
         base.header.rows === grid.header.rows;
       const columns = gridColumns(grid, {
-        spec: withHeader(spec, grid.header),
+        spec: withColourScale(withHeader(spec, grid.header), colourScale),
         elevation: spec.elevation,
         exaggeration,
         base: sameGrid ? base : null,
@@ -274,6 +282,7 @@ export function createLegoController({
         mode,
         exaggeration,
         flat,
+        scaleToken,
         view,
         header,
         columns,
@@ -436,6 +445,8 @@ export function createLegoController({
       schedule({ force: true });
     }),
   );
+  // A changed colour scale rebuilds when it is the drawn layer's.
+  _removers.push(scales.subscribe(() => schedule()));
   if (layers?.subscribeActivity)
     _removers.push(
       layers.subscribeActivity((change) => {

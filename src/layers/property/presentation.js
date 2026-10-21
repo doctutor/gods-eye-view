@@ -5,6 +5,8 @@ import {
   propertyMetric,
 } from '../../data/propertySales.js';
 import { METRIC_KEYS, legendValues, sparkline } from './property.js';
+import { isDefaultScale } from '../../maps/colourScale.js';
+import { scaleRowLegend } from '../../ui/colourScaleWidget.js';
 
 /**
  * Personal fork: what the Property sales layer says in words: its chips
@@ -125,7 +127,10 @@ export function rowControls({
   enabled,
   opacity,
   onOpacity,
+  // The colour scale's row descriptor (colourScaleWidget.js).
+  scale = null,
 }) {
+  const scaled = scale && !isDefaultScale(scale.model, scale.defaults);
   return {
     chips: METRIC_KEYS.map((key) => ({
       id: `metric-${key}`,
@@ -134,10 +139,13 @@ export function rowControls({
       active: metric === key,
       onClick: () => onMetric(key),
     })),
-    legend: legendValues(metric, domain).map((stop, i, all) => ({
-      label: `${shortValue(metric, stop.value)}${i === all.length - 1 && propertyMetric(metric)?.scale !== 'linear' ? '+' : ''}`,
-      color: stop.color,
-    })),
+    legend: scaled
+      ? scaleRowLegend(scale)
+      : legendValues(metric, domain).map((stop, i, all) => ({
+          label: `${shortValue(metric, stop.value)}${i === all.length - 1 && propertyMetric(metric)?.scale !== 'linear' ? '+' : ''}`,
+          color: stop.color,
+        })),
+    ...(scale ? { scale } : {}),
     slider: {
       label: t('Opacity {value}%', { value: Math.round(opacity * 100) }),
       min: 0,

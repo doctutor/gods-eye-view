@@ -17,6 +17,14 @@ import {
   pinQueryBox,
 } from './property.js';
 import { buildingCard, rowControls } from './presentation.js';
+import { colourScales } from '../../maps/colourScale.js';
+import { scaleRowControl } from '../../ui/colourScaleWidget.js';
+import {
+  PROPERTY_SCALE_LAYER,
+  propertyColouring,
+  propertyScaleDefaults,
+  propertyScaleKey,
+} from './scale.js';
 
 /**
  * Personal fork: the Property sales layer (ANALYSIS in the DATA LAYERS
@@ -89,7 +97,10 @@ export function createPropertyLayer({
   storage,
   setTimeoutImpl = (...args) => setTimeout(...args),
   clearTimeoutImpl = (...args) => clearTimeout(...args),
+  // The colour scales (src/maps/colourScale.js): the app's one store.
+  scales = colourScales(),
 } = {}) {
+  let _removeScaleListener = null;
   const store = storageOf(storage);
   let _viewer = null;
   let _enabled = false;
@@ -179,8 +190,13 @@ export function createPropertyLayer({
     removeSurface();
     if (!_hexes?.cells?.size) return;
     const coloured = [];
+    const { colourOf } = propertyColouring(
+      scales,
+      _hexes.metric,
+      _hexes.domain,
+    );
     for (const [cell, value] of _hexes.cells) {
-      const rgba = metricColor(_hexes.metric, value, _hexes.domain);
+      const rgba = colourOf(value);
       if (rgba[3]) coloured.push([cell, colour(rgba)]);
     }
     _surface = createHexSurface({ cells: coloured, opacity: _opacity, cesium });
@@ -193,14 +209,11 @@ export function createPropertyLayer({
       return;
     _points = new cesium.PointPrimitiveCollection();
     const domain = domainNow();
+    const { colourOf } = propertyColouring(scales, _metric, domain);
     const none = cesium.Color.fromCssColorString('#9e9e9e').withAlpha(0.8);
     const outline = cesium.Color.fromCssColorString('#1a1a1a').withAlpha(0.7);
     for (const building of _pointsData.buildings) {
-      const rgba = metricColor(
-        _metric,
-        buildingValue(_metric, building),
-        domain,
-      );
+      const rgba = colourOf(buildingValue(_metric, building));
       _points.add({
         id: `${POINT_PREFIX}${building.id}`,
         position: cesium.Cartesian3.fromDegrees(
@@ -449,6 +462,18 @@ export function createPropertyLayer({
       _viewer = viewer || _viewer;
       if (_enabled) return;
       _enabled = true;
+      // A changed colour scale for this layer repaints what is drawn.
+      _removeScaleListener ||= scales.subscribe((key) => {
+        if (
+          key !== PROPERTY_SCALE_LAYER &&
+          !String(key).startsWith(`${PROPERTY_SCALE_LAYER}:`)
+        )
+          return;
+        if (_hexes) drawHexes();
+        if (_pointsData) drawPoints();
+        requestRender('property-scale');
+        notify();
+      });
       overlayHost?.setVisible?.(PROPERTY_SOURCE, true);
       credits?.register?.(_viewer, PROPERTY_CREDIT);
       if (_viewer?.camera?.moveEnd && !_removeMove)
@@ -460,6 +485,8 @@ export function createPropertyLayer({
     disable() {
       if (!_enabled) return;
       _enabled = false;
+      _removeScaleListener?.();
+      _removeScaleListener = null;
       _generation += 1;
       clearTimeoutImpl(_debounce);
       _debounce = null;
@@ -510,6 +537,15 @@ export function createPropertyLayer({
         enabled: _enabled,
         opacity: _opacity,
         onOpacity: setOpacity,
+        scale:
+          _enabled && domainNow()
+            ? scaleRowControl({
+                store: scales,
+                key: propertyScaleKey(_metric),
+                defaults: propertyScaleDefaults(_metric),
+                auto: { min: domainNow().min, max: domainNow().max },
+              })
+            : null,
       });
     },
 

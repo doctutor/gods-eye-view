@@ -26,13 +26,31 @@ export function cellColor(value, domain, opacity, cesium = Cesium) {
 
 /**
  * One drawn hex surface: a GroundPrimitive of the cells, recoloured in
- * place for a new opacity once it is ready.
- * @param {{ cells: Array<[string, number]>, domain: {min: number, max: number}, opacity: number, cesium?: object }} options
+ * place for a new opacity once it is ready. `colourOf(value)` → [r, g, b,
+ * a] (0–255) or null: the colour scale's (scale.js), else the ramp's.
+ * @param {{ cells: Array<[string, number]>, domain: {min: number, max: number}, opacity: number, cesium?: object, colourOf?: Function }} options
  */
-export function createHexSurface({ cells, domain, opacity, cesium = Cesium }) {
+export function createHexSurface({
+  cells,
+  domain,
+  opacity,
+  cesium = Cesium,
+  colourOf = null,
+}) {
   const coloured = [];
   for (const [cell, value] of cells) {
-    const colour = cellColor(value, domain, 1, cesium);
+    let colour;
+    if (colourOf) {
+      const rgba = colourOf(value);
+      colour = rgba
+        ? new cesium.Color(
+            rgba[0] / 255,
+            rgba[1] / 255,
+            rgba[2] / 255,
+            rgba[3] / 255,
+          )
+        : null;
+    } else colour = cellColor(value, domain, 1, cesium);
     if (colour) coloured.push([cell, colour]);
   }
   return drawHexSurface({ cells: coloured, opacity, cesium });

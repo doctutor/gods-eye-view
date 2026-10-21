@@ -1,3 +1,9 @@
+// Personal fork: colour scales in the share hash (`cs`).
+import {
+  COLOUR_SCALE_PARAM,
+  colourScales,
+  encodeColourScaleParam,
+} from './maps/colourScale.js';
 import * as Cesium from 'cesium';
 import { BLOOM_INTENSITY_DEFAULT, BLOOM_SCALE_VERSION } from './bloom.js';
 import {
@@ -146,6 +152,10 @@ export class ShareLinkManager {
       () => {
         this._scheduleUpdate();
       },
+    );
+    // Personal fork: a changed colour scale is a changed link.
+    this._removeColourScales = colourScales().subscribe(() =>
+      this._scheduleUpdate(),
     );
   }
 
@@ -590,6 +600,11 @@ export class ShareLinkManager {
     params.set('map', this._mapStack);
     const layerState = this._layerStateProvider?.();
     if (layerState) encodeLayerStateParams(params, layerState);
+    // Personal fork: the ramp layers' colour scales (src/maps/colourScale.js),
+    // only those changed from their layer's default.
+    const scales = encodeColourScaleParam(colourScales().snapshot());
+    if (scales) params.set(COLOUR_SCALE_PARAM, scales);
+    else params.delete(COLOUR_SCALE_PARAM);
     this._encodePanelStateParam(params, this._panelStateProvider?.());
     encodeStyleParamState(
       params,
@@ -617,6 +632,8 @@ export class ShareLinkManager {
     this._restoreGeneration += 1;
     this._activeCameraFlight = null;
     this._destroyed = true;
+    this._removeColourScales?.();
+    this._removeColourScales = null;
     clearTimeout(this._debounceTimer);
     this._debounceTimer = null;
     this._removeCameraChanged?.();

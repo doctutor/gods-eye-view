@@ -1,6 +1,8 @@
 import { msg, t, tn } from '../../i18n/index.js';
 import { NO_IMAGERY_HOST } from '../../maps/imageryHost.js';
 import { legendStops } from './ramp.js';
+import { scaleRowLegend } from '../../ui/colourScaleWidget.js';
+import { isDefaultScale } from '../../maps/colourScale.js';
 
 /**
  * Personal fork: what the Wikipedia coverage row in the DATA LAYERS panel
@@ -133,6 +135,8 @@ export function rowControls({
   hexes = false,
   onHexes = null,
   hexState = null,
+  // The colour scale's row descriptor (colourScaleWidget.js), when drawn.
+  scale = null,
 }) {
   const chosen = catalog?.variants?.get?.(variant) || null;
   // In Hexes mode the legend follows the resolution's own domain.
@@ -191,10 +195,13 @@ export function rowControls({
     ],
     legend:
       legendDomain && (hexes || chosen?.available)
-        ? legendStops(legendDomain, {
-            bytes: variant === 'text' || variant === 'textcapita',
-          })
+        ? scale && !isDefaultScale(scale.model, scale.defaults)
+          ? scaleRowLegend(scale)
+          : legendStops(legendDomain, {
+              bytes: variant === 'text' || variant === 'textcapita',
+            })
         : [],
+    ...(scale ? { scale } : {}),
     slider: {
       label: t('Opacity {value}%', { value: Math.round(opacity * 100) }),
       min: 0,

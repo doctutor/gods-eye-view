@@ -5,6 +5,14 @@ import { DEFAULT_VARIANT, VARIANTS, rowControls } from './presentation.js';
 import { createCoverageImageryProvider } from './provider.js';
 // The Hexes mode: H3 cells at the camera's resolution instead of the raster.
 import { createHexSurface, fallbackResolution } from './hexes.js';
+import { colourScales, encodeScaleFields } from '../../maps/colourScale.js';
+import { scaleRowControl } from '../../ui/colourScaleWidget.js';
+import {
+  WIKIPEDIA_SCALE_LAYER,
+  wikipediaColouring,
+  wikipediaScaleDefaults,
+  wikipediaScaleKey,
+} from './scale.js';
 import { h3ResolutionForHeight } from '../../maps/h3Resolution.js';
 import { viewMoved as hexViewMoved, viewWindow } from '../../maps/h3Cells.js';
 
@@ -89,8 +97,11 @@ export function createWikipediaCoverageLayer({
   credits,
   fetchTile,
   createCanvas,
+  // The colour scales (src/maps/colourScale.js): the app's one store.
+  scales = colourScales(),
 }) {
   const store = storageOf(storage);
+  let _removeScaleListener = null;
   let _viewer = null;
   let _enabled = false;
   let _imagery = null;
@@ -209,11 +220,14 @@ export function createWikipediaCoverageLayer({
         /* already gone */
       }
     }
+    const domain = data.domain || { min: 1, max: 2 };
+    const colouring = wikipediaColouring(scales, _variant, domain);
     _hexSurface = createHexSurface({
       cells: data.cells,
-      domain: data.domain || { min: 1, max: 2 },
+      domain,
       opacity: _opacity,
       cesium,
+      ...(colouring.isDefault ? {} : { colourOf: colouring.colourOf }),
     });
     if (_hexSurface.primitive)
       _viewer?.scene?.primitives?.add(_hexSurface.primitive);
@@ -237,7 +251,12 @@ export function createWikipediaCoverageLayer({
     const abort = new AbortController();
     _hexAbort = abort;
     const gen = ++_hexGen;
-    const madeFor = { ...view, res: wanted, variant: _variant };
+    const madeFor = {
+      ...view,
+      res: wanted,
+      variant: _variant,
+      scale: scaleToken(),
+    };
     _hexMadeFor = madeFor;
     _loading = true;
     notify();
@@ -303,9 +322,21 @@ export function createWikipediaCoverageLayer({
       _hexMadeFor &&
       _hexMadeFor.res === res &&
       _hexMadeFor.variant === _variant &&
+      _hexMadeFor.scale === scaleToken() &&
       !hexViewMoved(_hexMadeFor, view)
     )
       return;
+    // A new colour scale over the cells held: repainted, not asked again.
+    if (
+      _hexMadeFor &&
+      _hexData &&
+      _hexMadeFor.res === res &&
+      _hexMadeFor.variant === _variant &&
+      !hexViewMoved(_hexMadeFor, view)
+    ) {
+      mountHexes(_hexData, { ..._hexMadeFor, scale: scaleToken() });
+      return;
+    }
     void loadHexes(view);
   }
 
@@ -327,7 +358,8 @@ export function createWikipediaCoverageLayer({
       unmount();
       return;
     }
-    const key = `${_variant}|${variant.domain.min}|${variant.domain.max}|${_catalog.builtAt}`;
+    const colouring = wikipediaColouring(scales, _variant, variant.domain);
+    const key = `${_variant}|${variant.domain.min}|${variant.domain.max}|${_catalog.builtAt}|${scaleToken()}`;
     if (
       _imagery &&
       _mountedKey === key &&
@@ -344,6 +376,7 @@ export function createWikipediaCoverageLayer({
       cesium,
       ...(fetchTile ? { fetchTile } : {}),
       ...(createCanvas ? { createCanvas } : {}),
+      ...(colouring.isDefault ? {} : { paintValues: colouring.paint }),
     });
     const box = viewRectangleDegrees(view.lat, view.lon, view.height);
     _imagery = new cesium.ImageryLayer(provider, {
@@ -428,6 +461,27 @@ export function createWikipediaCoverageLayer({
     notify();
   }
 
+  /** The variant's colour scale, as its hash fields ('' at the default). */
+  function scaleToken() {
+    const key = wikipediaScaleKey(_variant);
+    const model = scales.get(key, wikipediaScaleDefaults(_variant));
+    return scales.isDefault(key) ? '' : encodeScaleFields(model);
+  }
+
+  /** The row's Scale controls: the variant's window over its domain. */
+  function scaleControl() {
+    const domain = _hexes
+      ? _hexState.domain
+      : _catalog?.variants?.get?.(_variant)?.domain;
+    if (!domain) return null;
+    return scaleRowControl({
+      store: scales,
+      key: wikipediaScaleKey(_variant),
+      defaults: wikipediaScaleDefaults(_variant),
+      auto: { min: domain.min, max: domain.max },
+    });
+  }
+
   function setVariant(key) {
     if (!VARIANTS.some((variant) => variant.key === key) || key === _variant)
       return;
@@ -458,6 +512,12 @@ export function createWikipediaCoverageLayer({
       );
       if (_viewer?.camera?.moveEnd && !_removeMoveListener)
         _removeMoveListener = _viewer.camera.moveEnd.addEventListener(onMoved);
+      // A changed colour scale for this layer repaints it.
+      _removeScaleListener ||= scales.subscribe((key) => {
+        if (!String(key).startsWith(`${WIKIPEDIA_SCALE_LAYER}:`)) return;
+        if (_enabled) sync();
+        notify();
+      });
       _catalog = source.last?.() || _catalog;
       sync();
       void loadCatalog();
@@ -467,6 +527,8 @@ export function createWikipediaCoverageLayer({
       _enabled = false;
       _removeMoveListener?.();
       _removeMoveListener = null;
+      _removeScaleListener?.();
+      _removeScaleListener = null;
       unmount();
       unmountHexes();
       notify();
@@ -509,6 +571,7 @@ export function createWikipediaCoverageLayer({
         hexes: _hexes,
         onHexes: setHexes,
         hexState: _hexState,
+        scale: _enabled ? scaleControl() : null,
       });
     },
 

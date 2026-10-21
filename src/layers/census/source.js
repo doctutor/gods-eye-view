@@ -7,6 +7,14 @@
  * here imports Cesium.
  */
 
+import { colourScales } from '../../maps/colourScale.js';
+import {
+  censusScaleBounds,
+  censusScaleDefaults,
+  censusScaleKey,
+  censusScaleToken,
+} from '../../data/censusScale.js';
+import { scaleRowControl } from '../../ui/colourScaleWidget.js';
 import {
   CENSUS_ENDPOINT,
   CENSUS_LOCAL_MODES,
@@ -57,11 +65,17 @@ export function censusModeMessage(status, mode) {
  * Options for `new Cesium.UrlTemplateImageryProvider(...)` for a mode, or
  * null when it is not built. `version` only busts the browser's cache.
  */
-export function censusImageryOptions(status, mode) {
+export function censusImageryOptions(status, mode, scales = colourScales()) {
   const entry = status?.modes?.[mode];
   if (!entry?.ready) return null;
+  // A changed colour scale rides on the URL (the server draws in it), so
+  // the layer remounts when it changes; the default is the classed tiles.
+  const defaults = censusScaleDefaults(mode);
+  const token = defaults
+    ? censusScaleToken(scales.get(censusScaleKey(mode), defaults), mode)
+    : '';
   return {
-    url: `${CENSUS_ENDPOINT}/tile/${mode}/{z}/{x}/{y}?v=${entry.version}`,
+    url: `${CENSUS_ENDPOINT}/tile/${mode}/{z}/{x}/{y}?v=${entry.version}${token ? `&s=${token}` : ''}`,
     minimumLevel: status.minZoom,
     maximumLevel: status.maxZoom,
     tileWidth: 256,
@@ -69,6 +83,25 @@ export function censusImageryOptions(status, mode) {
     hasAlphaChannel: true,
     credit: status.attribution,
   };
+}
+
+/**
+ * The row's Scale controls for a locally drawn mode (income, surface
+ * temperature), or null for another mode: the window over the classes'
+ * range, the slider over the tracts' values. The Census tracts row (the
+ * Earth Engine layer's) returns it as `scale`, and its legend from
+ * scaleRowLegend when the scale is not the default.
+ */
+export function censusScaleControl(mode, scales = colourScales()) {
+  const defaults = censusScaleDefaults(mode);
+  if (!defaults) return null;
+  return scaleRowControl({
+    store: scales,
+    key: censusScaleKey(mode),
+    defaults,
+    auto: defaults.range,
+    range: censusScaleBounds(mode),
+  });
 }
 
 /**

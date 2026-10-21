@@ -3,6 +3,7 @@
 // size and the mode it is drawn in. Vector and point layers have no spec
 // and are left alone.
 
+import { paletteById, resolveWindow, rgbHex } from '../../maps/colourScale.js';
 import {
   EARTH_ENGINE_LAYERS,
   modeRecord,
@@ -140,6 +141,46 @@ export function layerSpec(layerId, modeKey = '') {
 }
 
 /** A spec with the values header's legend range filled in where it has none. */
+/**
+ * Personal fork: the layer's colour scale (src/maps/colourScale.js) on a
+ * spec: the window for min and max (its floor and ceiling, else the
+ * spec's own range), its mapping, its palette (the layer's own for
+ * 'default'), reversed when inverted; `windowed` so the bricks map the
+ * window too, `hide` so values outside it raise no column. Lego still
+ * snaps every colour to its brick palette.
+ */
+export function withColourScale(spec, model) {
+  if (!model) return spec;
+  const window = resolveWindow(model, { min: spec.min, max: spec.max });
+  if (!window) return spec;
+  const own = spec.palette || [];
+  const stops =
+    model.palette === 'default'
+      ? own
+      : (paletteById(model.palette)?.stops || []).map(rgbHex);
+  return {
+    ...spec,
+    min: window.floor,
+    max: window.ceiling,
+    scale: model.scale,
+    palette: model.invert ? [...stops].reverse() : stops,
+    windowed: true,
+    hide: model.outside === 'hide',
+  };
+}
+
+/**
+ * The colour scale a Lego layer is drawn in, or null for its default:
+ * Wikipedia coverage's articles variant (the one Lego raises), else the
+ * layer and mode's.
+ */
+export function legoColourScale(store, layerId, mode = '') {
+  if (!store) return null;
+  return layerId === WIKIPEDIA_LAYER_ID
+    ? store.getScale(layerId, 'articles')
+    : store.getScale(layerId, mode);
+}
+
 export function withHeader(spec, header) {
   const min = Number.isFinite(spec.min) ? spec.min : Number(header.legendMin);
   const max = Number.isFinite(spec.max) ? spec.max : Number(header.legendMax);
