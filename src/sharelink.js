@@ -16,6 +16,7 @@ import {
   encodeLayerStateParams,
 } from './data/layerState.js';
 import { STYLE_URL_NAMES } from './view/index.js';
+import { encodeTitlesParam } from './ui/titlesShare.js';
 
 /**
  * Share Links — URL Hash State Management
@@ -128,6 +129,7 @@ export class ShareLinkManager {
     this._mapStack = 'photoreal';
     this._layerStateProvider = null;
     this._panelStateProvider = null;
+    this._titlesProvider = null;
     this._styleParamStateProvider = null;
     this._initialRestorePending = false;
     this._restoreAuthority = {
@@ -417,6 +419,11 @@ export class ShareLinkManager {
     this._panelStateProvider = typeof provider === 'function' ? provider : null;
   }
 
+  /** Personal fork: install the Titles toggle's source (src/ui/titles.js). */
+  setTitlesProvider(provider) {
+    this._titlesProvider = typeof provider === 'function' ? provider : null;
+  }
+
   /** Install the active visual preset parameter source used by URL generation. */
   setStyleParamStateProvider(provider) {
     this._styleParamStateProvider =
@@ -606,6 +613,8 @@ export class ShareLinkManager {
     if (scales) params.set(COLOUR_SCALE_PARAM, scales);
     else params.delete(COLOUR_SCALE_PARAM);
     this._encodePanelStateParam(params, this._panelStateProvider?.());
+    // Personal fork: the panel's Titles toggle, in the same `ui` param.
+    if (this._titlesProvider) encodeTitlesParam(params, this._titlesProvider());
     encodeStyleParamState(
       params,
       this._currentStyle,
@@ -640,6 +649,7 @@ export class ShareLinkManager {
     this._removeCameraChanged = null;
     this._layerStateProvider = null;
     this._panelStateProvider = null;
+    this._titlesProvider = null;
     this._styleParamStateProvider = null;
     this._onRestore = null;
   }

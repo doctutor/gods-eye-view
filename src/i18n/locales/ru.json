@@ -3724,5 +3724,7 @@
   "Magma": "Magma",
   "Plasma": "Plasma",
   "Cividis": "Cividis",
-  "Turbo": "Turbo"
+  "Turbo": "Turbo",
+  "Titles": "Подписи",
+  "names on markers": "названия на маркерах"
 }

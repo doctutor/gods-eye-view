@@ -804,10 +804,39 @@ function getOrCreateDomain(domainId) {
   return domain;
 }
 
+/**
+ * Personal fork: whether entries of variant 'label' are drawn at all (the
+ * DATA LAYERS panel's Titles toggle). Off, every source's labels stay out of
+ * its cohorts, so they take no collision budget; dots, tracks, cards,
+ * thumbnails and selected or tracked entries are untouched.
+ */
+let _titlesVisible = true;
+const hiddenByTitles = (entry) =>
+  !_titlesVisible &&
+  entry.variant === 'label' &&
+  !entry.selected &&
+  !entry.tracked;
+
+/** Show or hide every source's 'label' entries (default shown). */
+export function setOverlayTitlesVisible(visible) {
+  const next = visible !== false;
+  if (next === _titlesVisible) return;
+  _titlesVisible = next;
+  for (let i = 0; i < _sourceList.length; i++)
+    rebuildSourceCohorts(_sourceList[i]);
+  if (!_destroyed) invalidateHost();
+}
+
+/** Whether 'label' entries are drawn. */
+export function getOverlayTitlesVisible() {
+  return _titlesVisible;
+}
+
 function rebuildSourceCohorts(source) {
   const groups = new Map();
   source.demandByDomain.clear();
   for (const entry of source.entries.values()) {
+    if (hiddenByTitles(entry)) continue;
     if (!groups.has(entry.collisionGroup)) groups.set(entry.collisionGroup, []);
     groups.get(entry.collisionGroup).push(entry);
     if (!isProtected(entry)) {

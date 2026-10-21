@@ -19,6 +19,7 @@ import {
   clearOverlaySource,
   destroyWorldOverlay,
   getOverlayPaintRect,
+  getOverlayTitlesVisible,
   getWorldOverlayDiagnostics,
   hitTestWorldOverlay,
   initWorldOverlay,
@@ -30,6 +31,7 @@ import {
   selectBoundedOverlayCohort,
   setOverlayEntries,
   setOverlaySourceVisible,
+  setOverlayTitlesVisible,
   upsertOverlayEntry,
 } from './worldOverlay.js';
 
@@ -2296,4 +2298,52 @@ test('promoting an ambient entry to selected paints it once with no fading dupli
     setOverlayEntries('military-installations', [entry]); paint(); env.advanceTime(200);
     assert.equal(paint(), 1, 'deselect restores the ambient card without re-entry cooldown');
   } finally { env.cleanup(); }
+});
+
+test('Titles off skips every label entry, across sources, and keeps the rest', () => {
+  const env = installMockEnvironment();
+  initWorldOverlay(env.viewer);
+  try {
+    assert.equal(getOverlayTitlesVisible(), true);
+    const labels = (source) =>
+      Array.from({ length: 3 }, (_, index) => ({
+        id: `${source}-label-${index}`,
+        position: position(),
+        variant: 'label',
+        title: `Label ${index}`,
+        priority: index,
+      }));
+    setOverlayEntries('names-a', labels('a'));
+    setOverlayEntries('names-b', [
+      ...labels('b'),
+      { id: 'card', position: position(), variant: 'card', title: 'Card' },
+      {
+        id: 'picked',
+        position: position(),
+        variant: 'label',
+        title: 'Picked',
+        selected: true,
+      },
+    ]);
+    env.postRender.raise();
+    assert.equal(getWorldOverlayDiagnostics().candidateCount, 8);
+
+    setOverlayTitlesVisible(false);
+    assert.equal(getOverlayTitlesVisible(), false);
+    env.postRender.raise();
+    // The card and the selected entry stay; six labels take no budget.
+    assert.equal(getWorldOverlayDiagnostics().candidateCount, 2);
+    assert.equal(getWorldOverlayDiagnostics().entryCount, 8);
+    // New label entries published while off stay out too.
+    setOverlayEntries('names-a', labels('a2'));
+    env.postRender.raise();
+    assert.equal(getWorldOverlayDiagnostics().candidateCount, 2);
+
+    setOverlayTitlesVisible(true);
+    env.postRender.raise();
+    assert.equal(getWorldOverlayDiagnostics().candidateCount, 8);
+  } finally {
+    setOverlayTitlesVisible(true);
+    env.cleanup();
+  }
 });

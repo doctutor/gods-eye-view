@@ -206,11 +206,16 @@ test('the shipped list carries the two Okeanos Explorer cams as vessel placement
   const ships = readFeaturedCatalog().filter(
     (entry) => entry.placement === 'vessel',
   );
+  // The featured-cam pack rotates the YouTube ids as NOAA's live streams
+  // change (an atomic rewrite of live-cams.json), so the ids aren't pinned:
+  // only the placement, the vessel and the presence of a stream are.
   assert.deepEqual(
-    ships.map((entry) => [entry.id, entry.vessel, entry.youtube.videoId]),
+    ships.map((entry) => [entry.id, entry.vessel]),
     [
-      ['okeanos-explorer-camera-1', 'okeanos-explorer', 'EZZDZtCitH8'],
-      ['okeanos-explorer-camera-3', 'okeanos-explorer', 'VoIO56Hep40'],
+      ['okeanos-explorer-camera-1', 'okeanos-explorer'],
+      ['okeanos-explorer-camera-3', 'okeanos-explorer'],
     ],
   );
+  for (const entry of ships)
+    assert.match(entry.youtube?.videoId || '', /^[A-Za-z0-9_-]{11}$/);
 });

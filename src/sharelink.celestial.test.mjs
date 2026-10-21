@@ -184,6 +184,37 @@ test('a collapsed Recent Imagery panel survives the share-link round trip beside
   ] });
 });
 
+test('the panel Titles toggle rides in the ui param beside the panels', async () => {
+  const { decodeTitlesParam } = await import('./ui/titlesShare.js');
+  const manager = makeManager();
+  let titles = false;
+  manager.setPanelStateProvider(() => ({ specs: [
+    { id: 'cctv-panel', collapsed: true },
+  ] }));
+  manager.setTitlesProvider(() => titles);
+  clearTimeout(manager._debounceTimer);
+  manager._updateHash();
+  let params = new URLSearchParams(window.location.hash.slice(1));
+  assert.equal(params.get('ui'), 'v.c.1_tl.v.0');
+  assert.equal(decodeTitlesParam(params), false);
+  // The panels' own decoding passes over the assignment.
+  const restored = makeManager(`#v=2&lat=10&lon=20&ui=${params.get('ui')}`)
+    .parseInitialHash();
+  assert.deepEqual(restored.panelState, { specs: [
+    { id: 'cctv-panel', collapsed: true, pinned: null },
+  ] });
+  // On (the default) writes nothing, and no panels state means no ui param.
+  titles = true;
+  manager.setPanelStateProvider(() => null);
+  manager._updateHash();
+  params = new URLSearchParams(window.location.hash.slice(1));
+  assert.equal(params.has('ui'), false);
+  titles = false;
+  manager._updateHash();
+  params = new URLSearchParams(window.location.hash.slice(1));
+  assert.equal(params.get('ui'), 'tl.v.0');
+});
+
 test('a collapsed Street Level panel survives the share-link round trip', () => {
   const manager = makeManager();
   manager.setPanelStateProvider(() => ({ specs: [
