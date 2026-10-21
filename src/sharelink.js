@@ -1,9 +1,9 @@
 // Personal fork: colour scales in the share hash (`cs`).
 import {
   COLOUR_SCALE_PARAM,
-  colourScales,
   encodeColourScaleParam,
 } from './maps/colourScale.js';
+import { colourScales } from './maps/colourScaleStore.js';
 import * as Cesium from 'cesium';
 import { BLOOM_INTENSITY_DEFAULT, BLOOM_SCALE_VERSION } from './bloom.js';
 import {

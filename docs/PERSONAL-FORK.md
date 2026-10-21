@@ -53,6 +53,7 @@ unless its switch is set to `0`.
 - [Rivers: click a reach](#rivers-click-a-reach)
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
 - [Lego rendering mode](#lego-rendering-mode)
+- [Colour scales: palettes and a window per layer](#colour-scales-palettes-and-a-window-per-layer)
 - [MSFS renderer on AWS](#msfs-renderer-on-aws)
 - [Level of detail](#level-of-detail)
 
@@ -4462,6 +4463,64 @@ frame; the frame interval is capped by the display rate):
 Build is decode + columns + mesh + upload, on the main thread. A real
 massif or city keeps more sides (up to about 500,000 faces for the
 synthetic city), still one draw call.
+
+## Colour scales: palettes and a window per layer
+
+Every layer that paints a value through a colour ramp gets a **SCALE**
+toggle on its row. It opens a palette dropdown with a preview, a floor and
+ceiling over one track (two handles, and number inputs in the layer's
+units), **LINEAR / LOG** (and **SQRT** where that is the layer's own
+mapping), **INVERT**, **HIDE OUTSIDE** and **RESET**. The window is
+window/level: values below the floor take the floor colour, values above
+the ceiling the ceiling colour, or with HIDE OUTSIDE nothing is painted
+there. Left alone, a layer draws exactly as it did before (its own ramp,
+automatic range; tested byte for byte), and the toggle reads **SCALE •**
+once anything differs.
+
+**The model** (`src/maps/colourScale.js`, pure): `{ palette, floor,
+ceiling, scale: 'linear'|'log'|'sqrt', invert, outside: 'clamp'|'hide' }`,
+with `null` floor or ceiling meaning the layer's automatic range. The
+palettes are `default` (the layer's own ramp; Wikipedia's inferno-like
+ramp stays the default there), viridis, inferno, magma, plasma, cividis,
+turbo, grey, hot iron, PET rainbow and blue–white–red. A layer describes
+itself with `defineScaleDefaults({ scale, units, outside, colourAt | stops,
+range, format })`; `normalizeScale` validates anything read back,
+`createScalePainter` paints a value array, `scaleLegend` draws the row's
+legend from the model, and `rangeFraction`/`rangeValue` map the slider.
+The model cannot say "diverging around zero" or "circular" (aspect); a
+layer that needs those keeps its default window symmetric.
+
+**Where it is kept** (`src/maps/colourScaleStore.js`): per `layerId:mode`,
+in this browser as `gev.colourScale.<layerId>:<mode>`, and in the share
+link as `cs`, in the `lo` grammar: `_` between entries, `.` between
+fields, `<layer>[-<mode>].<palette>.<floor>.<ceiling>.<flags>`, `p` for
+the decimal point, flags `l|n|s` then `i` (invert) and `h` (hide). For
+example `cs=ct-income.g.50000.120000.n_w-articles.v.0p5.200.lih`. The hash
+is read once at start and wins over what the browser kept; only scales
+that differ from the default are written.
+
+**Layers wired** (client-coloured):
+
+- **Wikipedia coverage**, every variant, in the raster and the Hexes mode
+  (`src/layers/wikipediaCoverage/scale.js`; units per km², B/km², articles,
+  per 100k, B/person).
+- **Property sales** hexes and points (`src/layers/property/scale.js`; the
+  metric decides log or linear).
+- **Census tracts**, the income and surface-temperature modes the local
+  server draws (`src/data/censusScale.js`, shared with the server; $ and
+  °C). A changed scale rides on the tile URL as `&s=<fields>` and the
+  server draws and caches those tiles under `<version>/s-<token>`; the
+  default stays the classed tiles. `src/layers/census/scale.js` gives the
+  URL token and the row's control.
+- **Lego**: the window becomes the spec's min and max, so the bricks
+  follow it too; the palette is snapped to brick colours as before, and
+  HIDE OUTSIDE raises no column there.
+
+The Earth Engine layers (elevation, slope, aspect, population, water,
+canopy, buildings, inundation, forest loss) are drawn by the server from
+`src/data/earthEngineScale.js` on their own branch. Not wired: the point
+rollup hexes (alpha by count of one accent colour) and Traffic
+(categorical).
 
 ## MSFS renderer on AWS
 

@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import {
   PALETTES,
   PALETTE_IDS,
-  createColourScaleStore,
   createScalePainter,
   decodeColourScaleParam,
   defineScaleDefaults,
@@ -24,6 +23,7 @@ import {
   scaleLegend,
   scalePosition,
 } from './colourScale.js';
+import { createColourScaleStore } from './colourScaleStore.js';
 
 const ownColour = (t) => [Math.round(t * 255), 0, 0, 128];
 const logDefaults = defineScaleDefaults({
