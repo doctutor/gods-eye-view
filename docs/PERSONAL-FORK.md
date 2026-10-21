@@ -52,6 +52,7 @@ unless its switch is set to `0`.
 - [Rivers: click a reach](#rivers-click-a-reach)
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
 - [Lego rendering mode](#lego-rendering-mode)
+- [MSFS renderer on AWS](#msfs-renderer-on-aws)
 - [Level of detail](#level-of-detail)
 
 - [Keyless basemaps (MAP SOURCE)](#keyless-basemaps-map-source)
@@ -4298,6 +4299,38 @@ frame; the frame interval is capped by the display rate):
 Build is decode + columns + mesh + upload, on the main thread. A real
 massif or city keeps more sides (up to about 500,000 faces for the
 synthetic city), still one draw call.
+
+## MSFS renderer on AWS
+
+A rented AWS Windows GPU machine that runs Microsoft Flight Simulator 2024
+as GEV's render farm. This PC computes a camera path from GEV's data, and
+the cloud machine flies the sim's camera along it and records video. All of
+it is in `tools/msfs-renderer/`, with its own README (prerequisites, the
+minimum IAM policy, costs, the first session by hand).
+
+- **Infrastructure:** `template.yaml`, CloudFormation. One `g5.2xlarge` on
+  Windows Server 2022 (the latest AMI from its SSM public parameter), a 150 GB
+  gp3 volume, and termination protection. The security group opens RDP and
+  Parsec to the caller's address only. The instance role has SSM and read
+  access to the NVIDIA driver buckets. Everything is tagged
+  `gev-msfs-renderer`.
+- **First boot:** `user-data.ps1` installs the NVIDIA gaming driver by AWS's
+  documented procedure (`s3://nvidia-gaming`, `vGamingMarketplace=2`, the
+  licence certificate for the version), then Parsec as a shared host, Steam,
+  OBS and 7-Zip. It turns off Windows Update's automatic restart, restarts
+  once and logs to `C:\gev-provision.log`.
+- **Operating:** `npm run msfs:deploy`, `msfs:start`, `msfs:stop`,
+  `msfs:status` and `msfs:quota`, through the AWS CLI v2 with the profile
+  `gev-msfs`. `destroy` takes a typed confirmation and has no npm script.
+  The key pair's private key goes to `~/.gev-secrets/`, and the scripts never
+  fetch the Windows password, only print the command for it.
+- **Cost (us-east-1):** $1.58 per hour running plus $0.005 for the public
+  address, $12 per month for the volume, and transfer out past the free
+  100 GB per month at $0.09 per GB.
+- **Quota:** a new account has 0 vCPUs of G instances; `msfs:quota` requests 8.
+- **Tests:** `src/tooling/msfsRenderer.test.mjs` covers the template, the
+  user-data, the commands against a fake AWS CLI, the costs and the
+  arguments, with no AWS calls.
 
 ## Level of detail
 

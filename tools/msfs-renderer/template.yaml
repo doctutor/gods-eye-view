@@ -1,0 +1,144 @@
+# Personal fork: a rented Windows GPU machine for Microsoft Flight Simulator
+# 2024, the render farm GEV's camera paths are flown and recorded on (see
+# README.md). Deployed by `npm run msfs:deploy`, which fills in the
+# user-data from user-data.ps1 (the USER_DATA line below) and passes the
+# caller's public address. Not part of upstream God's Eye View.
+AWSTemplateFormatVersion: '2010-09-09'
+Description: GEV MSFS renderer - one g5 Windows Server 2022 instance, gaming driver, Parsec, Steam, OBS (gev-msfs-renderer)
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: The key pair the Windows password is encrypted with (created by msfs:deploy).
+  AllowedCidr:
+    Type: String
+    Description: The one address RDP and Parsec are open to, as a /32 (the caller's public IPv4).
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/32$'
+    ConstraintDescription: a single IPv4 address as a.b.c.d/32
+  InstanceType:
+    Type: String
+    Default: g5.2xlarge
+    AllowedValues: [g5.xlarge, g5.2xlarge, g5.4xlarge]
+    Description: A G5 size (NVIDIA A10G); the gaming driver supports G5.
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base
+    Description: The latest Windows Server 2022 English Full Base AMI, from its public SSM parameter.
+  RootVolumeGb:
+    Type: Number
+    Default: 150
+    MinValue: 100
+    MaxValue: 1000
+    Description: The gp3 system volume (MSFS 2024 and its cache live here).
+
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: GEV MSFS renderer - RDP and Parsec from one address
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: !Ref AllowedCidr
+          Description: RDP
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8010
+          CidrIp: !Ref AllowedCidr
+          Description: Parsec (TCP)
+        - IpProtocol: udp
+          FromPort: 8000
+          ToPort: 8010
+          CidrIp: !Ref AllowedCidr
+          Description: Parsec (UDP)
+      Tags:
+        - Key: Name
+          Value: gev-msfs-renderer
+        - Key: Project
+          Value: gev-msfs-renderer
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /gev-msfs-renderer/
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: nvidia-driver-buckets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # nvidia-gaming: the gaming driver and its licence for G5
+              # (AWS's documented Windows procedure). ec2-windows-nvidia-
+              # drivers: the GRID driver, should the gaming one not suit.
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource:
+                  - arn:aws:s3:::nvidia-gaming
+                  - arn:aws:s3:::ec2-windows-nvidia-drivers
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - arn:aws:s3:::nvidia-gaming/*
+                  - arn:aws:s3:::ec2-windows-nvidia-drivers/*
+      Tags:
+        - Key: Project
+          Value: gev-msfs-renderer
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /gev-msfs-renderer/
+      Roles:
+        - !Ref InstanceRole
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref ImageId
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds:
+        - !GetAtt SecurityGroup.GroupId
+      # Stopped by the scripts between sessions; terminated only by
+      # msfs:destroy, which lifts this first.
+      DisableApiTermination: true
+      InstanceInitiatedShutdownBehavior: stop
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: !Ref RootVolumeGb
+            Encrypted: true
+            DeleteOnTermination: true
+      PropagateTagsToVolumeOnCreation: true
+      Tags:
+        - Key: Name
+          Value: gev-msfs-renderer
+        - Key: Project
+          Value: gev-msfs-renderer
+      UserData:
+        Fn::Base64: |
+          <powershell>
+          # USER_DATA
+          </powershell>
+
+Outputs:
+  InstanceId:
+    Value: !Ref Instance
+  SecurityGroupId:
+    Value: !GetAtt SecurityGroup.GroupId
+  AllowedCidr:
+    Value: !Ref AllowedCidr

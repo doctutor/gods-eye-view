@@ -65,6 +65,11 @@
     "overture:build": "node scripts/overture/index.mjs build",
     "overture:status": "node scripts/overture/index.mjs status",
     "overpass:status": "node scripts/overpass-status.mjs",
+    "msfs:deploy": "node tools/msfs-renderer/msfs.mjs deploy",
+    "msfs:start": "node tools/msfs-renderer/msfs.mjs start",
+    "msfs:stop": "node tools/msfs-renderer/msfs.mjs stop",
+    "msfs:status": "node tools/msfs-renderer/msfs.mjs status",
+    "msfs:quota": "node tools/msfs-renderer/msfs.mjs quota",
     "raw:archive": "node scripts/raw-archive.mjs",
     "qa:transit": "node scripts/qa-transit.mjs",
     "mcp": "node server/mcp/stdio.js"
