@@ -3651,6 +3651,12 @@
   "Bytes of article wikitext per person (GHSL 2020 population); clear where fewer than 100 people live": "Байт викитекста статей на человека (население GHSL 2020 года); пусто, где живёт меньше 100 человек",
   "Population is not built: run npm run wikipedia:build -- --population": "Население не построено: запустите npm run wikipedia:build -- --population",
   "People: {source}, clear under {floor}": "Население: {source}, пусто меньше {floor}",
+  "red-light cameras": "камеры на красный свет",
+  "fixed speed cameras": "стационарные камеры скорости",
+  "portable speed cameras": "переносные камеры скорости",
+  "truck height cameras": "камеры высоты грузовиков",
+  "CitiWatch cameras": "камеры CitiWatch",
+  "{loaded} of {total} sets loaded; {missing} unavailable": "загружено наборов: {loaded} из {total}; недоступны: {missing}",
   "PRICE": "ЦЕНА",
   "Median last-sale price per hexagon, sales since 2015": "Медианная цена последней продажи в шестиугольнике, продажи с 2015 года",
   "$/SQFT": "$/КВ. ФУТ",
@@ -3674,12 +3680,7 @@
   "Reading the property records…": "Чтение записей о недвижимости…",
   "Property records unavailable": "Записи о недвижимости недоступны",
   "buildings below {height} km": "здания ниже {height} км",
-  "{count} buildings": {
-    "one": "{count} здание",
-    "few": "{count} здания",
-    "many": "{count} зданий",
-    "other": "{count} здания"
-  },
+  "{count} buildings": {"one":"{count} здание","few":"{count} здания","many":"{count} зданий","other":"{count} здания"},
   "a sample; zoom in for all": "выборка; приблизьте, чтобы увидеть все",
   "{count} records in the index": "записей в индексе: {count}",
   "{count} bd": "спален: {count}",
@@ -3693,24 +3694,9 @@
   "Property": "Объект",
   "Earlier sales: {sales}": "Прежние продажи: {sales}",
   "Parcel {apn}": "Участок {apn}",
-  "{count} records at this point": {
-    "one": "{count} запись в этой точке",
-    "few": "{count} записи в этой точке",
-    "many": "{count} записей в этой точке",
-    "other": "{count} записи в этой точке"
-  },
-  "{count} units": {
-    "one": "{count} квартира",
-    "few": "{count} квартиры",
-    "many": "{count} квартир",
-    "other": "{count} квартиры"
-  },
-  "{count} with a recorded sale": {
-    "one": "{count} с записанной продажей",
-    "few": "{count} с записанной продажей",
-    "many": "{count} с записанной продажей",
-    "other": "{count} с записанной продажей"
-  },
+  "{count} records at this point": {"one":"{count} запись в этой точке","few":"{count} записи в этой точке","many":"{count} записей в этой точке","other":"{count} записи в этой точке"},
+  "{count} units": {"one":"{count} квартира","few":"{count} квартиры","many":"{count} квартир","other":"{count} квартиры"},
+  "{count} with a recorded sale": {"one":"{count} с записанной продажей","few":"{count} с записанной продажей","many":"{count} с записанной продажей","other":"{count} с записанной продажей"},
   "Unit {unit}": "Квартира {unit}",
   "Building": "Здание",
   "and {count} more": "и ещё {count}",

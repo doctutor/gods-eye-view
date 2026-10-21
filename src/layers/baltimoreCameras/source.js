@@ -36,7 +36,39 @@ export const CITIWATCH_KIND = Object.freeze({
   color: '#4dd2ff',
 });
 
-/** The two camera sets, each one or more ArcGIS point layers. */
+/** An ArcGIS point layer of a set, with the words that name it when it fails. */
+const layer = (url, label) => Object.freeze({ url, label });
+
+const ENFORCEMENT_LAYERS = Object.freeze([
+  layer(
+    `${ATVES_ROOT}/Baltimore_ATVES_Red_Light_Camera/FeatureServer/0`,
+    msg('red-light cameras'),
+  ),
+  layer(
+    `${ATVES_ROOT}/ATVES_Speed_Cameras_Fixed/FeatureServer/3`,
+    msg('fixed speed cameras'),
+  ),
+  layer(
+    `${ATVES_ROOT}/ATVES_Speed_Cameras_Portable/FeatureServer/1`,
+    msg('portable speed cameras'),
+  ),
+  layer(
+    `${ATVES_ROOT}/Baltimore_ATVES_Commercial_Cameras/FeatureServer/2`,
+    msg('truck height cameras'),
+  ),
+]);
+const CITIWATCH_LAYERS = Object.freeze([
+  layer(
+    'https://baltegis.baltimorecity.gov/mapping/rest/services/CityView/CitiWatchCamera/FeatureServer/0',
+    msg('CitiWatch cameras'),
+  ),
+]);
+const urlsOf = (layers) => Object.freeze(layers.map((entry) => entry.url));
+
+/**
+ * The two camera sets, each one or more ArcGIS point layers (`layers`;
+ * `urls` the same layers' URLs).
+ */
 export const BALTIMORE_CAMERA_SETS = Object.freeze({
   enforcement: Object.freeze({
     id: 'baltimore-enforcement-cameras',
@@ -45,12 +77,8 @@ export const BALTIMORE_CAMERA_SETS = Object.freeze({
     sourceLabel: 'Open Baltimore · ATVES locations',
     credit:
       'Enforcement camera locations: <a href="https://data.baltimorecity.gov" target="_blank" rel="noopener">Open Baltimore</a> (Baltimore City ATVES)',
-    urls: Object.freeze([
-      `${ATVES_ROOT}/Baltimore_ATVES_Red_Light_Camera/FeatureServer/0`,
-      `${ATVES_ROOT}/ATVES_Speed_Cameras_Fixed/FeatureServer/3`,
-      `${ATVES_ROOT}/ATVES_Speed_Cameras_Portable/FeatureServer/1`,
-      `${ATVES_ROOT}/Baltimore_ATVES_Commercial_Cameras/FeatureServer/2`,
-    ]),
+    layers: ENFORCEMENT_LAYERS,
+    urls: urlsOf(ENFORCEMENT_LAYERS),
   }),
   citiwatch: Object.freeze({
     id: 'baltimore-citiwatch-cameras',
@@ -59,9 +87,8 @@ export const BALTIMORE_CAMERA_SETS = Object.freeze({
     sourceLabel: 'Baltimore City · CitiWatch locations',
     credit:
       'CitiWatch camera locations: <a href="https://baltegis.baltimorecity.gov" target="_blank" rel="noopener">Baltimore City GIS</a> (CC BY 3.0)',
-    urls: Object.freeze([
-      'https://baltegis.baltimorecity.gov/mapping/rest/services/CityView/CitiWatchCamera/FeatureServer/0',
-    ]),
+    layers: CITIWATCH_LAYERS,
+    urls: urlsOf(CITIWATCH_LAYERS),
   }),
 });
 
@@ -138,40 +165,134 @@ export function parseCameraCollection(collection, setKey) {
   return records;
 }
 
+/** A failed layer request: `retry` when another try may succeed. */
+export class CameraServiceError extends Error {
+  constructor(message, { retry = false, status = 0 } = {}) {
+    super(message);
+    this.name = 'CameraServiceError';
+    this.retry = retry;
+    this.status = status;
+  }
+}
+
+/** The wait before the one retry of a layer request. */
+export const RETRY_DELAY_MS = 1500;
+
+const sleep = (ms, signal) =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener?.(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
+  });
+
+/** One ArcGIS layer's records, one try. */
+async function fetchLayerOnce(url, setKey, { fetchImpl, signal }) {
+  const query = new URLSearchParams({
+    where: '1=1',
+    outFields: '*',
+    outSR: '4326',
+    f: 'geojson',
+  });
+  let response;
+  try {
+    response = await fetchImpl(`${url}/query?${query}`, {
+      signal,
+      headers: { Accept: 'application/geo+json,application/json' },
+    });
+  } catch (error) {
+    if (signal?.aborted || error?.name === 'AbortError') throw error;
+    // The network: worth one more try.
+    throw new CameraServiceError(
+      error?.message || 'Baltimore camera service did not answer',
+      { retry: true },
+    );
+  }
+  if (!response.ok)
+    throw new CameraServiceError(
+      `Baltimore camera service returned ${response.status}`,
+      {
+        status: response.status,
+        retry: response.status >= 500 || response.status === 429,
+      },
+    );
+  const body = await response.json();
+  // ArcGIS answers its own errors with a 200 and an error body.
+  if (body?.error)
+    throw new CameraServiceError(
+      body.error.message || 'Baltimore camera service error',
+      { retry: true },
+    );
+  return parseCameraCollection(body, setKey);
+}
+
 /**
- * Fetch every ArcGIS layer in a set and return the merged, de-duplicated
- * records. One failing layer fails the set, so a partial map is never shown
- * as complete.
+ * One ArcGIS layer's records, tried again once after RETRY_DELAY_MS when
+ * the failure may pass: no answer, a 5xx or 429, or an ArcGIS error body.
+ */
+export async function fetchCameraLayer(
+  url,
+  setKey,
+  { fetchImpl, signal, retryDelayMs = RETRY_DELAY_MS } = {},
+) {
+  try {
+    return await fetchLayerOnce(url, setKey, { fetchImpl, signal });
+  } catch (error) {
+    if (!(error instanceof CameraServiceError) || !error.retry) throw error;
+    await sleep(retryDelayMs, signal);
+    return fetchLayerOnce(url, setKey, { fetchImpl, signal });
+  }
+}
+
+/**
+ * Fetch every ArcGIS layer in a set, each on its own (fetchCameraLayer:
+ * one retry), and merge the records, de-duplicated by id. The set loads
+ * with the layers that answered and names the ones that did not
+ * (index.js cameraSetNote); it fails only when no layer gave a record.
  * @param {'enforcement'|'citiwatch'} setKey
- * @param {{fetchImpl?: typeof fetch, signal?: AbortSignal}} [options]
+ * @param {{fetchImpl?: typeof fetch, signal?: AbortSignal,
+ *   retryDelayMs?: number}} [options]
+ * @returns {Promise<{records: Array<object>, failed: string[],
+ *   loaded: number, total: number}>} `failed`: the missing layers' labels
  */
 export async function fetchCameraSet(
   setKey,
-  { fetchImpl = (...args) => fetch(...args), signal } = {},
+  {
+    fetchImpl = (...args) => fetch(...args),
+    signal,
+    retryDelayMs = RETRY_DELAY_MS,
+  } = {},
 ) {
   const set = BALTIMORE_CAMERA_SETS[setKey];
   if (!set) throw new TypeError(`Unknown Baltimore camera set: ${setKey}`);
-  const pages = await Promise.all(
-    set.urls.map(async (url) => {
-      const query = new URLSearchParams({
-        where: '1=1',
-        outFields: '*',
-        outSR: '4326',
-        f: 'geojson',
-      });
-      const response = await fetchImpl(`${url}/query?${query}`, {
-        signal,
-        headers: { Accept: 'application/geo+json,application/json' },
-      });
-      if (!response.ok)
-        throw new Error(`Baltimore camera service returned ${response.status}`);
-      const body = await response.json();
-      if (body?.error)
-        throw new Error(body.error.message || 'Baltimore camera service error');
-      return parseCameraCollection(body, setKey);
-    }),
+  const settled = await Promise.allSettled(
+    set.layers.map((entry) =>
+      fetchCameraLayer(entry.url, setKey, { fetchImpl, signal, retryDelayMs }),
+    ),
   );
+  if (signal?.aborted) throw signal.reason;
   const unique = new Map();
-  for (const record of pages.flat()) unique.set(record.id, record);
-  return [...unique.values()];
+  const failed = [];
+  let firstError = null;
+  settled.forEach((result, i) => {
+    if (result.status === 'fulfilled')
+      for (const record of result.value) unique.set(record.id, record);
+    else {
+      failed.push(set.layers[i].label);
+      firstError ||= result.reason;
+    }
+  });
+  if (failed.length && !unique.size) throw firstError;
+  return {
+    records: [...unique.values()],
+    failed,
+    loaded: set.layers.length - failed.length,
+    total: set.layers.length,
+  };
 }

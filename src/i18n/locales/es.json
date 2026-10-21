@@ -3568,6 +3568,12 @@
   "Bytes of article wikitext per person (GHSL 2020 population); clear where fewer than 100 people live": "Bytes de wikitexto de artículos por persona (población GHSL de 2020); vacío donde viven menos de 100 personas",
   "Population is not built: run npm run wikipedia:build -- --population": "La población no está construida: ejecuta npm run wikipedia:build -- --population",
   "People: {source}, clear under {floor}": "Población: {source}, vacío por debajo de {floor}",
+  "red-light cameras": "cámaras de semáforo en rojo",
+  "fixed speed cameras": "radares de velocidad fijos",
+  "portable speed cameras": "radares de velocidad portátiles",
+  "truck height cameras": "cámaras de altura de camiones",
+  "CitiWatch cameras": "cámaras CitiWatch",
+  "{loaded} of {total} sets loaded; {missing} unavailable": "{loaded} de {total} conjuntos cargados; {missing} no disponibles",
   "PRICE": "PRECIO",
   "Median last-sale price per hexagon, sales since 2015": "Precio mediano de la última venta por hexágono, ventas desde 2015",
   "$/SQFT": "$/PIE²",
@@ -3591,11 +3597,7 @@
   "Reading the property records…": "Leyendo los registros de propiedad…",
   "Property records unavailable": "Registros de propiedad no disponibles",
   "buildings below {height} km": "edificios por debajo de {height} km",
-  "{count} buildings": {
-    "one": "{count} edificio",
-    "many": "{count} edificios",
-    "other": "{count} edificios"
-  },
+  "{count} buildings": {"one":"{count} edificio","many":"{count} edificios","other":"{count} edificios"},
   "a sample; zoom in for all": "una muestra; acércate para verlos todos",
   "{count} records in the index": "{count} registros en el índice",
   "{count} bd": "{count} dorm.",
@@ -3609,21 +3611,9 @@
   "Property": "Propiedad",
   "Earlier sales: {sales}": "Ventas anteriores: {sales}",
   "Parcel {apn}": "Parcela {apn}",
-  "{count} records at this point": {
-    "one": "{count} registro en este punto",
-    "many": "{count} registros en este punto",
-    "other": "{count} registros en este punto"
-  },
-  "{count} units": {
-    "one": "{count} unidad",
-    "many": "{count} unidades",
-    "other": "{count} unidades"
-  },
-  "{count} with a recorded sale": {
-    "one": "{count} con una venta registrada",
-    "many": "{count} con una venta registrada",
-    "other": "{count} con una venta registrada"
-  },
+  "{count} records at this point": {"one":"{count} registro en este punto","many":"{count} registros en este punto","other":"{count} registros en este punto"},
+  "{count} units": {"one":"{count} unidad","many":"{count} unidades","other":"{count} unidades"},
+  "{count} with a recorded sale": {"one":"{count} con una venta registrada","many":"{count} con una venta registrada","other":"{count} con una venta registrada"},
   "Unit {unit}": "Unidad {unit}",
   "Building": "Edificio",
   "and {count} more": "y {count} más",
