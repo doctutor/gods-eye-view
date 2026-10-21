@@ -18,6 +18,7 @@ import {
   QUOTA,
   STACK,
   awsArgs,
+  awsExecutable,
   buildTemplate,
   costEstimate,
   money,
@@ -31,11 +32,15 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** The AWS CLI as a function: (args, {json}) → parsed JSON or text. */
-export function createAws(options, exec = execFile) {
+export function createAws(
+  options,
+  exec = execFile,
+  executable = awsExecutable({ exists: fs.existsSync }),
+) {
   return (args, { json = true } = {}) =>
     new Promise((resolve, reject) => {
       exec(
-        'aws',
+        executable,
         awsArgs(args, options, { json }),
         { maxBuffer: 16 * 1024 * 1024, windowsHide: true },
         (error, stdout, stderr) => {

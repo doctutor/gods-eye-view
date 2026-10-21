@@ -47,6 +47,11 @@ here needs the AWS console once an access key exists.
    aws --version
    ```
 
+   The MSI adds `aws.exe` to the machine's PATH, but shells opened before
+   the install do not see it until they are reopened. When `aws` is not on
+   the PATH, the scripts fall back to the MSI's location,
+   `C:\Program Files\Amazon\AWSCLIV2\aws.exe`.
+
 2. **An IAM user** for these scripts, with only the policy below. Create it
    in the console once, or have an administrator do it. It is the account's
    only console step.
@@ -70,14 +75,21 @@ here needs the AWS console once an access key exists.
    ```
 
    It reports the current value and requests 8 if it is lower and no
-   request is open. Small increases are often approved automatically within
+   request is open. The first time an account uses Service Quotas, AWS
+   creates the service-linked role `AWSServiceRoleForServiceQuotas`, which
+   is why the policy below allows `iam:CreateServiceLinkedRole` for that
+   one role. Without it, the request fails with
+   `DependencyAccessDeniedException` ("Service-linked role creation access
+   denied"). Small increases are often approved automatically within
    minutes; others go to AWS support and take one to a few days. Run it again
    to see where the request stands. A `g5.4xlarge` would need 16.
 
 ### Minimum IAM policy
 
 CloudFormation creates the resources with the caller's permissions, so the
-user needs these, and nothing else. Account 654527450351.
+user needs these, and nothing else. Replace every `<ACCOUNT_ID>` with your
+12-digit account ID (`aws sts get-caller-identity --query Account --output
+text --profile gev-msfs` prints it).
 
 ```json
 {
@@ -99,7 +111,7 @@ user needs these, and nothing else. Account 654527450351.
         "cloudformation:ExecuteChangeSet",
         "cloudformation:DeleteChangeSet"
       ],
-      "Resource": "arn:aws:cloudformation:*:654527450351:stack/gev-msfs-renderer/*"
+      "Resource": "arn:aws:cloudformation:*:<ACCOUNT_ID>:stack/gev-msfs-renderer/*"
     },
     {
       "Sid": "TemplateChecks",
@@ -152,15 +164,15 @@ user needs these, and nothing else. Account 654527450351.
         "iam:RemoveRoleFromInstanceProfile"
       ],
       "Resource": [
-        "arn:aws:iam::654527450351:role/gev-msfs-renderer/*",
-        "arn:aws:iam::654527450351:instance-profile/gev-msfs-renderer/*"
+        "arn:aws:iam::<ACCOUNT_ID>:role/gev-msfs-renderer/*",
+        "arn:aws:iam::<ACCOUNT_ID>:instance-profile/gev-msfs-renderer/*"
       ]
     },
     {
       "Sid": "PassTheRoleToEc2",
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::654527450351:role/gev-msfs-renderer/*",
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/gev-msfs-renderer/*",
       "Condition": {
         "StringEquals": { "iam:PassedToService": "ec2.amazonaws.com" }
       }
@@ -181,6 +193,15 @@ user needs these, and nothing else. Account 654527450351.
         "servicequotas:RequestServiceQuotaIncrease"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "ServiceQuotasLinkedRole",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/aws-service-role/servicequotas.amazonaws.com/AWSServiceRoleForServiceQuotas",
+      "Condition": {
+        "StringEquals": { "iam:AWSServiceName": "servicequotas.amazonaws.com" }
+      }
     }
   ]
 }

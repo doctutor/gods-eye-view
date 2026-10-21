@@ -13,6 +13,7 @@ import {
   QUOTA,
   STACK,
   awsArgs,
+  awsExecutable,
   buildTemplate,
   cidrOf,
   costEstimate,
@@ -306,7 +307,7 @@ const notFound = (text) => Object.assign(new Error(text), { stderr: text });
 test('deploy: the key pair made once (its key to ~/.gev-secrets, never printed), the stack deployed, the way in printed', async () => {
   const ctx = fakeContext({
     answers: {
-      'sts get-caller-identity': { Account: '654527450351' },
+      'sts get-caller-identity': { Account: '111122223333' },
       'ec2 describe-key-pairs': notFound(
         'An error occurred (InvalidKeyPair.NotFound)',
       ),
@@ -364,7 +365,7 @@ test('deploy: the key pair made once (its key to ~/.gev-secrets, never printed),
 test('deploy refuses when AWS has the key pair and this PC lost its key', async () => {
   const ctx = fakeContext({
     answers: {
-      'sts get-caller-identity': { Account: '654527450351' },
+      'sts get-caller-identity': { Account: '111122223333' },
       'ec2 describe-key-pairs': {
         KeyPairs: [{ KeyName: 'gev-msfs-renderer' }],
       },
@@ -547,16 +548,20 @@ test('quota: reported, requested once at 8 vCPUs, not again while a request is o
 
 test('the AWS CLI runner: the profile and region added, JSON parsed, errors carry stderr; checkip read', async () => {
   const seen = [];
-  const aws = createAws(DEFAULTS, (file, args, _options, done) => {
-    seen.push([file, ...args]);
-    if (args[1] === 'fail')
-      return done(
-        new Error('exit 255'),
-        '',
-        'An error occurred (AccessDenied)\n',
-      );
-    done(null, args.includes('json') ? '{"Account":"1"}' : 'text out\n', '');
-  });
+  const aws = createAws(
+    DEFAULTS,
+    (file, args, _options, done) => {
+      seen.push([file, ...args]);
+      if (args[1] === 'fail')
+        return done(
+          new Error('exit 255'),
+          '',
+          'An error occurred (AccessDenied)\n',
+        );
+      done(null, args.includes('json') ? '{"Account":"1"}' : 'text out\n', '');
+    },
+    'aws',
+  );
   assert.deepEqual(await aws(['sts', 'get-caller-identity']), { Account: '1' });
   assert.equal(await aws(['ec2', 'x'], { json: false }), 'text out');
   await assert.rejects(
@@ -584,5 +589,43 @@ test('the AWS CLI runner: the profile and region added, JSON parsed, errors carr
   await assert.rejects(
     detectIp(async () => ({ ok: false, status: 503 })),
     /503/,
+  );
+});
+
+test('the AWS CLI found: on the PATH, else the MSI’s copy on Windows, else plain aws', () => {
+  const msi = String.raw`C:\Program Files\Amazon\AWSCLIV2\aws.exe`;
+  const env = {
+    PATH: String.raw`C:\Windows\system32;C:\tools`,
+    ProgramFiles: String.raw`C:\Program Files`,
+  };
+  const has =
+    (...files) =>
+    (file) =>
+      files.includes(file);
+  assert.equal(
+    awsExecutable({
+      platform: 'win32',
+      env,
+      exists: has(String.raw`C:\tools\aws.exe`, msi),
+    }),
+    'aws',
+  );
+  assert.equal(
+    awsExecutable({ platform: 'win32', env, exists: has(msi) }),
+    msi,
+    'a shell opened before the install',
+  );
+  assert.equal(
+    awsExecutable({ platform: 'win32', env: { Path: '' }, exists: has(msi) }),
+    msi,
+  );
+  assert.equal(
+    awsExecutable({ platform: 'win32', env, exists: has() }),
+    'aws',
+    'not installed: the error says so',
+  );
+  assert.equal(
+    awsExecutable({ platform: 'linux', env, exists: has(msi) }),
+    'aws',
   );
 });

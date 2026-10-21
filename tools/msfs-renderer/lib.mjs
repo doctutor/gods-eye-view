@@ -155,6 +155,30 @@ export function buildTemplate(template, userData) {
   return out;
 }
 
+/**
+ * The AWS CLI to run: `aws` when it is on the PATH, else (on Windows) the
+ * MSI's own copy. The MSI adds aws.exe to the machine's PATH, but a shell
+ * opened before the install does not see it.
+ */
+export function awsExecutable({
+  platform = process.platform,
+  env = process.env,
+  exists,
+} = {}) {
+  if (platform !== 'win32') return 'aws';
+  const dirs = String(env.PATH || env.Path || '')
+    .split(';')
+    .filter(Boolean);
+  if (dirs.some((dir) => exists(path.win32.join(dir, 'aws.exe')))) return 'aws';
+  const installed = path.win32.join(
+    env.ProgramFiles || 'C:\\Program Files',
+    'Amazon',
+    'AWSCLIV2',
+    'aws.exe',
+  );
+  return exists(installed) ? installed : 'aws';
+}
+
 /** AWS CLI arguments with the profile, the region and JSON output. */
 export function awsArgs(args, { profile, region }, { json = true } = {}) {
   return [
