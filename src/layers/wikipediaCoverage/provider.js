@@ -44,6 +44,7 @@ function documentCanvas(width, height) {
 /**
  * @param {{variant: string, domain: {min: number, max: number},
  *   maximumLevel?: number, credit?: string, cesium?: object,
+ *   paintValues?: (values: Float32Array, out: Uint8ClampedArray) => number,
  *   fetchTile?: (url: string, request?: object) => Promise<ArrayBuffer>|undefined,
  *   createCanvas?: (width: number, height: number) => object}} options
  */
@@ -55,6 +56,8 @@ export function createCoverageImageryProvider({
   cesium = Cesium,
   fetchTile = cesiumFetch(cesium),
   createCanvas = documentCanvas,
+  // The colour scale's painter (scale.js); by default the variant's ramp.
+  paintValues = (values, out) => paintTile(values, domain, out),
 }) {
   const tilingScheme = new cesium.WebMercatorTilingScheme();
   const stats = { requested: 0, painted: 0, empty: 0, failed: 0 };
@@ -65,7 +68,7 @@ export function createCoverageImageryProvider({
     const canvas = createCanvas(width, height);
     const context = canvas.getContext('2d');
     const image = context.createImageData(width, height);
-    const painted = paintTile(values, domain, image.data);
+    const painted = paintValues(values, image.data);
     context.putImageData(image, 0, 0);
     if (painted) stats.painted += 1;
     else stats.empty += 1;

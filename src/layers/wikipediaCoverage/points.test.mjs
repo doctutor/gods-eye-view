@@ -205,6 +205,8 @@ test('the Articles mode draws the dots, the nearest titles, and a card on click'
     ],
   );
   assert.equal(controls.legend.length, 4);
+  // The dots keep their class colours: no Scale row in this mode.
+  assert.equal(controls.scale, undefined);
   assert.equal(controls.info, '3 articles in view · Dump of 2026-10-08');
   // Nothing about the summary until a click.
   assert.equal(

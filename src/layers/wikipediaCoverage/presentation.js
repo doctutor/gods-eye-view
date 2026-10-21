@@ -3,6 +3,8 @@ import { NO_IMAGERY_HOST } from '../../maps/imageryHost.js';
 import { WIKIPEDIA_POINT_CLASSES } from '../../data/wikipediaPoints.js';
 import { legendStops } from './ramp.js';
 import { CLASS_WORDS, SECONDARY_COLOR } from './points.js';
+import { scaleRowLegend } from '../../ui/colourScaleWidget.js';
+import { isDefaultScale } from '../../maps/colourScale.js';
 
 /**
  * Personal fork: what the Wikipedia row in the DATA LAYERS panel says: a
@@ -247,6 +249,8 @@ export function rowControls({
   points = null,
   secondary = false,
   onSecondary = null,
+  // The colour scale's row descriptor (colourScaleWidget.js), when drawn.
+  scale = null,
 }) {
   if (variant === POINTS_VARIANT)
     return pointsRowControls({
@@ -304,10 +308,13 @@ export function rowControls({
     ],
     legend:
       legendDomain && (hexes || chosen?.available)
-        ? legendStops(legendDomain, {
-            bytes: variant === 'text' || variant === 'textcapita',
-          })
+        ? scale && !isDefaultScale(scale.model, scale.defaults)
+          ? scaleRowLegend(scale)
+          : legendStops(legendDomain, {
+              bytes: variant === 'text' || variant === 'textcapita',
+            })
         : [],
+    ...(scale ? { scale } : {}),
     slider: {
       label: t('Opacity {value}%', { value: Math.round(opacity * 100) }),
       min: 0,

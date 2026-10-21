@@ -1051,6 +1051,97 @@ html:not([lang='en']) .data-row-list-text {
   flex: 1;
   min-width: 0;
 }
+
+/* Personal fork: a ramp layer's colour scale (src/ui/colourScaleWidget.js). */
+.data-scale {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+.data-scale[hidden],
+.data-scale-body[hidden],
+.data-scale [hidden] {
+  display: none;
+}
+.data-scale-toggle {
+  align-self: flex-start;
+}
+.data-scale-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+}
+.data-scale-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.data-scale-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.data-scale-palette,
+.data-scale-number {
+  font: inherit;
+  color: inherit;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  padding: 1px 3px;
+}
+.data-scale-number {
+  width: 7em;
+}
+.data-scale-preview {
+  flex: 1;
+  min-width: 60px;
+  height: 10px;
+  border-radius: 2px;
+}
+.data-scale-window {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* Two range inputs over one track: each thumb takes the pointer, the tracks do not. */
+.data-scale-track {
+  position: relative;
+  height: 16px;
+}
+.data-scale-handle {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.data-scale-handle::-webkit-slider-thumb {
+  pointer-events: auto;
+}
+.data-scale-handle::-moz-range-thumb {
+  pointer-events: auto;
+}
+.data-scale-handle.floor::-webkit-slider-runnable-track {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.25);
+}
+.data-scale-numbers {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 /* ── Local RTL-SDR card (FM + Local ADS-B receiver) ── */
 .sdr-radio-card {
   display: grid;

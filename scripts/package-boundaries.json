@@ -491,6 +491,8 @@
   "layer-panel": {
     "exports": ["./ui/layers", "./ui/layers/feedback"],
     "modules": [
+      "src/maps/colourScale.js",
+      "src/ui/colourScaleWidget.js",
       "src/i18n/marker.js",
       "src/ui/layers.js",
       "src/ui/layerPanel.js",
@@ -652,6 +654,8 @@
   "ui-shell": {
     "exports": ["./ui/shell"],
     "modules": [
+      "src/maps/colourScale.js",
+      "src/ui/colourScaleWidget.js",
       "src/i18n/marker.js",
       "src/ui/placeNames.js",
       "src/hudLayouts.js",
@@ -1718,6 +1722,11 @@
       "./standalone/catalog"
     ],
     "modules": [
+      "src/data/censusScale.js",
+      "src/layers/property/scale.js",
+      "src/layers/wikipediaCoverage/scale.js",
+      "src/maps/colourScaleStore.js",
+      "src/ui/colourScaleWidget.js",
       "src/ui/placeNames.js",
       "src/cyberSonarScene.js",
       "src/cyberSonar.js",
@@ -1770,6 +1779,7 @@
       "src/layers/riversV2/source.js",
       "src/layers/census/source.js",
       "src/data/earthEngineLayers.js",
+      "src/maps/colourScale.js",
       "src/data/openBuildingsCoverage.js",
       "src/data/demStack.js",
       "src/data/rasterValues.js",
@@ -2695,6 +2705,11 @@
   "application-layer-construction": {
     "exports": ["./application/layers"],
     "modules": [
+      "src/data/censusScale.js",
+      "src/layers/property/scale.js",
+      "src/layers/wikipediaCoverage/scale.js",
+      "src/maps/colourScaleStore.js",
+      "src/ui/colourScaleWidget.js",
       "src/cyberSonar.js",
       "src/data/approxDistance.js",
       "src/data/bhoteKoshiEvent.js",
@@ -2742,6 +2757,7 @@
       "src/layers/riversV2/source.js",
       "src/layers/census/source.js",
       "src/data/earthEngineLayers.js",
+      "src/maps/colourScale.js",
       "src/data/openBuildingsCoverage.js",
       "src/data/demStack.js",
       "src/data/rasterValues.js",

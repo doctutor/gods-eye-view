@@ -31,6 +31,11 @@ import {
   CENSUS_LOCAL_MODES,
   CENSUS_MODE_STYLES,
 } from '../../src/data/censusTracts.js';
+import {
+  censusScaleColor,
+  censusScaleFromToken,
+  censusScaleToken,
+} from '../../src/data/censusScale.js';
 
 /**
  * The Census tracts layer's HOUSEHOLD INCOME and SURFACE TEMPERATURE modes,
@@ -41,8 +46,10 @@ import {
  *
  *   GET /api/census/layers
  *       which modes are built, when, from what, their tile versions
- *   GET /api/census/tile/<mode>/<z>/<x>/<y>[?v=<version>]
- *       a tile, z 7 to 14 (the layer draws below about 417 km)
+ *   GET /api/census/tile/<mode>/<z>/<x>/<y>[?v=<version>][&s=<scale>]
+ *       a tile, z 7 to 14 (the layer draws below about 417 km); `s` a
+ *       colour scale (src/data/censusScale.js): the tracts coloured by
+ *       their value on it, kept apart from the classed tiles
  *
  * Tiles are kept under CENSUS_CACHE_DIR/tiles/<mode>/<version>/, the
  * version being the hash of the style and the build, so a rebuild or a
@@ -197,7 +204,7 @@ export function createCensusService({
     },
 
     /** One tile. */
-    async tile(mode, z, x, y) {
+    async tile(mode, z, x, y, scaleToken = '') {
       if (!CENSUS_LOCAL_MODES.includes(mode))
         return { status: 404, error: 'No such mode' };
       const limit = 2 ** z;
@@ -222,7 +229,12 @@ export function createCensusService({
           empty: true,
           version,
         };
-      const file = tileFile(mode, version, z, x, y);
+      // A colour scale's tiles sit beside the classed ones, by scale.
+      const scale = censusScaleFromToken(scaleToken, mode);
+      const token = scale ? censusScaleToken(scale, mode) : '';
+      const file = token
+        ? tileFile(mode, path.join(version, `s-${token}`), z, x, y)
+        : tileFile(mode, version, z, x, y);
       try {
         return {
           status: 200,
@@ -239,8 +251,11 @@ export function createCensusService({
       if (!drawing) {
         drawing = (async () => {
           const drawn = pool
-            ? await pool.render('draw', [mode, z, x, y])
-            : this.draw(mode, z, x, y);
+            ? await pool.render(
+                'draw',
+                token ? [mode, z, x, y, token] : [mode, z, x, y],
+              )
+            : this.draw(mode, z, x, y, token);
           if (drawn.status === 200 && drawn.body)
             keepTile(file, drawn.body, { label: 'Census', empty: false });
           return drawn;
@@ -264,14 +279,17 @@ export function createCensusService({
      * Draw a tile (no disk cache): {status, version, body: Buffer|null}, a
      * null body for an empty tile. What a worker thread runs.
      */
-    draw(mode, z, x, y) {
+    draw(mode, z, x, y, scaleToken = '') {
       const open = build();
       const status = modeStatus(open, mode);
       if (!status.ready) return { status: 503, error: status.message };
       const version = censusTileVersion(mode, open.manifest.buildId);
       const project = tileProjector(z, x, y);
       const values = open.values[mode] || {};
-      const { color } = CENSUS_MODE_STYLES[mode];
+      const scale = censusScaleFromToken(scaleToken, mode);
+      const color = scale
+        ? (value) => censusScaleColor(scale, mode, value)
+        : CENSUS_MODE_STYLES[mode].color;
       const tracts = open.tracts.tractsIn(tileBounds(z, x, y)).map((t) => ({
         color: color(values[open.tracts.geoids[t]] ?? NaN),
         rings: open.tracts.ringsOf(t).map((ring) => {
@@ -402,6 +420,7 @@ export function createCensusHandler({ service }) {
           Number(z),
           Number(x),
           Number(y),
+          url.searchParams.get('s') || '',
         );
         if (answer.status !== 200)
           return sendJson(res, answer.status, {

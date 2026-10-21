@@ -285,9 +285,19 @@ export function gridColumns(
     for (let col = 0; col < cols; col++) {
       const index = row * cols + col;
       const value = values[index];
+      // A colour scale's window (layerSpecs.js withColourScale): the
+      // bricks map it too, and with `hide` a value outside raises nothing.
+      if (
+        spec.hide &&
+        Number.isFinite(value) &&
+        (value < spec.min || value > spec.max)
+      )
+        continue;
       const bricks = elevation
         ? elevationBricks(value, cellSizeM, exaggeration)
-        : valueBricks(value, header.legendMin, header.legendMax, spec.scale);
+        : spec.windowed
+          ? valueBricks(value, spec.min, spec.max, spec.scale)
+          : valueBricks(value, header.legendMin, header.legendMax, spec.scale);
       if (!bricks) continue;
       const baseValue = base?.values?.[index];
       columns.push({

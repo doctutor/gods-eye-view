@@ -57,11 +57,17 @@ export function censusModeMessage(status, mode) {
  * Options for `new Cesium.UrlTemplateImageryProvider(...)` for a mode, or
  * null when it is not built. `version` only busts the browser's cache.
  */
-export function censusImageryOptions(status, mode) {
+export function censusImageryOptions(status, mode, { scaleToken = '' } = {}) {
   const entry = status?.modes?.[mode];
   if (!entry?.ready) return null;
+  // A changed colour scale rides on the URL (the server draws in it), so
+  // the layer remounts when it changes: `scaleToken` from census/scale.js
+  // censusTileScaleToken; '' (the default) is the classed tiles.
+  const token = /^[a-z0-9.p-]{1,80}$/.test(String(scaleToken))
+    ? scaleToken
+    : '';
   return {
-    url: `${CENSUS_ENDPOINT}/tile/${mode}/{z}/{x}/{y}?v=${entry.version}`,
+    url: `${CENSUS_ENDPOINT}/tile/${mode}/{z}/{x}/{y}?v=${entry.version}${token ? `&s=${token}` : ''}`,
     minimumLevel: status.minZoom,
     maximumLevel: status.maxZoom,
     tileWidth: 256,

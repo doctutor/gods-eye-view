@@ -1,3 +1,5 @@
+// Personal fork: colour scales under ramp layers' rows.
+import { syncColourScaleWidget } from './colourScaleWidget.js';
 import { syncChipGroup } from './chipGroup.js';
 import { syncRowList } from './rowList.js';
 import { layerFeedState } from '../data/feedState.js';
@@ -583,10 +585,19 @@ export class LayerPanel {
     const legend = controls?.legend || [];
     const infoText = controls?.info;
     const slider = controls?.slider || null;
+    const scale = controls?.scale || null;
     this._syncRowList(listContainer, controls?.list || null);
     container.hidden =
-      chips.length === 0 && legend.length === 0 && !infoText && !slider;
+      chips.length === 0 &&
+      legend.length === 0 &&
+      !infoText &&
+      !slider &&
+      !scale;
     this._syncRowSlider(container, layer.id, slider);
+    // Personal fork: a ramp layer's colour scale (src/ui/colourScaleWidget.js).
+    syncColourScaleWidget(container, scale, {
+      live: () => this._rowControlsFor(layer.id)?.scale || null,
+    });
 
     const info = container._rowControlsInfo || null;
     const firstLegend = container.querySelector('.data-toggle-legend-item');
