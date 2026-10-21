@@ -125,6 +125,8 @@ const PANEL_GROUPS = [
       'places',
       // Personal fork: Overture Maps roads (src/layers/roads/).
       'roads',
+      // Personal fork: US property records (src/layers/property/).
+      'property-sales',
     ],
   },
 ];

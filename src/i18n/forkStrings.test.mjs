@@ -28,6 +28,7 @@ const FORK_FILES = [
   'src/layers/streetAssets/',
   'src/layers/places/',
   'src/layers/roads/',
+  'src/layers/property/',
   'src/layers/streetLevel/providers/googleIndoor/',
   'src/layers/rivers/reachCard.js',
   'src/layers/rivers/reachHighlight.js',

@@ -39,6 +39,8 @@ import { censusProxy } from './census.js';
 import { overtureProxy } from './overture.js';
 // Personal fork: the Roads layer and Street assets' bike lanes (Overture).
 import { overtureRoadsProxy } from './overtureRoads.js';
+// Personal fork: the Property sales layer (realestatedataset.com records).
+import { propertyProxy } from './property.js';
 // Personal fork: raster values (numbers, not tiles) for the Lego mode.
 import { rasterValuesProxy } from './rasterValues.js';
 import { keySetupEndpoint } from '../standalone/key-setup.js';
@@ -89,6 +91,7 @@ function localProviderPlugins({ realtime } = {}) {
     censusProxy({ sourceRoot: defaultSourceRoot }),
     overtureProxy({ sourceRoot: defaultSourceRoot }),
     overtureRoadsProxy({ sourceRoot: defaultSourceRoot }),
+    propertyProxy({ sourceRoot: defaultSourceRoot }),
     rasterValuesProxy({ sourceRoot: defaultSourceRoot }),
     firePerimetersProxy(),
     gnssIntegrityProxy(),

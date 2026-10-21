@@ -321,9 +321,12 @@ export function writeBucket(file, blocks) {
  * comes, so a dense bucket is never all in memory; the index is written
  * last over the space kept for it.
  * @param {string} file
- * @param {number} blockCount how many blocks will be added
+ * @param {number} blockCount how many blocks will be added (with
+ *   `atMost`, the most that may be: the index keeps room for them and
+ *   says how many came)
+ * @param {{atMost?: boolean}} [options]
  */
-export function bucketWriter(file, blockCount) {
+export function bucketWriter(file, blockCount, { atMost = false } = {}) {
   const temporary = `${file}.${process.pid}.tmp`;
   const fd = fs.openSync(temporary, 'w');
   const head = Buffer.alloc(12 + blockCount * ENTRY_BYTES);
@@ -353,8 +356,9 @@ export function bucketWriter(file, blockCount) {
     },
     /** @returns {number} the file's size */
     finish() {
-      if (n !== blockCount)
+      if (n !== blockCount && !atMost)
         throw new Error(`${n} of ${blockCount} blocks written`);
+      head.writeUInt32LE(n, 8);
       fs.writeSync(fd, head, 0, head.length, 0);
       fs.closeSync(fd);
       fs.renameSync(temporary, file);

@@ -59,6 +59,8 @@ import {
 import { PLACES_ID, createApplicationPlaces } from './layers/places.js';
 // Personal fork: Overture Maps roads (local-only, not upstream).
 import { ROADS_ID, createApplicationRoads } from './layers/roads.js';
+// Personal fork: US property records (local-only, not upstream).
+import { PROPERTY_ID, createApplicationProperty } from './layers/property.js';
 import { localGeoJsonServices } from './localGeojsonServices.js';
 import { createBhoteKoshiEventLayer } from '../data/bhoteKoshiEvent.js';
 import { createBhoteKoshiLocatorLayer } from '../data/bhoteKoshiLocator.js';
@@ -88,6 +90,7 @@ export const LOCAL_ONLY_LAYER_METADATA = Object.freeze([
   Object.freeze({ id: STREET_ASSETS_ID, disposition: 'local-only' }),
   Object.freeze({ id: PLACES_ID, disposition: 'local-only' }),
   Object.freeze({ id: ROADS_ID, disposition: 'local-only' }),
+  Object.freeze({ id: PROPERTY_ID, disposition: 'local-only' }),
 ]);
 
 /** Serialization metadata for every layer the application catalog constructs. */
@@ -192,6 +195,7 @@ export function createApplicationCatalog({
         createApplicationStreetAssets(),
         createApplicationPlaces(),
         createApplicationRoads(),
+        createApplicationProperty(),
         satellites,
         createApplicationLaunches({ source: sources.launches, satellites }),
         createApplicationTraffic({ source: sources.traffic, surface }),

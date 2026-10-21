@@ -48,6 +48,7 @@ unless its switch is set to `0`.
   - [Overture infrastructure](#overture-infrastructure)
 - [Places (ANALYSIS)](#places-analysis)
 - [Roads (ANALYSIS)](#roads-analysis)
+- [Property sales (ANALYSIS)](#property-sales-analysis)
 - [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
 - [Rivers: click a reach](#rivers-click-a-reach)
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
@@ -4006,6 +4007,160 @@ Tests:
   - the layer's imagery, chips, inks and legends;
   - the card, the status words and the source;
   - Street assets' BIKE LANES from the roads.
+
+## Property sales (ANALYSIS)
+
+**Property sales (US)** (`property-sales`, ANALYSIS, the 58th layer)
+draws U.S. property records from realestatedataset.com's file of
+September 2026: 146,628,100 rows, one per property (a parcel, or a unit
+where the source lists units), in 1,184 Parquet row groups (13.4 GB). The
+publisher, RealEstateDataset.com ("brought to you by Straply"), releases
+it under CC0 1.0; the notice and the CC0 text are in
+`docs/notices/REALESTATEDATASET-CC0-NOTICE.txt`. The layer credits it as
+"realestatedataset.com (Straply), CC0; public-record fields only".
+
+**Only the public-record fields are used**: street, unit, city, state,
+ZIP, latitude and longitude, property type, beds, baths, square feet, lot
+size, year built, last sale price and date, parcel number (APN), county
+FIPS, the tax history (year, amount, assessment) and the price history's
+entries whose event is a sale. The listing fields (`status`,
+`list_price`, `listing_type`, `hoa_fee`, the amenities) and the price
+history's other events (listed, pending, price changes, delistings) come
+from listing portals: the publisher's methodology page says the file is
+aggregated "from publicly available U.S. property records and listings".
+A compiler's CC0 cannot cover what the portals published, so the build
+never reads those columns.
+
+**Provenance caveat.** The operator is anonymous beyond the Straply
+brand, and the methodology page is a general description: it names no
+county sources and no matching rules. The file was checked before use
+(2026-10-21) against two authoritative sources:
+
+| Check                                        | NYC (PLUTO)        | Cook County (assessor) |
+| -------------------------------------------- | ------------------ | ---------------------- |
+| Coordinates within 10 m of the parcel centre | 89% (median 0–1 m) | 86% (median 0–1 m)     |
+| Year built exact                             | 93%                | 93%                    |
+| Last sale matches a recorded county sale     | 80%                | 80%                    |
+
+Parcel-grade, then, but not the county's own record: every card and the
+row say "Public records as published by realestatedataset.com: not
+checked against the county".
+
+### What it draws
+
+Above 6 km (about z 14), **H3 hexagons** at the resolution the camera
+height picks (0–7, the shared table in `src/maps/h3Resolution.js`),
+coloured by one metric on the inferno ramp, kept as `gev.property.metric`:
+
+- **PRICE** (the default): the median last-sale price, sales since 2015
+  at $10,000 or more (nominal transfers left out); log scale.
+- **$/SQFT**: the median of those sales' price per square foot.
+- **YEAR BUILT**: the median year built; linear scale.
+- **SALES**: records with a recorded sale, any year.
+- **PROPERTIES**: records (parcels, and units where listed).
+
+A median needs three values in its hexagon, else the hexagon is empty.
+The legend follows the drawn resolution's domain (5th to 99.5th
+percentile of its cells; 2nd to 98th for years). Opacity is a slider
+(`gev.property.opacity`). The Lego mode builds the same metric as
+columns (`/api/raster/values?layer=property-sales&mode=<metric>`,
+sampled from the hexagons about a column wide).
+
+Below 6 km, **the view's buildings** as points in the same colours, at
+most 3,000 a view (a spread by position when there are more, the same
+ones as the view pans). Records are collapsed into buildings: records at
+the same point, or at the same street address without its unit (and
+ZIP), are one building (New York's apartments and condos are unit rows:
+`929 W End Ave APT 4B`). A building of many units draws a larger point. A
+click opens its card: the address and county, the type, beds, baths,
+square feet, lot and year built, the last sale and up to three earlier
+ones, the latest assessment and tax with the assessments as a sparkline
+(`▁▂▃▅▇ 2014–2025`), and the parcel number. A building's card lists its
+first six units (unit, last sale, square feet) and how many more; a stack
+of different addresses at one point (a geocoder's fallback) says "N
+records at this point" and lists the addresses.
+
+### What the build cleans
+
+- **Parcel numbers** in the counties' own forms: Cook County's 14-digit
+  PIN (the source drops the trailing `0000` of most:
+  `0305309008` → `03-05-309-008-0000`), New York City's BBL (the source
+  gives block and lot without the borough: `000300018` in Kings →
+  `3-00030-0018`); elsewhere as given.
+- **Units** come off the street when the unit column is empty: `APT`,
+  `UNIT`, `STE`, `FL`, `#` and the like, followed by a unit number.
+- **Sale dates** before 1901 (the source's `1900` placeholders) and after
+  the build day are dropped; tax years from 1990, the newest 12 kept;
+  sales from the price history, the newest 10 kept.
+- **Coordinates** are checked against the Census Bureau's county boxes
+  (`src/data/local_data/us_census_counties`), widened by 0.02°: a record
+  outside its county's box is kept when it lies in its state's, and
+  dropped when it lies outside its state (misgeocodes: a Jackson, MS
+  record in Wyoming, a St. Louis one in South Carolina; 57 in the two
+  sample row groups), or has no coordinates (0.7% of the file). The
+  build's report counts both.
+
+### The index
+
+`npm run property:build` (`scripts/property/`) streams the Parquet file a
+row group at a time; worker threads read only the public-record columns
+(`scripts/overture/parquet.mjs`), clean the rows (`rows.mjs`) and sort
+them two ways (`parts.mjs`). The main thread spills them to one file per
+z 10 tile and one per resolution-3 hexagon under
+`GEV_RAW_DIR/property/tmp` (`--tmp`): a few files at a time, in long
+appends, so an external spinning disk takes one stream of writes. Then:
+
+- **Buildings** (`merge.mjs`): each z 10 tile's records grouped into
+  buildings inside each z 14 tile, into a bucket file in the buildings'
+  format (`server/providers/overture/buildingsFile.js`): P blocks per
+  z 14 tile (28 bytes a building: position, units, type, last sale,
+  year built, square feet) and D blocks per z 16 tile (each building's
+  records, varint-encoded, the tax history as deltas).
+- **Hexagons** (`hexes.mjs`): each resolution-3 cell's records give exact
+  medians for it and its descendants (resolutions 3–7); resolutions 0–2
+  are summed from histograms (log bins 1.35% wide for prices, 1.12% for
+  prices per sqft, one bin a year), one file of typed arrays
+  (`server/providers/property/hexFile.js`).
+- A manifest and `current.json` naming it, under `PROPERTY_DIR` (default
+  `.gev-cache/property`); the spill is deleted.
+
+The source comes from `--file`, `PROPERTY_PARQUET`, or
+`GEV_RAW_DIR/realestatedataset/realestatedataset-us-2026-09.parquet`.
+`--groups 0-1` builds from some row groups only (the writer's sample).
+
+**Sizes and times.** The two-row-group sample (19–20, 249,152 rows: Cook
+County and Montana) kept 249,095 records in 228,112 buildings: an 18 MB
+index (pins 2.4 MB, records 14.8 MB, hexagons 0.08 MB) and a 16 MB spill,
+in 16 s with two workers. Twelve years of tax history are 42% of a
+record's bytes; a stronger zstd level saves 3%. Scaled to the whole file
+that is about 8–10 GB of index and 9 GB of spill. One worker holds
+600–800 MB while it reads a row group (capped at 768 MB of heap), so the
+full build waits for a machine with room for 6–8 of them: about 25
+minutes. Not yet run on the whole file (2026-10-21): the local Overpass
+import holds the memory, and the build runs once it is done:
+
+```bash
+npm run property:build -- --workers 8 --dir .gev-cache/property --tmp E:/gev-data/property/tmp
+```
+
+`npm run property:status` says what is built.
+
+### The server
+
+`server/providers/property.js`, answered in the shared tile pool's
+workers (`server/providers/common/tilePool.js`, drawer `property`):
+
+- `GET /api/property/layers`: whether the index is built, its version,
+  counts, source and each resolution's domains;
+- `GET /api/property/h3/<res>/<metric>?west=&south=&east=&north=`: the
+  metric's hexagons whose centres lie in the box, 413 past 20,000;
+- `GET /api/property/buildings?west=&south=&east=&north=`: the buildings
+  in a box under 0.3°, at most 3,000, `saturated` when more;
+- `GET /api/property/building?id=`: one building's records (at most 500)
+  with its county's name.
+
+An answer asked under its version (`?v=`) may be kept a day; 503 when the
+index is not built.
 
 ## H3 hexes (resolution by perspective)
 

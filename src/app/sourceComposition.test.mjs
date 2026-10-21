@@ -42,8 +42,9 @@ test('all acquisition sources may be absent, and enable fails before initializin
   // (src/data/earthEngineLayers.js; Surface water, Land cover, Elevation,
   // Elevation contours, Forest types, Population, Buildings, Tree canopy,
   // Census tracts and Inundation history since 2026-10-19), the Grid, the
-  // Wikipedia coverage layer, Localities, Street assets, Places and Roads.
-  assert.equal(actual.layers.length, 57);
+  // Wikipedia coverage layer, Localities, Street assets, Places, Roads and
+  // Property sales.
+  assert.equal(actual.layers.length, 58);
   const manager = new LayerLifecycle(
     {},
     { getSourceAvailability: actual.getSourceAvailability },

@@ -33,6 +33,12 @@ import {
   createSelfHostedValues,
   selfHostedDirs,
 } from './rasterValues/selfHosted.js';
+import { resolutionForCell } from './property/index.js';
+import { NEEDS_BUILD as NEEDS_PROPERTY } from './property/sources.js';
+import {
+  PROPERTY_LAYER_ID,
+  PROPERTY_METRICS,
+} from '../../src/data/propertySales.js';
 
 /**
  *   GET /api/raster/values?layer=<id>&mode=<key or ''>&west&south&east&north
@@ -64,6 +70,7 @@ const NEEDS = {
   census:
     'Run npm run census:build to draw the census tracts (the incomes need CENSUS_API_KEY)',
   wikipedia: 'Run npm run wikipedia:build to build the Wikipedia coverage grid',
+  property: NEEDS_PROPERTY,
 };
 
 const BUILDINGS_MODE = new Map(BUILDINGS_MODES.map((mode) => [mode.key, mode]));
@@ -240,6 +247,34 @@ export function createRasterValuesService({
         legendMax: built.domain?.max ?? null,
         run() {
           return selfHosted('wikipedia', key, box, this.cols, this.rows);
+        },
+      };
+    },
+  });
+
+  // Personal fork: the Property sales layer's hexagons, sampled.
+  adapters.set(PROPERTY_LAYER_ID, {
+    id: PROPERTY_LAYER_ID,
+    modes: PROPERTY_METRICS.map((metric) => metric.key),
+    plan(mode, box, cells) {
+      const key = mode || 'price';
+      const built = status.property();
+      if (!built) return { status: 503, error: NEEDS.property };
+      const metric = PROPERTY_METRICS.find((entry) => entry.key === key);
+      const grid = windowGrid(box, cells);
+      const domain =
+        built.domains[resolutionForCell(grid.cellSizeM)]?.[key] || null;
+      return {
+        mode: key,
+        version: `property-${built.version}`,
+        ...grid,
+        units: metric.units,
+        aggregation: 'sample',
+        source: 'realestatedataset.com public records',
+        legendMin: domain?.min ?? null,
+        legendMax: domain?.max ?? null,
+        run() {
+          return selfHosted('property', key, box, this.cols, this.rows);
         },
       };
     },

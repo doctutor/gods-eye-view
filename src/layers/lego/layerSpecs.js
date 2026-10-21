@@ -8,12 +8,20 @@ import {
   modeRecord,
 } from '../../data/earthEngineLayers.js';
 import { RAMP_STOPS } from '../wikipediaCoverage/ramp.js';
+import {
+  DEFAULT_PROPERTY_METRIC,
+  PROPERTY_LAYER_ID,
+  PROPERTY_METRIC_KEYS,
+  propertyMetric,
+} from '../../data/propertySales.js';
 import { rgbToHex } from './model.js';
 
 /** The layer whose values are heights: its columns are true height. */
 export const ELEVATION_LAYER_ID = 'ee-elevation';
 export const WIKIPEDIA_LAYER_ID = 'wikipedia-coverage';
 export const CENSUS_LAYER_ID = 'ee-census-tracts';
+/** The Property sales layer's metric (its chips' storage key). */
+export const PROPERTY_METRIC_STORAGE_KEY = 'gev.property.metric';
 
 /**
  * Native cell sizes (m) where they are known; the rest from the layer's
@@ -34,6 +42,8 @@ const NATIVE_M = Object.freeze({
   'ee-inundation': 250,
   'ee-census-tracts': 100,
   'wikipedia-coverage': 5_000,
+  // Resolution-7 hexagons are 2.4 km across; finer than that repeats them.
+  'property-sales': 2_000,
 });
 
 /** The ground size (m) of a pixel at a Web Mercator zoom, at the equator. */
@@ -46,6 +56,7 @@ export const LEGO_LAYER_IDS = Object.freeze([
   ...EARTH_ENGINE_LAYERS.filter(isRasterRecord).map((record) => record.id),
   CENSUS_LAYER_ID,
   WIKIPEDIA_LAYER_ID,
+  PROPERTY_LAYER_ID,
 ]);
 
 export function isLegoLayer(id) {
@@ -63,6 +74,12 @@ function storedMode(storage, key) {
 
 /** The mode a layer is drawn in now (its own storage key), or ''. */
 export function currentMode(layerId, storage) {
+  if (layerId === PROPERTY_LAYER_ID) {
+    const stored = storedMode(storage, PROPERTY_METRIC_STORAGE_KEY);
+    return PROPERTY_METRIC_KEYS.includes(stored)
+      ? stored
+      : DEFAULT_PROPERTY_METRIC;
+  }
   const record = EARTH_ENGINE_LAYERS.find((entry) => entry.id === layerId);
   if (!record?.modes?.length) return '';
   const stored = storedMode(storage, record.modeStorageKey);
@@ -76,6 +93,16 @@ export function currentMode(layerId, storage) {
  * shown by the square root of the height (the layer's `transform`).
  */
 export function layerSpec(layerId, modeKey = '') {
+  if (layerId === PROPERTY_LAYER_ID)
+    return {
+      palette: RAMP_STOPS.map(rgbToHex),
+      scale:
+        propertyMetric(modeKey || DEFAULT_PROPERTY_METRIC)?.scale === 'linear'
+          ? 'linear'
+          : 'log',
+      nativeM: NATIVE_M[layerId],
+      elevation: false,
+    };
   if (layerId === WIKIPEDIA_LAYER_ID)
     return {
       palette: RAMP_STOPS.map(rgbToHex),

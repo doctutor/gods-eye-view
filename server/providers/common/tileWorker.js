@@ -15,6 +15,8 @@ const DRAWERS = Object.freeze({
     ),
   'rivers-v2': () =>
     import('../riversV2.js').then((m) => m.createRiversV2Service),
+  property: () =>
+    import('../property/index.js').then((m) => m.createPropertyIndex),
   'overture-roads': () =>
     import('../overture/roadsTiles.js').then((m) => m.createRoadsTiles),
   'raster-values': () =>

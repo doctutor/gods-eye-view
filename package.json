@@ -64,6 +64,8 @@
     "census:status": "node scripts/census/index.mjs status",
     "overture:build": "node scripts/overture/index.mjs build",
     "overture:status": "node scripts/overture/index.mjs status",
+    "property:build": "node scripts/property/index.mjs build",
+    "property:status": "node scripts/property/index.mjs status",
     "overpass:status": "node scripts/overpass-status.mjs",
     "msfs:deploy": "node tools/msfs-renderer/msfs.mjs deploy",
     "msfs:start": "node tools/msfs-renderer/msfs.mjs start",

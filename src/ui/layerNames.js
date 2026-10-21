@@ -68,6 +68,7 @@ export const LAYER_NAME_KEYS = Object.freeze({
   'street-assets': msg('Street assets'),
   places: msg('Places'),
   roads: msg('Roads'),
+  'property-sales': msg('Property sales (US)'),
 });
 
 /** The layer panel's own English names, where they differ from the module's. */

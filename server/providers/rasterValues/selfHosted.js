@@ -1,5 +1,5 @@
 // Personal fork: the raster values of the layers the fork builds itself
-// (Overture buildings, census tracts, Wikipedia coverage), for
+// (Overture buildings, census tracts, Wikipedia coverage, property sales), for
 // server/providers/rasterValues.js. Not part of upstream God's Eye View.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,6 +12,9 @@ import {
   createWikipediaCoverageService,
 } from '../wikipediaCoverage.js';
 import { readGridHeader } from '../wikipediaCoverage/grid.js';
+import { createPropertyIndex } from '../property/index.js';
+import { openHexFile } from '../property/hexFile.js';
+import { propertyCacheDir } from '../property/sources.js';
 
 /** Where each build lives (no secrets: what a worker thread is handed). */
 export function selfHostedDirs(env = process.env, sourceRoot = process.cwd()) {
@@ -19,6 +22,7 @@ export function selfHostedDirs(env = process.env, sourceRoot = process.cwd()) {
     overtureDir: overtureCacheDir(env, sourceRoot),
     censusDir: censusCacheDir(env, sourceRoot),
     gridFile: coverageGridFile(env, sourceRoot),
+    propertyDir: propertyCacheDir(env, sourceRoot),
   };
 }
 
@@ -26,15 +30,22 @@ export function selfHostedDirs(env = process.env, sourceRoot = process.cwd()) {
  * The numbers: what the 'raster-values' tile pool's workers run
  * (../common/tileWorker.js), or this thread without a pool. Each source's
  * service is made when first asked for and kept.
- * @param {{overtureDir: string, censusDir: string, gridFile: string}} dirs
+ * @param {{overtureDir: string, censusDir: string, gridFile: string,
+ *   propertyDir?: string}} dirs
  */
-export function createSelfHostedValues({ overtureDir, censusDir, gridFile }) {
+export function createSelfHostedValues({
+  overtureDir,
+  censusDir,
+  gridFile,
+  propertyDir,
+}) {
   let buildings = null;
   let census = null;
   let wikipedia = null;
+  let property = null;
   return {
     /**
-     * @param {'overture-buildings'|'census'|'wikipedia'} source
+     * @param {'overture-buildings'|'census'|'wikipedia'|'property'} source
      * @returns {{status: number, body?: Buffer, version?: string,
      *   aggregation?: string, error?: string}}
      */
@@ -51,11 +62,16 @@ export function createSelfHostedValues({ overtureDir, censusDir, gridFile }) {
         wikipedia ||= createWikipediaCoverageService({ gridFile, env: {} });
         return wikipedia.values(mode, box, cols, rows);
       }
+      if (source === 'property' && propertyDir) {
+        property ||= createPropertyIndex({ dir: propertyDir });
+        return property.values(mode, box, cols, rows);
+      }
       return { status: 404, error: `No source ${source}` };
     },
     close() {
       buildings?.close();
       census?.close();
+      property?.close();
     },
   };
 }
@@ -87,7 +103,7 @@ function watched(file, read, now) {
  * when it is not built.
  */
 export function createSelfHostedStatus(
-  { overtureDir, censusDir, gridFile },
+  { overtureDir, censusDir, gridFile, propertyDir = '' },
   { now = () => Date.now() } = {},
 ) {
   const buildingsRoot = path.join(overtureDir, 'buildings');
@@ -105,6 +121,25 @@ export function createSelfHostedStatus(
   const grid = watched(
     () => gridFile,
     (file) => readGridHeader(file).header,
+    now,
+  );
+  // The property index: its manifest's version and the hexagons' domains.
+  const property = watched(
+    () => path.join(propertyDir, 'current.json'),
+    (file) => {
+      const { manifest: name } = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (!/^manifest-[0-9a-f]{12}\.json$/.test(String(name))) return null;
+      const value = JSON.parse(
+        fs.readFileSync(path.join(propertyDir, name), 'utf8'),
+      );
+      const { header } = openHexFile(path.join(propertyDir, value.hexes.file));
+      return {
+        version: String(value.version),
+        domains: Object.fromEntries(
+          header.resolutions.map((entry) => [entry.res, entry.domains]),
+        ),
+      };
+    },
     now,
   );
   return {
@@ -143,5 +178,7 @@ export function createSelfHostedStatus(
         domain: header.domains?.[variant] || null,
       };
     },
+    /** The property index: {version, domains by resolution} or null. */
+    property: () => (propertyDir ? property() : null),
   };
 }
