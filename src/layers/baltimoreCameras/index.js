@@ -3,6 +3,16 @@ import { BALTIMORE_CAMERA_SETS, fetchCameraSet } from './source.js';
 import { msg, t } from '../../i18n/index.js';
 export * from './source.js';
 
+/** What a partly loaded set says: "3 of 4 sets loaded; … unavailable", or ''. */
+export function cameraSetNote({ failed = [], loaded = 0, total = 0 } = {}) {
+  if (!failed.length) return '';
+  return t('{loaded} of {total} sets loaded; {missing} unavailable', {
+    loaded,
+    total,
+    missing: failed.map((label) => t(label)).join(', '),
+  });
+}
+
 /** Labels appear only once the view is this close, nearest cameras first. */
 const LABEL_MAX_CAMERA_HEIGHT_M = 12000;
 const LABEL_RADIUS_M = 6000;
@@ -43,6 +53,8 @@ export function createBaltimoreCameraLayer({
   let _records = [];
   let _lastUpdate = null;
   let _lastError = null;
+  /** The last load's layers that did not answer ({failed, loaded, total}). */
+  let _partial = null;
   let _enabled = false;
   let _request = null;
   let _removeMoveListener = null;
@@ -181,19 +193,23 @@ export function createBaltimoreCameraLayer({
       const request = new AbortController();
       _request = request;
       try {
-        const records = await fetchCameraSet(setKey, {
+        const result = await fetchCameraSet(setKey, {
           signal: request.signal,
           ...(fetchImpl ? { fetchImpl } : {}),
         });
         if (request.signal.aborted || _request !== request || !_enabled)
           return false;
+        const { records } = result;
         _records = records;
         _lastUpdate = Date.now();
         _lastError = null;
+        // Some layers missing: the set shows what came, and says so.
+        _partial = result.failed.length ? result : null;
         render();
         refreshLabels();
         console.log(
-          `[Data:${set.id}] Loaded ${records.length} camera locations`,
+          `[Data:${set.id}] Loaded ${records.length} camera locations` +
+            (_partial ? ` (${result.failed.join(', ')} unavailable)` : ''),
         );
         return true;
       } catch (error) {
@@ -221,13 +237,14 @@ export function createBaltimoreCameraLayer({
       _records = [];
       _lastUpdate = null;
       _lastError = null;
+      _partial = null;
     },
 
     getStats() {
       return {
         count: _records.length,
         lastUpdate: _lastUpdate,
-        error: _lastError,
+        error: _lastError || cameraSetNote(_partial) || null,
       };
     },
   };

@@ -3567,5 +3567,11 @@
   "Text per person": "Texto por persona",
   "Bytes of article wikitext per person (GHSL 2020 population); clear where fewer than 100 people live": "Bytes de wikitexto de artículos por persona (población GHSL de 2020); vacío donde viven menos de 100 personas",
   "Population is not built: run npm run wikipedia:build -- --population": "La población no está construida: ejecuta npm run wikipedia:build -- --population",
-  "People: {source}, clear under {floor}": "Población: {source}, vacío por debajo de {floor}"
+  "People: {source}, clear under {floor}": "Población: {source}, vacío por debajo de {floor}",
+  "red-light cameras": "cámaras de semáforo en rojo",
+  "fixed speed cameras": "radares de velocidad fijos",
+  "portable speed cameras": "radares de velocidad portátiles",
+  "truck height cameras": "cámaras de altura de camiones",
+  "CitiWatch cameras": "cámaras CitiWatch",
+  "{loaded} of {total} sets loaded; {missing} unavailable": "{loaded} de {total} conjuntos cargados; {missing} no disponibles"
 }
