@@ -15,6 +15,16 @@ import {
   createH3Accumulator,
   writeH3File,
 } from '../../server/providers/wikipediaCoverage/h3.js';
+import {
+  PAGE_PROPS_FILE,
+  collectGeoPoints,
+  collectWikidataItems,
+  joinPoints,
+  pageRowsForPoints,
+  parseWikis,
+  pointsStatusOf,
+  writePointsIndex,
+} from './points.mjs';
 
 /**
  * The steps of a Wikipedia coverage build (scripts/wikipedia/index.mjs):
@@ -32,6 +42,8 @@ import {
 export const DUMPS = 'https://dumps.wikimedia.org/enwiki/latest/';
 export const GEO_TAGS_URL = `${DUMPS}enwiki-latest-geo_tags.sql.gz`;
 export const PAGE_URL = `${DUMPS}enwiki-latest-page.sql.gz`;
+/** Each article's Wikidata item, for the points (484 MB, kept like geo_tags). */
+export const PAGE_PROPS_URL = `${DUMPS}${PAGE_PROPS_FILE}`;
 export const USER_AGENT =
   'gods-eye-view-personal-fork/0.1 wikipedia-coverage (+https://github.com/doctutor/gods-eye-view)';
 export const DOWNLOAD_TIMEOUT_MS = 60 * 60 * 1000;
@@ -250,16 +262,18 @@ export async function binGeoTags(
 /**
  * Add each kept page's wikitext size (page_len) to its cell, from the page
  * table's stream. Only pages the geo pass kept are read; everything else
- * is dropped as it passes.
+ * is dropped as it passes. `onRow` sees every row too (the points step's
+ * titles, read from the same stream); without an accumulator only it runs.
  */
 export async function addPageSizes(
   chunks,
   {
-    accumulator,
-    pageCells,
+    accumulator = null,
+    pageCells = new Map(),
     hexes = null,
     pageHexes = null,
     onProgress = () => {},
+    onRow = null,
   },
 ) {
   const stats = { rows: 0, matched: 0, bytes: 0, redirects: 0 };
@@ -271,13 +285,19 @@ export async function addPageSizes(
         id: columns.indexOf('page_id'),
         len: columns.indexOf('page_len'),
         redirect: columns.indexOf('page_is_redirect'),
+        namespace: columns.indexOf('page_namespace'),
+        title: columns.indexOf('page_title'),
       };
       if (fields.id < 0 || fields.len < 0)
         throw new Error('The page table has no page_id / page_len columns');
+      if (onRow && fields.title < 0)
+        throw new Error('The page table has no page_title column');
     },
     onRow(values) {
       stats.rows += 1;
       if (stats.rows % 1_000_000 === 0) onProgress(stats.rows);
+      onRow?.(values, fields);
+      if (!accumulator) return;
       const cell = pageCells.get(Number(values[fields.id]));
       if (cell === undefined) return;
       if (fields.redirect >= 0 && Number(values[fields.redirect]) === 1) {
@@ -405,8 +425,11 @@ export function buildFiles(dir, rawDir = dir) {
     raw,
     geoTags: path.join(raw, 'enwiki-latest-geo_tags.sql.gz'),
     geoTagsMeta: path.join(raw, 'geo_tags.meta.json'),
+    pageProps: path.join(raw, PAGE_PROPS_FILE),
+    pagePropsMeta: path.join(raw, 'page_props.meta.json'),
     grid: path.join(dir, 'grid.bin'),
     h3: path.join(dir, 'h3.bin'),
+    points: path.join(dir, 'points'),
     runs: path.join(dir, 'runs.jsonl'),
   };
 }
@@ -424,6 +447,9 @@ export async function runBuild({
   dir,
   rawDir = dir,
   text = false,
+  points = false,
+  secondary = false,
+  wikis = 'enwiki',
   force = false,
   offline = false,
   limit = Infinity,
@@ -457,6 +483,13 @@ export async function runBuild({
     changed = answer.changed;
   }
   const wantsText = text;
+  const pointWikis = points ? parseWikis(wikis) : [];
+  const pointsNow = points ? pointsStatusOf(files.points) : null;
+  const pointsCurrent =
+    !points ||
+    (pointsNow.built &&
+      pointsNow.dump?.lastModified === dump.lastModified &&
+      (!secondary || pointsNow.secondary > 0));
   const upToDate =
     !force &&
     !changed &&
@@ -464,7 +497,8 @@ export async function runBuild({
     currentHeader.dump?.etag === dump.etag &&
     currentHeader.dump?.lastModified === dump.lastModified &&
     (!wantsText || currentHeader.text?.included) &&
-    fs.existsSync(files.h3);
+    fs.existsSync(files.h3) &&
+    pointsCurrent;
   if (upToDate) {
     log(
       'grid.bin and h3.bin are built from this dump already; nothing to do (--force rebuilds)',
@@ -481,26 +515,88 @@ export async function runBuild({
   log(
     `geo_tags: ${geo.stats.rows.toLocaleString('en-US')} rows, ${geo.stats.kept.toLocaleString('en-US')} primary Earth coordinates kept`,
   );
+  // The points: every coordinate kept with its page id, for the joins.
+  const geoPoints = points
+    ? await collectGeoPoints(gunzipFile(files.geoTags), { secondary })
+    : null;
+  if (geoPoints)
+    log(
+      `points: ${geoPoints.stats.primary.toLocaleString('en-US')} primary${secondary ? ` and ${geoPoints.stats.secondary.toLocaleString('en-US')} secondary` : ''} coordinates`,
+    );
+  const pagePoints = geoPoints ? pageRowsForPoints(geoPoints.pages) : null;
   let page = null;
-  if (wantsText) {
+  if (wantsText || points) {
     if (offline)
       throw new Error(
-        '--text needs the network: the page table is streamed, never kept',
+        '--text and --points need the network: the page table is streamed, never kept',
       );
     await sleepImpl(DOWNLOAD_GAP_MS);
-    log('streaming the page table for article sizes (about 2 GB, not kept)…');
+    log(
+      `streaming the page table for article ${wantsText ? 'sizes' : 'titles'} (about 2 GB, not kept)…`,
+    );
     const stream = await gunzipUrl(PAGE_URL, { fetchImpl });
-    page = await addPageSizes(stream.chunks, {
-      accumulator: geo.accumulator,
-      pageCells: geo.pageCells,
-      hexes: geo.hexes,
-      pageHexes: geo.pageHexes,
+    const sized = await addPageSizes(stream.chunks, {
+      ...(wantsText
+        ? {
+            accumulator: geo.accumulator,
+            pageCells: geo.pageCells,
+            hexes: geo.hexes,
+            pageHexes: geo.pageHexes,
+          }
+        : {}),
+      onRow: pagePoints?.onRow || null,
       onProgress: (rows) => log(`  ${rows.toLocaleString('en-US')} pages`),
     });
-    page.lastModified = stream.lastModified;
-    log(
-      `page: ${page.matched.toLocaleString('en-US')} articles sized, ${page.bytes.toLocaleString('en-US')} bytes of wikitext`,
+    if (wantsText) {
+      page = sized;
+      page.lastModified = stream.lastModified;
+      log(
+        `page: ${page.matched.toLocaleString('en-US')} articles sized, ${page.bytes.toLocaleString('en-US')} bytes of wikitext`,
+      );
+    }
+  }
+  let pointsManifest = null;
+  if (geoPoints) {
+    await sleepImpl(DOWNLOAD_GAP_MS);
+    const props = await download({
+      url: PAGE_PROPS_URL,
+      file: files.pageProps,
+      metaFile: files.pagePropsMeta,
+      fetchImpl,
+      now,
+      log,
+      force,
+    });
+    log('reading page_props for the Wikidata items…');
+    const wikidata = await collectWikidataItems(
+      gunzipFile(files.pageProps),
+      geoPoints.pages,
     );
+    const joined = joinPoints({
+      pages: geoPoints.pages,
+      articles: pagePoints.articles,
+      items: wikidata.items,
+      wiki: pointWikis[0],
+    });
+    pointsManifest = writePointsIndex({
+      points: joined.points,
+      dir: files.points,
+      dump: {
+        date: dumpDate(dump.lastModified),
+        lastModified: dump.lastModified || null,
+        etag: dump.etag || null,
+        pageProps: props.meta.lastModified || null,
+      },
+      wikis: pointWikis,
+      stats: {
+        geo: geoPoints.stats,
+        page: pagePoints.stats,
+        wikidata: wikidata.stats,
+        byClass: joined.byClass,
+      },
+      now,
+      log,
+    });
   }
   const { header, bytes } = writeCoverageGrid({
     accumulator: geo.accumulator,
@@ -535,5 +631,5 @@ export async function runBuild({
       h3Cells: cells,
     })}\n`,
   );
-  return { skipped: false, header, h3: h3.header };
+  return { skipped: false, header, h3: h3.header, points: pointsManifest };
 }

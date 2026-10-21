@@ -95,7 +95,9 @@ const PANEL_GROUPS = [
   // Personal fork: reference overlays (the latitude–longitude grid, place names).
   {
     label: msg('Reference'),
-    ids: ['grid', 'localities'],
+    // Personal fork: Wikipedia (src/layers/wikipediaCoverage/), next to the
+    // place names since its Articles mode is one dot per article.
+    ids: ['grid', 'localities', 'wikipedia-coverage'],
   },
   // Personal fork: Earth Engine overlays (src/data/earthEngineLayers.js).
   {
@@ -117,8 +119,6 @@ const PANEL_GROUPS = [
       'ee-land-cover',
       'ee-buildings',
       'ee-tree-canopy',
-      // Personal fork: Wikipedia coverage (src/layers/wikipediaCoverage/).
-      'wikipedia-coverage',
       // Personal fork: OpenStreetMap street assets (src/layers/streetAssets/).
       'street-assets',
       // Personal fork: Overture Maps places (src/layers/places/).

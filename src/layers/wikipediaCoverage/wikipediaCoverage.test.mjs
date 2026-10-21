@@ -31,6 +31,9 @@ import {
 import { createCoverageImageryProvider } from './provider.js';
 import { DEFAULT_VARIANT, VARIANTS, statusText } from './presentation.js';
 
+/** A chip of the row by its id. */
+const chip = (controls, id) => controls.chips.find((c) => c.id === id);
+
 /** A tile's bytes as the server writes them. */
 function encodeTile(values, size = 256) {
   const buffer = new ArrayBuffer(16 + size * size * 4);
@@ -103,8 +106,12 @@ function fakeViewer(height = 5_000_000) {
   };
 }
 
+// The coverage rasters: these layers start in the density mode (the
+// layer's default is the Articles dots, points.test.mjs).
 function memoryStorage(entries = {}) {
-  const map = new Map(Object.entries(entries));
+  const map = new Map(
+    Object.entries({ 'gev.wikipedia.mode': 'articles', ...entries }),
+  );
   return {
     map,
     getItem: (key) => (map.has(key) ? map.get(key) : null),
@@ -426,7 +433,7 @@ test('the layer drapes the chosen variant at its stored opacity; chips switch it
   let heard = 0;
   layer.setRowControlsListener(() => heard++);
   assert.equal(layer.id, LAYER_ID);
-  assert.equal(layer.name, 'Wikipedia coverage');
+  assert.equal(layer.name, 'Wikipedia');
   assert.equal(layer.source, 'Wikimedia GeoData');
   layer.init(fake.viewer);
   // Off: nothing is draped and the row is quiet.
@@ -454,9 +461,10 @@ test('the layer drapes the chosen variant at its stored opacity; chips switch it
   assert.deepEqual(
     controls.chips.map((chip) => [chip.id, chip.active, chip.state]),
     [
+      // No points index on this server: the Articles chip is greyed.
+      ['points', false, 'error'],
       ['articles', true, undefined],
       ['text', false, 'error'],
-      ['count', false, undefined],
       // No population.bin on this server: the per-capita chips are greyed.
       ['capita', false, 'error'],
       ['textcapita', false, 'error'],
@@ -464,7 +472,7 @@ test('the layer drapes the chosen variant at its stored opacity; chips switch it
       ['hexes', false, undefined],
     ],
   );
-  assert.equal(controls.chips[0].label, 'Articles per km²');
+  assert.equal(chip(controls, 'articles').label, 'Density per km²');
   assert.deepEqual(
     controls.legend.map((stop) => stop.label),
     ['0.033', '0.083', '0.21', '0.53', '1.4+'],
@@ -479,26 +487,31 @@ test('the layer drapes the chosen variant at its stored opacity; chips switch it
     'Wikipedia, CC BY-SA 4.0 — Wikimedia GeoData',
   );
 
-  // A chip switches the variant: a new provider, the same opacity.
-  controls.chips[2].onClick();
+  // A chip switches the mode, and keeps it: the dots (not built here, so
+  // the row says what to run and nothing drapes), then the density again
+  // as a new provider at the same opacity.
+  chip(controls, 'points').onClick();
+  assert.equal(fake.layers.length, 0, 'the raster leaves');
+  assert.equal(layer._state().variant, 'points');
+  assert.equal(storage.map.get('gev.wikipedia.mode'), 'points');
+  assert.equal(
+    layer.getRowControls().info,
+    'Run npm run wikipedia:build -- --points for the Wikipedia articles',
+  );
+  chip(layer.getRowControls(), 'articles').onClick();
   assert.equal(fake.layers.length, 1, 'one variant at a time');
   assert.notEqual(fake.layers[0], imagery);
-  assert.equal(fake.layers[0].imageryProvider.variant, 'count');
+  assert.equal(fake.layers[0].imageryProvider.variant, 'articles');
   assert.equal(fake.layers[0].alpha, 0.4);
-  assert.equal(layer._state().variant, 'count');
-  assert.deepEqual(
-    layer.getRowControls().legend.map((stop) => stop.label),
-    ['1', '2.3', '5.5', '13', '30+'],
-  );
   // The text variant is not built: the chip says what to run, nothing drapes.
-  layer.getRowControls().chips[1].onClick();
+  chip(layer.getRowControls(), 'text').onClick();
   assert.equal(fake.layers.length, 0);
   assert.match(
     layer.getRowControls().info,
     /^Article sizes are not built: run npm run wikipedia:build -- --text · Dump of/,
   );
   assert.deepEqual(layer.getRowControls().legend, []);
-  layer.getRowControls().chips[0].onClick();
+  chip(layer.getRowControls(), 'articles').onClick();
   assert.equal(fake.layers.length, 1);
 
   // The slider sets and keeps the opacity.
@@ -567,7 +580,7 @@ test('without a grid the row says what to run, and a rebuild with sizes is picke
   );
   await layer.update();
   assert.equal(fake.layers.length, 1);
-  layer.getRowControls().chips[1].onClick();
+  chip(layer.getRowControls(), 'text').onClick();
   assert.equal(fake.layers[0].imageryProvider.variant, 'text');
   assert.deepEqual(
     layer.getRowControls().legend.map((stop) => stop.label),
@@ -678,13 +691,13 @@ test('the opacity store, the credit and the status words', () => {
   assert.equal(credit.key, 'wikipedia-coverage');
   assert.match(
     credit.html,
-    /^Wikipedia coverage: <a href="https:\/\/www\.mediawiki\.org\/wiki\/Extension:GeoData"/,
+    /^Wikipedia: <a href="https:\/\/www\.mediawiki\.org\/wiki\/Extension:GeoData"/,
   );
   assert.match(credit.html, /&lt;b&gt;$/);
-  assert.equal(DEFAULT_VARIANT, 'articles');
+  assert.equal(DEFAULT_VARIANT, 'points');
   assert.deepEqual(
     VARIANTS.map((v) => v.key),
-    ['articles', 'text', 'count', 'capita', 'textcapita'],
+    ['points', 'articles', 'text', 'capita', 'textcapita'],
   );
   assert.equal(
     statusText({ failure: 'HTTP 500' }),
@@ -693,16 +706,19 @@ test('the opacity store, the credit and the status words', () => {
   assert.equal(statusText({ loading: true }), 'Asking the server…');
   assert.equal(statusText({}), '');
   assert.equal(
-    statusText({ catalog: { configured: false, message: '' } }),
+    statusText({
+      variant: 'articles',
+      catalog: { configured: false, message: '' },
+    }),
     'Run npm run wikipedia:build to build the Wikipedia coverage grid',
   );
   const catalog = toCatalog(serverCatalog({ rows: { kept: 1 } }));
   assert.equal(
-    statusText({ catalog }),
+    statusText({ variant: 'articles', catalog }),
     'Dump of 2026-10-08 · 1 geotagged article',
   );
   assert.equal(
-    statusText({ catalog, hostless: true }),
+    statusText({ variant: 'articles', catalog, hostless: true }),
     'Hidden by this map source · choose a globe map',
   );
 });

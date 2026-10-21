@@ -1,7 +1,14 @@
 import * as Cesium from 'cesium';
 import { resolveImageryHost } from '../../maps/imageryHost.js';
 import { viewMoved, viewRectangleDegrees } from '../earthEngine/index.js';
-import { DEFAULT_VARIANT, VARIANTS, rowControls } from './presentation.js';
+import {
+  DEFAULT_VARIANT,
+  POINTS_VARIANT,
+  VARIANTS,
+  rowControls,
+} from './presentation.js';
+// The Articles mode: one dot per article (points.js).
+import { createPointsMode } from './points.js';
 import { createCoverageImageryProvider } from './provider.js';
 // The Hexes mode: H3 cells at the camera's resolution instead of the raster.
 import { createHexSurface, fallbackResolution } from './hexes.js';
@@ -9,19 +16,22 @@ import { h3ResolutionForHeight } from '../../maps/h3Resolution.js';
 import { viewMoved as hexViewMoved, viewWindow } from '../../maps/h3Cells.js';
 
 /**
- * Personal fork: the Wikipedia coverage layer (ANALYSIS in the DATA LAYERS
- * panel): where English Wikipedia has written about the Earth, as a heat
- * raster draped on the globe, in the spirit of the Oxford Internet
- * Institute's maps of the geographies of Wikipedia. The local server
- * (server/providers/wikipediaCoverage.js) serves cell values from a grid
- * built by `npm run wikipedia:build`; the browser paints them with a log
+ * Personal fork: the Wikipedia layer (REFERENCE in the DATA LAYERS panel):
+ * where English Wikipedia has written about the Earth. Its Articles mode
+ * (the default; points.js) draws one dot per geotagged article, like
+ * wikimap.wiki, coloured by its type, with titles close in and a card on
+ * click; the other modes are the coverage rasters, in the spirit of the
+ * Oxford Internet Institute's maps of the geographies of Wikipedia. The
+ * local server (server/providers/wikipediaCoverage.js) serves the dots
+ * from the points index and the cell values from a grid, both built by
+ * `npm run wikipedia:build`; the browser paints the rasters with a log
  * colour ramp (provider.js, ramp.js).
  *
- * Three variants, switched with the row's chips: articles per km² (the
- * default), bytes of article text per km² when the build included the page
- * table, and raw article counts. The row also carries the ramp as a legend
- * with the variant's floor and ceiling, an opacity slider (kept in this
- * browser as gev.wikipediaCoverage.opacity) and a status line.
+ * The modes, switched with the row's chips and kept as gev.wikipedia.mode:
+ * Articles, density per km², bytes of article text per km² when the build
+ * included the page table, and the two per-capita ones. The row also
+ * carries the type classes or the ramp as a legend, an opacity slider for
+ * the rasters (kept as gev.wikipediaCoverage.opacity) and a status line.
  *
  * It drapes where the map stack can take imagery (maps/imageryHost.js), as
  * the Earth Engine overlays do, and like them covers only the view's
@@ -33,7 +43,9 @@ import { viewMoved as hexViewMoved, viewWindow } from '../../maps/h3Cells.js';
 export const OPACITY_STORAGE_KEY = 'gev.wikipediaCoverage.opacity';
 export const DEFAULT_OPACITY = 0.75;
 export const LAYER_ID = 'wikipedia-coverage';
-export const LAYER_NAME = 'Wikipedia coverage';
+export const LAYER_NAME = 'Wikipedia';
+export const MODE_STORAGE_KEY = 'gev.wikipedia.mode';
+export const SECONDARY_STORAGE_KEY = 'gev.wikipedia.secondary';
 export const SOURCE_NAME = 'Wikimedia GeoData';
 /** The catalog is read again this often while on (a rebuild lands). */
 export const CATALOG_REFRESH_MS = 10 * 60 * 1000;
@@ -75,11 +87,24 @@ export function attributionCredit(attribution) {
   };
 }
 
+/** The stored mode, else the default (Articles). */
+export function readMode(storage) {
+  try {
+    const value = storage?.getItem(MODE_STORAGE_KEY);
+    return VARIANTS.some((variant) => variant.key === value)
+      ? value
+      : DEFAULT_VARIANT;
+  } catch {
+    return DEFAULT_VARIANT;
+  }
+}
+
 /**
  * @param {{source: {catalog: Function, last?: Function}, cesium?: object,
  *   requestRender?: (reason: string) => void, storage?: Storage|null,
  *   credits?: {register?: Function}, fetchTile?: Function,
- *   createCanvas?: Function}} options
+ *   createCanvas?: Function, overlayHost?: object|null,
+ *   hitTest?: Function|null, openUrl?: (url: string) => void}} options
  */
 export function createWikipediaCoverageLayer({
   source,
@@ -89,6 +114,9 @@ export function createWikipediaCoverageLayer({
   credits,
   fetchTile,
   createCanvas,
+  overlayHost = null,
+  hitTest = null,
+  openUrl,
 }) {
   const store = storageOf(storage);
   let _viewer = null;
@@ -99,7 +127,7 @@ export function createWikipediaCoverageLayer({
   let _loading = false;
   let _failure = null;
   let _opacity = readOpacity(store);
-  let _variant = DEFAULT_VARIANT;
+  let _variant = readMode(store);
   let _removeMoveListener = null;
   let _rowListener = null;
   let _controller = null;
@@ -122,6 +150,20 @@ export function createWikipediaCoverageLayer({
       /* the panel's problem */
     }
   };
+  const points = createPointsMode({
+    source,
+    cesium,
+    overlayHost,
+    hitTest,
+    requestRender,
+    notify,
+    ...(openUrl ? { openUrl } : {}),
+  });
+  try {
+    points.setSecondary(store?.getItem(SECONDARY_STORAGE_KEY) === '1');
+  } catch {
+    /* no storage */
+  }
 
   function cameraHeight() {
     const height = _viewer?.camera?.positionCartographic?.height;
@@ -311,6 +353,19 @@ export function createWikipediaCoverageLayer({
 
   /** Drape the chosen variant on the stack's host, when the server has it. */
   function sync() {
+    if (_variant === POINTS_VARIANT) {
+      unmount();
+      unmountHexes();
+      if (!_enabled) return points.hide();
+      points.show(_viewer);
+      const view = viewNow();
+      points.sync(
+        { lat: view.lat, lon: view.lon, height: view.height },
+        _catalog,
+      );
+      return;
+    }
+    points.hide();
     if (_hexes) {
       unmount();
       syncHexes();
@@ -432,6 +487,23 @@ export function createWikipediaCoverageLayer({
     if (!VARIANTS.some((variant) => variant.key === key) || key === _variant)
       return;
     _variant = key;
+    try {
+      store?.setItem(MODE_STORAGE_KEY, key);
+    } catch {
+      /* private mode: kept for this page only */
+    }
+    if (_enabled) sync();
+    notify();
+  }
+
+  /** The Articles mode's secondary coordinates on or off (kept). */
+  function setSecondary(on) {
+    points.setSecondary(on);
+    try {
+      store?.setItem(SECONDARY_STORAGE_KEY, on ? '1' : '0');
+    } catch {
+      /* private mode */
+    }
     if (_enabled) sync();
     notify();
   }
@@ -469,6 +541,7 @@ export function createWikipediaCoverageLayer({
       _removeMoveListener = null;
       unmount();
       unmountHexes();
+      points.hide();
       notify();
     },
 
@@ -488,6 +561,15 @@ export function createWikipediaCoverageLayer({
     },
 
     getStats() {
+      if (_variant === POINTS_VARIANT) {
+        const status = points.status();
+        const count = status?.state === 'ready' ? status.count : 0;
+        return {
+          count,
+          countLabel: _enabled ? String(count) : '—',
+          error: _failure || null,
+        };
+      }
       const drawn = _hexes ? _hexState.count > 0 : Boolean(_imagery);
       return {
         count: _hexes ? _hexState.count : _imagery ? 1 : 0,
@@ -509,11 +591,18 @@ export function createWikipediaCoverageLayer({
         hexes: _hexes,
         onHexes: setHexes,
         hexState: _hexState,
+        points: points.status(),
+        secondary: points.secondary,
+        onSecondary: setSecondary,
       });
     },
 
     /** The Hexes mode, for the owner and tests. */
     setHexes,
+    /** The mode and the Articles mode's secondary coordinates, likewise. */
+    setVariant,
+    setSecondary,
+    _points: points,
 
     /**
      * The map stack controller (src/app/data.js hands it to every layer):

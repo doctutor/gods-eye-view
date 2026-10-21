@@ -6,6 +6,7 @@
  */
 
 export const WIKIPEDIA_COVERAGE_ENDPOINT = '/api/wikipedia-coverage';
+export { WIKIPEDIA_POINTS_ENDPOINT } from '../../data/wikipediaPoints.js';
 /** The catalog is asked for again after this long. */
 export const CATALOG_TTL_MS = 5 * 60 * 1000;
 export const VARIANT_KEYS = Object.freeze([
@@ -74,6 +75,30 @@ export function toCatalog(body) {
       : 9,
     attribution: text(body?.attribution, 200),
     variants,
+    // The Articles mode's dots (points/, `--points`).
+    points:
+      body?.points?.built === true
+        ? {
+            built: true,
+            version: /^[0-9a-f]{12}$/.test(String(body.points.version || ''))
+              ? body.points.version
+              : '',
+            count: Number.isInteger(body.points.points)
+              ? body.points.points
+              : 0,
+            secondary: Number.isInteger(body.points.secondary)
+              ? body.points.secondary
+              : 0,
+            dumpDate: /^\d{4}-\d{2}-\d{2}$/.test(
+              String(body.points.dump?.date || ''),
+            )
+              ? body.points.dump.date
+              : '',
+          }
+        : {
+            built: false,
+            message: body?.points?.message ? text(body.points.message) : '',
+          },
     // The people behind the per-capita variants (population.bin).
     population:
       body?.population?.built === true
@@ -109,6 +134,53 @@ export function hexUrl(res, variant, box) {
     north: degrees(box.north),
   });
   return `${WIKIPEDIA_COVERAGE_ENDPOINT}/h3/${res}/${variant}?${query}`;
+}
+
+const POINT_CLASSES = new Set(['place', 'landmark', 'nature', 'other']);
+
+/** A dot from the points endpoint, checked, or null. */
+export function toPoint(raw) {
+  const [lon, lat] = Array.isArray(raw?.at) ? raw.at.map(Number) : [];
+  const id = String(raw?.id || '');
+  const page = Number(raw?.page);
+  const title = text(raw?.title, 255);
+  if (
+    !/^wp:\d+:\d+:[ps]:\d+:\d+$/.test(id) ||
+    !Number.isInteger(page) ||
+    !title ||
+    !Number.isFinite(lon) ||
+    !Number.isFinite(lat) ||
+    Math.abs(lat) > 90 ||
+    Math.abs(lon) > 180
+  )
+    return null;
+  return {
+    id,
+    page,
+    title,
+    ...(/^Q\d+$/.test(String(raw.qid || '')) ? { qid: raw.qid } : {}),
+    ...(raw.type ? { type: text(raw.type, 32) } : {}),
+    class: POINT_CLASSES.has(raw.class) ? raw.class : 'other',
+    dim: Number.isFinite(raw.dim) ? raw.dim : 0,
+    bytes: Number.isFinite(raw.bytes) ? raw.bytes : 0,
+    secondary: raw.secondary === true,
+    at: [lon, lat],
+  };
+}
+
+/** The points endpoint's URL for a box at a zoom. */
+export function pointsUrl({ box, zoom, secondary = false, version = '' }) {
+  const degrees = (value) => String(Math.round(value * 1e4) / 1e4);
+  const query = new URLSearchParams({
+    west: degrees(box.west),
+    south: degrees(box.south),
+    east: degrees(box.east),
+    north: degrees(box.north),
+    zoom: String(zoom),
+  });
+  if (secondary) query.set('secondary', '1');
+  if (version) query.set('v', version);
+  return `${WIKIPEDIA_COVERAGE_ENDPOINT}/points?${query}`;
 }
 
 /** An error from the hex endpoint, carrying the status. */
@@ -190,6 +262,9 @@ export function createWikipediaCoverageSource({
 } = {}) {
   let held = null;
   let inflight = null;
+  let pointsRequest = null;
+  /** Summaries this session has asked for, by title (asked only on click). */
+  const summaries = new Map();
 
   async function load() {
     const response = await fetchImpl(`${WIKIPEDIA_COVERAGE_ENDPOINT}/layers`, {
@@ -213,6 +288,70 @@ export function createWikipediaCoverageSource({
     },
     /** The last catalog seen, if any. */
     last: () => held,
+    /**
+     * The Articles mode's dots for a box at a zoom; a newer question aborts
+     * the one in flight. Throws a HexRequestError with the server's status.
+     */
+    async points({ box, zoom, secondary = false, version = '' }) {
+      pointsRequest?.abort();
+      const controller = new AbortController();
+      pointsRequest = controller;
+      try {
+        const response = await fetchImpl(
+          pointsUrl({ box, zoom, secondary, version }),
+          { credentials: 'same-origin', signal: controller.signal },
+        );
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok)
+          throw new HexRequestError(
+            response.status,
+            text(body?.error || body?.message || `HTTP ${response.status}`),
+          );
+        return {
+          zoom: Number.isInteger(body.zoom) ? body.zoom : zoom,
+          saturated: body.saturated === true,
+          points: (Array.isArray(body.points) ? body.points : [])
+            .map(toPoint)
+            .filter(Boolean),
+        };
+      } finally {
+        if (pointsRequest === controller) pointsRequest = null;
+      }
+    },
+    abortPoints() {
+      pointsRequest?.abort();
+    },
+    /**
+     * An article's summary (extract, thumbnail) for its card, asked once a
+     * session per title; null when Wikipedia has none.
+     */
+    summary(title) {
+      if (!summaries.has(title))
+        summaries.set(
+          title,
+          fetchImpl(
+            `${WIKIPEDIA_COVERAGE_ENDPOINT}/summary?${new URLSearchParams({ title })}`,
+            { credentials: 'same-origin' },
+          )
+            .then(async (response) => {
+              if (!response.ok) return null;
+              const body = await response.json().catch(() => null);
+              const thumb = String(body?.thumbnail?.source || '');
+              return {
+                description: text(body?.description, 200),
+                extract: text(body?.extract, 600),
+                thumbnail: /^https:\/\/upload\.wikimedia\.org\//.test(thumb)
+                  ? { source: thumb }
+                  : null,
+              };
+            })
+            .catch(() => {
+              summaries.delete(title);
+              return null;
+            }),
+        );
+      return summaries.get(title);
+    },
     /**
      * The Hexes mode's cells for a window. Throws a HexRequestError with
      * the server's status: 413 when the window holds too many cells at

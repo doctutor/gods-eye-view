@@ -41,7 +41,7 @@ import {
   EARTH_ENGINE_LAYER_IDS,
   createApplicationEarthEngineLayers,
 } from './layers/earthEngine.js';
-// Personal fork: Wikipedia coverage (local-only, not upstream).
+// Personal fork: Wikipedia, dots and coverage (local-only, not upstream).
 import {
   WIKIPEDIA_COVERAGE_LAYER_ID,
   createApplicationWikipediaCoverage,

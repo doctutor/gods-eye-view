@@ -78,7 +78,7 @@ const FORK_LAYER_NAMES = [
   'Land cover',
   'Buildings',
   'Tree canopy',
-  'Wikipedia coverage',
+  'Wikipedia',
   'Localities',
   'Street assets',
   'Places',

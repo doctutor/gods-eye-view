@@ -3187,12 +3187,9 @@
   "{km} km": "{km} км",
   "Centre {reference}": "Центр {reference}",
   "MGRS stops at 80°S and 84°N: the polar UPS grid is not drawn": "MGRS заканчивается на 80° ю. ш. и 84° с. ш.: полярная сетка UPS не рисуется",
-  "Articles per km²": "Статей на км²",
   "Primary geotagged English Wikipedia articles per square kilometre": "Статьи английской Википедии с основными координатами на квадратный километр",
   "Text per km²": "Текста на км²",
   "Bytes of article wikitext per square kilometre: article size, not words": "Байты вики-текста статей на квадратный километр: размер статьи, а не слова",
-  "Articles (count)": "Статьи (число)",
-  "Articles under each pixel, not divided by area, so it changes with the zoom": "Статьи под каждым пикселем, без деления на площадь, поэтому меняется с масштабом",
   "Wikipedia coverage unavailable: {reason}": "Покрытие Википедии недоступно: {reason}",
   "Asking the server…": "Запрос к серверу…",
   "Run npm run wikipedia:build to build the Wikipedia coverage grid": "Выполните npm run wikipedia:build, чтобы построить сетку покрытия Википедии",
@@ -3204,7 +3201,6 @@
     "many": "{count} статей с координатами",
     "other": "{count} статьи с координатами"
   },
-  "Wikipedia coverage": "Покрытие Википедии",
   "map style|Blank": "Пустой",
   "map style|Light": "Светлый",
   "map style|Dark": "Тёмный",
@@ -3680,7 +3676,12 @@
   "Reading the property records…": "Чтение записей о недвижимости…",
   "Property records unavailable": "Записи о недвижимости недоступны",
   "buildings below {height} km": "здания ниже {height} км",
-  "{count} buildings": {"one":"{count} здание","few":"{count} здания","many":"{count} зданий","other":"{count} здания"},
+  "{count} buildings": {
+    "one": "{count} здание",
+    "few": "{count} здания",
+    "many": "{count} зданий",
+    "other": "{count} здания"
+  },
   "a sample; zoom in for all": "выборка; приблизьте, чтобы увидеть все",
   "{count} records in the index": "записей в индексе: {count}",
   "{count} bd": "спален: {count}",
@@ -3694,13 +3695,54 @@
   "Property": "Объект",
   "Earlier sales: {sales}": "Прежние продажи: {sales}",
   "Parcel {apn}": "Участок {apn}",
-  "{count} records at this point": {"one":"{count} запись в этой точке","few":"{count} записи в этой точке","many":"{count} записей в этой точке","other":"{count} записи в этой точке"},
-  "{count} units": {"one":"{count} квартира","few":"{count} квартиры","many":"{count} квартир","other":"{count} квартиры"},
-  "{count} with a recorded sale": {"one":"{count} с записанной продажей","few":"{count} с записанной продажей","many":"{count} с записанной продажей","other":"{count} с записанной продажей"},
+  "{count} records at this point": {
+    "one": "{count} запись в этой точке",
+    "few": "{count} записи в этой точке",
+    "many": "{count} записей в этой точке",
+    "other": "{count} записи в этой точке"
+  },
+  "{count} units": {
+    "one": "{count} квартира",
+    "few": "{count} квартиры",
+    "many": "{count} квартир",
+    "other": "{count} квартиры"
+  },
+  "{count} with a recorded sale": {
+    "one": "{count} с записанной продажей",
+    "few": "{count} с записанной продажей",
+    "many": "{count} с записанной продажей",
+    "other": "{count} с записанной продажей"
+  },
   "Unit {unit}": "Квартира {unit}",
   "Building": "Здание",
   "and {count} more": "и ещё {count}",
   "Property sales (US)": "Продажи недвижимости (США)",
   "Titles": "Подписи",
-  "names on markers": "названия на маркерах"
+  "names on markers": "названия на маркерах",
+  "{size} kB of wikitext": "{size} КБ викитекста",
+  "secondary coordinate": "вторичная координата",
+  "Wikipedia, CC BY-SA 4.0 · dump of {date} · click to open": "Википедия, CC BY-SA 4.0 · дамп от {date} · нажмите, чтобы открыть",
+  "Wikipedia, CC BY-SA 4.0 · click to open": "Википедия, CC BY-SA 4.0 · нажмите, чтобы открыть",
+  "Landmarks": "Достопримечательности",
+  "Nature": "Природа",
+  "Other articles": "Другие статьи",
+  "Open {title} on Wikipedia": "Открыть «{title}» в Википедии",
+  "Articles": "Статьи",
+  "One dot per geotagged English Wikipedia article, coloured by its type; titles close in": "Точка на каждую статью английской Википедии с координатами, цвет по типу; названия вблизи",
+  "Density per km²": "Плотность на км²",
+  "Secondary": "Вторичные",
+  "Also the secondary coordinates: an article’s other places, ranked below every primary one": "Также вторичные координаты: другие места статьи, ниже всех первичных",
+  "The secondary coordinates are not built: run npm run wikipedia:build -- --points --secondary": "Вторичные координаты не построены: запустите npm run wikipedia:build -- --points --secondary",
+  "Run npm run wikipedia:build -- --points for the Wikipedia articles": "Запустите npm run wikipedia:build -- --points для статей Википедии",
+  "Reading the articles…": "Чтение статей…",
+  "Wikipedia articles unavailable: {reason}": "Статьи Википедии недоступны: {reason}",
+  "{count} articles in view": {
+    "one": "{count} статья в поле зрения",
+    "few": "{count} статьи в поле зрения",
+    "many": "{count} статей в поле зрения",
+    "other": "{count} статьи в поле зрения"
+  },
+  "the most notable; zoom in for all": "самые заметные; приблизьте, чтобы увидеть все",
+  "Secondary coordinates": "Вторичные координаты",
+  "Wikipedia": "Википедия"
 }

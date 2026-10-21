@@ -41,7 +41,7 @@ unless its switch is set to `0`.
 - [Elevation: the DEM stack](#elevation-the-dem-stack)
 - [Raster values (for Lego mode)](#raster-values-for-lego-mode)
 - [Grid (REFERENCE)](#grid-reference)
-- [Wikipedia coverage (ANALYSIS)](#wikipedia-coverage-analysis)
+- [Wikipedia (REFERENCE)](#wikipedia-reference)
   - [Per capita](#per-capita)
 - [Localities (REFERENCE)](#localities-reference)
 - [Street assets (ANALYSIS)](#street-assets-analysis)
@@ -2396,42 +2396,151 @@ lines cross the view: 30°, 10°, 5°, 2°, 1°, 30', 10', 5', 1'.
       the Eiffel Tower gives Veness's published `31U DQ 48251 11932`. The
       100 km lettering is the WGS84 ("AA") scheme. There is no dependency.
 
-## Wikipedia coverage (ANALYSIS)
+## Wikipedia (REFERENCE)
 
-**Wikipedia coverage**, the last row of the **ANALYSIS** group, drapes a
-heat raster of where English Wikipedia has written about the Earth, in the
-spirit of the Oxford Internet Institute's maps of the uneven geographies of
-Wikipedia and of Earth Engine's catalog rasters. Every article with a
-primary coordinate (Wikimedia's GeoData extension, `geo_tags`) is counted
-into a 0.05° cell (about 5.5 km at the equator, 7200 × 3600 cells), and the
-cells are coloured on a logarithmic inferno-like ramp: transparent where
-there is nothing, a dark half-seen plum at the ramp's floor, pale yellow at
-its ceiling. The floor and ceiling are the 5th and 99.5th percentiles of the
-non-empty cells, so the ramp spans what is there rather than the few
-densest blocks of Manhattan.
+**Wikipedia** (`wikipedia-coverage`, the id it always had, so share links
+and the Lego mode keep working) sits in the **REFERENCE** group after
+Localities. It shows where English Wikipedia has written about the Earth
+in two ways, switched with the row's chips and kept as
+`gev.wikipedia.mode`:
 
-The row's chips switch between three variants:
+| Chip                   | What it shows                                                                                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Articles** (default) | one dot per geotagged article, coloured by its type, titles for the nearest ones close in, a card on click (below)                                                                         |
+| **Density per km²**    | primary geotagged articles under the pixel, divided by the cells' area (per km², with each row's spherical cell area, so a 60° N cell counts half an equatorial one)                       |
+| **Text per km²**       | bytes of the articles' wikitext per km²: article _size_, not words, and only when the build included the page table (below); otherwise the chip is greyed and choosing it says what to run |
+| **Per 100k people**    | articles per 100,000 people (GHSL 2020), clear where fewer than 100 people live                                                                                                            |
+| **Text per person**    | wikitext bytes per person, likewise                                                                                                                                                        |
 
-| Chip                           | What a pixel shows                                                                                                                                                                         |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Articles per km²** (default) | primary geotagged articles under the pixel, divided by the cells' area (per km², with each row's spherical cell area, so a 60° N cell counts half an equatorial one)                       |
-| **Text per km²**               | bytes of the articles' wikitext per km²: article _size_, not words, and only when the build included the page table (below); otherwise the chip is greyed and choosing it says what to run |
-| **Articles (count)**           | the raw number of articles under the pixel, not divided by area, so it grows as you zoom out                                                                                               |
+The four coverage modes are heat rasters (or H3 hexagons, the Hexes chip),
+in the spirit of the Oxford Internet Institute's maps of the uneven
+geographies of Wikipedia and of Earth Engine's catalog rasters. Every
+article with a primary coordinate (Wikimedia's GeoData extension,
+`geo_tags`) is counted into a 0.05° cell (about 5.5 km at the equator,
+7200 × 3600 cells), and the cells are coloured on a logarithmic
+inferno-like ramp: transparent where there is nothing, a dark half-seen
+plum at the ramp's floor, pale yellow at its ceiling. The floor and
+ceiling are the 5th and 99.5th percentiles of the non-empty cells, so the
+ramp spans what is there rather than the few densest blocks of Manhattan.
+The raw count (`count`) is no longer a chip; the grid, the hexagons and
+the Lego mode still carry it.
 
-The legend is the ramp in five swatches, labelled with the variant's floor
-and ceiling (the last marked `+`); the opacity slider is kept in this
-browser as `gev.wikipediaCoverage.opacity`; the status line names the dump
-date and the article count. The layer is off by default, is not in share
-links, and voice cannot control it. Tiles go no deeper than z 9, where a
-cell is an 18-pixel square; Cesium upsamples below that. Like the Earth
-Engine overlays it drapes through `maps/imageryHost.js` (the globe, or a
-photoreal tileset's own imagery layers), and covers only a view-sized
-rectangle on a tileset (the Earth Engine layer's rectangle and rebuild
-rule, imported from it).
+The legend is the type classes (Articles) or the ramp in five swatches,
+labelled with the variant's floor and ceiling (the last marked `+`); the
+opacity slider (rasters only) is kept in this browser as
+`gev.wikipediaCoverage.opacity`; the status line names the dump date and
+the article count. The layer is off by default and voice cannot control
+it. Raster tiles go no deeper than z 9, where a cell is an 18-pixel
+square; Cesium upsamples below that. Like the Earth Engine overlays the
+rasters drape through `maps/imageryHost.js` (the globe, or a photoreal
+tileset's own imagery layers), and cover only a view-sized rectangle on a
+tileset (the Earth Engine layer's rectangle and rebuild rule, imported
+from it).
 
 Attribution: "Wikipedia, CC BY-SA 4.0 — Wikimedia GeoData", in the credit
 line and the data-attribution popover. The counts are facts about
-Wikipedia, not its text; the dump's licence is Wikipedia's.
+Wikipedia, not its text; the dump's licence is Wikipedia's. A card's
+summary is Wikipedia's text (CC BY-SA 4.0), shown with the article's
+title and a link to it.
+
+### Articles: one dot per article
+
+The Articles mode is what [wikimap.wiki](https://wikimap.wiki/) does: every
+geotagged article as a dot. Dots are coloured by GeoData's `gt_type` in
+four classes, which also rank them:
+
+| Class     | `gt_type`                                         | Colour    |
+| --------- | ------------------------------------------------- | --------- |
+| Places    | city, adm1st, adm2nd, adm3rd, country, state      | `#ffd166` |
+| Landmarks | landmark, edu, railwaystation, airport, event     | `#ef476f` |
+| Nature    | mountain, river, waterbody, isle, glacier, forest | `#06d6a0` |
+| Other     | everything else, and the 712,054 untyped          | `#8ecae6` |
+
+Within a class, articles rank by `gt_dim` (GeoData's object size: a
+country before a town before a building) and then by article bytes. From
+afar each tile keeps only its best ranked (24 a tile below z 12), so a
+world or continent view is a sparse splatter of the most notable places;
+from z 12 (about 10 km up) every article is there. The answer holds at
+most 4,000 dots; past that, the best ranked. Below 40 km the nearest 30 of
+the view's dots get their titles through the overlay host (variant
+`label`, so the panel's Titles toggle hides them). A click opens a card:
+the title, its class and type, Wikipedia's description and extract, the
+article's size, its Wikidata item, the coordinates and the dump's date;
+the card's thumbnail beside it. The summary (and thumbnail) comes from
+`https://en.wikipedia.org/api/rest_v1/page/summary/<title>` through the
+local server, which names itself with the build's User-Agent and keeps
+each answer a day; the browser asks only on click, once a session per
+title, and nothing is prefetched. A click on the card opens
+`https://en.wikipedia.org/?curid=<page id>` (the page id, since a title
+can be renamed).
+
+**Primary and secondary coordinates.** GeoData gives an article at most
+one _primary_ coordinate (where the article's subject is) and any number
+of _secondary_ ones (places it mentions: a river's mouth, a battle's
+positions, a route's stops). The dump of 2026-10-08 has 1,259,442 primary
+and 1,541,250 secondary Earth coordinates. The dots are the primary ones;
+`--secondary` adds the secondary ones as a lower class of their own,
+ranked below every primary one (so they never crowd a world view), drawn
+smaller and grey, and shown only when the row's **Secondary** chip is on
+(`gev.wikipedia.secondary`, off by default).
+
+**Compared with wikimap.wiki**: the same idea (a dot an article, the
+notable ones from afar) on the app's own globe, built offline from the
+dumps and served from the local disk, with no tile server or API of its
+own; classes and ranking from GeoData's own type and size rather than
+page views; the coverage rasters beside it.
+
+**Building the points**: `npm run wikipedia:build -- --points
+[--secondary]` (`scripts/wikipedia/points.mjs`), after the grid's steps:
+
+1. `geo_tags` (already on disk): every Earth coordinate with its page id,
+   `gt_type` and `gt_dim`; a second primary coordinate for a page is
+   dropped as GeoData's duplicate.
+2. The page table, streamed as `--text` does (once, never kept; one pass
+   serves both): each geotagged article's title and size; namespace 0
+   only, redirects dropped.
+3. `enwiki-latest-page_props.sql.gz` (484 MB, kept beside `geo_tags` with
+   its ETag): each article's Wikidata item (`pp_propname =
+'wikibase_item'`). The item is the key other wikis' articles will be
+   unioned by.
+4. The index under `points/` (`server/providers/wikipediaCoverage/
+pointsFile.js`): blocks of a tile's articles in rank order, 28 bytes an
+   article (position on the 2^28 grid, page id, item number, bytes, dim,
+   class, flags, wiki) and its "title\0type", one block per tile and zoom:
+   zooms 0–6 in one overview file, 7–12 in one bucket file per z 6 tile
+   (the Overture buildings' bucket format), a manifest and `current.json`.
+   `wikipedia:status` says what is built.
+
+`GET /api/wikipedia-coverage/points?west=&south=&east=&north=&zoom=[&secondary=1]`
+answers the tiles the box meets at the zoom (stepping up a zoom past 1,024
+tiles), in the shared tile pool's worker; `GET
+/api/wikipedia-coverage/summary?title=` is the card's summary. Not yet
+built on this machine: the page_props download waits for a go-ahead, and
+the sizes and the build time are reported with the first run.
+
+### Wikipedia: more languages (later)
+
+The index already carries a wiki code per article and its Wikidata item,
+and the CLI takes `--wikis enwiki` (anything else is refused for now).
+Two ways to add the other languages, without counting an article twice:
+
+- **Each wiki's own dumps, unioned by item.** For dewiki, frwiki, eswiki,
+  ruwiki, jawiki, zhwiki, itwiki, ptwiki, plwiki and nlwiki: their
+  `geo_tags`, `page` (streamed) and `page_props` (kept), joined as for
+  enwiki; an article whose item another wiki already placed adds no dot
+  (the first wiki listed wins, with its title in its own language), one
+  without an item is its own dot. Measured 2026-10-21 (HEAD requests to
+  dumps.wikimedia.org): `geo_tags` 3–61 MB each (136 MB for the ten; dewiki
+  the largest), `page` 147–485 MB (2.69 GB, streamed), `page_props` 42–105
+  MB (654 MB, kept): about 3.5 GB to fetch for the ten and well under an
+  hour of parsing. The index grows by the articles no other wiki placed.
+- **Wikidata's coordinates (P625) for every item with a sitelink.** One
+  source for every language, ranked by sitelink count; but the Wikidata
+  JSON dump is 156.6 GB compressed (the "truthy" N-Triples 71.7 GB), most
+  of a day to stream, and an item's coordinate is not always the one its
+  articles carry.
+
+### The coverage rasters: building and serving
 
 **Building the grid** (`scripts/wikipedia/`). Nothing is fetched at request
 time: the server reads a grid you build.
@@ -2439,6 +2548,7 @@ time: the server reads a grid you build.
 ```
 npm run wikipedia:build            # articles per km² and counts (about a minute)
 npm run wikipedia:build -- --text  # also article sizes: streams the 2 GB page table once
+npm run wikipedia:build -- --points [--secondary]  # the Articles dots (above)
 npm run wikipedia:status           # what is built, from which dump, how old
 ```
 
