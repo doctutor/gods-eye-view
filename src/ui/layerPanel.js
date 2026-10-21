@@ -246,8 +246,12 @@ export class LayerPanel {
     // Personal fork: a control beside a group heading, by the group's English
     // label: (document) => {element, destroy} (the Lego render drop-down).
     groupHeadingControls = {},
+    // Personal fork: the Titles toggle ({get, set, subscribe}, ui/titles.js),
+    // one row above the first group.
+    titles = null,
   }) {
     this.weatherClock = weatherClock;
+    this.titles = titles;
     this.groupHeadingControls = groupHeadingControls || {};
     this.getAll = getLayers;
     this.isEnabled = isEnabled;
@@ -323,6 +327,7 @@ export class LayerPanel {
     if (this._destroyed || !this._toggleContainer) return;
     this._releaseBindings();
     this._toggleContainer.innerHTML = '';
+    if (this.titles) this._toggleContainer.appendChild(this._buildTitlesRow());
 
     const generation = this._generation;
     const layers = this.getAll()
@@ -912,6 +917,54 @@ export class LayerPanel {
       'aria-label',
       keyGuidance ? `${ariaLabel}. ${keyGuidance}` : ariaLabel,
     );
+  }
+
+  /**
+   * Personal fork: the Titles row: names on markers (every overlay entry of
+   * variant 'label') on or off, across every layer.
+   */
+  _buildTitlesRow() {
+    const row = document.createElement('div');
+    row.className = 'data-toggle-row data-titles-row';
+    row.dataset.panelSetting = 'titles';
+    const topRow = document.createElement('div');
+    topRow.className = 'data-toggle-top';
+    const left = document.createElement('div');
+    left.className = 'data-toggle-left';
+    const name = document.createElement('span');
+    name.className = 'data-name';
+    setRowText(name, t('Titles'));
+    left.appendChild(name);
+    const right = document.createElement('div');
+    right.className = 'data-toggle-right';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    const sync = () => {
+      const on = this.titles.get() !== false;
+      toggle.className = `data-toggle-btn${on ? ' active' : ''}`;
+      toggle.textContent = on ? t('ON') : t('OFF');
+      toggle.setAttribute('aria-pressed', String(on));
+      toggle.setAttribute(
+        'aria-label',
+        t('{name}: {state}', { name: t('Titles'), state: toggle.textContent }),
+      );
+    };
+    sync();
+    this._bind(toggle, 'click', () => {
+      this.titles.set(this.titles.get() === false);
+      sync();
+    });
+    const unsubscribe = this.titles.subscribe?.(sync);
+    if (typeof unsubscribe === 'function') this._removers.push(unsubscribe);
+    right.appendChild(toggle);
+    topRow.appendChild(left);
+    topRow.appendChild(right);
+    const meta = document.createElement('div');
+    meta.className = 'data-toggle-meta';
+    setRowText(meta, t('names on markers'));
+    row.appendChild(topRow);
+    row.appendChild(meta);
+    return row;
   }
 
   _formatCount(n) {

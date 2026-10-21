@@ -3627,5 +3627,7 @@
   "Unit {unit}": "Unidad {unit}",
   "Building": "Edificio",
   "and {count} more": "y {count} más",
-  "Property sales (US)": "Ventas de propiedades (EE. UU.)"
+  "Property sales (US)": "Ventas de propiedades (EE. UU.)",
+  "Titles": "Títulos",
+  "names on markers": "nombres en los marcadores"
 }
