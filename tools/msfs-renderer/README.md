@@ -325,10 +325,23 @@ NVIDIA Cloud Gaming", "License Status: Licensed").
 
 ## Record a camera path
 
-Placeholder: a bridge program (a separate task) will run on the cloud
-machine. It will take a camera path computed here from GEV's data, fly the
-sim's add-on camera along it through SimConnect's Camera API, and start and
-stop OBS around it.
+1. **On this PC, the path.** A route becomes a camera path file, with
+   terrain from the running app's DEM stack:
+
+   ```bash
+   npm run msfs:path -- --from lat,lon --to lat,lon [--via lat,lon] --out path.json
+   ```
+
+2. **On the cloud machine, the flight.** `bridge/` (C#, .NET 8) flies the
+   sim's add-on camera along it through SimConnect's Camera API and records
+   it with OBS:
+
+   ```bash
+   gev-bridge path.json --record
+   ```
+
+`bridge/README.md` has the build, the first run (`--check-header`,
+`--attitude-test`), the OBS setup and the known risks.
 
 ## Not verified yet
 

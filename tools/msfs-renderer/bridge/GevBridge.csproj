@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Personal fork: the GEV MSFS bridge (README.md). Flies MSFS 2024's add-on
+    camera along a camera path file (npm run msfs:path) through SimConnect's
+    camera API, optionally recording with OBS.
+
+    It calls the native SimConnect.dll from the MSFS 2024 SDK (nothing of the
+    SDK is committed). The SDK root comes from -p:MsfsSdk=..., else the
+    MSFS2024_SDK or MSFS_SDK environment variable. Without it the bridge still
+    builds and its dry run works; live runs need SimConnect.dll beside it.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>GevBridge</RootNamespace>
+    <AssemblyName>gev-bridge</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <MsfsSdk Condition="'$(MsfsSdk)' == ''">$(MSFS2024_SDK)</MsfsSdk>
+    <MsfsSdk Condition="'$(MsfsSdk)' == ''">$(MSFS_SDK)</MsfsSdk>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(MsfsSdk)' != '' And Exists('$(MsfsSdk)\SimConnect SDK\lib\SimConnect.dll')">
+    <None Include="$(MsfsSdk)\SimConnect SDK\lib\SimConnect.dll" Link="SimConnect.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="WarnWithoutSdk" BeforeTargets="Build" Condition="'$(MsfsSdk)' == '' Or !Exists('$(MsfsSdk)\SimConnect SDK\lib\SimConnect.dll')">
+    <Warning Text="No MSFS 2024 SDK (MsfsSdk / MSFS2024_SDK / MSFS_SDK): SimConnect.dll is not copied. --dry-run works; live runs need SimConnect.dll beside gev-bridge.exe and --sdk for SimConnect.h." />
+  </Target>
+</Project>

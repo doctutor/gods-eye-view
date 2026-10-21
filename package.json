@@ -70,6 +70,7 @@
     "msfs:stop": "node tools/msfs-renderer/msfs.mjs stop",
     "msfs:status": "node tools/msfs-renderer/msfs.mjs status",
     "msfs:quota": "node tools/msfs-renderer/msfs.mjs quota",
+    "msfs:path": "node scripts/msfs/path.mjs",
     "raw:archive": "node scripts/raw-archive.mjs",
     "qa:transit": "node scripts/qa-transit.mjs",
     "mcp": "node server/mcp/stdio.js"

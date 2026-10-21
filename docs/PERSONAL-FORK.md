@@ -4328,6 +4328,22 @@ minimum IAM policy, costs, the first session by hand).
   address, $12 per month for the volume, and transfer out past the free
   100 GB per month at $0.09 per GB.
 - **Quota:** a new account has 0 vCPUs of G instances; `msfs:quota` requests 8.
+- **Camera paths:** `npm run msfs:path -- --from lat,lon --to lat,lon
+--out path.json` (`scripts/msfs/cameraPath.mjs`). It builds great-circle
+  legs, rounds corners to the turn the speed allows, and samples them at the
+  frame rate. The altitude is the DEM stack's terrain (raster values,
+  `ee-elevation`) plus the AGL, slope-limited and smoothed, never below that
+  clearance. Heading, pitch and bank come from the track. Road mode follows
+  straight legs until a routing graph exists.
+- **The bridge:** `tools/msfs-renderer/bridge/` (C#, .NET 8, native
+  SimConnect.dll from the MSFS 2024 SDK). It flies the add-on camera along a
+  path (`SimConnect_CameraAcquire`, a world locker at the start,
+  `SimConnect_CameraSet` with `ALL_ROTATION` in the World referential) on a
+  monotonic clock, and can record with OBS through obs-websocket v5. It
+  releases the camera on exit and Ctrl+C. It reads its SimConnect values
+  from the installed `SimConnect.h` and checks the camera struct against it.
+  `--dry-run` replays a file without a sim. Not compiled yet: no .NET SDK on
+  this PC.
 - **Tests:** `src/tooling/msfsRenderer.test.mjs` covers the template, the
   user-data, the commands against a fake AWS CLI, the costs and the
   arguments, with no AWS calls.
