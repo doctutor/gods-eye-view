@@ -117,12 +117,17 @@ function fakeSource({ refuse = () => false, text = false } = {}) {
   };
 }
 
+/** A chip of the row by its id. */
+const chip = (controls, id) => controls.chips.find((c) => c.id === id);
+
 const flush = async () => {
   for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
 };
 
+// The rasters' Hexes mode: these layers start in the density mode (the
+// layer's default is the Articles dots, points.test.mjs).
 const memoryStorage = () => {
-  const map = new Map();
+  const map = new Map([['gev.wikipedia.mode', 'articles']]);
   return {
     map,
     getItem: (k) => (map.has(k) ? map.get(k) : null),
@@ -251,7 +256,7 @@ test("the Hexes chip switches the layer from the raster to H3 cells at the camer
   let controls = layer.getRowControls();
   assert.deepEqual(
     controls.chips.map((chip) => chip.id),
-    ['articles', 'text', 'count', 'capita', 'textcapita', 'hexes'],
+    ['points', 'articles', 'text', 'capita', 'textcapita', 'hexes'],
   );
   assert.equal(controls.chips[5].active, false);
   assert.equal(controls.chips[5].label, 'Hexes');
@@ -297,11 +302,15 @@ test("the Hexes chip switches the layer from the raster to H3 cells at the camer
   env.moveTo({ lat: 51, lon: 11 });
   await flush();
   assert.equal(source.calls.length, 1);
-  layer.getRowControls().chips[2].onClick();
+  chip(layer.getRowControls(), 'capita').onClick();
   await flush();
   assert.equal(source.calls.length, 2);
-  assert.equal(source.calls[1].variant, 'count');
+  assert.equal(source.calls[1].variant, 'capita');
   assert.equal(env.primitives.length, 1);
+  // Back to the density (the raster below needs a variant it has).
+  chip(layer.getRowControls(), 'articles').onClick();
+  await flush();
+  assert.equal(source.calls.length, 3);
 
   // Opacity: the surface is drawn again from the held data (not ready yet).
   const before = env.primitives[0];
@@ -311,7 +320,7 @@ test("the Hexes chip switches the layer from the raster to H3 cells at the camer
   assert.notEqual(env.primitives[0], before);
   assert.equal(env.primitives.length, 1);
   assert.equal(layer.getStats().countLabel, '50%');
-  assert.equal(source.calls.length, 2, 'no refetch for opacity');
+  assert.equal(source.calls.length, 3, 'no refetch for opacity');
 
   // Back to the raster, and off.
   layer.getRowControls().chips[5].onClick();
@@ -427,11 +436,11 @@ test('a variant the hex grid lacks (404) greys its chip with the message, like a
   assert.ok(
     layer
       .getRowControls()
-      .chips.filter((chip) => !['capita', 'textcapita'].includes(chip.id))
-      .every((chip) => chip.state === undefined),
-    'every chip offered while the grid has the variant (no people here)',
+      .chips.filter((c) => !['points', 'capita', 'textcapita'].includes(c.id))
+      .every((c) => c.state === undefined),
+    'every chip offered while the grid has the variant (no people, no dots here)',
   );
-  layer.getRowControls().chips[1].onClick(); // text
+  chip(layer.getRowControls(), 'text').onClick();
   await flush();
   assert.equal(source.calls.at(-1).variant, 'text');
   assert.equal(
@@ -448,9 +457,9 @@ test('a variant the hex grid lacks (404) greys its chip with the message, like a
   assert.deepEqual(
     controls.chips.map((chip) => [chip.id, chip.state]),
     [
+      ['points', 'error'],
       ['articles', undefined],
       ['text', 'error'],
-      ['count', undefined],
       ['capita', 'error'],
       ['textcapita', 'error'],
       ['hexes', undefined],
@@ -459,14 +468,14 @@ test('a variant the hex grid lacks (404) greys its chip with the message, like a
   assert.match(controls.info, /built without --text/);
   assert.deepEqual(controls.legend, [], 'no domain, no legend');
   // Back to a variant the grid has: drawn again, nothing greyed.
-  controls.chips[0].onClick();
+  chip(controls, 'articles').onClick();
   await flush();
   assert.equal(env.primitives.length, 1);
   assert.ok(
     layer
       .getRowControls()
-      .chips.filter((chip) => !['capita', 'textcapita'].includes(chip.id))
-      .every((chip) => chip.state === undefined),
+      .chips.filter((c) => !['points', 'capita', 'textcapita'].includes(c.id))
+      .every((c) => c.state === undefined),
   );
   layer.destroy();
 });

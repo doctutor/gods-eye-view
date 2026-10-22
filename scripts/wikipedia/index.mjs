@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REFRESH_EVERY_DAYS, buildFiles, runBuild } from './build.mjs';
+import { pointsStatusOf } from './points.mjs';
 import { buildCapita, buildPopulation } from './population.mjs';
 import {
   createEarthEngineService,
@@ -22,6 +23,7 @@ import {
  *
  *   node scripts/wikipedia/index.mjs build [--text] [--force] [--offline]
  *        [--limit N] [--dir DIR] [--population [--env-root DIR]]
+ *        [--points [--secondary] [--wikis enwiki]]
  *   node scripts/wikipedia/index.mjs status [--json] [--dir DIR]
  *
  * `build` downloads Wikimedia's GeoData dump (enwiki-latest-geo_tags.sql.gz,
@@ -32,6 +34,13 @@ import {
  * per km² as well as articles per km². The dump refreshes about twice a
  * month; run `build` monthly (npm run wikipedia:build) and the ETag makes an
  * unchanged month a few seconds.
+ *
+ * `--points` writes the Articles mode's index (points.mjs) under points/:
+ * one dot per article, from geo_tags, the streamed page table (titles) and
+ * the page_props dump (each article's Wikidata item; 484 MB, kept beside
+ * geo_tags). `--secondary` adds the secondary coordinates (1.5 M, a lower
+ * class the layer shows only when asked); `--wikis` names the wikis to
+ * union by Wikidata item (only enwiki today).
  *
  * Everything lives in WIKIPEDIA_COVERAGE_DIR (default .gev-cache/wikipedia in
  * the repository): the dump, geo_tags.meta.json (ETag, Last-Modified),
@@ -121,6 +130,7 @@ export function statusOf(dir, now = () => Date.now(), rawDir = dir) {
     countries: header.countries,
     bytes: fs.statSync(files.grid).size,
     h3: h3StatusOf(files.h3),
+    points: pointsStatusOf(files.points),
   };
 }
 
@@ -168,6 +178,11 @@ function statusLines(status) {
       ? `h3: ${(status.h3.bytes / 1_048_576).toFixed(1)} MB, cells by resolution ${status.h3.resolutions.map(({ res, cells }) => `${res}:${number(cells)}`).join(' ')}${status.h3.text ? '' : ' (no article sizes)'}`
       : `h3: not built${status.h3?.error ? ` (${status.h3.error})` : ''}; run npm run wikipedia:build`,
   );
+  lines.push(
+    status.points?.built
+      ? `points: ${number(status.points.points)} articles${status.points.secondary ? ` and ${number(status.points.secondary)} secondary coordinates` : ''} (${status.points.wikis.join(', ')}), ${(status.points.bytes / 1_048_576).toFixed(1)} MB in ${status.points.buckets} buckets, dump ${status.points.dump?.date || '?'}`
+      : 'points: not built; run npm run wikipedia:build -- --points',
+  );
   return lines;
 }
 
@@ -189,6 +204,9 @@ async function main(argv) {
       dir,
       rawDir,
       text: Boolean(flags.text),
+      points: Boolean(flags.points),
+      secondary: Boolean(flags.secondary),
+      wikis: typeof flags.wikis === 'string' ? flags.wikis : 'enwiki',
       force: Boolean(flags.force),
       offline: Boolean(flags.offline),
       limit: limitOf(flags.limit),

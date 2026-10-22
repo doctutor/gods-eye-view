@@ -29,6 +29,13 @@ import {
   parseBbox,
   queryCells,
 } from './wikipediaCoverage/h3.js';
+import { createTilePool } from './common/tilePool.js';
+import {
+  NEEDS_POINTS,
+  createPointsIndex,
+} from './wikipediaCoverage/pointsIndex.js';
+import { createSummaryFetcher } from './wikipediaCoverage/summary.js';
+import { WIKIPEDIA_POINT_LIMIT } from '../../src/data/wikipediaPoints.js';
 
 /**
  * Where English Wikipedia has written about the Earth, from Wikimedia's
@@ -49,6 +56,14 @@ import {
  *       centres lie in the box, as [[index, value], …] with the
  *       resolution's ramp domain; west > east crosses the antimeridian;
  *       413 past H3_MAX_CELLS cells, 503 without the file
+ *   GET /api/wikipedia-coverage/points?west=&south=&east=&north=&zoom=[&secondary=1&v=]
+ *       the Articles mode's dots (points/ beside the grid, `npm run
+ *       wikipedia:build -- --points`): below z 12 each tile's best ranked,
+ *       from z 12 every article, at most 4,000; secondary coordinates only
+ *       when asked; drawn in the shared tile pool's workers
+ *   GET /api/wikipedia-coverage/summary?title=
+ *       an article's REST summary (extract, thumbnail) from
+ *       en.wikipedia.org, asked only when its card opens, kept a day
  *
  * Variants: `articles` (per km²), `text` (bytes of wikitext per km², when
  * the build included the page table), `count` (articles under each pixel
@@ -139,7 +154,22 @@ export function createWikipediaCoverageService({
   h3MaxCells = H3_MAX_CELLS,
   populationFile = path.join(path.dirname(gridFile), 'population.bin'),
   capitaFile = path.join(path.dirname(gridFile), 'capita.bin'),
+  pointsDir = path.join(path.dirname(gridFile), 'points'),
+  pointWorkers = 0,
+  fetchImpl = (...args) => fetch(...args),
 } = {}) {
+  // The Articles mode's dots, answered in the shared tile pool when it has
+  // workers (each answer reads and unpacks a few dozen blocks).
+  const points = createPointsIndex({ dir: pointsDir, now });
+  const pointsPool =
+    pointWorkers > 0
+      ? createTilePool({
+          drawer: 'wikipedia-points',
+          options: { dir: pointsDir },
+          size: pointWorkers,
+        })
+      : null;
+  const summaries = createSummaryFetcher({ fetchImpl, now });
   const gridWatch = createFileWatch(gridFile, openGrid, now, 'grid');
   const h3Watch = createFileWatch(h3File, openH3File, now, 'h3.bin');
   const populationWatch = createFileWatch(
@@ -185,6 +215,14 @@ export function createWikipediaCoverageService({
   const grid = () => gridWatch.current();
   const hexes = () => h3Watch.current();
 
+  /** What /layers says about the dots. */
+  function pointsSummary() {
+    const status = points.status();
+    return status.configured
+      ? { built: true, ...status }
+      : { built: false, message: status.message || NEEDS_POINTS };
+  }
+
   /** What /layers says about the hexagons. */
   function h3Summary() {
     const open = hexes();
@@ -217,6 +255,7 @@ export function createWikipediaCoverageService({
           })),
           population: { built: false, message: NEEDS_POPULATION },
           h3: h3Summary(),
+          points: pointsSummary(),
         };
       const { header } = open;
       return {
@@ -276,7 +315,26 @@ export function createWikipediaCoverageService({
         ],
         population: populationSummary(),
         h3: h3Summary(),
+        points: pointsSummary(),
       };
+    },
+
+    /** The Articles mode's dots for a box (parsePointsQuery's query). */
+    points: (query) =>
+      pointsPool
+        ? pointsPool.render(
+            'points',
+            [query],
+            `points/${JSON.stringify(query)}`,
+          )
+        : points.points(query),
+
+    /** An article's REST summary for its card. */
+    summary: (title) => summaries.summary(title),
+
+    async close() {
+      await pointsPool?.close();
+      points.close();
     },
 
     /**
@@ -412,6 +470,23 @@ function sendJson(res, status, payload) {
 }
 
 const TILE_PATH = /^\/tile\/([a-z]{1,16})\/(\d{1,2})\/(\d{1,8})\/(\d{1,8})$/;
+
+/** The dots' query (a box, a zoom, secondary or not), checked; or {error}. */
+export function parsePointsQuery(params) {
+  const box = parseBbox(Object.fromEntries(params));
+  if (!box) return { error: 'west, south, east and north are degrees' };
+  if (box.south >= box.north) return { error: 'The box is empty' };
+  const raw = params.get('zoom');
+  const zoom = raw === null || raw.trim() === '' ? NaN : Number(raw);
+  if (!Number.isFinite(zoom) || zoom < 0 || zoom > 24)
+    return { error: 'zoom is 0 to 24' };
+  return {
+    ...box,
+    zoom: Math.floor(zoom),
+    secondary: params.get('secondary') === '1',
+    limit: WIKIPEDIA_POINT_LIMIT,
+  };
+}
 const H3_PATH = /^\/h3\/(\d{1,2})\/([a-z]{1,16})$/;
 
 /** A JSON body, gzip when accepted, cached as the tiles are. */
@@ -451,6 +526,26 @@ export function createWikipediaCoverageHandler({ service }) {
         );
         if (answer.status !== 200)
           return sendJson(res, answer.status, { message: answer.message });
+        return sendCached(req, res, answer.body);
+      }
+      if (route === '/points') {
+        const query = parsePointsQuery(url.searchParams);
+        if (query.error) return sendJson(res, 400, { error: query.error });
+        const answer = await service.points(query);
+        if (answer.status !== 200)
+          return sendJson(res, answer.status, { error: answer.error });
+        const asked = url.searchParams.get('v');
+        if (asked && asked === answer.version)
+          return sendCached(req, res, {
+            version: answer.version,
+            ...answer.body,
+          });
+        return sendJson(res, 200, { version: answer.version, ...answer.body });
+      }
+      if (route === '/summary') {
+        const answer = await service.summary(url.searchParams.get('title'));
+        if (answer.status !== 200)
+          return sendJson(res, answer.status, { error: answer.error });
         return sendCached(req, res, answer.body);
       }
       const match = TILE_PATH.exec(route);
@@ -500,7 +595,7 @@ export function wikipediaCoverageProxy({
   service,
 } = {}) {
   function install(middlewares) {
-    shared ||= createWikipediaCoverageService({ sourceRoot });
+    shared ||= createWikipediaCoverageService({ sourceRoot, pointWorkers: 1 });
     middlewares.use(
       WIKIPEDIA_COVERAGE_ROUTE,
       createWikipediaCoverageHandler({ service: service || shared }),
