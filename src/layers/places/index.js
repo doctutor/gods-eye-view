@@ -502,7 +502,7 @@ export function createPlacesLayer({
     },
 
     getRowControls() {
-      return rowControls({
+      const controls = rowControls({
         category: _category,
         onCategory: setCategory,
         minConfidence: _confidence,
@@ -510,6 +510,11 @@ export function createPlacesLayer({
         status: _status,
         enabled: _enabled,
       });
+      // Personal fork: the rollup hexes' count window while they show.
+      const scale = _rollup?.isActive?.()
+        ? _rollup.scaleControl?.() || null
+        : null;
+      return scale ? { ...controls, scale } : controls;
     },
 
     setRowControlsListener(listener) {

@@ -751,6 +751,10 @@ export const COLOUR_SCALE_LAYER_TOKENS = Object.freeze({
   'ee-inundation': 'in',
   'ee-forest-loss': 'fl',
   'ee-census-tracts': 'ct',
+  // Point rollups' count windows (mode 'rollup').
+  cctv: 'cc',
+  places: 'pl',
+  'street-assets': 'sa',
 });
 const LAYER_BY_TOKEN = new Map(
   Object.entries(COLOUR_SCALE_LAYER_TOKENS).map(([id, token]) => [token, id]),

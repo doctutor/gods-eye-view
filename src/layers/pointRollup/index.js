@@ -7,6 +7,9 @@
 // ground-clamped (maps/h3Surface.js), filled in the layer's accent colour
 // on a log ramp of their count, labelled with the count through the
 // world-overlay host, and a click on one flies the camera to its bounds.
+// The count window is a colour scale (scale.js): a user's floor and
+// ceiling, log or linear, palette and HIDE OUTSIDE, kept per layer as
+// `<id>:rollup` in the colour-scale store; `scaleControl()` is the row's.
 //
 // The owning layer keeps its points and its pins; it only hides the pins
 // while `onModeChange(true)` holds and shows them again on `false`. Adopt
@@ -24,6 +27,9 @@ import * as Cesium from 'cesium';
 import { viewMoved, viewWindow } from '../../maps/h3Cells.js';
 import { h3ResolutionForHeight } from '../../maps/h3Resolution.js';
 import { createHexSurface } from '../../maps/h3Surface.js';
+import { colourScales } from '../../maps/colourScaleStore.js';
+import { encodeScaleFields } from '../../maps/colourScale.js';
+import { scaleRowControl } from '../../ui/colourScaleWidget.js';
 import {
   binPoints,
   cellAlpha,
@@ -32,6 +38,14 @@ import {
   labelEntry,
   rollupWanted,
 } from './rollup.js';
+import {
+  rollupAuto,
+  rollupFill,
+  rollupScaleDefaults,
+  rollupScaleKey,
+  rollupScaleModel,
+  setRollupAccent,
+} from './scale.js';
 
 export const DEFAULT_ROLLUP_ACCENT = '#39d5ff';
 /** The fly-to on a hex click, seconds. */
@@ -57,6 +71,8 @@ export const ROLLUP_FLY_SECONDS = 1.2;
  * @param {(active: boolean) => void} [options.onModeChange]
  * @param {() => void} [options.onUpdate] After each redraw or clear (a row readout).
  * @param {boolean} [options.enabled=true]
+ * @param {object|null} [options.scales] The colour-scale store
+ *   (src/maps/colourScaleStore.js; the app's by default, null for none).
  */
 export function attachPointRollup(
   {
@@ -76,6 +92,7 @@ export function attachPointRollup(
     onModeChange = () => {},
     onUpdate = () => {},
     enabled = true,
+    scales = colourScales(),
   },
 ) {
   if (
@@ -96,6 +113,16 @@ export function attachPointRollup(
   let _destroyed = false;
   let _removeMove = null;
   let _handler = null;
+  let _maxCount = 0;
+  let _scaleToken = '';
+  setRollupAccent(id, accent);
+  // The scale registered, and a change of it redraws the hexes.
+  if (scales) scales.get(rollupScaleKey(id), rollupScaleDefaults(id));
+  const _unsubscribeScale =
+    scales?.subscribe?.((key) => {
+      if (key === undefined || key === rollupScaleKey(id))
+        refresh({ force: true });
+    }) || null;
 
   function viewNow() {
     const camera = viewer?.camera;
@@ -193,11 +220,24 @@ export function attachPointRollup(
     const bins = counts || binPoints(points, res, window);
     let max = 0;
     for (const count of bins.values()) if (count > max) max = count;
+    _maxCount = max;
     const base = cesium.Color.fromCssColorString(accent);
+    // A user's count window (scale.js); null: the accent's log ramp.
+    const model = rollupScaleModel(scales, id);
+    const defaults = rollupScaleDefaults(id);
+    _scaleToken = model ? encodeScaleFields(model) : '';
     const coloured = [];
     const entries = [];
     for (const [cell, count] of bins) {
-      coloured.push([cell, base.withAlpha(cellAlpha(count, max))]);
+      if (model) {
+        const fill = rollupFill(model, defaults, count, max);
+        if (!fill) continue; // outside the window, hidden
+        const [r, g, b] = fill.rgb;
+        coloured.push([
+          cell,
+          new cesium.Color(r / 255, g / 255, b / 255, fill.alpha),
+        ]);
+      } else coloured.push([cell, base.withAlpha(cellAlpha(count, max))]);
       entries.push(
         labelEntry({
           cell,
@@ -317,6 +357,22 @@ export function attachPointRollup(
     isActive: () => _active,
     handlePickedId,
     flyToCell,
+    /**
+     * The row's Scale controls for the count window (colourScaleWidget.js),
+     * the automatic window one to the fullest hex drawn; null without a
+     * store.
+     */
+    scaleControl() {
+      if (!scales) return null;
+      const auto = rollupAuto(_maxCount);
+      return scaleRowControl({
+        store: scales,
+        key: rollupScaleKey(id),
+        defaults: rollupScaleDefaults(id),
+        auto,
+        range: { min: 1, max: Math.max(auto.max, 10) },
+      });
+    },
     getState() {
       return {
         enabled: _enabled,
@@ -325,6 +381,8 @@ export function attachPointRollup(
         cells: _cells.size,
         points: typeof _madeFor?.points === 'number' ? _madeFor.points : null,
         inView: _inView,
+        maxCount: _maxCount,
+        scaleToken: _scaleToken,
         madeFor: _madeFor,
         primitive: _surface?.primitive || null,
       };
@@ -333,6 +391,7 @@ export function attachPointRollup(
       if (_destroyed) return;
       deactivate();
       _destroyed = true;
+      _unsubscribeScale?.();
       _removeMove?.();
       _removeMove = null;
       picking?.unregisterPickOwner?.(sourceId);

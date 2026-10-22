@@ -4488,6 +4488,20 @@ wrapper); `picking` is `src/data/pickRegistry.js`. The featured and vessel
 placement logic is untouched: the rollup only reads the points a layer
 already has.
 
+**The count window.** While the hexes show, the Cameras, Places and
+Street assets rows carry the **SCALE** controls (see Colour scales below)
+for them: a floor and a ceiling in points per hex (automatic: one to the
+fullest hex drawn), LOG (the default) or LINEAR, a palette in place of the
+layer's accent, INVERT and HIDE OUTSIDE. The alpha runs from 0.25 at the
+floor to 0.85 at the ceiling; a palette colours along the same window
+(inverting flips the colour, not the alpha, so a fuller hex stays the more
+opaque); with HIDE OUTSIDE the hexes outside the window go, their counts
+with them. Kept as `<layer>:rollup` (`cctv`, `places`, `street-assets`; in
+the share hash `cc-rollup`, `pl-rollup`, `sa-rollup`). `scale.js` holds
+the fill; `attachPointRollup` takes the store as `scales` (the app's by
+default), redraws on a change, and gives the row `scaleControl()`.
+Untouched, the hexes are the accent's log ramp exactly as before.
+
 Tests: `src/layers/pointRollup/pointRollup.test.mjs` (binning, the window
 across the antimeridian, hysteresis, labels through
 `normalizeOverlayEntry`, the lifecycle on a fake viewer across the
@@ -4753,8 +4767,8 @@ that differ from the default are written.
 
 The Earth Engine layers (elevation, slope, aspect, population, water,
 canopy, buildings, inundation, forest loss) are drawn by the server from
-`src/data/earthEngineScale.js` on their own branch. Not wired: the point
-rollup hexes (alpha by count of one accent colour) and Traffic
+`src/data/earthEngineScale.js` on their own branch. The point rollup
+hexes' count window is under Point rollups above. Not wired: Traffic
 (categorical).
 
 ## MSFS renderer on AWS
