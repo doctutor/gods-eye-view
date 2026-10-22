@@ -13,7 +13,7 @@ import {
   WIKIPEDIA_POINTS_FULL_ZOOM,
   WIKIPEDIA_POINTS_PER_TILE,
   WIKIPEDIA_POINT_WIKIS,
-  pointClassOfType,
+  pointClassOf,
 } from '../../src/data/wikipediaPoints.js';
 
 /**
@@ -28,14 +28,15 @@ import {
  * 3. page_props (enwiki-latest-page_props.sql.gz, kept with geo_tags):
  *    each article's Wikidata item (`wikibase_item`), the key a later build
  *    of other wikis unions by, so an article is never counted twice.
- * 4. Ranked (primary first, then the type class, dim, article bytes) and
+ * 4. Ranked (primary first, then the type class, article bytes, dim) and
  *    thinned per tile below z 12 (pointsFile.js), written under points/.
  *
  * Personal fork tooling; not part of upstream God's Eye View.
  */
 
 export const PAGE_PROPS_FILE = 'enwiki-latest-page_props.sql.gz';
-export const POINTS_FORMAT = 1;
+/** 2: ranked by article bytes before dim, list and period titles as other. */
+export const POINTS_FORMAT = 2;
 
 /** The wikis a build reads (`--wikis`): only enwiki is built today. */
 export function parseWikis(spec = 'enwiki') {
@@ -204,7 +205,7 @@ export function joinPoints({
     const article = articles.get(page);
     if (!article) continue;
     for (const c of coordinates) {
-      const cls = pointClassOfType(c.type);
+      const cls = pointClassOf(c.type, article.title);
       byClass[cls.key] = (byClass[cls.key] || 0) + 1;
       points.push({
         x: unitX(c.lon),
@@ -326,6 +327,7 @@ export function pointsStatusOf(dir) {
     const m = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
     return {
       built: true,
+      format: m.format,
       version: m.version,
       builtAt: m.builtAt,
       dump: m.dump,

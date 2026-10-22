@@ -17,6 +17,7 @@ import {
 } from '../../server/providers/wikipediaCoverage/h3.js';
 import {
   PAGE_PROPS_FILE,
+  POINTS_FORMAT,
   collectGeoPoints,
   collectWikidataItems,
   joinPoints,
@@ -451,6 +452,7 @@ export async function runBuild({
   secondary = false,
   wikis = 'enwiki',
   pageFile = '',
+  pointsOnly = false,
   force = false,
   offline = false,
   limit = Infinity,
@@ -489,6 +491,7 @@ export async function runBuild({
   const pointsCurrent =
     !points ||
     (pointsNow.built &&
+      pointsNow.format === POINTS_FORMAT &&
       pointsNow.dump?.lastModified === dump.lastModified &&
       (!secondary || pointsNow.secondary > 0));
   const upToDate =
@@ -507,15 +510,20 @@ export async function runBuild({
     return { skipped: true, reason: 'up to date', header: currentHeader };
   }
   const started = now();
+  if (pointsOnly && !points) throw new Error('--points-only needs --points');
   log('reading geo_tags…');
-  const geo = await binGeoTags(gunzipFile(files.geoTags), {
-    text: wantsText,
-    limit,
-    onProgress: (rows) => log(`  ${rows.toLocaleString('en-US')} rows`),
-  });
-  log(
-    `geo_tags: ${geo.stats.rows.toLocaleString('en-US')} rows, ${geo.stats.kept.toLocaleString('en-US')} primary Earth coordinates kept`,
-  );
+  // The grid's pass (not for --points-only, which leaves the grid be).
+  const geo = pointsOnly
+    ? null
+    : await binGeoTags(gunzipFile(files.geoTags), {
+        text: wantsText,
+        limit,
+        onProgress: (rows) => log(`  ${rows.toLocaleString('en-US')} rows`),
+      });
+  if (geo)
+    log(
+      `geo_tags: ${geo.stats.rows.toLocaleString('en-US')} rows, ${geo.stats.kept.toLocaleString('en-US')} primary Earth coordinates kept`,
+    );
   // The points: every coordinate kept with its page id, for the joins.
   const geoPoints = points
     ? await collectGeoPoints(gunzipFile(files.geoTags), { secondary })
@@ -526,7 +534,7 @@ export async function runBuild({
     );
   const pagePoints = geoPoints ? pageRowsForPoints(geoPoints.pages) : null;
   let page = null;
-  if (wantsText || points) {
+  if ((wantsText && !pointsOnly) || points) {
     if (offline && !pageFile)
       throw new Error(
         '--text and --points offline need the page table on disk: --page-file',
@@ -549,7 +557,7 @@ export async function runBuild({
       stream = await gunzipUrl(PAGE_URL, { fetchImpl });
     }
     const sized = await addPageSizes(stream.chunks, {
-      ...(wantsText
+      ...(wantsText && !pointsOnly
         ? {
             accumulator: geo.accumulator,
             pageCells: geo.pageCells,
@@ -560,7 +568,7 @@ export async function runBuild({
       onRow: pagePoints?.onRow || null,
       onProgress: (rows) => log(`  ${rows.toLocaleString('en-US')} pages`),
     });
-    if (wantsText) {
+    if (wantsText && !pointsOnly) {
       page = sized;
       page.lastModified = stream.lastModified;
       log(
@@ -619,6 +627,9 @@ export async function runBuild({
       log,
     });
   }
+  // --points-only: the grid and the hexagons are left as they are.
+  if (pointsOnly)
+    return { skipped: false, pointsOnly: true, points: pointsManifest };
   const { header, bytes } = writeCoverageGrid({
     accumulator: geo.accumulator,
     file: files.grid,

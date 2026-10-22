@@ -23,7 +23,7 @@ import {
  *
  *   node scripts/wikipedia/index.mjs build [--text] [--force] [--offline]
  *        [--limit N] [--dir DIR] [--population [--env-root DIR]]
- *        [--points [--secondary] [--wikis enwiki]] [--page-file FILE]
+ *        [--points [--secondary] [--wikis enwiki] [--points-only]] [--page-file FILE]
  *   node scripts/wikipedia/index.mjs status [--json] [--dir DIR]
  *
  * `build` downloads Wikimedia's GeoData dump (enwiki-latest-geo_tags.sql.gz,
@@ -43,6 +43,8 @@ import {
  * union by Wikidata item (only enwiki today). `--page-file` reads the page
  * table from a downloaded copy instead of streaming it; with `--offline`
  * nothing is asked of the network (geo_tags and page_props must be there).
+ * `--points-only` rebuilds the points alone, the grid and hexagons as they
+ * are.
  *
  * Everything lives in WIKIPEDIA_COVERAGE_DIR (default .gev-cache/wikipedia in
  * the repository): the dump, geo_tags.meta.json (ETag, Last-Modified),
@@ -207,6 +209,7 @@ async function main(argv) {
       rawDir,
       text: Boolean(flags.text),
       points: Boolean(flags.points),
+      pointsOnly: Boolean(flags['points-only']),
       secondary: Boolean(flags.secondary),
       wikis: typeof flags.wikis === 'string' ? flags.wikis : 'enwiki',
       pageFile:
@@ -237,6 +240,7 @@ async function main(argv) {
         log,
       });
     }
+    if (result.pointsOnly) return 0;
     if (!result.skipped || flags.population) buildCapita({ dir, log });
     if (!result.skipped)
       for (const line of statusLines(statusOf(dir, undefined, rawDir)))

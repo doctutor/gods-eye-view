@@ -2458,8 +2458,16 @@ four classes, which also rank them:
 | Nature    | mountain, river, waterbody, isle, glacier, forest | `#06d6a0` |
 | Other     | everything else, and the 712,054 untyped          | `#8ecae6` |
 
-Within a class, articles rank by `gt_dim` (GeoData's object size: a
-country before a town before a building) and then by article bytes. From
+Within a class, articles rank by article bytes, the better proxy for
+notability, and then by `gt_dim` (GeoData's object size, often a
+template's default). Articles about a list, a history, a period, a
+battle or a polity count as "other" whatever GeoData types them (titles
+like "List of …", "History of …", "Battle of …", "… dynasty", "… Empire",
+"… Uprising", or a numbered republic such as the French Third Republic;
+`NOT_A_PLACE_TITLE` in `src/data/wikipediaPoints.js`): GeoData types many
+of them country or state with a country's dim, and the first build
+(ranked by dim) put "Preclassic period in Belize" and "List of highest
+U.S. county high points" among the world's top places. From
 afar each tile keeps only its best ranked (24 a tile below z 12), so a
 world or continent view is a sparse splatter of the most notable places;
 from z 12 (about 10 km up) every article is there. The answer holds at
@@ -2514,7 +2522,9 @@ pointsFile.js`): blocks of a tile's articles in rank order, 28 bytes an
    class, flags, wiki) and its "title\0type", one block per tile and zoom:
    zooms 0–6 in one overview file, 7–12 in one bucket file per z 6 tile
    (the Overture buildings' bucket format), a manifest and `current.json`.
-   `wikipedia:status` says what is built.
+   `wikipedia:status` says what is built. `--points-only` rebuilds the
+   points alone (the three dump passes, about 15 minutes), leaving
+   `grid.bin` and `h3.bin` as they are.
 
 `GET /api/wikipedia-coverage/points?west=&south=&east=&north=&zoom=[&secondary=1]`
 answers the tiles the box meets at the zoom (stepping up a zoom past 1,024
