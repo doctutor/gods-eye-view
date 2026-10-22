@@ -56,7 +56,21 @@ pitch_deg, bank_deg, fov_deg }], meta }`, with these conventions:
      pause, another client, the user) and resumes where it was.
 5. **Records (`--record`).** OBS's built-in WebSocket server (obs-websocket
    v5) gets `StartRecord` before the flight and `StopRecord` after it, and the
-   bridge prints the file's path.
+   bridge prints the file's path. It also logs OBS's frames for the
+   flight: how many OBS could not render in time (the GPU busy) and how
+   many it could not encode in time (`GetStats`, before and after).
+   - **Or stills (`--stills`).** At each of the path's waypoints (its meta's
+     `from`, `via`, `to`, each at the nearest sample), or every
+     `--every-s N` seconds and at the end, the bridge:
+     1. sets the camera;
+     2. moves the world locker there (unless `--no-locker`);
+     3. holds `--settle` seconds;
+     4. has OBS save the program scene as a PNG (`SaveSourceScreenshot`),
+        at the canvas's size.
+
+     The files go to `--out` (`C:\gev\recordings`), named
+     `<path>_<run>_<nn>_<waypoint>_t<seconds>s_<lat>_<lon>.png`.
+     `--stills --dry-run` prints the plan without a sim.
 6. **Releases on exit.** `SimConnect_DeleteCameraWorldLocker`,
    `SimConnect_CameraRelease("")` (back to the camera before) and
    `SimConnect_Close`. This also happens on Ctrl+C, on an error, and when
@@ -117,15 +131,51 @@ stopped.
 
 ## OBS
 
-1. Tools > WebSocket Server Settings: enable the server (port 4455) and set
-   a password.
-2. In the shell that runs the bridge, set the password:
-   `$env:OBS_WEBSOCKET_PASSWORD = "..."`. It is never passed on the command
-   line. Use `--obs ws://127.0.0.1:4455` for another port.
-3. Add a Game Capture (or Display Capture) of MSFS. Output: NVENC (the
-   A10G), for example 1920×1080 at 60 fps.
-4. Record to the instance's NVMe disk, which is fast but erased on stop.
-   Copy what you keep to the volume or download it.
+On AirGPU, `airgpu-setup.ps1` sets OBS up with no hand steps:
+
+- the WebSocket server on 4455, with a password it makes and keeps in
+  `C:\gev\obs-websocket.txt`;
+- the GEV profile: NVENC HEVC at constant quality, 60 fps, files in
+  `C:\gev\recordings`;
+- the GEV scene: a Game Capture of MSFS's window.
+
+`../README.md` ("Recording") has the details.
+
+- **The password:** `OBS_WEBSOCKET_PASSWORD` when it is set, else the
+  first line of `--obs-password-file` (default `C:\gev\obs-websocket.txt`).
+  It is never passed on the command line. Use `--obs ws://127.0.0.1:4455`
+  for another port.
+- **Check:** `gev-bridge --obs-check` signs in and prints OBS's version,
+  the canvas and output sizes, the frame rate, the program scene, the
+  recording folder and the encoder.
+
+By hand elsewhere, without the setup: in OBS, Tools > WebSocket Server
+Settings, enable the server and set a password. Add a Game Capture (or
+Display Capture) of MSFS, with NVENC output, for example 1920×1080 at 60
+fps.
+
+## Tests
+
+`tests/` is a project of its own, with no test framework to download.
+`dotnet run` runs its checks and exits 1 if any fails. No sim and no OBS
+are involved. It checks:
+
+- the arguments, and the password's sources;
+- the OBS requests, as JSON;
+- the authentication string and the frame-stats line;
+- the stills' plan and file names.
+
+The bridge's own build leaves `tests/` out, and the setup does not
+download it. This PC has no .NET SDK, so they run in Microsoft's .NET 8
+SDK image:
+
+```bash
+docker run --rm --memory 1g -v "<a copy of bridge>:/src" -w /src/tests mcr.microsoft.com/dotnet/sdk:8.0 dotnet run -c Release
+```
+
+On 2026-10-22: the build was clean, and 39 checks passed. Run it on a copy,
+so `bin/` and `obj/` stay out of the worktree. The memory cap keeps it
+small beside the Overpass import.
 
 ## Known risks
 

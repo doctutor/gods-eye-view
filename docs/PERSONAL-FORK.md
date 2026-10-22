@@ -5247,8 +5247,31 @@ minimum IAM policy, costs, the first session by hand).
   monotonic clock, and can record with OBS through obs-websocket v5. It
   releases the camera on exit and Ctrl+C. It reads its SimConnect values
   from the installed `SimConnect.h` and checks the camera struct against it.
-  `--dry-run` replays a file without a sim. Not compiled yet: no .NET SDK on
-  this PC.
+  `--dry-run` replays a file without a sim. It flew `paths/baltimore.json`
+  on the AirGPU machine on 2026-10-22. Here it is built and tested in
+  Microsoft's .NET 8 SDK container (`bridge/tests`, 39 checks), since this
+  PC has no .NET SDK.
+- **Recording on AirGPU, with no hand steps** (`tools/msfs-renderer/README.md`,
+  "Recording" and "Resolution"):
+  - `airgpu-setup.ps1` writes OBS 32's own files, checked against its
+    sources: the WebSocket server on 4455, with a password it makes once
+    and keeps in `C:\gev\obs-websocket.txt` (this user only, never
+    printed); a GEV profile (NVENC HEVC at constant quality CQP 18, 60
+    fps, hybrid MP4 in `C:\gev\recordings`); and a GEV scene (a Game
+    Capture of MSFS's window by its executable). OBS is closed while they
+    are written and started again in the tray.
+  - The bridge reads the password file (`--obs-password-file`), signs in
+    with `--obs-check`, and after a recording logs the frames OBS could
+    not render or encode in time.
+  - `--stills` saves PNGs at the canvas's size at the path's waypoints, or
+    every `--every-s N` seconds, after `--settle` seconds at each.
+  - `airgpu-display.ps1` reports the display modes the virtual display
+    offers and MSFS 2024's `UserCfg.opt` video lines. Their key names are
+    not published, so they are read there, not guessed.
+  - The recommended profile for the RTX A4000: video at 1080p60, and
+    stills at 4K in their own run if the display offers 4K. The frame-rate
+    cost of 4K and of render scaling is not measured yet; the first run's
+    OBS frame counts measure it.
 - **Tests:** `src/tooling/msfsRenderer.test.mjs` covers the template, the
   user-data, the commands against a fake AWS CLI, the costs and the
   arguments, with no AWS calls.

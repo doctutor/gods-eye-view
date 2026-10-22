@@ -1,16 +1,20 @@
 # Personal fork: a one-screen check of an AirGPU machine set up by
-# airgpu-setup.ps1: the GPU, Parsec, OBS's websocket, the bridge's dry run,
-# the MSFS 2024 SDK and the free disk. Changes nothing. Exit 0 with no FAIL,
+# airgpu-setup.ps1: the GPU, the streaming host, OBS's WebSocket (signed in
+# with the password setup stored, through the bridge's --obs-check), the
+# bridge's dry run, the MSFS 2024 SDK, whether the sim runs under the name
+# OBS captures, and the free disk. Changes nothing. Exit 0 with no FAIL,
 # 1 otherwise. See README.md, "AirGPU (opportunistic)". Not part of
 # upstream God's Eye View.
 #
-#   powershell -ExecutionPolicy Bypass -File airgpu-smoke.ps1 [-Root C:\gev] [-ObsPort 4455] [-MinFreeGB 60]
+#   powershell -ExecutionPolicy Bypass -File airgpu-smoke.ps1 [-Root C:\gev] [-ObsPort 4455] [-MinFreeGB 60] [-SimExe FlightSimulator2024.exe]
 
 param(
   [string]$Root = 'C:\gev',
   [int]$ObsPort = 4455,
   # MSFS 2024's base install is about 50 GB; recordings need room too.
-  [int]$MinFreeGB = 60
+  [int]$MinFreeGB = 60,
+  # What OBS's Game Capture matches (airgpu-setup.ps1 -SimExe).
+  [string]$SimExe = 'FlightSimulator2024.exe'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,13 +36,14 @@ Check 'GPU' {
   $smi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
   if (-not $smi) { return @('FAIL', 'nvidia-smi not found (the driver is AirGPU''s)') }
   $line = (& $smi.Source --query-gpu=name,driver_version,memory.total --format=csv,noheader | Select-Object -First 1)
-  if ($line -match 'A10G') { return @('PASS', $line) }
-  return @('WARN', "$line (not the A10G tier)")
+  if ($line -match 'NVIDIA') { return @('PASS', $line) }
+  return @('WARN', "$line (no NVIDIA GPU: no NVENC)")
 }
 
-Check 'Parsec' {
-  if (Get-Process -Name parsecd -ErrorAction SilentlyContinue) { return @('PASS', 'parsecd running') }
-  return @('WARN', 'parsecd not running (AirGPU''s; this session may be another way in)')
+Check 'Streaming host' {
+  $hosts = @(Get-Process -Name sunshine, parsecd -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name -Unique)
+  if ($hosts.Count) { return @('PASS', ($hosts -join ', ')) }
+  return @('WARN', 'no Sunshine or Parsec process seen (AirGPU''s)')
 }
 
 Check 'OBS websocket' {
@@ -52,7 +57,20 @@ Check 'OBS websocket' {
       return @('PASS', "OBS $version, listening on $ObsPort")
     }
   } finally { $client.Close() }
-  return @('FAIL', "OBS $version, nothing on port $($ObsPort): open OBS, Tools > WebSocket Server Settings")
+  return @('FAIL', "OBS $version, nothing on port $($ObsPort): run airgpu-setup.ps1 (it sets OBS up and starts it)")
+}
+
+# Signed in with the stored password: canvas, output, scene, folder, encoder.
+Check 'OBS sign-in' {
+  $bridge = Join-Path $Root 'bridge\gev-bridge.exe'
+  $passwordFile = Join-Path $Root 'obs-websocket.txt'
+  if (-not (Test-Path $passwordFile)) { return @('FAIL', "no $($passwordFile): run airgpu-setup.ps1") }
+  if (-not (Test-Path $bridge)) { return @('FAIL', "no $($bridge): run airgpu-setup.ps1") }
+  $output = & $bridge --obs-check --obs "ws://127.0.0.1:$ObsPort" --obs-password-file $passwordFile 2>&1
+  $code = $LASTEXITCODE
+  $lines = @($output | ForEach-Object { ($_.ToString() -replace '^\d\d:\d\d:\d\d\.\d{3} ', '').Trim() } | Where-Object { $_ })
+  if ($code -ne 0) { return @('FAIL', "exit $($code): $($lines | Select-Object -Last 1)") }
+  return @('PASS', ($lines -join '; '))
 }
 
 Check 'Bridge dry run' {
@@ -75,6 +93,15 @@ Check 'MSFS 2024 SDK' {
     Where-Object { $_ -and (Test-Path (Join-Path $_ 'SimConnect SDK\include\SimConnect.h')) } | Select-Object -First 1
   if ($sdk) { return @('PASS', $sdk) }
   return @('WARN', 'not found: in the sim, Developer Mode, Help > SDK Installer')
+}
+
+Check 'MSFS 2024 running' {
+  $name = [IO.Path]::GetFileNameWithoutExtension($SimExe)
+  $sim = Get-Process -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($sim) { return @('PASS', "$($SimExe) (OBS's Game Capture matches it)") }
+  $others = @(Get-Process | Where-Object { $_.ProcessName -match 'FlightSim' } | Select-Object -ExpandProperty ProcessName -Unique)
+  if ($others.Count) { return @('FAIL', "the sim runs as $($others -join ', ').exe, not $($SimExe): run airgpu-setup.ps1 -SimExe $($others[0]).exe") }
+  return @('WARN', "not running (OBS's Game Capture waits for $($SimExe))")
 }
 
 Check 'Disk' {

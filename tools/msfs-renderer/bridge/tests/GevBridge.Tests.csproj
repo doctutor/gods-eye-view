@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Personal fork: the bridge's tests (../README.md, "Tests"), with no test
+    framework to download: `dotnet run` runs every check, prints a line for
+    each failure, and exits 1 if any failed. No sim and no OBS: argument
+    parsing, the OBS requests as JSON, and the stills' plan and names.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>GevBridge.Tests</RootNamespace>
+    <AssemblyName>GevBridge.Tests</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../GevBridge.csproj" />
+  </ItemGroup>
+</Project>

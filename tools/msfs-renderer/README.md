@@ -16,6 +16,7 @@ here needs the AWS console once an access key exists.
 | `lib.mjs`             | Its pure parts (arguments, address, template, prices), tested in `src/tooling/msfsRenderer.test.mjs` |
 | `airgpu-setup.ps1`    | AirGPU instead of AWS: Steam, OBS, 7-Zip, .NET 8 and the bridge, run by hand inside the machine      |
 | `airgpu-smoke.ps1`    | AirGPU: a one-screen check of the GPU, Parsec, OBS's websocket, the bridge and the disk              |
+| `airgpu-display.ps1`  | AirGPU: the display's modes and the sim's video settings, read; `-Set` a mode the driver offers      |
 | `airgpu-buildbox.ps1` | AirGPU as a temporary build runner for GEV's RAM-heavy data builds                                   |
 | `airgpu-serve.mjs`    | Serves a build's zip once, to one address, for the trip back                                         |
 
@@ -410,13 +411,13 @@ are copied here.
 
    ```powershell
    $base = 'https://raw.githubusercontent.com/doctutor/gods-eye-view/local-fixes/tools/msfs-renderer'
-   foreach ($f in 'airgpu-setup.ps1', 'airgpu-smoke.ps1', 'airgpu-buildbox.ps1') { Invoke-WebRequest "$base/$f" -OutFile "C:\$f" -UseBasicParsing }
+   foreach ($f in 'airgpu-setup.ps1', 'airgpu-smoke.ps1', 'airgpu-display.ps1', 'airgpu-buildbox.ps1') { Invoke-WebRequest "$base/$f" -OutFile "C:\$f" -UseBasicParsing }
    ```
 
 2. **Set up.** Run
    `powershell -ExecutionPolicy Bypass -File C:\airgpu-setup.ps1`. Its log
-   is `C:\gev-provision.log`. It asks for nothing and stores no credential.
-   Its steps:
+   is `C:\gev-provision.log`. It asks for nothing. The one secret it keeps
+   is OBS's WebSocket password, which it makes itself (below). Its steps:
 
    | Step                                                          | What it does                                                                                                            |
    | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
@@ -430,6 +431,7 @@ are copied here.
    | `.NET 8 (Desktop Runtime and SDK)`                            | Installs the .NET 8 Desktop Runtime and SDK from Microsoft's release metadata, each checked against its SHA-512         |
    | `GEV bridge`                                                  | Reads `bridge/` from the fork's branch (or `-BridgeSource DIR`) and publishes it framework-dependent to `C:\gev\bridge` |
    | `Camera path and recording folders`                           | Makes `C:\gev\paths` (camera paths go here) and `C:\gev\recordings`                                                     |
+   | `OBS: WebSocket, GEV profile and scene`                       | Sets OBS up with no hand steps (below, "Recording"), closing it first and starting it again in the tray                 |
    | `Open Steam`                                                  | Opens Steam as the signed-in user, not elevated                                                                         |
 
    A step whose program is already installed skips the install. A failed
@@ -441,22 +443,139 @@ are copied here.
 4. **The SDK.** In the sim: Developer Mode on, then Help > SDK Installer.
    Run `airgpu-setup.ps1` again, so the bridge is built with
    `SimConnect.dll` beside it.
-5. **OBS.** Tools > WebSocket Server Settings: enable the server (port 4455)
-   and set a password. Put it in `$env:OBS_WEBSOCKET_PASSWORD` in the shell
-   that runs the bridge (`bridge/README.md`, "OBS").
+5. **OBS needs nothing by hand.** The setup has enabled its WebSocket
+   server and made the GEV profile and scene. The bridge reads the
+   password from `C:\gev\obs-websocket.txt`.
 6. **Check.** `powershell -ExecutionPolicy Bypass -File C:\airgpu-smoke.ps1`
-   prints one line each for `GPU`, `Parsec`, `OBS websocket`,
-   `Bridge dry run` (a two-sample path through `--dry-run --fast`),
-   `MSFS 2024 SDK` and `Disk`, as PASS, WARN or FAIL. It exits 1 on a FAIL
-   and changes nothing.
+   prints one line each, as PASS, WARN or FAIL, for:
+   - `GPU`;
+   - `Streaming host`;
+   - `OBS websocket` (the port);
+   - `OBS sign-in` (the bridge's `--obs-check` with the stored password:
+     canvas, output, scene, folder, encoder);
+   - `Bridge dry run` (a two-sample path through `--dry-run --fast`);
+   - `MSFS 2024 SDK`;
+   - `MSFS 2024 running` (under the name OBS's Game Capture matches);
+   - `Disk`.
+
+   It exits 1 on a FAIL and changes nothing.
 7. **Fly.** Make the path on this PC with `npm run msfs:path` (its
    `--out path.json`) and copy the file into `C:\gev\paths`. Then run
-   `C:\gev\bridge\gev-bridge.exe C:\gev\paths\path.json --record`, after
-   the attitude test the first time (`bridge/README.md`).
+   `C:\gev\bridge\gev-bridge.exe C:\gev\paths\path.json --record` for a
+   video, or `--stills` for PNGs at its waypoints. Do the attitude test
+   the first time (`bridge/README.md`).
 
 The bridge is published framework-dependent: the Desktop Runtime is
 installed anyway, and the SDK that builds it is on the machine. This PC
-has no .NET SDK, so nothing is built here.
+has no .NET SDK. The bridge's tests run here in Docker
+(`bridge/README.md`, "Tests").
+
+### Recording
+
+The setup's `OBS: WebSocket, GEV profile and scene` step writes OBS
+32.2.2's own files, in the formats its sources read. It writes nothing
+when everything is already so, and closes OBS first otherwise, since OBS
+rewrites its files as it exits. A forced close clears OBS's crash marker:
+its dialog would offer Safe Mode, which turns the WebSocket off.
+
+- **WebSocket:** `%APPDATA%\obs-studio\plugin_config\obs-websocket\config.json`,
+  with the server on port 4455, authentication on and `first_load` false.
+  - The password is made once: 24 letters and digits from Windows'
+    cryptographic generator.
+  - It is kept in `C:\gev\obs-websocket.txt`, readable and writable by
+    the signed-in user only (`icacls`), and never printed or logged.
+  - A re-run keeps it. `gev-bridge` reads that file
+    (`--obs-password-file`), so `--record` and `--stills` need no
+    environment variable. `OBS_WEBSOCKET_PASSWORD` still wins when set.
+- **Profile `GEV`** (`basic\profiles\GEV\basic.ini` and
+  `recordEncoder.json`):
+  - Advanced output with standard recording.
+  - NVENC HEVC (`obs_nvenc_hevc_tex`; `-ObsCodec h264` for H.264).
+  - Constant quality: CQP 18 (`-ObsCqp`, lower is better and bigger),
+    preset p5, tune hq, two B-frames, a keyframe every 2 s.
+  - Hybrid MP4 files (playable at once, not lost if OBS stops), named
+    `gev_<date>_<time>` in `C:\gev\recordings`.
+  - The canvas and the output both default to the display's resolution
+    (`-ObsCanvas`, `-ObsOutput`), at 60 fps (`-ObsFps`).
+- **Scene collection `GEV`** (`basic\scenes\GEV.json`):
+  - A Game Capture of MSFS's window, matched by its executable
+    (`FlightSimulator2024.exe`; `-SimExe` if the sim runs under another
+    name, which the smoke check reports).
+  - Under it, a Display Capture of the primary display, hidden unless
+    `-ObsCapture display`.
+  - Both scaled to fill the canvas, and Desktop Audio.
+- **`user.ini`:** points OBS at the GEV profile and scene, and sets
+  `FirstRun`, so the auto-configuration wizard never opens. OBS's other
+  settings there are kept.
+- **Start:** OBS starts minimised to the tray with `--profile GEV
+  --collection GEV --disable-updater`, from its own folder. The step waits
+  until port 4455 answers.
+
+`-ObsConfigOnly DIR` writes the same files into `DIR`, as if it were
+`%APPDATA%\obs-studio`, and touches nothing else. The tests use it, and it
+is also a way to look at the files before a run.
+
+After each `--record` the bridge logs OBS's own counts for the flight:
+frames OBS could not render in time (the GPU is saturated) and frames it
+could not encode in time.
+
+**Stills.** `gev-bridge path.json --stills` takes PNGs at the path's
+waypoints (its meta's `from`, `via`, `to`, each at the nearest sample), or
+with `--every-s N` every N seconds and at the end. At each still the
+bridge:
+
+1. sets the camera;
+2. moves the world locker there (unless `--no-locker`);
+3. holds `--settle` seconds (3 by default; give scenery longer);
+4. asks OBS to save the program scene (`SaveSourceScreenshot`, PNG).
+
+A still is the canvas's size. It goes to `C:\gev\recordings` (`--out`),
+named `<path>_<run>_<nn>_<waypoint>_t<seconds>s_<lat>_<lon>.png`.
+`--stills --dry-run` prints the plan and the names without a sim. The
+path format is unchanged.
+
+### Resolution
+
+What sets the pixels, from the sim to the file:
+
+1. **The sim's render size.** In windowed mode (how it runs here, Alt+Enter),
+   MSFS draws its window, and Game Capture takes the window as it is.
+   The display's resolution is the ceiling.
+   `powershell -File C:\airgpu-display.ps1` reports:
+   - the GPU;
+   - the display's mode and every mode its driver offers, and whether
+     3840x2160 is among them;
+   - the video and graphics lines of MSFS 2024's
+     `%APPDATA%\Microsoft Flight Simulator 2024\UserCfg.opt`. Its key
+     names for resolution, render scaling and the preset are not
+     published, so they are read there, not guessed.
+
+   `-Set 3840x2160` switches the display, and only to a mode the driver
+   offers. The virtual display behind AirGPU's stream decides which modes
+   exist: ask the streaming client (Moonlight) for 4K, then run it again.
+   Whether AirGPU's display offers 4K is not known yet.
+2. **Render scaling and the preset** (in the sim's graphics options,
+   stored in `UserCfg.opt`). Render scaling above 100% supersamples:
+   sharper at the same window size, at a GPU cost.
+3. **OBS's canvas and output.** The canvas is what Game Capture fills, and
+   a still's size. The output is the video's size, scaled from the canvas
+   (Lanczos).
+
+**Recommended for the RTX A4000 (16 GB):**
+
+- **Video:** the sim windowed at 1920x1080, OBS canvas and output
+  1920x1080 at 60 fps, NVENC HEVC CQP 18.
+- **Stills:** a separate run, with the display at 3840x2160 if its driver
+  offers it (`airgpu-display.ps1 -Set 3840x2160`, then
+  `airgpu-setup.ps1 -ObsCanvas 3840x2160 -ObsOutput 1920x1080`). Then
+  `--stills --settle 8`. A still's frame rate does not matter, so the sim
+  can be turned up for it.
+
+The frame-rate cost of 4K and of render scaling on this GPU is not
+measured yet. Find it out on the first run: after each `--record` the
+bridge logs OBS's render and encode skips. If frames were skipped in
+rendering, lower the preset or the render scaling. Skips in encoding
+mean NVENC fell behind, which a lower preset (p4) or H.264 eases.
 
 ### Build box
 
@@ -519,7 +638,17 @@ is there. Copy back what you keep before the session ends, recordings
 first, since they are the large files. Nothing in GEV depends on the
 machine.
 
-Not verified yet: none of this has run on an AirGPU machine. The scripts
-parse (`src/tooling/airgpuScripts.test.mjs`), and the smoke script ran on
-this PC, where it reported a GTX 1080 Ti as "not the A10G tier" and the
-missing bridge as a FAIL.
+Verified on the AirGPU machine on 2026-10-22: the setup through the
+bridge, which flew `paths/baltimore.json` with the camera. Not yet run
+there:
+
+- the OBS step and the stills;
+- `airgpu-display.ps1 -Set`.
+
+Checked on this PC instead:
+
+- The scripts parse (`src/tooling/airgpuScripts.test.mjs`).
+- The OBS files from `-ObsConfigOnly` are checked there too.
+- The bridge's tests pass in a .NET 8 SDK container.
+- The smoke script and `airgpu-display.ps1`'s report ran here (a GTX
+  1080 Ti; no bridge, so FAILs).

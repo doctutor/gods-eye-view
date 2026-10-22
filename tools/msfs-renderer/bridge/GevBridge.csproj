@@ -23,6 +23,13 @@
     <MsfsSdk Condition="'$(MsfsSdk)' == ''">$(MSFS_SDK)</MsfsSdk>
   </PropertyGroup>
 
+  <!-- The tests are their own project (README.md, "Tests"); they read the bridge's internals. -->
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+    <None Remove="tests/**" />
+    <InternalsVisibleTo Include="GevBridge.Tests" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(MsfsSdk)' != '' And Exists('$(MsfsSdk)\SimConnect SDK\lib\SimConnect.dll')">
     <None Include="$(MsfsSdk)\SimConnect SDK\lib\SimConnect.dll" Link="SimConnect.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

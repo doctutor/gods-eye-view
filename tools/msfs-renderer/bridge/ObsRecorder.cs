@@ -1,14 +1,55 @@
 // Personal fork: OBS Studio's built-in WebSocket server (obs-websocket v5,
 // OBS 28 and later): connect, identify (with the password, if the server
 // asks: base64(sha256(base64(sha256(password + salt)) + challenge))), and
-// StartRecord / StopRecord around the playback. The password comes from
-// OBS_WEBSOCKET_PASSWORD, never the command line.
+// the requests the bridge makes: StartRecord / StopRecord around the
+// playback, SaveSourceScreenshot for stills, and the settings and stats it
+// reports. The password comes from OBS_WEBSOCKET_PASSWORD or the file
+// airgpu-setup.ps1 writes (--obs-password-file), never the command line.
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 
 namespace GevBridge;
+
+/// <summary>The messages the bridge sends, built without a connection (so they can be tested).</summary>
+public static class ObsRequests
+{
+    /// <summary>A request (op 6) with its type, id and optional requestData.</summary>
+    public static JsonObject Request(string requestType, string requestId, JsonObject? data = null)
+    {
+        var d = new JsonObject { ["requestType"] = requestType, ["requestId"] = requestId };
+        if (data is not null) d["requestData"] = data;
+        return new JsonObject { ["op"] = 6, ["d"] = d };
+    }
+
+    /// <summary>
+    /// SaveSourceScreenshot's requestData: the source (a scene renders at the
+    /// canvas's size) as a PNG at an absolute path. Width and height are
+    /// left out unless given, so the image keeps the source's own size.
+    /// </summary>
+    public static JsonObject SaveSourceScreenshot(string sourceName, string filePath, int? width = null, int? height = null)
+    {
+        if (!Path.IsPathFullyQualified(filePath)) throw new ArgumentException($"OBS needs an absolute path: {filePath}");
+        var data = new JsonObject
+        {
+            ["sourceName"] = sourceName,
+            ["imageFormat"] = "png",
+            ["imageFilePath"] = filePath,
+        };
+        if (width is int w) data["imageWidth"] = w;
+        if (height is int h) data["imageHeight"] = h;
+        return data;
+    }
+
+    /// <summary>GetProfileParameter's requestData.</summary>
+    public static JsonObject ProfileParameter(string category, string name) =>
+        new() { ["parameterCategory"] = category, ["parameterName"] = name };
+
+    /// <summary>The program scene's name from GetCurrentProgramScene (sceneName since 5.5, currentProgramSceneName before).</summary>
+    public static string? ProgramSceneName(JsonNode? data) =>
+        data?["sceneName"]?.GetValue<string>() ?? data?["currentProgramSceneName"]?.GetValue<string>();
+}
 
 public sealed class ObsRecorder : IAsyncDisposable
 {
@@ -28,7 +69,7 @@ public sealed class ObsRecorder : IAsyncDisposable
             if (auth is not null)
             {
                 if (string.IsNullOrEmpty(password))
-                    throw new InvalidOperationException("OBS asks for a password: set OBS_WEBSOCKET_PASSWORD (Tools > WebSocket Server Settings)");
+                    throw new InvalidOperationException("OBS asks for a password: run airgpu-setup.ps1 (it writes C:\\gev\\obs-websocket.txt), pass --obs-password-file, or set OBS_WEBSOCKET_PASSWORD");
                 identify["authentication"] = Authentication(password, auth["salt"]!.GetValue<string>(), auth["challenge"]!.GetValue<string>());
             }
             await obs.SendAsync(new JsonObject { ["op"] = 1, ["d"] = identify }, ct);
@@ -50,11 +91,11 @@ public sealed class ObsRecorder : IAsyncDisposable
         return Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(secret + challenge)));
     }
 
-    /// <summary>A request (op 6) and its response's responseData; throws when OBS says it failed.</summary>
-    public async Task<JsonNode?> RequestAsync(string requestType, CancellationToken ct)
+    /// <summary>A request and its response's responseData; throws when OBS says it failed.</summary>
+    public async Task<JsonNode?> RequestAsync(string requestType, CancellationToken ct, JsonObject? data = null)
     {
         var id = $"gev-{Interlocked.Increment(ref _next)}";
-        await SendAsync(new JsonObject { ["op"] = 6, ["d"] = new JsonObject { ["requestType"] = requestType, ["requestId"] = id } }, ct);
+        await SendAsync(ObsRequests.Request(requestType, id, data), ct);
         while (true)
         {
             var message = await ReceiveAsync(ct);

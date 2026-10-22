@@ -65,9 +65,27 @@ public sealed class SimSession : IDisposable
         _log($"camera acquired ({State(AcquiredState)})");
     }
 
-    /// <summary>A world locker at a pose (World referential: x latitude, y longitude, z altitude), and its loading finished.</summary>
-    public void Lock(Pose at, CameraOptions options, TimeSpan timeout, CancellationToken ct)
+    /// <summary>
+    /// A world locker at a pose (World referential: x latitude, y longitude,
+    /// z altitude), and its loading finished. A locker placed before is
+    /// deleted first: there is one at a time (--stills moves it to each still).
+    /// </summary>
+    public void Lock(Pose at, CameraOptions options, TimeSpan timeout, CancellationToken ct, string where = "the start")
     {
+        if (_lockerRequested)
+        {
+            SimConnectNative.SimConnect_DeleteCameraWorldLocker(_handle);
+            _lockerRequested = false;
+            // The old locker's last status may still be on its way: read it
+            // before waiting for the new one's.
+            var drain = DateTime.UtcNow.AddMilliseconds(500);
+            while (DateTime.UtcNow < drain)
+            {
+                Dispatch();
+                Thread.Sleep(20);
+            }
+            LockerStatus = -1;
+        }
         var position = new SimConnectXyz { X = at.Lat, Y = at.Lon, Z = at.AltM * options.AltFactor };
         Check(SimConnectNative.SimConnect_RequestCameraWorldLocker(_handle, position, _ids.ReferentialWorld, 0), "SimConnect_RequestCameraWorldLocker");
         _lockerRequested = true;
@@ -75,7 +93,7 @@ public sealed class SimSession : IDisposable
             timeout, "the world locker's loading", ct);
         if (LockerStatus != _ids.LockerSuccess)
             throw new InvalidOperationException($"the world locker {(LockerStatus == _ids.LockerFail ? "failed" : "was cancelled (the sim may be low on memory)")}");
-        _log("world locker loaded around the start");
+        _log($"world locker loaded around {where}");
     }
 
     public void Set(Pose pose, CameraOptions options)
