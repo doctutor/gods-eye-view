@@ -64,10 +64,11 @@ public sealed class SimConnectHeader
         foreach (Match m in EnumPattern.Matches(_text))
             if (m.Groups["name"].Value == name) return Values(m.Groups["body"].Value);
         // SDK 1.8 declares its flag types without a body (`SIMCONNECT_ENUM_FLAGS
-        // SIMCONNECT_CAMERA_DATA_MASK;`) and their values as constants:
-        // `static const SIMCONNECT_CAMERA_DATA_MASK SIMCONNECT_CAMERA_DATA_MASK_POSITION = 0x1;`.
+        // SIMCONNECT_CAMERA_DATA_MASK;`) and their values as constants named
+        // after the type: `static const DWORD SIMCONNECT_CAMERA_DATA_MASK_POSITION = 1 << 0;`,
+        // `… _ALL_ROTATION = _POSITION | _ROTATION | _FOV;` (in order, so earlier ones are known).
         var constants = new Dictionary<string, long>();
-        foreach (Match m in Regex.Matches(_text, @"\bstatic\s+const\s+" + Regex.Escape(name) + @"\s+(?<member>\w+)\s*=\s*(?<value>[^;]+);"))
+        foreach (Match m in Regex.Matches(_text, @"\bstatic\s+const\s+\w+\s+(?<member>" + Regex.Escape(name) + @"_\w+)\s*=\s*(?<value>[^;]+);"))
             constants[m.Groups["member"].Value] = Evaluate(m.Groups["value"].Value, constants);
         if (constants.Count > 0) return constants;
         throw new InvalidDataException($"{FilePath} has no enum {name}");
