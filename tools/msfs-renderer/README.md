@@ -421,8 +421,8 @@ are copied here.
    | Step                                                          | What it does                                                                                                            |
    | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
    | `NVIDIA driver (AirGPU supplies it; reported, not installed)` | Prints the GPU, the driver version and the memory (`nvidia-smi`)                                                        |
-   | `Parsec (AirGPU supplies it; reported, not installed)`        | Prints Parsec's version and whether it runs                                                                             |
-   | `Windows Audio service (Parsec streams the sound)`            | Starts the audio service, automatic from then on                                                                        |
+   | `Streaming host (AirGPU supplies it; reported, not installed)`        | Reports the Sunshine or Parsec process, never fails                                                                             |
+   | `Windows Audio service (the stream carries the sound)`            | Starts the audio service, automatic from then on                                                                        |
    | `Media Foundation (Windows Server only)`                      | Installs the `Server-Media-Foundation` feature if it is missing; one restart                                            |
    | `Steam`                                                       | Installs Steam                                                                                                          |
    | `OBS Studio`                                                  | Installs OBS. Version 28 and later carry obs-websocket v5, which the bridge speaks; no separate plugin                  |

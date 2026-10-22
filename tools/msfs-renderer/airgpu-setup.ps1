@@ -70,7 +70,7 @@ function LatestGitHubAsset([string]$repository, [string]$pattern) {
   $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repository/releases/latest" -Headers @{ 'User-Agent' = 'gev-msfs-renderer' }
   $asset = $release.assets | Where-Object { $_.name -match $pattern } | Select-Object -First 1
   if (-not $asset) { throw "no asset matching $pattern in $repository $($release.tag_name)" }
-  Write-Output "$repository $($release.tag_name): $($asset.name)"
+  Write-Host "$repository $($release.tag_name): $($asset.name)"
   return $asset
 }
 
@@ -104,7 +104,8 @@ function DotnetInstaller([string]$part, [string]$name) {
   $path = Download $file.url ([IO.Path]::GetFileName($file.url))
   $hash = (Get-FileHash -Path $path -Algorithm SHA512).Hash
   if ($hash -ne $file.hash.ToUpper()) { throw "$name does not match its SHA-512" }
-  Write-Output ".NET $($release.$part.version): $([IO.Path]::GetFileName($file.url))"
+  # Write-Host, not Write-Output: output here would join the returned path.
+  Write-Host ".NET $($release.$part.version): $([IO.Path]::GetFileName($file.url))"
   return $path
 }
 
@@ -124,14 +125,14 @@ Step 'NVIDIA driver (AirGPU supplies it; reported, not installed)' {
   }
 }
 
-Step 'Parsec (AirGPU supplies it; reported, not installed)' {
-  $version = InstalledVersion 'Parsec*'
-  $running = Get-Process -Name parsecd -ErrorAction SilentlyContinue
-  if (-not $version -and -not $running) { throw 'Parsec not found: it is AirGPU''s, not this script''s' }
-  Write-Output "Parsec $(if ($version) { $version } else { '(version not listed)' }), $(if ($running) { 'running' } else { 'not running' })"
+Step 'Streaming host (AirGPU supplies it; reported, not installed)' {
+  # AirGPU streams with Moonlight (Sunshine on the machine), not Parsec.
+  $hosts = @(Get-Process -Name sunshine, parsecd -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name -Unique)
+  if ($hosts.Count -eq 0) { Write-Output 'no Sunshine or Parsec process seen; the stream you are reading this over is AirGPU''s' }
+  else { Write-Output "streaming host: $($hosts -join ', ')" }
 }
 
-Step 'Windows Audio service (Parsec streams the sound)' {
+Step 'Windows Audio service (the stream carries the sound)' {
   $audio = Get-Service -Name 'Audiosrv'
   if ($audio.StartType -ne 'Automatic') { Set-Service -Name 'Audiosrv' -StartupType Automatic }
   if ($audio.Status -ne 'Running') { Start-Service -Name 'Audiosrv' }
