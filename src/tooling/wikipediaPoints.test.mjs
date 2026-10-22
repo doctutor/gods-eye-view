@@ -26,6 +26,8 @@ import {
 } from '../../server/providers/wikipediaCoverage/pointsFile.js';
 import { createPointsIndex } from '../../server/providers/wikipediaCoverage/pointsIndex.js';
 import {
+  NOT_A_PLACE_TITLE,
+  pointClassOf,
   pointClassOfType,
   pointZoomForHeight,
 } from '../../src/data/wikipediaPoints.js';
@@ -390,6 +392,105 @@ test('offline, with the page table on disk, the points build asks nothing of the
         sleepImpl: async () => {},
       }),
       /--page-file/,
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('list, history, period and event titles are not places, whatever GeoData types them', () => {
+  for (const title of [
+    'List of highest U.S. county high points',
+    'Lists of rivers',
+    'History of Île-de-France',
+    'Timeline of Paris',
+    'Outline of France',
+    'Index of Belize-related articles',
+    'Geography of Belize',
+    'Battle of Hastings',
+    'Siege of Paris',
+    'Treaty of Versailles',
+    'Preclassic period',
+    'Heian era',
+    'Ming dynasty',
+    'Second French Empire',
+    'French Third Republic',
+    'Gallipoli campaign',
+    'Tet Offensive',
+    'Taiping Rebellion',
+    'Warsaw Uprising',
+    'Velvet Revolution',
+  ])
+    assert.equal(pointClassOf('country', title).key, 'other', title);
+  for (const title of [
+    'Paris',
+    'Czech Republic',
+    'Dominican Republic',
+    'Central African Republic',
+    'Republic of Ireland',
+    'Empire State Building',
+    'Revolution Square',
+  ])
+    assert.equal(pointClassOf('city', title).key, 'place', title);
+  assert.ok(NOT_A_PLACE_TITLE instanceof RegExp);
+});
+
+test('within a class the larger article ranks first, the object size breaks ties', () => {
+  const big = { page: 1, cls: 1, bytes: 90_000, dim: 10, x: 0, y: 0 };
+  const vast = { page: 2, cls: 1, bytes: 5_000, dim: 2_000_000, x: 0, y: 0 };
+  const twin = { page: 3, cls: 1, bytes: 5_000, dim: 3_000_000, x: 0, y: 0 };
+  assert.deepEqual(
+    [vast, big, twin].sort(rankCompare).map((p) => p.page),
+    [1, 3, 2],
+  );
+});
+
+test('--points-only rebuilds the points and leaves the grid and hexagons as they are', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gev-wiki-points-only-'));
+  try {
+    const gz = (text) => zlib.gzipSync(Buffer.from(text));
+    fs.writeFileSync(
+      path.join(dir, 'enwiki-latest-geo_tags.sql.gz'),
+      gz(geoText()),
+    );
+    fs.writeFileSync(
+      path.join(dir, 'geo_tags.meta.json'),
+      JSON.stringify({ lastModified: 'Thu, 08 Oct 2026 03:30:29 GMT' }),
+    );
+    fs.writeFileSync(
+      path.join(dir, 'enwiki-latest-page_props.sql.gz'),
+      gz(propsText()),
+    );
+    const pageFile = path.join(dir, 'page.sql.gz');
+    fs.writeFileSync(pageFile, gz(pageText()));
+    fs.writeFileSync(path.join(dir, 'grid.bin'), 'the grid as it was');
+    const result = await runBuild({
+      dir,
+      points: true,
+      pointsOnly: true,
+      text: true,
+      offline: true,
+      pageFile,
+      sleepImpl: async () => {},
+    });
+    assert.equal(result.pointsOnly, true);
+    assert.equal(result.points.points, 3);
+    assert.equal(result.points.format, 2);
+    assert.equal(
+      fs.readFileSync(path.join(dir, 'grid.bin'), 'utf8'),
+      'the grid as it was',
+    );
+    assert.equal(fs.existsSync(path.join(dir, 'h3.bin')), false);
+    assert.equal(pointsStatusOf(path.join(dir, 'points')).format, 2);
+    await assert.rejects(
+      runBuild({
+        dir,
+        pointsOnly: true,
+        offline: true,
+        pageFile,
+        sleepImpl: async () => {},
+      }),
+      /--points-only needs --points/,
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

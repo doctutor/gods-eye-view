@@ -61,6 +61,23 @@ const CLASS_BY_TYPE = new Map(
 export const pointClassOfType = (type) =>
   CLASS_BY_TYPE.get(String(type || '').toLowerCase()) ||
   WIKIPEDIA_POINT_CLASSES[3];
+/**
+ * Articles about a period, a list, an event or a polity rather than a
+ * place: GeoData often types them country, state or adm with a country's
+ * dim, which would rank them with the places. They count as "other". A
+ * republic only when numbered (the French Third Republic), so the Czech
+ * and Dominican Republics stay places.
+ */
+export const NOT_A_PLACE_TITLE =
+  /^(?:Lists? of|History of|Timeline of|Outline of|Index of|Geography of|Battle of|Siege of|Treaty of) |\s(?:period|era|dynasty|empire|campaign|offensive|rebellion|uprising|revolution)$|\b(?:First|Second|Third|Fourth|Fifth|Sixth|Seventh)\b.*\sRepublic$/i;
+
+/** An article's class from its GeoData type and its title. */
+export function pointClassOf(type, title = '') {
+  if (NOT_A_PLACE_TITLE.test(String(title || '').trim()))
+    return WIKIPEDIA_POINT_CLASSES[3];
+  return pointClassOfType(type);
+}
+
 export const pointClassOfCode = (code) =>
   WIKIPEDIA_POINT_CLASSES.find((c) => c.code === code) ||
   WIKIPEDIA_POINT_CLASSES[3];
