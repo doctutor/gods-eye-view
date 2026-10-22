@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { Worker as ThreadWorker } from 'node:worker_threads';
 
 import { SdrController } from './controller.js';
+import { realDecoder } from '../testSupport/sdrDecoder.mjs';
 
 const ADMISSION = {
   maxBlocks: 4,
@@ -349,23 +349,6 @@ test('a reconnect gets a new decoder with fresh numbering and no carried backlog
   );
 });
 
-/** The real sdr.worker.js in a Node worker thread, with a browser-like `self`. */
-function realWorker(t) {
-  const module = new URL('./sdr.worker.js', import.meta.url).href;
-  const thread = new ThreadWorker(
-    `const { parentPort } = require('node:worker_threads');
-     globalThis.self = globalThis;
-     self.postMessage = (m, transfer) => parentPort.postMessage(m, transfer);
-     parentPort.on('message', (data) => self.onmessage && self.onmessage({ data }));
-     import(${JSON.stringify(module)}).then(() => parentPort.postMessage({ type: 'ready' }));`,
-    { eval: true },
-  );
-  const inbox = [];
-  thread.on('message', (message) => inbox.push(message));
-  t.after(() => thread.terminate());
-  return { thread, inbox };
-}
-
 function iqBlock(samples = 32_768) {
   const bytes = new Uint8Array(samples * 2);
   for (let n = 0; n < samples; n += 1) {
@@ -377,7 +360,8 @@ function iqBlock(samples = 32_768) {
 }
 
 test('the real decoder acknowledges every numbered block after its output, in every path', async (t) => {
-  const { thread, inbox } = realWorker(t);
+  // The real decoder, in this thread (src/testSupport/sdrDecoder.mjs).
+  const { thread, inbox, failures } = await realDecoder(t);
   await until(() => inbox.some((m) => m.type === 'ready'), 5_000);
   thread.postMessage({
     type: 'configure',
@@ -417,4 +401,5 @@ test('the real decoder acknowledges every numbered block after its output, in ev
     inbox.filter((m) => m.type === 'ack').map((m) => m.id),
     [0, 1, 2, 3, 4],
   );
+  assert.deepEqual(failures, []);
 });

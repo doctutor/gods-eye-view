@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { Worker as ThreadWorker } from 'node:worker_threads';
 
 import { SdrController } from './controller.js';
 
@@ -93,11 +92,19 @@ function streaming(t, { reads = Infinity, diagnostics = false } = {}) {
   controller._beginAudioSession();
   controller._readGeneration += 1;
   controller._startWatchdog();
-  void controller._readLoop(controller._readGeneration);
-  t.after(() => {
+  // The loop and an overload's stop are held, not let go: a rejection from
+  // either is this test's failure, not an unhandled one after it.
+  const loopErrors = [];
+  controller._readLoop(controller._readGeneration).catch((error) => {
+    loopErrors.push(error);
+  });
+  t.after(async () => {
     controller._stopWatchdog();
     controller._readGeneration += 1;
     controller._device = null;
+    if (controller._overloadStop)
+      assert.equal(await controller._overloadStop, true, 'overload stop');
+    assert.deepEqual(loopErrors, [], 'the read loop rejected');
   });
   return { controller, audio };
 }
@@ -230,51 +237,6 @@ test('without diagnostics the overload snapshot keeps counts only', async (t) =>
   assert.equal(snapshot.timings, undefined);
 });
 
-test('the real decoder returns timings only for stamped blocks', async (t) => {
-  const module = new URL('./sdr.worker.js', import.meta.url).href;
-  const thread = new ThreadWorker(
-    `const { parentPort } = require('node:worker_threads');
-     globalThis.self = globalThis;
-     self.postMessage = (m, transfer) => parentPort.postMessage(m, transfer);
-     parentPort.on('message', (data) => self.onmessage && self.onmessage({ data }));
-     import(${JSON.stringify(module)});`,
-    { eval: true },
-  );
-  t.after(() => thread.terminate());
-  const inbox = [];
-  thread.on('message', (message) => inbox.push(message));
-  await until(() => inbox.some((m) => m.type === 'ready'), 5_000);
-  thread.postMessage({
-    type: 'configure',
-    mode: 'fm',
-    sampleRate: 2_048_000,
-    tune: 1,
-  });
-  const block = () => {
-    const bytes = new Uint8Array(32_768 * 2).fill(128);
-    return bytes.buffer;
-  };
-  const stamped = block();
-  const postedAt = performance.timeOrigin + performance.now();
-  thread.postMessage({ type: 'samples', buffer: stamped, id: 0, postedAt }, [
-    stamped,
-  ]);
-  const plain = block();
-  thread.postMessage({ type: 'samples', buffer: plain, id: 1 }, [plain]);
-  await until(() => inbox.filter((m) => m.type === 'ack').length === 2, 5_000);
-  const [timed, untimed] = inbox.filter((m) => m.type === 'ack');
-  assert.ok(
-    timed.receivedAt >= postedAt - 5,
-    'receipt after posting (clock skew tolerance)',
-  );
-  assert.ok(timed.computeMs >= 0 && timed.computeMs < 5_000);
-  assert.ok(timed.ackPostedAt >= timed.receivedAt);
-  assert.deepEqual(Object.keys(untimed).sort(), ['id', 'type']);
-  const fm = inbox.filter((m) => m.type === 'fm');
-  assert.ok(Number.isFinite(fm[0].workerPostedAt));
-  assert.equal(fm[1].workerPostedAt, undefined);
-});
-
 test('blocks request a spectrum only while seeking', (t) => {
   // Deterministic: the _postSamples contract directly, no read loop or polling.
   const workers = installWorker(t, { ack: 'manual' });
@@ -300,72 +262,4 @@ test('blocks request a spectrum only while seeking', (t) => {
   const stamped = post();
   assert.equal(stamped.spectrum, true);
   assert.ok(Number.isFinite(stamped.postedAt));
-});
-
-test('the real decoder computes spectra only when requested, with audio unchanged', async (t) => {
-  const module = new URL('./sdr.worker.js', import.meta.url).href;
-  const thread = new ThreadWorker(
-    `const { parentPort } = require('node:worker_threads');
-     globalThis.self = globalThis;
-     self.postMessage = (m, transfer) => parentPort.postMessage(m, transfer);
-     parentPort.on('message', (data) => self.onmessage && self.onmessage({ data }));
-     import(${JSON.stringify(module)});`,
-    { eval: true },
-  );
-  t.after(() => thread.terminate());
-  const inbox = [];
-  thread.on('message', (message) => inbox.push(message));
-  await until(() => inbox.some((m) => m.type === 'ready'), 5_000);
-  const tone = () => {
-    const bytes = new Uint8Array(32_768 * 2);
-    for (let n = 0; n < 32_768; n += 1) {
-      const phase = (2 * Math.PI * 100_000 * n) / 2_048_000;
-      bytes[2 * n] = Math.round(127.5 + 60 * Math.cos(phase));
-      bytes[2 * n + 1] = Math.round(127.5 + 60 * Math.sin(phase));
-    }
-    return bytes.buffer;
-  };
-  const run = async (spectrum, firstId) => {
-    // A reset starts each run at block 0 with identical decoder state.
-    thread.postMessage({ type: 'reset', tune: 1 });
-    thread.postMessage({
-      type: 'configure',
-      mode: 'fm',
-      sampleRate: 2_048_000,
-      tune: 1,
-    });
-    for (let index = 0; index < 6; index += 1) {
-      const buffer = tone();
-      thread.postMessage(
-        { type: 'samples', buffer, id: firstId + index, spectrum },
-        [buffer],
-      );
-    }
-    await until(
-      () =>
-        inbox.filter((m) => m.type === 'ack' && m.id >= firstId).length === 6,
-      5_000,
-    );
-    return inbox.filter((m) => m.type === 'fm').splice(-6);
-  };
-  const listening = await run(false, 0);
-  const seeking = await run(true, 100);
-  assert.ok(
-    listening.every((m) => m.bins === null),
-    'no FFT while listening',
-  );
-  assert.equal(
-    seeking.filter((m) => m.bins instanceof Float32Array).length,
-    2,
-    'every third block',
-  );
-  assert.deepEqual(
-    listening.map((m) => m.samples.length),
-    seeking.map((m) => m.samples.length),
-    'audio output unchanged',
-  );
-  assert.deepEqual(
-    Array.from(listening[5].samples),
-    Array.from(seeking[5].samples),
-  );
 });

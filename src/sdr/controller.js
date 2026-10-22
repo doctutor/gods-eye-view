@@ -790,7 +790,10 @@ export class SdrController {
             ? t('SDR decoder stopped responding; receiver stopped')
             : t('SDR decoder fell behind; receiver stopped'),
     });
-    void this.stop({ preserveMessage: true });
+    // Personal fork: kept, so a caller (and the tests) can wait for the
+    // teardown. stop() never rejects: a late one, after the session ended,
+    // joins any teardown still running and returns.
+    this._overloadStop = this.stop({ preserveMessage: true });
   }
 
   _overloadSnapshot(reason) {

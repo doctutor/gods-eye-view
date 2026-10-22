@@ -5122,6 +5122,25 @@ result depends on how fast the machine is that minute isn't a gate.
     `keepTile` does.
   - The tile cache also no longer starts a second rewrite when a concurrent
     hit's read finishes after the first rewrite landed.
+- **A file-level 'test failed' with nothing else is a process that died.**
+  An unhandled rejection, or a worker thread's error, is pinned on the
+  running test and printed with its message. Only a process that exited, or
+  crashed natively, fails its file as `test at <file>:1:1 … 'test failed'`.
+  The spec reporter hides the exit code; the TAP reporter shows it:
+
+  ```bash
+  node --test --test-reporter=tap path/to/file.test.mjs
+  ```
+
+  Look for `exitCode:` in the failure; 3221225477 is 0xC0000005, a Windows
+  access violation. The SDR decoder tests had one. Node 24.21 crashed when
+  a `node:worker_threads` Worker running the decoder's WebAssembly DSP was
+  terminated, about once in 2,000 cycles under load, and turning off
+  WebAssembly tier-up did not reliably stop it in the test runner. The
+  tests are about the decoder's output, so they now run the real decoder
+  module in their own thread behind a `self` that copies messages as
+  postMessage does (`src/testSupport/sdrDecoder.mjs`). The browser still
+  runs it in a Web Worker.
 
 node:test sets no per-file timeout, and `npm test` passes none, so a heavy
 file (transit lifecycle, about 16 s alone; constructCatalog and the wind
