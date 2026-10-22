@@ -20,7 +20,10 @@ internal sealed class Options
     public int Every;
     public string? Sdk;
     public Uri Obs = new("ws://127.0.0.1:4455");
-    public double LockerTimeout = 180, Settle = 3, PitchSign = 1, BankSign = 1, HeadingOffset, AltFactor = 1;
+    // PitchSign -1: on MSFS 2024 with SDK 1.8.1 the attitude test tilted DOWN for
+    // +15°, so a positive camera pitch is nose-down (as the sim's PBH is);
+    // bank and heading matched. Measured on the AirGPU machine, 2026-10-22.
+    public double LockerTimeout = 180, Settle = 3, PitchSign = -1, BankSign = 1, HeadingOffset, AltFactor = 1;
 
     public CameraOptions Camera => new(PitchSign, BankSign, HeadingOffset, AltFactor);
 

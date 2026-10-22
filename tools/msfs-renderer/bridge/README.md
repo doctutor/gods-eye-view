@@ -94,7 +94,10 @@ Without an SDK, the build warns and the dry run still works.
 3. **Check the attitude, once per SDK version.** `gev-bridge baltimore.json
 --attitude-test` holds the start, then pitches +15°, banks +15° and turns
    +90° for 3 s each. Its log says what you should see. The signs and units
-   are not documented, so set `--pitch-sign -1`, `--bank-sign -1`,
+   are not documented. Measured on MSFS 2024 with SDK 1.8.1 (2026-10-22):
+   pitch is inverted (the default is now `--pitch-sign -1`), bank and
+   heading are right, and 177 m read as metres. For another version set
+   `--pitch-sign 1`, `--bank-sign -1`,
    `--heading-offset` or `--alt-units ft` from what it shows.
 4. **Fly it.** Run `gev-bridge baltimore.json --record` (with the flags from
    step 3). Ctrl+C stops it and releases the camera.
