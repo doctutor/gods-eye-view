@@ -55,6 +55,7 @@ test('the catalog: the layer default first, then the fixed palettes, every one s
     'hot-iron',
     'pet',
     'blue-white-red',
+    'hue',
   ]);
   const codes = new Set(PALETTES.map((p) => p.code));
   assert.equal(codes.size, PALETTES.length, 'one code a palette');
@@ -206,7 +207,10 @@ test('the hash: compact lo-style entries, round-tripped; malformed and unknown e
   });
   assert.equal(text, 'p.d.-2p5..n_w-capita.h.0p5.3200.lih');
   const back = decodeColourScaleParam(text);
-  assert.deepEqual(back['wikipedia-coverage:capita'], { ...capita });
+  assert.deepEqual(
+    normalizeScale(back['wikipedia-coverage:capita'], logDefaults),
+    capita,
+  );
   assert.deepEqual(normalizeScale(back.property, logDefaults), property);
   assert.deepEqual(
     decodeColourScaleParam(

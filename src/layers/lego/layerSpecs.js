@@ -3,7 +3,13 @@
 // size and the mode it is drawn in. Vector and point layers have no spec
 // and are left alone.
 
-import { paletteById, resolveWindow, rgbHex } from '../../maps/colourScale.js';
+import {
+  paletteById,
+  resolveWindow,
+  rgbHex,
+  scaleKey,
+  scalePosition,
+} from '../../maps/colourScale.js';
 import {
   EARTH_ENGINE_LAYERS,
   modeRecord,
@@ -147,17 +153,32 @@ export function layerSpec(layerId, modeKey = '') {
  * spec's own range), its mapping, its palette (the layer's own for
  * 'default'), reversed when inverted; `windowed` so the bricks map the
  * window too, `hide` so values outside it raise no column. Lego still
- * snaps every colour to its brick palette.
+ * snaps every colour to its brick palette. With the layer's `defaults`, a
+ * diverging or circular scale places each value itself (`positionOf`: the
+ * centre at the middle, an angle round its arc), inversion included.
  */
-export function withColourScale(spec, model) {
+export function withColourScale(spec, model, defaults = null) {
   if (!model) return spec;
-  const window = resolveWindow(model, { min: spec.min, max: spec.max });
+  const auto = { min: spec.min, max: spec.max };
+  const window = resolveWindow(model, auto, defaults);
   if (!window) return spec;
   const own = spec.palette || [];
   const stops =
     model.palette === 'default'
       ? own
       : (paletteById(model.palette)?.stops || []).map(rgbHex);
+  const kind = defaults?.kind || 'sequential';
+  if (kind !== 'sequential')
+    return {
+      ...spec,
+      min: window.floor,
+      max: window.ceiling,
+      scale: 'linear',
+      palette: stops,
+      positionOf: (value) => scalePosition(model, value, auto, defaults),
+      windowed: true,
+      hide: model.outside === 'hide',
+    };
   return {
     ...spec,
     min: window.floor,
@@ -179,6 +200,16 @@ export function legoColourScale(store, layerId, mode = '') {
   return layerId === WIKIPEDIA_LAYER_ID
     ? store.getScale(layerId, 'articles')
     : store.getScale(layerId, mode);
+}
+
+/** The scale defaults a Lego layer registered (its kind), or null. */
+export function legoScaleDefaults(store, layerId, mode = '') {
+  if (!store?.defaultsOf) return null;
+  return store.defaultsOf(
+    layerId === WIKIPEDIA_LAYER_ID
+      ? scaleKey(layerId, 'articles')
+      : scaleKey(layerId, mode),
+  );
 }
 
 export function withHeader(spec, header) {
