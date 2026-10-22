@@ -16,6 +16,13 @@ import {
   writeH3File,
 } from '../../server/providers/wikipediaCoverage/h3.js';
 import {
+  checkpointDir,
+  checkpointKey,
+  readCheckpoint,
+  writeCheckpoint,
+} from './checkpoints.mjs';
+import { WikiArticles } from './pointStore.mjs';
+import {
   PAGE_PROPS_FILE,
   POINTS_FORMAT,
   collectGeoPoints,
@@ -158,9 +165,17 @@ export async function gunzipUrl(
   });
   if (!response.ok || !response.body)
     throw new Error(`${url} answered ${response.status}`);
+  const source = Readable.fromWeb(response.body);
+  const chunks = source.pipe(zlib.createGunzip());
   return {
-    chunks: Readable.fromWeb(response.body).pipe(zlib.createGunzip()),
+    chunks,
     lastModified: response.headers.get('last-modified') || null,
+    etag: response.headers.get('etag') || null,
+    // Not read after all (a checkpoint has it): let the request go.
+    cancel: () => {
+      source.destroy();
+      chunks.destroy();
+    },
   };
 }
 
@@ -430,6 +445,7 @@ export async function pointsOfWiki(
   wiki,
   {
     union,
+    checkpoints = null,
     raw,
     offline = false,
     secondary = false,
@@ -468,37 +484,53 @@ export async function pointsOfWiki(
     });
     metas[table] = answer.meta;
   }
-  log(`${wiki.key}: reading geo_tags…`);
-  const geo = await collectGeoPoints(gunzipFile(files.geoTags), { secondary });
-  log(`${wiki.key}: reading the page table…`);
-  const rows = pageRowsForPoints(geo.coordinates);
-  await addPageSizes(gunzipFile(files.page), {
-    onRow: rows.onRow,
-    onProgress: (count) => log(`  ${count.toLocaleString('en-US')} pages`),
+  // The same dumps as its checkpoint's: the articles from there.
+  const key = checkpointKey({
+    wiki,
+    dumps: metas,
+    pointsFormat: POINTS_FORMAT,
+    secondary,
   });
-  log(`${wiki.key}: reading page_props for the Wikidata items…`);
-  const wikidata = await collectWikidataItems(
-    gunzipFile(files.pageProps),
-    geo.coordinates,
-  );
+  const saved =
+    key && checkpoints && !force ? readCheckpoint(checkpoints, key) : null;
+  let articles = saved?.articles || null;
+  let stats = saved?.stats || null;
+  if (saved) {
+    log(
+      `${wiki.key}: its dumps are those of its checkpoint; ${articles.articles.toLocaleString('en-US')} articles from ${key.file}`,
+    );
+  } else {
+    log(`${wiki.key}: reading geo_tags…`);
+    let geo = await collectGeoPoints(gunzipFile(files.geoTags), { secondary });
+    log(`${wiki.key}: reading the page table…`);
+    const rows = pageRowsForPoints(geo.coordinates);
+    await addPageSizes(gunzipFile(files.page), {
+      onRow: rows.onRow,
+      onProgress: (count) => log(`  ${count.toLocaleString('en-US')} pages`),
+    });
+    log(`${wiki.key}: reading page_props for the Wikidata items…`);
+    const wikidata = await collectWikidataItems(
+      gunzipFile(files.pageProps),
+      geo.coordinates,
+    );
+    articles = WikiArticles.fromCoordinates(geo.coordinates);
+    stats = { geo: geo.stats, page: rows.stats, wikidata: wikidata.stats };
+    geo = null;
+    if (key && checkpoints) {
+      writeCheckpoint(checkpoints, key, articles, stats);
+      log(`${wiki.key}: checkpoint ${key.file}`);
+    }
+  }
   const before = union.count;
-  const byClass = union.add(wiki, geo.coordinates);
+  const byClass = union.add(wiki, articles);
   log(
-    `${wiki.key}: ${Object.values(byClass)
-      .reduce((sum, n) => sum + n, 0)
-      .toLocaleString(
-        'en-US',
-      )} coordinates of ${rows.stats.matched.toLocaleString('en-US')} articles, ${wikidata.stats.matched.toLocaleString('en-US')} with an item; ${(union.count - before).toLocaleString('en-US')} records kept (${union.count.toLocaleString('en-US')} in all, heap ${heapMegabytes()} MB)`,
+    `${wiki.key}: ${articles.coordinates.toLocaleString('en-US')} coordinates of ${stats.page.matched.toLocaleString('en-US')} articles, ${stats.wikidata.matched.toLocaleString('en-US')} with an item; ${(union.count - before).toLocaleString('en-US')} records kept (${union.count.toLocaleString('en-US')} in all, heap ${heapMegabytes()} MB)`,
   );
+  articles = null;
   return {
     wiki,
     lastModified: metas.geo_tags?.lastModified || null,
-    stats: {
-      geo: geo.stats,
-      page: rows.stats,
-      wikidata: wikidata.stats,
-      byClass,
-    },
+    stats: { ...stats, byClass },
   };
 }
 
@@ -620,41 +652,99 @@ export async function runBuild({
     log(
       `geo_tags: ${geo.stats.rows.toLocaleString('en-US')} rows, ${geo.stats.kept.toLocaleString('en-US')} primary Earth coordinates kept`,
     );
+  const enwiki = pointWikis.find((wiki) => wiki.key === 'enwiki');
+  const checkpoints = checkpointDir(files.points);
+  // The page table: from --page-file, else streamed (opened once, when
+  // its headers are first wanted).
+  const needsPageForGrid = wantsText && !pointsOnly;
+  if ((needsPageForGrid || enwikiPoints) && offline && !pageFile)
+    throw new Error(
+      '--text and --points offline need the page table on disk: --page-file',
+    );
+  let pageStream = null;
+  const openPage = async () => {
+    if (pageStream) return pageStream;
+    if (pageFile) {
+      // A page table downloaded beside the other dumps, with its metadata.
+      const meta = readJson(
+        path.join(path.dirname(pageFile), 'page.meta.json'),
+        {},
+      );
+      pageStream = {
+        file: pageFile,
+        chunks: null,
+        lastModified: meta.lastModified || null,
+        etag: meta.etag || null,
+        cancel: () => {},
+      };
+    } else {
+      await sleepImpl(DOWNLOAD_GAP_MS);
+      pageStream = await gunzipUrl(PAGE_URL, { fetchImpl });
+    }
+    return pageStream;
+  };
+  // enwiki's points: its page_props first (the checkpoint's key needs all
+  // three dumps), then its checkpoint when the dumps are the same, else
+  // the joins.
+  let props = null;
+  let saved = null;
+  let enwikiKey = null;
+  if (enwikiPoints) {
+    if (offline) {
+      // Offline: the page_props dump already beside geo_tags, no request.
+      if (!fs.existsSync(files.pageProps))
+        throw new Error(`offline, and ${files.pageProps} is not there`);
+      props = {
+        meta: readJson(files.pagePropsMeta, { url: PAGE_PROPS_URL }),
+      };
+    } else {
+      await sleepImpl(DOWNLOAD_GAP_MS);
+      props = await download({
+        url: PAGE_PROPS_URL,
+        file: files.pageProps,
+        metaFile: files.pagePropsMeta,
+        fetchImpl,
+        now,
+        log,
+        force,
+      });
+    }
+    const page = await openPage();
+    enwikiKey = checkpointKey({
+      wiki: enwiki,
+      dumps: { geo_tags: dump, page, page_props: props.meta },
+      pointsFormat: POINTS_FORMAT,
+      secondary,
+    });
+    saved = enwikiKey && !force ? readCheckpoint(checkpoints, enwikiKey) : null;
+    if (saved)
+      log(
+        `enwiki: its dumps are those of its checkpoint; ${saved.articles.articles.toLocaleString('en-US')} articles from ${enwikiKey.file}`,
+      );
+  }
   // The points: every coordinate kept with its page id, for the joins.
   // `let`: they are let go once enwiki is folded into the union.
-  let geoPoints = enwikiPoints
-    ? await collectGeoPoints(gunzipFile(files.geoTags), { secondary })
-    : null;
+  let geoPoints =
+    enwikiPoints && !saved
+      ? await collectGeoPoints(gunzipFile(files.geoTags), { secondary })
+      : null;
   if (geoPoints)
     log(
       `points: ${geoPoints.stats.primary.toLocaleString('en-US')} primary${secondary ? ` and ${geoPoints.stats.secondary.toLocaleString('en-US')} secondary` : ''} coordinates`,
     );
   let pagePoints = geoPoints ? pageRowsForPoints(geoPoints.coordinates) : null;
   let page = null;
-  if ((wantsText && !pointsOnly) || enwikiPoints) {
-    if (offline && !pageFile)
-      throw new Error(
-        '--text and --points offline need the page table on disk: --page-file',
-      );
-    let stream;
-    if (pageFile) {
-      // A page table downloaded beside the other dumps, with its metadata.
-      log(`reading the page table from ${pageFile}…`);
-      stream = {
-        chunks: gunzipFile(pageFile),
-        lastModified:
-          readJson(path.join(path.dirname(pageFile), 'page.meta.json'), {})
-            .lastModified || null,
-      };
-    } else {
-      await sleepImpl(DOWNLOAD_GAP_MS);
+  if (needsPageForGrid || geoPoints) {
+    const stream = await openPage();
+    if (stream.file) {
+      log(`reading the page table from ${stream.file}…`);
+      stream.chunks = gunzipFile(stream.file);
+    } else
       log(
         `streaming the page table for article ${wantsText ? 'sizes' : 'titles'} (about 2 GB, not kept)…`,
       );
-      stream = await gunzipUrl(PAGE_URL, { fetchImpl });
-    }
     const sized = await addPageSizes(stream.chunks, {
-      ...(wantsText && !pointsOnly
+      ...(needsPageForGrid
         ? {
             accumulator: geo.accumulator,
             pageCells: geo.pageCells,
@@ -665,61 +755,57 @@ export async function runBuild({
       onRow: pagePoints?.onRow || null,
       onProgress: (rows) => log(`  ${rows.toLocaleString('en-US')} pages`),
     });
-    if (wantsText && !pointsOnly) {
+    if (needsPageForGrid) {
       page = sized;
       page.lastModified = stream.lastModified;
       log(
         `page: ${page.matched.toLocaleString('en-US')} articles sized, ${page.bytes.toLocaleString('en-US')} bytes of wikitext`,
       );
     }
-  }
+  } else pageStream?.cancel();
   let pointsManifest = null;
   if (points) {
     // Each wiki's points folded into one union as it is read (one dot an
-    // item), enwiki's first, from the dumps read above; each wiki's
-    // coordinates are let go before the next wiki is read.
+    // item), enwiki's first, from the dumps read above or its checkpoint;
+    // each wiki's coordinates are let go before the next wiki is read.
     const union = createPointsUnion();
     const perWiki = [];
-    let props = null;
-    if (geoPoints) {
-      if (offline) {
-        // Offline: the page_props dump already beside geo_tags, no request.
-        if (!fs.existsSync(files.pageProps))
-          throw new Error(`offline, and ${files.pageProps} is not there`);
-        props = {
-          meta: readJson(files.pagePropsMeta, { url: PAGE_PROPS_URL }),
-        };
-      } else {
-        await sleepImpl(DOWNLOAD_GAP_MS);
-        props = await download({
-          url: PAGE_PROPS_URL,
-          file: files.pageProps,
-          metaFile: files.pagePropsMeta,
-          fetchImpl,
-          now,
-          log,
-          force,
-        });
-      }
+    if (saved) {
+      const byClass = union.add(enwiki, saved.articles);
+      perWiki.push({
+        wiki: enwiki,
+        lastModified: dump.lastModified || null,
+        stats: { ...saved.stats, byClass },
+      });
+      saved = null;
+      log(
+        `enwiki: ${union.count.toLocaleString('en-US')} records kept (heap ${heapMegabytes()} MB)`,
+      );
+    } else if (geoPoints) {
       log('reading page_props for the Wikidata items…');
       const wikidata = await collectWikidataItems(
         gunzipFile(files.pageProps),
         geoPoints.coordinates,
       );
-      const enwiki = pointWikis.find((wiki) => wiki.key === 'enwiki');
-      const byClass = union.add(enwiki, geoPoints.coordinates);
+      let articles = WikiArticles.fromCoordinates(geoPoints.coordinates);
+      const stats = {
+        geo: geoPoints.stats,
+        page: pagePoints.stats,
+        wikidata: wikidata.stats,
+      };
+      geoPoints = null;
+      pagePoints = null;
+      if (enwikiKey) {
+        writeCheckpoint(checkpoints, enwikiKey, articles, stats);
+        log(`enwiki: checkpoint ${enwikiKey.file}`);
+      }
+      const byClass = union.add(enwiki, articles);
+      articles = null;
       perWiki.push({
         wiki: enwiki,
         lastModified: dump.lastModified || null,
-        stats: {
-          geo: geoPoints.stats,
-          page: pagePoints.stats,
-          wikidata: wikidata.stats,
-          byClass,
-        },
+        stats: { ...stats, byClass },
       });
-      geoPoints = null;
-      pagePoints = null;
       log(
         `enwiki: ${union.count.toLocaleString('en-US')} records kept (heap ${heapMegabytes()} MB)`,
       );
@@ -729,6 +815,7 @@ export async function runBuild({
         perWiki.push(
           await pointsOfWiki(wiki, {
             union,
+            checkpoints,
             raw: files.raw,
             offline,
             secondary,

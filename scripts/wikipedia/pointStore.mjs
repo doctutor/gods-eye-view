@@ -201,3 +201,63 @@ export function stableSortByKey(order, keyOf, range) {
   for (let i = 0; i < order.length; i++) out[counts[keys[i]]++] = order[i];
   return out;
 }
+
+/**
+ * One wiki's articles once its three dumps are joined: what the union
+ * folds in, and what a checkpoint keeps (checkpoints.mjs). Articles only
+ * (namespace 0, not redirects), in the order geo_tags first named them;
+ * article i's title is pool id i, its coordinates the rows `first` to
+ * `first + count − 1`, the primary first. No Map, no chains: columns a
+ * checkpoint writes and reads as they are.
+ */
+export class WikiArticles {
+  constructor() {
+    this.page = new Column(Uint32Array);
+    this.bytes = new Column(Float64Array);
+    this.qid = new Column(Float64Array);
+    this.first = new Column(Uint32Array);
+    this.count = new Column(Uint32Array);
+    this.titles = new TextPool();
+    this.x = new Column(Uint32Array);
+    this.y = new Column(Uint32Array);
+    this.dim = new Column(Float64Array);
+    this.type = new Column(Uint16Array);
+    this.flags = new Column(Uint8Array);
+    this.types = [];
+  }
+
+  get articles() {
+    return this.page.length;
+  }
+
+  get coordinates() {
+    return this.x.length;
+  }
+
+  /** The articles of a wiki's coordinates (WikiCoordinates, read through its three dumps). */
+  static fromCoordinates(c) {
+    const out = new WikiArticles();
+    // The coordinates' type ids carry over; the list is theirs.
+    out.types = c.types.list.slice();
+    for (const [page, head] of c.heads) {
+      const titleId = c.title.array[head];
+      if (titleId < 0) continue; // not an article
+      out.page.push(page);
+      out.bytes.push(c.bytes.array[head]);
+      out.qid.push(c.qid.array[head]);
+      out.first.push(out.x.length);
+      out.titles.add(c.titles.get(titleId));
+      let n = 0;
+      for (let at = head; at >= 0; at = c.next.array[at]) {
+        out.x.push(c.x.array[at]);
+        out.y.push(c.y.array[at]);
+        out.dim.push(c.dim.array[at]);
+        out.type.push(c.type.array[at]);
+        out.flags.push(c.flags.array[at]);
+        n += 1;
+      }
+      out.count.push(n);
+    }
+    return out;
+  }
+}

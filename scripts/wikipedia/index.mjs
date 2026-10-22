@@ -189,6 +189,17 @@ function statusLines(status) {
       ? `points: ${number(status.points.points)} articles${status.points.secondary ? ` and ${number(status.points.secondary)} secondary coordinates` : ''} (${status.points.wikis.join(', ')}), ${(status.points.bytes / 1_048_576).toFixed(1)} MB in ${status.points.buckets} buckets, dump ${status.points.dump?.date || '?'}`
       : 'points: not built; run npm run wikipedia:build -- --points',
   );
+  // The wikis a rerun reads from checkpoints instead of their dumps.
+  const checkpoints = status.points?.checkpoints || [];
+  if (checkpoints.length)
+    lines.push(
+      `checkpoints: ${checkpoints
+        .map(
+          (c) =>
+            `${c.wiki} (dump ${c.dumps.geo_tags.lastModified ? new Date(c.dumps.geo_tags.lastModified).toISOString().slice(0, 10) : '?'}, ${number(c.articles)} articles${c.secondary ? ' with secondary coordinates' : ''}, ${(c.bytes / 1_048_576).toFixed(1)} MB)`,
+        )
+        .join('; ')}`,
+    );
   // Several wikis: what each added, and the items more than one has.
   const byWiki = status.points?.built ? status.points.stats?.byWiki : null;
   if (byWiki && Object.keys(byWiki).length > 1)

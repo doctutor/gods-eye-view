@@ -239,7 +239,8 @@ export function writePointsFiles(levels, { overviewFile, fileOf }) {
  * kept as columns); returns the file's size.
  */
 export function writeBlocksFile(file, blocks, encode = encodeBlock) {
-  const writer = bucketWriter(file, blocks.length);
+  // Synced: the index's pointer moves to it only once it is on disk.
+  const writer = bucketWriter(file, blocks.length, { sync: true });
   try {
     for (const { zoom, key, list } of blocks)
       writer.add(POINT_KIND + zoom, key, encode(list), list.length);

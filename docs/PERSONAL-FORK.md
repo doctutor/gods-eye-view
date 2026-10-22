@@ -52,6 +52,7 @@ unless its switch is set to `0`.
 - [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
 - [Rivers: click a reach](#rivers-click-a-reach)
 - [Rivers: names from OpenStreetMap](#rivers-names-from-openstreetmap)
+- [Builds and restarts](#builds-and-restarts)
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
 - [Lego rendering mode](#lego-rendering-mode)
 - [Colour scales: palettes and a window per layer](#colour-scales-palettes-and-a-window-per-layer)
@@ -533,21 +534,21 @@ an opacity slider (kept per layer in this browser as
 `gev.earthEngine.opacity.<id>`), and a status line. The boundaries row also
 has level and ink chips (below).
 
-| Layer                                                              | Dataset (Earth Engine id)                                                                                                                                                                                | Licence                                                                                                                                          |
-| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Terrain slope, Terrain aspect, Hillshade, Elevation                | The DEM stack (see [Elevation: the DEM stack](#elevation-the-dem-stack)): GMTED2010 far out, FABDEM v1-2 as the base, USGS 3DEP 10 m and 1 m, ArcticDEM 2 m and REMA 8 m where they cover (`ee.Terrain`) | FABDEM CC BY-NC-SA 4.0 (non-commercial) with the Copernicus notice; 3DEP and GMTED2010 public domain; ArcticDEM and REMA PGC/NSF acknowledgement |
-| Elevation contours (see [Elevation contours](#elevation-contours)) | The DEM stack's heights, as the Elevation layer mosaics them, band by band                                                                                                                               | As the terrain layers                                                                                                                            |
-| Forest loss (2001–2025, coloured by year)                          | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                                                                                         | CC BY 4.0                                                                                                                                        |
-| Forest types (see [below](#forest-types-and-population))           | JRC global map of forest types 2020 v1, `JRC/GFC2020_subtypes/V1`, band `Map` (1 naturally regenerating, 10 primary, 20 planted)                                                                         | Free to use; citation requested                                                                                                                  |
-| Population (see [below](#forest-types-and-population))             | GHSL population P2023A, `JRC/GHSL/P2023A/GHS_POP`, band `population_count`, epochs 2020 (default), 2000, 1990, 1975                                                                                      | Reuse authorised with acknowledgement (EC reuse notice)                                                                                          |
+| Layer                                                              | Dataset (Earth Engine id)                                                                                                                                                                                                                        | Licence                                                                                                                                          |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Terrain slope, Terrain aspect, Hillshade, Elevation                | The DEM stack (see [Elevation: the DEM stack](#elevation-the-dem-stack)): GMTED2010 far out, FABDEM v1-2 as the base, USGS 3DEP 10 m and 1 m, ArcticDEM 2 m and REMA 8 m where they cover (`ee.Terrain`)                                         | FABDEM CC BY-NC-SA 4.0 (non-commercial) with the Copernicus notice; 3DEP and GMTED2010 public domain; ArcticDEM and REMA PGC/NSF acknowledgement |
+| Elevation contours (see [Elevation contours](#elevation-contours)) | The DEM stack's heights, as the Elevation layer mosaics them, band by band                                                                                                                                                                       | As the terrain layers                                                                                                                            |
+| Forest loss (2001–2025, coloured by year)                          | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                                                                                                                                 | CC BY 4.0                                                                                                                                        |
+| Forest types (see [below](#forest-types-and-population))           | JRC global map of forest types 2020 v1, `JRC/GFC2020_subtypes/V1`, band `Map` (1 naturally regenerating, 10 primary, 20 planted)                                                                                                                 | Free to use; citation requested                                                                                                                  |
+| Population (see [below](#forest-types-and-population))             | GHSL population P2023A, `JRC/GHSL/P2023A/GHS_POP`, band `population_count`, epochs 2020 (default), 2000, 1990, 1975                                                                                                                              | Reuse authorised with acknowledgement (EC reuse notice)                                                                                          |
 | Administrative boundaries                                          | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out (its 500 m simplified sibling at z ≤ 8), `level2` below 800 km; countries from Overture's country lines when built locally (`npm run overture:boundaries`), else LSIB 2017, `USDOS/LSIB/2017` | CC BY 4.0 (Overture: ODbL; LSIB: US public domain)                                                                                               |
-| Rivers (see [Rivers](#rivers))                                     | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth                                                                                  | HydroSHEDS licence, attribution (Natural Earth: public domain)                                                                                   |
-| Surface water (see [Surface water](#surface-water))                | JRC Global Surface Water 1.4 (1984–2021, 30 m), `JRC/GSW1_4/GlobalSurfaceWater`, bands `occurrence`, `change_abs`, `seasonality`, masked by `max_extent`                                                 | Copernicus, free without restriction; "Source: EC JRC/Google"                                                                                    |
-| Land cover (see [Land cover](#land-cover))                         | ESA WorldCover 10 m, 2021 `ESA/WorldCover/v200/2021` and 2020 `ESA/WorldCover/v100/2020`, band `Map`                                                                                                     | CC BY 4.0, "© ESA WorldCover project" notice                                                                                                     |
-| Buildings (see [Buildings](#buildings))                            | Google Open Buildings 2.5D Temporal v1, 2023, `GOOGLE/Research/open-buildings-temporal/v1`; footprints from Open Buildings v3, `GOOGLE/Research/open-buildings/v3/polygons`                              | CC BY 4.0 (the temporal set: or ODbL 1.0)                                                                                                        |
-| Tree canopy (see [Tree canopy](#tree-canopy))                      | Meta and WRI canopy height 1 m, `projects/meta-forest-monitoring-okw37/assets/CanopyHeight`; ETH Global Canopy Height 2020 10 m, `users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1`                        | CC BY 4.0                                                                                                                                        |
-| Census tracts (see [Census tracts](#census-tracts))                | TRACTS: TIGER/Line 2020 tracts, `TIGER/2020/TRACT`; HOUSEHOLD INCOME: the Census Bureau's 2024 cartographic boundary tracts and ACS 5-year 2020–2024 B19013, drawn by the local server                   | US public domain                                                                                                                                 |
-| Inundation history (see [Inundation history](#inundation-history)) | Global Flood Database v1, `GLOBAL_FLOOD_DB/MODIS_EVENTS/V1` (913 events, 2000–2018, 250 m)                                                                                                               | CC BY-NC 4.0                                                                                                                                     |
+| Rivers (see [Rivers](#rivers))                                     | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth                                                                                                                          | HydroSHEDS licence, attribution (Natural Earth: public domain)                                                                                   |
+| Surface water (see [Surface water](#surface-water))                | JRC Global Surface Water 1.4 (1984–2021, 30 m), `JRC/GSW1_4/GlobalSurfaceWater`, bands `occurrence`, `change_abs`, `seasonality`, masked by `max_extent`                                                                                         | Copernicus, free without restriction; "Source: EC JRC/Google"                                                                                    |
+| Land cover (see [Land cover](#land-cover))                         | ESA WorldCover 10 m, 2021 `ESA/WorldCover/v200/2021` and 2020 `ESA/WorldCover/v100/2020`, band `Map`                                                                                                                                             | CC BY 4.0, "© ESA WorldCover project" notice                                                                                                     |
+| Buildings (see [Buildings](#buildings))                            | Google Open Buildings 2.5D Temporal v1, 2023, `GOOGLE/Research/open-buildings-temporal/v1`; footprints from Open Buildings v3, `GOOGLE/Research/open-buildings/v3/polygons`                                                                      | CC BY 4.0 (the temporal set: or ODbL 1.0)                                                                                                        |
+| Tree canopy (see [Tree canopy](#tree-canopy))                      | Meta and WRI canopy height 1 m, `projects/meta-forest-monitoring-okw37/assets/CanopyHeight`; ETH Global Canopy Height 2020 10 m, `users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1`                                                                | CC BY 4.0                                                                                                                                        |
+| Census tracts (see [Census tracts](#census-tracts))                | TRACTS: TIGER/Line 2020 tracts, `TIGER/2020/TRACT`; HOUSEHOLD INCOME: the Census Bureau's 2024 cartographic boundary tracts and ACS 5-year 2020–2024 B19013, drawn by the local server                                                           | US public domain                                                                                                                                 |
+| Inundation history (see [Inundation history](#inundation-history)) | Global Flood Database v1, `GLOBAL_FLOOD_DB/MODIS_EVENTS/V1` (913 events, 2000–2018, 250 m)                                                                                                                                                       | CC BY-NC 4.0                                                                                                                                     |
 
 The ids were taken from Earth Engine's catalog records on 2026-10-17. The
 older ids, `COPERNICUS/DEM/GLO30` and `FAO/GAUL/2015/*`, are deprecated, and
@@ -2831,6 +2832,51 @@ The three-wiki peaks: enwiki 133 MB (its 61 million page rows at
 the process's resident memory stayed under 500 MB. The union adds about
 60 bytes a record kept, plus its title.
 
+**Restarts.** A points build that a restart stopped resumes; it does not
+read every dump again. Each wiki's articles, once its three dumps are
+joined, are kept as a checkpoint
+(`<build dir>/points-checkpoints/<wiki>.<key>.bin`,
+`scripts/wikipedia/checkpoints.mjs`). The key is the wiki's three dumps'
+Last-Modified and ETag, the points format, and whether secondary
+coordinates are kept.
+
+- A rerun with the same dumps reads a wiki's checkpoint in a second or two
+  instead of its dumps. enwiki's page table alone is 2.3 GB compressed.
+  The union is rebuilt from the checkpoints in order, and the index comes
+  out byte for byte as a fresh build's.
+- A checkpoint holds only its own wiki's articles, not what the union
+  made of them. A changed dump, or another list of wikis, costs only the
+  wikis whose dumps changed.
+- enwiki's page_props is fetched before its page table: its key needs all
+  three dumps before anything is read.
+- Checkpoints sit beside `points/`, not in it, because the index's files
+  come and go with every build. Each is written whole, synced, then
+  renamed into place, so one that is there is complete; a torn one is
+  ignored. A wiki's new checkpoint replaces its old one.
+- `--force` reads every dump again and writes the checkpoints afresh.
+  `npm run wikipedia:status` lists the wikis checkpointed, with their
+  dump dates and sizes.
+
+Measured on dewiki and frwiki (offline, 2026-10 dumps):
+
+| Run                             | Time  | Index                         |
+| ------------------------------- | ----- | ----------------------------- |
+| Fresh (writes both checkpoints) | 231 s | the heap fix's, byte for byte |
+| Stopped during frwiki, rerun    | 145 s | the same, byte for byte       |
+| Both checkpointed, rerun        | 50 s  | the same, byte for byte       |
+
+The checkpoints are 44 MB (dewiki) and 41 MB (frwiki); the 50 s is
+nearly all the index's write. With enwiki (from `--page-file`): fresh
+765 s, rerun from the three checkpoints 74 s (enwiki's is 88 MB), the
+index byte for byte the same.
+
+The index switches over atomically, as it always did, and now also
+durably. Each file of a new build has its own stamp, is written to a
+temporary file, synced, then renamed. `current.json` moves to the new
+manifest last, in one rename. The earlier index's files go only after
+that. A build stopped at any point leaves the earlier index current and
+whole for the server, and the next build clears what it left.
+
 The other way, Wikidata's coordinates (P625) for every item with a
 sitelink, would be one source for every language. But the Wikidata JSON
 dump is 156.6 GB compressed (the "truthy" N-Triples 71.7 GB), most of a
@@ -4802,6 +4848,41 @@ threshold and with the rollup off) and `src/layers/cctv/rollup.test.mjs`
 and the real world-overlay host in headless Chrome over a synthetic
 3,000-pin catalog: hexes with painted counts from orbit and at 2,500 km,
 pins at 100 km.
+
+## Builds and restarts
+
+This PC can restart under a long build: an update, a crash, a silent
+installer. One reboot killed the first eleven-wiki Wikipedia build. Two
+things are asked of every build:
+
+1. **The finished output switches over atomically.** A build never writes
+   in place what a server reads. Either a file goes to a temporary name and
+   is renamed when whole, or a set of files carries a build stamp and a
+   pointer (`current.json`) moves to its manifest in one rename, the old
+   set going after. A stopped build leaves the previous output current.
+2. **Long work resumes.** Work that takes more than a few minutes keeps
+   what it finished, keyed by its inputs, and a rerun picks it up.
+
+Where each build stands:
+
+| Build                                          | Output switch                                             | A rerun after a restart                                                                                                                            |
+| ---------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wikipedia points (`wikipedia:build --points`)  | stamped files, synced, `current.json`                     | each wiki from its checkpoint (above)                                                                                                              |
+| Wikipedia grid and hexagons                    | `grid.bin`, `h3.bin` written to a temporary file, renamed | reads geo_tags again (a minute); the page table again with `--text`                                                                                |
+| Overture buildings, roads (`overture:build`)   | stamped files, `current.json`                             | the footers and row groups are kept (a group fetched to `.partial`, renamed); a part on disk is done, and a stopped build repeats nothing finished |
+| Overture places, infrastructure                | stamped files, `current.json`                             | the same: footers and groups kept, parts done                                                                                                      |
+| Overture divisions (`overture:build`)          | `build/<id>/`, `current.json`                             | the download resumes; the build (minutes) is redone                                                                                                |
+| Overture country lines (`overture boundaries`) | whole files                                               | redone (minutes); an unchanged input is skipped                                                                                                    |
+| Census tracts (`census:build`)                 | temporary file, renamed                                   | surface temperature resumes state by state (`lst-v<rules>/<state>.json`); the rest is quick                                                        |
+| Rivers (`rivers:build`)                        | level files and manifest via temporary files              | `rivers:fetch` skips a download already whole; the build is redone                                                                                 |
+| Property sales (`property:build`)              | stamped files, `current.json`                             | redone; its spill is under `--tmp`                                                                                                                 |
+
+The rule for a new build: write the output with a stamp or a temporary
+name and switch it in one rename. Any step longer than a few minutes
+leaves a checkpoint keyed by its inputs (their Last-Modified, ETag or size,
+and the build's format), written whole then renamed, and a rerun uses it
+unless `--force`. Keep checkpoints out of the directory the output is
+swapped in, and list them in the build's `status`.
 
 ## Raw downloads on an archive (GEV_RAW_DIR)
 
