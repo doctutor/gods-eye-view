@@ -539,7 +539,7 @@ has level and ink chips (below).
 | Forest loss (2001–2025, coloured by year)                          | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                                                                                         | CC BY 4.0                                                                                                                                        |
 | Forest types (see [below](#forest-types-and-population))           | JRC global map of forest types 2020 v1, `JRC/GFC2020_subtypes/V1`, band `Map` (1 naturally regenerating, 10 primary, 20 planted)                                                                         | Free to use; citation requested                                                                                                                  |
 | Population (see [below](#forest-types-and-population))             | GHSL population P2023A, `JRC/GHSL/P2023A/GHS_POP`, band `population_count`, epochs 2020 (default), 2000, 1990, 1975                                                                                      | Reuse authorised with acknowledgement (EC reuse notice)                                                                                          |
-| Administrative boundaries                                          | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from LSIB 2017, `USDOS/LSIB/2017`                                                                                   | CC BY 4.0 (LSIB: US public domain)                                                                                                               |
+| Administrative boundaries                                          | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out (its 500 m simplified sibling at z ≤ 8), `level2` below 800 km; countries from LSIB 2017, `USDOS/LSIB/2017`                                           | CC BY 4.0 (LSIB: US public domain)                                                                                                               |
 | Rivers (see [Rivers](#rivers))                                     | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth                                                                                  | HydroSHEDS licence, attribution (Natural Earth: public domain)                                                                                   |
 | Surface water (see [Surface water](#surface-water))                | JRC Global Surface Water 1.4 (1984–2021, 30 m), `JRC/GSW1_4/GlobalSurfaceWater`, bands `occurrence`, `change_abs`, `seasonality`, masked by `max_extent`                                                 | Copernicus, free without restriction; "Source: EC JRC/Google"                                                                                    |
 | Land cover (see [Land cover](#land-cover))                         | ESA WorldCover 10 m, 2021 `ESA/WorldCover/v200/2021` and 2020 `ESA/WorldCover/v100/2020`, band `Map`                                                                                                     | CC BY 4.0, "© ESA WorldCover project" notice                                                                                                     |
@@ -785,7 +785,7 @@ Engine catalogue, with no data fetched:
 | Source                                 | Levels                                                              | Licence                                     | Recency                                                                                        | Disputed territory                                                                                                                                       | Geometry                                                                                                                                                      |
 | -------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | LSIB 2017 (in Earth Engine)            | 0                                                                   | US public domain                            | 2017-12-29. The State Department is at v11.4 (2025-02-24); Earth Engine has only 2013 and 2017 | US government policy on alignment, recognition and dispute, not necessarily de facto control                                                             | Detailed land borders; coasts from World Vector Shorelines, several hundred metres to over a kilometre off                                                    |
-| FAO GAUL 2024 ("2025" in Earth Engine) | 1, 2 (no 0)                                                         | CC BY 4.0 (GAUL 2015 was non-commercial)    | 2025                                                                                           | International lines matched to the UN's 2018 reference; FAO disclaims any opinion on legal status; no dispute field (`DISP_EN` is a display label)       | One feature per unit (3,104 and 43,819); a 500 m simplified sibling exists (`FAO/GAUL_SIMPLIFIED_500m/2025/level1`, `level2`)                                 |
+| FAO GAUL 2024 ("2025" in Earth Engine) | 1, 2 (no 0)                                                         | CC BY 4.0 (GAUL 2015 was non-commercial)    | 2025                                                                                           | International lines matched to the UN's 2018 reference; FAO disclaims any opinion on legal status; no dispute field (`DISP_EN` is a display label)       | One feature per unit (3,104 and 43,819); its 500 m simplified sibling (`FAO/GAUL_SIMPLIFIED_500m/2025/level1`, `level2`) draws level1's tiles at z ≤ 8        |
 | Natural Earth 10m                      | 0, 1 (2: US counties only)                                          | Public domain                               | v5.1.1 on its download page; boundaries change slowly                                          | De facto by default ("who controls the territory"), with point-of-view editions for several dozen countries and disputed-area themes                     | 1:10 million, about 1 km; good from orbit, coarse below a few hundred km                                                                                      |
 | Overture divisions (2026-09-23.1)      | country, dependency, (macro)region, (macro)county, down to locality | ODbL (from OpenStreetMap and geoBoundaries) | Monthly releases                                                                               | Per boundary: `is_disputed`, and `perspectives` with `accepted_by` / `disputed_by` countries, so a map can be drawn from one country's view or neutrally | OpenStreetMap detail (metres), areas land-clipped or with territorial sea; `division_boundary` is lines, `division_area` polygons; sub-county coverage spotty |
 
@@ -834,11 +834,45 @@ which is 4.5 GB, but GAUL is fine there.
   still US policy lines with the same shorelines, for the same import work
   as Overture's.
 
-One cheap step remains, unmeasured: GAUL's 500 m simplified tables for
-AUTO's far heights (above 800 km, where 500 m is under a pixel) may draw
-the coarse tiles faster. Before swapping, it needs a timed check that,
-unlike GAUL 2015's simplified level0, they are not chunked into false
-borders.
+**GAUL's 500 m simplified level1 draws the far tiles (measured
+2026-10-22).** Tiles of the regions at z 8 and coarser, which is AUTO
+above 800 km (`drapeZoomForHeight`: z 8 at 800 km on a 1,600 px canvas,
+z 3 for the whole globe) and REGIONS from far out, draw
+`FAO/GAUL_SIMPLIFIED_500m/2025/level1` in place of `FAO/GAUL/2025/level1`.
+They draw through a map of their own (`level1-coarse`,
+`simplifiedVariant` in `server/providers/earthEngine.js`). Closer in, the
+full table draws as before.
+
+- _Not chunked._ 3,103 features for 3,103 GAUL1 codes, against the full
+  table's 3,104 for 3,103 (level2: 43,819 for 43,819 in both); 54 MB
+  against 202 MB.
+- _Faster cold._ The same 16 tiles were fetched through the provider's
+  own backend, at z 3, 4, 6 and 8 over Norway's fjords, Indonesia, the
+  Canadian Arctic and central Africa. There were two runs, the second in
+  the opposite order, each from a map Earth Engine had never drawn.
+
+  | Zoom | Full, median (worst) | Simplified, median (worst) |
+  | ---- | -------------------- | -------------------------- |
+  | z 3  | 2.5 s (9.7 s)        | 1.2 s (2.0 s)              |
+  | z 4  | 0.83 s (3.3 s)       | 0.47 s (0.80 s)            |
+  | z 6  | 0.42 s               | 0.31 s                     |
+  | z 8  | 0.26 s               | 0.29 s                     |
+
+  The z 3 and z 4 tiles took 36 s in all from the full table against
+  14 s. Earth Engine's warm repeats were noisy both ways (0.07 to 5.5 s),
+  and the disk cache serves warm tiles anyway.
+
+- _The same to the pixel, once points are left out._ The simplification
+  collapses the smallest islands into points and slivers: simplified
+  Western Australia holds 140 points and 1,989 line parts, the full one
+  none and 3. `Collection.style` draws points as circles, so the coasts
+  of Indonesia, Norway and the Aegean came out ringed (up to 2,000 extra
+  line pixels a z 3 tile, 859 of them more than a pixel from any full
+  line). With `pointSize: 0` the tiles match the full table's: under 3%
+  of line pixels differ, and at most 5 a tile lie more than one pixel
+  from the full table's lines. There are no straight seams; the straight
+  lines in the Arctic tiles are Nunavut's and the provinces' own, in both
+  tables.
 
 ### Forest types and Population
 

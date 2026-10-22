@@ -27,6 +27,7 @@ import {
   mapKey,
   mapRequestFor,
   mapRequestHash,
+  simplifiedVariant,
 } from '../../server/providers/earthEngine.js';
 import {
   AMERICAS_CON_IDS,
@@ -1800,4 +1801,74 @@ test('contours: the zoom variant draws each tile with its zoom’s step, one map
     made,
     CONTOUR_BANDS.map((band) => `ee-elevation-contours/${band.key}/light`),
   );
+});
+
+test('far out, the regions draw GAUL’s 500 m simplified table: its own map, points undrawn', async (t) => {
+  const layer = byId('ee-admin-boundaries');
+  const level1 = layerVariants(layer).find((v) => v.key === 'level1');
+  const level2 = layerVariants(layer).find((v) => v.key === 'level2');
+  // z 8 and coarser (AUTO above 800 km); the full table closer in.
+  for (const z of [0, 3, 8])
+    assert.deepEqual(simplifiedVariant(level1, z), {
+      key: 'level1-coarse',
+      asset: { table: 'FAO/GAUL_SIMPLIFIED_500m/2025/level1' },
+      pointSize: 0,
+    });
+  assert.equal(simplifiedVariant(level1, 9), null);
+  assert.equal(simplifiedVariant(level2, 3), null);
+  // The simplified map leaves points undrawn; the full one is as it was.
+  const args = (variant) =>
+    mapRequestFor(layer, variant, 'light').expression.values['0']
+      .functionInvocationValue.arguments;
+  const coarse = args(simplifiedVariant(level1, 3));
+  assert.deepEqual(coarse.pointSize, { constantValue: 0 });
+  assert.match(JSON.stringify(coarse), /GAUL_SIMPLIFIED_500m\/2025\/level1/);
+  assert.equal(args(level1).pointSize, undefined);
+  assert.notEqual(
+    mapRequestHash(layer, simplifiedVariant(level1, 3), 'light'),
+    mapRequestHash(layer, level1, 'light'),
+  );
+  // Through the route: a z 3 tile makes the simplified map, a z 9 the full.
+  const root = await tempRoot(t);
+  const made = [];
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    layers: [layer],
+    backend: {
+      async createMap(_layer, variant, ink) {
+        made.push(`${variant.key}/${ink}/${variant.asset.table}`);
+        return { name: `projects/p/maps/${variant.key}` };
+      },
+      async fetchTile(name, z, x, y) {
+        return {
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from(`${name}/${z}/${x}/${y}`),
+        };
+      },
+    },
+  });
+  const far = await service.tile(
+    'ee-admin-boundaries',
+    'level1',
+    'light',
+    3,
+    4,
+    2,
+  );
+  const near = await service.tile(
+    'ee-admin-boundaries',
+    'level1',
+    'light',
+    9,
+    260,
+    140,
+  );
+  assert.equal(String(far.body), 'projects/p/maps/level1-coarse/3/4/2');
+  assert.equal(String(near.body), 'projects/p/maps/level1/9/260/140');
+  assert.deepEqual(made, [
+    'level1-coarse/light/FAO/GAUL_SIMPLIFIED_500m/2025/level1',
+    'level1/light/FAO/GAUL/2025/level1',
+  ]);
 });
