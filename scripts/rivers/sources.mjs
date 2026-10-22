@@ -100,6 +100,10 @@ function toReach(values, parts) {
     upland: Number(values.UPLAND_SKM),
     strahler: values.ORD_STRAH ?? null,
     lengthKm: values.LENGTH_KM ?? null,
+    // The network (the river names' main stems): the reach's id and the
+    // one below it (-1 at a sink or the sea).
+    id: values.STRM_ID ?? null,
+    down: values.STRM_DN ?? null,
     parts,
   };
 }
@@ -107,7 +111,7 @@ function toReach(values, parts) {
 /**
  * Every reach of an input, in file order; onReach returning false stops.
  * @param {{file: string, kind: string}} input
- * @param {(reach: {upland: number, strahler: number|null, lengthKm: number|null, parts: Float64Array[]}) => boolean|void} onReach
+ * @param {(reach: {upland: number, strahler: number|null, lengthKm: number|null, id: number|null, down: number|null, parts: Float64Array[]}) => boolean|void} onReach
  * @returns {Promise<{table: string, rows: number, fields: string[], extent: object|null}>}
  */
 export async function forEachReach(input, onReach) {

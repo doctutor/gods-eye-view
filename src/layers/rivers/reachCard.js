@@ -63,8 +63,22 @@ export function flowText(cms) {
   });
 }
 
+/**
+ * A river's name from OpenStreetMap (the river names sidecar), in its own
+ * language with the English one beside it when they differ.
+ */
+export function osmNameTitle(osmName) {
+  const name = String(osmName?.name || '').trim();
+  if (!name) return '';
+  const english = String(osmName.nameEn || '').trim();
+  return english && english !== name ? `${name} (${english})` : name;
+}
+
 /** The river's name; an unnamed one is named after the first named river below it. */
 export function reachTitle(answer) {
+  // Personal fork: OpenStreetMap's name at the click, when the sidecar has one.
+  const osm = osmNameTitle(answer?.osmName);
+  if (osm) return osm;
   const name = answer?.reach?.properties?.BB_NAME;
   if (name) return name;
   const below = (answer?.downstream?.segments || []).find((s) => s.name);
@@ -74,6 +88,20 @@ export function reachTitle(answer) {
   return basin
     ? t('A river of the {basin} basin', { basin })
     : t('Unnamed river');
+}
+
+/** Where the card's name came from, when OpenStreetMap gave it. */
+export function osmNameSource(osmName) {
+  if (!osmName?.name) return '';
+  if (osmName.confidence === 'direct')
+    return t('Name from OpenStreetMap (© OpenStreetMap contributors, ODbL)');
+  if (osmName.confidence === 'inherited')
+    return t(
+      'Name from OpenStreetMap, carried down the main stem (© OpenStreetMap contributors, ODbL)',
+    );
+  return t(
+    'Name of the nearest OpenStreetMap waterway (© OpenStreetMap contributors, ODbL)',
+  );
 }
 
 /** How far the water goes from the click, and where it ends. */
@@ -126,6 +154,8 @@ export function reachCardDetails(answer, { upstream = null } = {}) {
     );
   const distance = distanceText(answer?.downstream);
   if (distance) lines.push(distance);
+  const naming = osmNameSource(answer?.osmName);
+  if (naming) lines.push(naming);
   if (upstream === 'loading') lines.push(t('Tracing the rivers upstream…'));
   else if (upstream === 'failed')
     lines.push(t('The rivers upstream could not be traced'));

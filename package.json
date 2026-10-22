@@ -60,6 +60,7 @@
     "rivers:fetch": "node scripts/rivers/index.mjs fetch",
     "rivers:build": "node scripts/rivers/index.mjs build",
     "rivers:status": "node scripts/rivers/index.mjs status",
+    "rivers:names": "node scripts/rivers/index.mjs names",
     "census:build": "node scripts/census/index.mjs build",
     "census:status": "node scripts/census/index.mjs status",
     "overture:build": "node scripts/overture/index.mjs build",

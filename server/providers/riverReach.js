@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { admitSameSite } from './common/same-site.js';
 import { defaultSourceRoot } from './common/source-root.js';
+// Personal fork: the river names sidecar names a clicked reach.
+import { createRiverNamesIndex, riverNamesDir } from './riverNames/index.js';
 import {
   EE_API,
   createServiceAccountAuth,
@@ -763,6 +765,9 @@ export function createRiverReachService({
   fetchImpl = (...args) => fetch(...args),
   now = () => Date.now(),
   limits = DEFAULT_LIMITS,
+  // Personal fork: the river names sidecar (riverNames/index.js), whose
+  // nearest named line names a clicked reach.
+  names = null,
 } = {}) {
   const dir = path.join(sourceRoot, CACHE_DIR);
   const limiter = createLimiter({ ...limits, now });
@@ -921,11 +926,20 @@ export function createRiverReachService({
     );
     const reach = { ...traced.reach };
     if (click) reach.distanceM = distances.distanceM;
+    // The name OpenStreetMap gives the river at the click, if any.
+    let osmName = null;
+    if (click && names)
+      try {
+        osmName = names.nearest({ lat: click.lat, lon: click.lon });
+      } catch (error) {
+        console.warn('[Rivers] name lookup failed:', error?.message);
+      }
     return answer(200, {
       schema: RIVER_REACH_SCHEMA,
       source: V1_SOURCE,
       ...(query ? { query } : {}),
       reach,
+      ...(osmName ? { osmName } : {}),
       downstream: {
         ...traced.downstream,
         distanceToMouthKm: distances.distanceToMouthKm,
@@ -1081,6 +1095,15 @@ export function createRiverReachHandler({ sources }) {
 }
 
 let shared = null;
+let sharedNames = null;
+
+/** The river names sidecar the dev server reads (one, shared). */
+export function sharedRiverNames(sourceRoot = defaultSourceRoot) {
+  sharedNames ||= createRiverNamesIndex({
+    dir: riverNamesDir(process.env, sourceRoot),
+  });
+  return sharedNames;
+}
 
 /** Vite plugin: /api/rivers/reach for clicking a river (the Rivers layer). */
 export function riverReachProxy({
@@ -1088,7 +1111,10 @@ export function riverReachProxy({
   sources,
 } = {}) {
   function install(middlewares) {
-    shared ||= createRiverReachService({ sourceRoot });
+    shared ||= createRiverReachService({
+      sourceRoot,
+      names: sharedRiverNames(sourceRoot),
+    });
     middlewares.use(
       RIVER_REACH_ROUTE,
       createRiverReachHandler({ sources: sources || [shared] }),
