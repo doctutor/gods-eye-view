@@ -37,6 +37,7 @@ Start-Transcript -Path 'C:\gev-provision.log' -Append
 $work = 'C:\gev-provision'
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 $failed = @()
+$restart = $false
 $repo = 'doctutor/gods-eye-view'
 
 function Step([string]$name, [scriptblock]$body) {
@@ -136,6 +137,19 @@ Step 'Windows Audio service (Parsec streams the sound)' {
   if ($audio.Status -ne 'Running') { Start-Service -Name 'Audiosrv' }
 }
 
+# Windows Server (AirGPU's image is Server 2025) leaves Media Foundation
+# out; games and OBS's capture often need it. A feature install needs one
+# restart, said here and in the summary; Windows 10 and 11 have it built in.
+Step 'Media Foundation (Windows Server only)' {
+  if (-not (Get-Command Get-WindowsFeature -ErrorAction SilentlyContinue)) { Write-Output 'not Windows Server: built in'; return }
+  $feature = Get-WindowsFeature -Name 'Server-Media-Foundation'
+  if (-not $feature) { throw 'no Server-Media-Foundation feature on this edition' }
+  if ($feature.Installed) { Write-Output 'already installed'; return }
+  $result = Install-WindowsFeature -Name 'Server-Media-Foundation'
+  if (-not $result.Success) { throw "Install-WindowsFeature: $($result.ExitCode)" }
+  if ($result.RestartNeeded -ne 'No') { $script:restart = $true; Write-Output 'installed; restart Windows once before starting the sim' }
+}
+
 Step 'Steam' {
   $steam = Join-Path ${Env:ProgramFiles(x86)} 'Steam\steam.exe'
   if (Test-Path $steam) { Write-Output 'already installed'; return }
@@ -223,6 +237,7 @@ Step 'Open Steam' {
 }
 
 Write-Output "=== $(Get-Date -Format s) setup finished; failed steps: $(if ($failed.Count) { $failed -join ', ' } else { 'none' })"
+if ($restart) { Write-Output 'Restart Windows once (Media Foundation) before starting MSFS 2024; Parsec reconnects after it.' }
 Write-Output @"
 Next, by hand:
   1. Steam: sign in (Steam Guard) and install Microsoft Flight Simulator 2024 from your library.

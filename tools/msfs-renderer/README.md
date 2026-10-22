@@ -378,9 +378,15 @@ machine is still there next time. Every script here is safe to run again
 on a new machine.
 
 **Tier:** Nvidia A10G, the same GPU as the AWS plan's `g5.2xlarge`, in US
-East (N. Virginia), with the Windows image. AirGPU supplies the NVIDIA
-driver and Parsec, so the scripts only report them. We don't control the
-first boot: the user runs the scripts once inside the machine.
+East (N. Virginia), with the Windows image, which is Windows Server 2025. AirGPU supplies the NVIDIA driver and Parsec, so the scripts only
+report them. We don't control the first boot: the user runs the scripts
+once inside the machine.
+
+On Server, the Windows Audio service is off and Media Foundation is an
+optional feature. The setup turns on the first and installs the second,
+which needs one restart; it says so at the end. Steam's `/S` and the .NET
+installers' `/install /quiet /norestart` are the vendors' silent switches.
+Their behaviour on Server 2025 was not tried here.
 
 **What the user clicks at AirGPU:**
 
@@ -388,7 +394,8 @@ first boot: the user runs the scripts once inside the machine.
 2. Give it enough disk for MSFS 2024: about 50 GB installed, plus Steam,
    OBS and the recordings. AirGPU sells storage as SSD add-ons in 50 GB
    steps from 100 GB. A disk kept between sessions is billed while the
-   machine is off.
+   machine is off. The first machine has 250 GB, about 40 GB of it the
+   OS, which leaves plenty.
 3. Connect with Parsec.
 
 **Cost:** pay by the hour, from credit bought in advance. The prices are in
@@ -416,6 +423,7 @@ are copied here.
    | `NVIDIA driver (AirGPU supplies it; reported, not installed)` | Prints the GPU, the driver version and the memory (`nvidia-smi`)                                                        |
    | `Parsec (AirGPU supplies it; reported, not installed)`        | Prints Parsec's version and whether it runs                                                                             |
    | `Windows Audio service (Parsec streams the sound)`            | Starts the audio service, automatic from then on                                                                        |
+   | `Media Foundation (Windows Server only)`                      | Installs the `Server-Media-Foundation` feature if it is missing; one restart                                            |
    | `Steam`                                                       | Installs Steam                                                                                                          |
    | `OBS Studio`                                                  | Installs OBS. Version 28 and later carry obs-websocket v5, which the bridge speaks; no separate plugin                  |
    | `7-Zip`                                                       | Installs 7-Zip                                                                                                          |
