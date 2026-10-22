@@ -3768,5 +3768,11 @@
   },
   "the most notable; zoom in for all": "самые заметные; приблизьте, чтобы увидеть все",
   "Secondary coordinates": "Вторичные координаты",
-  "Wikipedia": "Википедия"
+  "Wikipedia": "Википедия",
+  "Arc": "Дуга",
+  "Centre": "Центр",
+  "Hue wheel": "Цветовой круг",
+  "LOCK CENTRE": "ЗАКРЕПИТЬ ЦЕНТР",
+  "Start": "Начало",
+  "The centre keeps the ramp’s middle; dragging one end moves the other": "Центр остаётся в середине шкалы; перетаскивание одного края двигает другой"
 }

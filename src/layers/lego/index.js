@@ -19,6 +19,7 @@ import {
   isLegoLayer,
   layerSpec,
   legoColourScale,
+  legoScaleDefaults,
   withColourScale,
   withHeader,
 } from './layerSpecs.js';
@@ -259,7 +260,11 @@ export function createLegoController({
         base.header.cols === grid.header.cols &&
         base.header.rows === grid.header.rows;
       const columns = gridColumns(grid, {
-        spec: withColourScale(withHeader(spec, grid.header), colourScale),
+        spec: withColourScale(
+          withHeader(spec, grid.header),
+          colourScale,
+          legoScaleDefaults(scales, layer, mode),
+        ),
         elevation: spec.elevation,
         exaggeration,
         base: sameGrid ? base : null,

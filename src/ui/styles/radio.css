@@ -1142,6 +1142,23 @@ html:not([lang='en']) .data-row-list-text {
   align-items: center;
   gap: 4px;
 }
+/* Circular: the start and the arc are two sliders, one above the other. */
+.data-scale[data-kind='circular'] .data-scale-track {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: auto;
+}
+.data-scale[data-kind='circular'] .data-scale-handle {
+  position: static;
+  height: 16px;
+  pointer-events: auto;
+}
+.data-scale[data-kind='circular']
+  .data-scale-handle::-webkit-slider-runnable-track {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.25);
+}
 /* ── Local RTL-SDR card (FM + Local ADS-B receiver) ── */
 .sdr-radio-card {
   display: grid;

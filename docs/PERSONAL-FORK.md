@@ -4597,15 +4597,45 @@ itself with `defineScaleDefaults({ scale, units, outside, colourAt | stops,
 range, format })`; `normalizeScale` validates anything read back,
 `createScalePainter` paints a value array, `scaleLegend` draws the row's
 legend from the model, and `rangeFraction`/`rangeValue` map the slider.
-The model cannot say "diverging around zero" or "circular" (aspect); a
-layer that needs those keeps its default window symmetric.
+
+**Kinds: diverging and circular.** A layer's defaults also say what its
+values are (`kind`):
+
+- **sequential** (the rest): as above.
+- **diverging** (a change either side of a `centre`, default 0; Surface
+  water change): the scale is linear and the row shows **LOCK CENTRE**
+  (on by default) instead of the mappings. Locked, the centre always
+  paints the ramp's middle and each half stretches to its own end, so a
+  lopsided window (−10 to 40) still has white at 0; the automatic window
+  is symmetric about the centre over the wider side of the data; dragging
+  one handle mirrors the other; a Centre input moves the centre (empty:
+  the layer's). Unlocked, the window is plain linear and the middle
+  follows it. A diverging legend has an odd number of swatches, the
+  middle one the centre.
+- **circular** (an angle over a `period`, 360 for Aspect): the window is
+  a start angle (`floor`) and an arc (`ceiling` − `floor`, at most one
+  period) that wraps: start 315°, arc 90° paints 315° → 45° through
+  north. Outside the arc a value takes the nearer end's colour round the
+  circle, or none with HIDE OUTSIDE. The row shows Start and Arc sliders
+  and inputs, and previews the result as one period's bar, 0° at the
+  left, the arc wrapping past the right edge (`circularGradient`). The
+  **Hue wheel** palette (ends that meet) suits it.
+
+Lego places diverging and circular columns by the same rule
+(`withColourScale(spec, model, defaults)` gives the spec a `positionOf`).
+No client-drawn layer is diverging or circular today; the Earth Engine
+layers declare theirs.
 
 **Where it is kept** (`src/maps/colourScaleStore.js`): per `layerId:mode`,
 in this browser as `gev.colourScale.<layerId>:<mode>`, and in the share
 link as `cs`, in the `lo` grammar: `_` between entries, `.` between
 fields, `<layer>[-<mode>].<palette>.<floor>.<ceiling>.<flags>`, `p` for
-the decimal point, flags `l|n|s` then `i` (invert) and `h` (hide). For
-example `cs=ct-income.g.50000.120000.n_w-articles.v.0p5.200.lih`. The hash
+the decimal point, flags `l|n|s` then `i` (invert), `h` (hide) and `u` (a
+diverging centre unlocked), and an optional fifth field for a centre of
+the user's own. For example
+`cs=ct-income.g.50000.120000.n_w-articles.v.0p5.200.lih`, or
+`sw-change.d.-10.40.nu` and `as.u.315.405.n`. Links made before the kinds
+read the same. The hash
 is read once at start and wins over what the browser kept; only scales
 that differ from the default are written.
 
