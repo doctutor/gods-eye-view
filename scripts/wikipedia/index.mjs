@@ -23,7 +23,7 @@ import {
  *
  *   node scripts/wikipedia/index.mjs build [--text] [--force] [--offline]
  *        [--limit N] [--dir DIR] [--population [--env-root DIR]]
- *        [--points [--secondary] [--wikis enwiki]]
+ *        [--points [--secondary] [--wikis enwiki]] [--page-file FILE]
  *   node scripts/wikipedia/index.mjs status [--json] [--dir DIR]
  *
  * `build` downloads Wikimedia's GeoData dump (enwiki-latest-geo_tags.sql.gz,
@@ -40,7 +40,9 @@ import {
  * the page_props dump (each article's Wikidata item; 484 MB, kept beside
  * geo_tags). `--secondary` adds the secondary coordinates (1.5 M, a lower
  * class the layer shows only when asked); `--wikis` names the wikis to
- * union by Wikidata item (only enwiki today).
+ * union by Wikidata item (only enwiki today). `--page-file` reads the page
+ * table from a downloaded copy instead of streaming it; with `--offline`
+ * nothing is asked of the network (geo_tags and page_props must be there).
  *
  * Everything lives in WIKIPEDIA_COVERAGE_DIR (default .gev-cache/wikipedia in
  * the repository): the dump, geo_tags.meta.json (ETag, Last-Modified),
@@ -207,6 +209,10 @@ async function main(argv) {
       points: Boolean(flags.points),
       secondary: Boolean(flags.secondary),
       wikis: typeof flags.wikis === 'string' ? flags.wikis : 'enwiki',
+      pageFile:
+        typeof flags['page-file'] === 'string'
+          ? path.resolve(flags['page-file'])
+          : '',
       force: Boolean(flags.force),
       offline: Boolean(flags.offline),
       limit: limitOf(flags.limit),

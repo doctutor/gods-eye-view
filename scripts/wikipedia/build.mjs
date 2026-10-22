@@ -450,6 +450,7 @@ export async function runBuild({
   points = false,
   secondary = false,
   wikis = 'enwiki',
+  pageFile = '',
   force = false,
   offline = false,
   limit = Infinity,
@@ -526,15 +527,27 @@ export async function runBuild({
   const pagePoints = geoPoints ? pageRowsForPoints(geoPoints.pages) : null;
   let page = null;
   if (wantsText || points) {
-    if (offline)
+    if (offline && !pageFile)
       throw new Error(
-        '--text and --points need the network: the page table is streamed, never kept',
+        '--text and --points offline need the page table on disk: --page-file',
       );
-    await sleepImpl(DOWNLOAD_GAP_MS);
-    log(
-      `streaming the page table for article ${wantsText ? 'sizes' : 'titles'} (about 2 GB, not kept)…`,
-    );
-    const stream = await gunzipUrl(PAGE_URL, { fetchImpl });
+    let stream;
+    if (pageFile) {
+      // A page table downloaded beside the other dumps, with its metadata.
+      log(`reading the page table from ${pageFile}…`);
+      stream = {
+        chunks: gunzipFile(pageFile),
+        lastModified:
+          readJson(path.join(path.dirname(pageFile), 'page.meta.json'), {})
+            .lastModified || null,
+      };
+    } else {
+      await sleepImpl(DOWNLOAD_GAP_MS);
+      log(
+        `streaming the page table for article ${wantsText ? 'sizes' : 'titles'} (about 2 GB, not kept)…`,
+      );
+      stream = await gunzipUrl(PAGE_URL, { fetchImpl });
+    }
     const sized = await addPageSizes(stream.chunks, {
       ...(wantsText
         ? {
@@ -557,16 +570,24 @@ export async function runBuild({
   }
   let pointsManifest = null;
   if (geoPoints) {
-    await sleepImpl(DOWNLOAD_GAP_MS);
-    const props = await download({
-      url: PAGE_PROPS_URL,
-      file: files.pageProps,
-      metaFile: files.pagePropsMeta,
-      fetchImpl,
-      now,
-      log,
-      force,
-    });
+    let props;
+    if (offline) {
+      // Offline: the page_props dump already beside geo_tags, no request.
+      if (!fs.existsSync(files.pageProps))
+        throw new Error(`offline, and ${files.pageProps} is not there`);
+      props = { meta: readJson(files.pagePropsMeta, { url: PAGE_PROPS_URL }) };
+    } else {
+      await sleepImpl(DOWNLOAD_GAP_MS);
+      props = await download({
+        url: PAGE_PROPS_URL,
+        file: files.pageProps,
+        metaFile: files.pagePropsMeta,
+        fetchImpl,
+        now,
+        log,
+        force,
+      });
+    }
     log('reading page_props for the Wikidata items…');
     const wikidata = await collectWikidataItems(
       gunzipFile(files.pageProps),
