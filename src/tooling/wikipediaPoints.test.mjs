@@ -338,3 +338,60 @@ test('a build with --points writes the index from the three dumps', async () => 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('offline, with the page table on disk, the points build asks nothing of the network', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gev-wiki-offline-'));
+  try {
+    const gz = (text) => zlib.gzipSync(Buffer.from(text));
+    fs.writeFileSync(
+      path.join(dir, 'enwiki-latest-geo_tags.sql.gz'),
+      gz(geoText()),
+    );
+    fs.writeFileSync(
+      path.join(dir, 'geo_tags.meta.json'),
+      JSON.stringify({
+        lastModified: 'Thu, 08 Oct 2026 03:30:29 GMT',
+        etag: '"g"',
+      }),
+    );
+    fs.writeFileSync(
+      path.join(dir, 'enwiki-latest-page_props.sql.gz'),
+      gz(propsText()),
+    );
+    fs.writeFileSync(
+      path.join(dir, 'page_props.meta.json'),
+      JSON.stringify({ lastModified: 'Thu, 08 Oct 2026 03:28:48 GMT' }),
+    );
+    const pageDir = path.join(dir, 'elsewhere');
+    fs.mkdirSync(pageDir);
+    const pageFile = path.join(pageDir, 'enwiki-latest-page.sql.gz');
+    fs.writeFileSync(pageFile, gz(pageText()));
+    fs.writeFileSync(
+      path.join(pageDir, 'page.meta.json'),
+      JSON.stringify({ lastModified: 'Thu, 08 Oct 2026 03:27:22 GMT' }),
+    );
+    const result = await runBuild({
+      dir,
+      points: true,
+      offline: true,
+      pageFile,
+      fetchImpl: () => assert.fail('nothing is fetched offline'),
+      sleepImpl: async () => {},
+    });
+    assert.equal(result.points.points, 3);
+    assert.equal(result.points.dump.pageProps, 'Thu, 08 Oct 2026 03:28:48 GMT');
+    // Offline without the page table on disk: refused.
+    await assert.rejects(
+      runBuild({
+        dir,
+        points: true,
+        offline: true,
+        force: true,
+        sleepImpl: async () => {},
+      }),
+      /--page-file/,
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
