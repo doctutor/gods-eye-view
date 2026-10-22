@@ -38,9 +38,11 @@ import {
   openBuildingsDraws,
 } from '../../scripts/overture/openBuildingsGaps.mjs';
 import {
+  PYRAMID_SIDES,
   cellColor,
   createBuildingsTiles,
   paletteColor,
+  pyramidSide,
 } from '../../server/providers/overture/buildingsTiles.js';
 import {
   createOvertureHandler,
@@ -377,6 +379,99 @@ test('tiles: density from orbit to the street, footprints in the ink from z 15',
     lit.some(([, , r, g, b]) => g > 60 && b > 150),
     'a light outline (antialiased) over the dark COVER fill',
   );
+});
+
+/** A values answer's cells × their ground: the buildings each column holds. */
+function buildingsByColumn(answer, { west, north }, cols, rows, dx, dy) {
+  const values = new Float32Array(
+    answer.body.buffer,
+    answer.body.byteOffset,
+    answer.body.byteLength / 4,
+  );
+  const rad = Math.PI / 180;
+  const columns = new Array(cols).fill(0);
+  for (let row = 0; row < rows; row++) {
+    const top = north - row * dy;
+    const km2 =
+      6371.0088 ** 2 *
+      dx *
+      rad *
+      (Math.sin(top * rad) - Math.sin((top - dy) * rad));
+    for (let col = 0; col < cols; col++) {
+      const v = values[row * cols + col];
+      if (Number.isFinite(v)) columns[col] += v * km2;
+    }
+  }
+  return columns;
+}
+
+test('raster values from orbit read a bucket level that fits four cells a side', () => {
+  // Level cells: 5.625° (a bucket) over 4, 8, 16, 32, 64; the coarsest
+  // with four a side in the cell, so a side of at least 22.5° / the cell.
+  assert.equal(pyramidSide(0.3), 0, 'the z 14 cells below 0.35°');
+  assert.equal(pyramidSide(0.36), 64);
+  assert.equal(pyramidSide(0.7), 64);
+  assert.equal(pyramidSide(1.5), 16);
+  assert.equal(pyramidSide(3), 8);
+  assert.equal(pyramidSide(6), 4);
+  assert.equal(pyramidSide(0.7, 1), 16, 'one cell a side when asked');
+  assert.deepEqual(PYRAMID_SIDES, [4, 8, 16, 32, 64]);
+});
+
+test('raster values keep every building, the coarse levels splitting a cell on an edge by ground', (t) => {
+  const polygons = wkbPolygons(square(-76.61, 39.29, 0.0002));
+  const dir = service(
+    t,
+    Array.from({ length: 5 }, () => ({ height: 9, polygons })),
+  );
+  const tiles = createBuildingsTiles({ dir });
+  t.after(() => tiles.close());
+  // A 0.2° grid reads the z 14 cells; a 0.7° one the 64² level. One column
+  // edge at -76.6 runs through the level cell holding the buildings.
+  const levelDeg = 360 / (64 * 64);
+  const levelWest = Math.floor((-76.61 + 180) / levelDeg) * levelDeg - 180;
+  for (const [deg, side] of [
+    [0.2, 0],
+    [0.7, 64],
+  ]) {
+    const cols = 20;
+    const rows = 10;
+    const box = {
+      west: -76.6 - 10 * deg,
+      east: -76.6 + 10 * deg,
+      north: 39.29 + 5 * deg,
+      south: 39.29 - 5 * deg,
+    };
+    assert.equal(pyramidSide(deg), side);
+    const answer = tiles.values('count', box, cols, rows);
+    assert.equal(answer.status, 200);
+    assert.equal(answer.aggregation, 'mean');
+    const columns = buildingsByColumn(answer, box, cols, rows, deg, deg);
+    const total = columns.reduce((a, b) => a + b, 0);
+    assert.ok(Math.abs(total - 5) < 1e-3, `${deg}°: ${total} buildings`);
+    if (!side) {
+      assert.ok(Math.abs(columns[9] - 5) < 1e-3, 'all in the west column');
+      continue;
+    }
+    // The level cell straddles the edge: its buildings go by its ground.
+    const westShare = (-76.6 - levelWest) / levelDeg;
+    assert.ok(Math.abs(columns[9] - 5 * westShare) < 1e-3, `${columns[9]}`);
+    assert.ok(Math.abs(columns[10] - 5 * (1 - westShare)) < 1e-3);
+  }
+});
+
+test('the coarse levels are summed once a bucket and kept', (t) => {
+  const polygons = wkbPolygons(square(-76.61, 39.29, 0.0002));
+  const dir = service(t, [{ height: 9, polygons }]);
+  const tiles = createBuildingsTiles({ dir });
+  t.after(() => tiles.close());
+  const box = { west: -180, east: 180, north: 80, south: -80 };
+  const first = tiles.values('cover', box, 64, 32);
+  // With the bucket's levels kept, the file is not read again.
+  const reads = t.mock.method(fs, 'readSync');
+  const again = tiles.values('cover', box, 64, 32);
+  assert.equal(reads.mock.callCount(), 0);
+  assert.deepEqual(again.body, first.body);
 });
 
 test('the route and the layer’s side: versioned tiles, the status, the regions', async (t) => {

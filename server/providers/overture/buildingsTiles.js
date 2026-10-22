@@ -53,6 +53,32 @@ const MODE = new Map(BUILDINGS_MODES.map((mode) => [mode.key, mode]));
 /** A bucket's overview is OVERVIEW cells a side: a z 4 tile's pixels. */
 const OVERVIEW = 64;
 const OVERVIEW_ZOOM = BUCKET_ZOOM - Math.log2(TILE / OVERVIEW);
+/**
+ * The raster values' coarser levels of a bucket, cells a side, coarsest
+ * first: the overview (a z 12 pixel, 9.8 km at the equator) halved down to
+ * 4 (a z 8 pixel, 1.4° of longitude).
+ */
+export const PYRAMID_SIDES = Object.freeze([4, 8, 16, 32, OVERVIEW]);
+
+/**
+ * A raster values cell sums at least this many of a level's cells a side.
+ * Fewer, and a cell's value is a coarse cell's whose centre happens to fall
+ * in it, not its own ground's: building density changes too fast for that.
+ */
+export const PYRAMID_CELLS_PER_SIDE = 4;
+
+/**
+ * The coarsest level of which a raster values cell of `cellDeg` (its
+ * narrower side) holds `perSide` cells a side, or 0 for the bucket's own.
+ */
+export function pyramidSide(cellDeg, perSide = PYRAMID_CELLS_PER_SIDE) {
+  const cellUnits = (cellDeg / 360) * 2 ** WORLD_BITS;
+  const bucketUnits = 2 ** SHIFT(BUCKET_ZOOM);
+  return (
+    PYRAMID_SIDES.find((side) => (bucketUnits / side) * perSide <= cellUnits) ||
+    0
+  );
+}
 /** Outlines read beyond the tile by this much (units), for buildings that cross its edge. */
 const EDGE_UNITS = 2 ** 10;
 
@@ -119,11 +145,40 @@ export function createBuildingsTiles({
 
   /** Each bucket's cells summed to OVERVIEW × OVERVIEW, for z 0–4 (by file). */
   const overviews = new Map();
+  /** Each bucket's coarser levels, by file: side → its cells' sums. */
+  const pyramids = new Map();
 
   function closeAll() {
     for (const bucket of open.values()) bucket.close();
     open.clear();
     overviews.clear();
+    pyramids.clear();
+  }
+
+  /**
+   * A bucket's cells at `side` cells a side (one of PYRAMID_SIDES): the
+   * overview, or the level above it summed 2 × 2, kept as the overview is
+   * (21 KB a bucket below it), so a raster values window from orbit reads
+   * a few cells per bucket rather than its 65,536.
+   */
+  function pyramidLevel(m, bx, by, side) {
+    const top = overview(m, bx, by);
+    if (!top || side === OVERVIEW) return top;
+    const entry = m.buckets[String(by * 2 ** BUCKET_ZOOM + bx)];
+    let levels = pyramids.get(entry.file);
+    if (!levels) pyramids.set(entry.file, (levels = new Map()));
+    let grid = levels.get(side);
+    if (grid) return grid;
+    const finer = pyramidLevel(m, bx, by, side * 2);
+    grid = new Float32Array(side * side * 4);
+    for (let cy = 0; cy < side * 2; cy++)
+      for (let cx = 0; cx < side * 2; cx++) {
+        const from = (cy * side * 2 + cx) * 4;
+        const at = ((cy >> 1) * side + (cx >> 1)) * 4;
+        for (let k = 0; k < 4; k++) grid[at + k] += finer[from + k];
+      }
+    levels.set(side, grid);
+    return grid;
   }
 
   /**
@@ -504,32 +559,103 @@ export function createBuildingsTiles({
           }
         }
       } else {
-        // The blocks' cells summed into the cell holding their centre.
+        // The blocks' cells summed into the cell holding their centre. A
+        // cell holding PYRAMID_CELLS_PER_SIDE a side of one of a bucket's
+        // coarser levels (PYRAMID_SIDES) reads the coarsest such level
+        // instead, each level cell's sums split over the cells it overlaps
+        // by ground, so a city on a cell's edge is not moved across it whole.
         const sums = new Float64Array(cols * rows * 4);
+        const add = (at, weight, count, area, heightArea, known) => {
+          sums[at] += count * weight;
+          sums[at + 1] += area * weight;
+          sums[at + 2] += heightArea * weight;
+          sums[at + 3] += known * weight;
+        };
+        const side = level === BUCKET_ZOOM ? pyramidSide(Math.min(dx, dy)) : 0;
         const x0 = Math.floor(unitX(west) / 2 ** blockShift);
         const x1 = Math.floor(unitX(east) / 2 ** blockShift);
         const y0 = Math.floor(unitY(north) / 2 ** blockShift);
         const y1 = Math.floor(unitY(south) / 2 ** blockShift);
-        for (let ty = y0; ty <= y1; ty++)
-          for (let tx = x0; tx <= x1; tx++) {
-            const raw = blockOf(tx, ty);
-            if (!raw) continue;
-            eachCell(raw, (cell, count, area, heightArea, known) => {
-              const ux = (tx * TILE + (cell % TILE) + 0.5) * 2 ** cellShift;
-              const uy =
-                (ty * TILE + Math.floor(cell / TILE) + 0.5) * 2 ** cellShift;
-              const col = Math.floor(
-                ((ux / 2 ** WORLD_BITS) * 360 - 180 - west) / dx,
-              );
-              const row = Math.floor((north - latOfUnitY(uy)) / dy);
-              if (col < 0 || col >= cols || row < 0 || row >= rows) return;
-              const at = (row * cols + col) * 4;
-              sums[at] += count;
-              sums[at + 1] += area;
-              sums[at + 2] += heightArea;
-              sums[at + 3] += known;
-            });
+        if (side) {
+          const levelUnits = 2 ** blockShift / side;
+          const lonOf = (ux) => (ux / 2 ** WORLD_BITS) * 360 - 180;
+          const sinOf = (lat) => Math.sin((lat * Math.PI) / 180);
+          // Each level column's [output column, share of its ground, …],
+          // and each level row's: longitude shares by degrees, latitude
+          // shares by sin(latitude), which is ground.
+          const colSpans = [];
+          for (let sx = x0 * side; sx < (x1 + 1) * side; sx++) {
+            const w = lonOf(sx * levelUnits);
+            const e = lonOf((sx + 1) * levelUnits);
+            const span = [];
+            const first = Math.max(0, Math.floor((w - west) / dx));
+            const last = Math.min(cols - 1, Math.floor((e - west) / dx));
+            for (let col = first; col <= last; col++) {
+              const share =
+                (Math.min(e, west + (col + 1) * dx) -
+                  Math.max(w, west + col * dx)) /
+                (e - w);
+              if (share > 0) span.push(col, share);
+            }
+            colSpans.push(span);
           }
+          const rowSpans = [];
+          for (let sy = y0 * side; sy < (y1 + 1) * side; sy++) {
+            const n = latOfUnitY(sy * levelUnits);
+            const s = latOfUnitY((sy + 1) * levelUnits);
+            const span = [];
+            const first = Math.max(0, Math.floor((north - n) / dy));
+            const last = Math.min(rows - 1, Math.floor((north - s) / dy));
+            for (let row = first; row <= last; row++) {
+              const top = Math.min(n, north - row * dy);
+              const bottom = Math.max(s, north - (row + 1) * dy);
+              const share =
+                (sinOf(top) - sinOf(bottom)) / (sinOf(n) - sinOf(s));
+              if (share > 0) span.push(row, share);
+            }
+            rowSpans.push(span);
+          }
+          for (let ty = y0; ty <= y1; ty++)
+            for (let tx = x0; tx <= x1; tx++) {
+              const grid = pyramidLevel(m, tx, ty, side);
+              if (!grid) continue;
+              for (let cy = 0; cy < side; cy++) {
+                const rowSpan = rowSpans[(ty - y0) * side + cy];
+                if (!rowSpan.length) continue;
+                for (let cx = 0; cx < side; cx++) {
+                  const from = (cy * side + cx) * 4;
+                  if (!grid[from] && !grid[from + 1]) continue;
+                  const colSpan = colSpans[(tx - x0) * side + cx];
+                  for (let r = 0; r < rowSpan.length; r += 2)
+                    for (let c = 0; c < colSpan.length; c += 2)
+                      add(
+                        (rowSpan[r] * cols + colSpan[c]) * 4,
+                        rowSpan[r + 1] * colSpan[c + 1],
+                        grid[from],
+                        grid[from + 1],
+                        grid[from + 2],
+                        grid[from + 3],
+                      );
+                }
+              }
+            }
+        } else
+          for (let ty = y0; ty <= y1; ty++)
+            for (let tx = x0; tx <= x1; tx++) {
+              const raw = blockOf(tx, ty);
+              if (!raw) continue;
+              eachCell(raw, (cell, count, area, heightArea, known) => {
+                const ux = (tx * TILE + (cell % TILE) + 0.5) * 2 ** cellShift;
+                const uy =
+                  (ty * TILE + Math.floor(cell / TILE) + 0.5) * 2 ** cellShift;
+                const col = Math.floor(
+                  ((ux / 2 ** WORLD_BITS) * 360 - 180 - west) / dx,
+                );
+                const row = Math.floor((north - latOfUnitY(uy)) / dy);
+                if (col < 0 || col >= cols || row < 0 || row >= rows) return;
+                add((row * cols + col) * 4, 1, count, area, heightArea, known);
+              });
+            }
         for (let row = 0; row < rows; row++) {
           const top = north - row * dy;
           const lat = top - dy / 2;

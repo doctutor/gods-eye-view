@@ -16,6 +16,19 @@ import { createPropertyIndex } from '../property/index.js';
 import { openHexFile } from '../property/hexFile.js';
 import { propertyCacheDir } from '../property/sources.js';
 
+/**
+ * The Overture buildings buckets a values worker keeps open: every one it
+ * reads, unless GEV_BUILDINGS_VALUES_MAX_OPEN caps it. An open bucket holds
+ * its block index (32 bytes a block: about 0.65 MB for the mean bucket of
+ * the 191-bucket build, 2 MB for the densest, 125 MB for all of them); a
+ * continent window reads 60 to 110 buckets, and reopening them behind the
+ * map tiles' 48 cost it a third of its time.
+ */
+export function buildingsValuesMaxOpen(env = process.env) {
+  const cap = Number(env.GEV_BUILDINGS_VALUES_MAX_OPEN);
+  return Number.isInteger(cap) && cap > 0 ? cap : Infinity;
+}
+
 /** Where each build lives (no secrets: what a worker thread is handed). */
 export function selfHostedDirs(env = process.env, sourceRoot = process.cwd()) {
   return {
@@ -23,6 +36,7 @@ export function selfHostedDirs(env = process.env, sourceRoot = process.cwd()) {
     censusDir: censusCacheDir(env, sourceRoot),
     gridFile: coverageGridFile(env, sourceRoot),
     propertyDir: propertyCacheDir(env, sourceRoot),
+    buildingsMaxOpen: buildingsValuesMaxOpen(env),
   };
 }
 
@@ -31,13 +45,14 @@ export function selfHostedDirs(env = process.env, sourceRoot = process.cwd()) {
  * (../common/tileWorker.js), or this thread without a pool. Each source's
  * service is made when first asked for and kept.
  * @param {{overtureDir: string, censusDir: string, gridFile: string,
- *   propertyDir?: string}} dirs
+ *   propertyDir?: string, buildingsMaxOpen?: number}} dirs
  */
 export function createSelfHostedValues({
   overtureDir,
   censusDir,
   gridFile,
   propertyDir,
+  buildingsMaxOpen = Infinity,
 }) {
   let buildings = null;
   let census = null;
@@ -51,7 +66,10 @@ export function createSelfHostedValues({
      */
     values(source, mode, box, cols, rows) {
       if (source === 'overture-buildings') {
-        buildings ||= createBuildingsTiles({ dir: overtureDir });
+        buildings ||= createBuildingsTiles({
+          dir: overtureDir,
+          maxOpen: buildingsMaxOpen,
+        });
         return buildings.values(mode, box, cols, rows);
       }
       if (source === 'census') {

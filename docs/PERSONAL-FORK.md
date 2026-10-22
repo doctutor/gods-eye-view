@@ -2254,6 +2254,35 @@ compass bearings means nothing.
   ('sample'). HEIGHT is NaN where the tiles leave it clear (under 5%
   built, or under a quarter of it with known heights). Outside the regions
   it is NaN.
+  - **Coarse levels.** A cell of 0.35° or more reads the coarsest of each
+    bucket's levels of which it holds four cells a side: 64², 32², 16², 8²
+    or 4² cells a bucket (0.088° to 1.4°). The 64² one is the z 0–4 tiles'
+    overview; the coarser ones are summed 2 × 2 from it. A level cell's
+    sums are split over the cells it overlaps by ground, so a city on a
+    cell's edge goes to both sides by area rather than whole to one. The
+    levels are summed once a bucket and kept: about 85 KB a bucket, 16 MB
+    for the 191-bucket build. Fewer than four a side was too coarse:
+    building density changes faster than that.
+  - **Timings.** For a world window (512 × 242, 0.7° cells), against the
+    191-bucket build (conterminous US and Europe):
+    - Before: 1.43–1.57 s every time, re-reading every bucket's z 14
+      cells.
+    - After: 26–40 ms once the levels are kept. The first request after a
+      start takes 1–2 s, building the overviews.
+    - Totals: the same to 0.01%.
+    - Cells: 94% within 5% of the z 14 answer and 97% within 10%. The
+      worst cell is 5.6% of the window's p99 value away, which is invisible
+      as a Lego height. The cells that move are sparse ones beside dense
+      ones.
+    - Continent windows (0.1° cells) still read the z 14 cells, with the
+      same answers as before.
+  - **Open buckets.** The values worker keeps open every bucket it reads,
+    unless `GEV_BUILDINGS_VALUES_MAX_OPEN` caps it (the map tiles keep 48).
+    An open bucket holds its block index, 32 bytes a block: 0.65 MB for the
+    mean bucket, 2 MB for the densest, and 125 MB for all 191, in each of
+    the two values workers. A continent window reads 60 to 110 buckets, and
+    reopening them past 48 cost a third of its time: Americas and USA went
+    from 530 to 365 ms, Europe from 700 to 490 ms.
 - **Census tracts** fill each cell with the value of the tract under its
   centre (even-odd, so holes stay out). It is NaN outside the tracts and
   where a tract has no estimate. TRACTS (the outlines) has no values.
