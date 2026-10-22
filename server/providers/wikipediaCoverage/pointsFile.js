@@ -38,15 +38,16 @@ export const FLAG_SECONDARY = 1;
 
 /**
  * The ranking: primary coordinates before secondary ones (a lower class
- * of their own), then the type class, the object's size (`dim`), the
- * article's.
+ * of their own), then the type class, the article's size (the better
+ * proxy for notability: GeoData's `dim` is often a template's default),
+ * then the object's size as the tiebreak.
  */
 export function rankCompare(a, b) {
   return (
     ((a.flags || 0) & FLAG_SECONDARY) - ((b.flags || 0) & FLAG_SECONDARY) ||
     a.cls - b.cls ||
-    (b.dim || 0) - (a.dim || 0) ||
     (b.bytes || 0) - (a.bytes || 0) ||
+    (b.dim || 0) - (a.dim || 0) ||
     a.page - b.page ||
     a.x - b.x ||
     a.y - b.y
