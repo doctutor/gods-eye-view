@@ -46,6 +46,8 @@ import {
   t,
 } from '../i18n/index.js';
 import { applyLocaleChoice, mountLocalePicker } from './localePicker.js';
+// Personal fork: the DATA LAYERS panel's Titles toggle (share link).
+import { titlesPreference } from './titles.js';
 
 /**
  * Central UI orchestrator for the God's Eye View application.
@@ -429,6 +431,12 @@ export class StyleManager extends ShellFacade {
     });
     this.shareLinkManager.setPanelStateProvider(() =>
       this._buildSharePanelState(),
+    );
+    // Personal fork: the panel's Titles toggle travels in the link too.
+    const titles = titlesPreference();
+    this.shareLinkManager.setTitlesProvider(() => titles.get());
+    this._removeTitlesListener = titles.subscribe(() =>
+      this.shareLinkManager?.onPanelStateChange(),
     );
     this.shareLinkManager.setStyleParamStateProvider((styleName) => {
       const shader = STYLES[styleName];
@@ -1749,6 +1757,8 @@ export class StyleManager extends ShellFacade {
     this._localSdrControls?.destroy();
     this._cockpitCoordinator.stop();
     this._visualSettings.stop();
+    this._removeTitlesListener?.();
+    this._removeTitlesListener = null;
     this.shareLinkManager?.destroy();
     this._layerBindings.stop();
 

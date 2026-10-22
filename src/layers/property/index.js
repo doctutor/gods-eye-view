@@ -17,7 +17,7 @@ import {
   pinQueryBox,
 } from './property.js';
 import { buildingCard, rowControls } from './presentation.js';
-import { colourScales } from '../../maps/colourScale.js';
+import { colourScales } from '../../maps/colourScaleStore.js';
 import { scaleRowControl } from '../../ui/colourScaleWidget.js';
 import {
   PROPERTY_SCALE_LAYER,

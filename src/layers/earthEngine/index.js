@@ -30,7 +30,7 @@ import {
 } from '../../data/earthEngineScale.js';
 import { scaleKey } from '../../maps/colourScale.js';
 import { scaleRowControl } from '../../ui/colourScaleWidget.js';
-import { censusScaleControl } from '../census/source.js';
+import { censusScaleControl, censusTileScaleToken } from '../census/scale.js';
 
 /** Wait this long after a colour scale settles before asking for new tiles. */
 export const SCALE_DEBOUNCE_MS = 300;
@@ -551,7 +551,12 @@ export function createEarthEngineLayer({
 
   /** A local mode: its server's tiles in place of Earth Engine's. */
   function syncLocal(host, view) {
-    const options = censusImageryOptions(_localStatus, _mode);
+    // A changed census scale rides on the URL, so the mount key changes.
+    const options = censusImageryOptions(_localStatus, _mode, {
+      scaleToken: colourScales?.get
+        ? censusTileScaleToken(_mode, colourScales)
+        : '',
+    });
     if (!options) {
       unmount();
       notify();

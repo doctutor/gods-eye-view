@@ -23,7 +23,8 @@ import {
   withHeader,
 } from './layerSpecs.js';
 import { LegoBrickPrimitive, buildBrickMesh } from './bricks.js';
-import { colourScales, encodeScaleFields } from '../../maps/colourScale.js';
+import { encodeScaleFields } from '../../maps/colourScale.js';
+import { colourScales } from '../../maps/colourScaleStore.js';
 import { createRenderModeStore, isFlatBasemap } from './renderMode.js';
 import { columnCardDetails } from './presentation.js';
 

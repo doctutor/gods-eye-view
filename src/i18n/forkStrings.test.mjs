@@ -34,6 +34,8 @@ const FORK_FILES = [
   'src/layers/rivers/reachHighlight.js',
   'src/maps/keylessBasemapCatalog.js',
   'src/maps/keylessBasemaps.js',
+  'src/maps/colourScale.js',
+  'src/ui/colourScaleWidget.js',
   'src/maps/countries/',
   'src/mapStackMore.js',
 ];

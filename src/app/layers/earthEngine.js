@@ -7,7 +7,7 @@ import { createRiversV2Source } from '../../layers/riversV2/source.js';
 import { createCensusSource } from '../../layers/census/source.js';
 import { createOvertureBuildingsSource } from '../../layers/earthEngine/overtureBuildings.js';
 import { governorRequestRender } from '../../renderGovernor.js';
-import { colourScales as sharedColourScales } from '../../maps/colourScale.js';
+import { colourScales as sharedColourScales } from '../../maps/colourScaleStore.js';
 import {
   HYDROSHEDS_V2_CREDIT,
   OVERTURE_BUILDINGS_CREDIT,

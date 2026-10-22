@@ -435,3 +435,61 @@ test('a row slider renders once, reads the live descriptor, and leaves a dragged
     globalThis.document = previousDocument;
   }
 });
+
+test('the Titles row sits above the first group and flips the overlay host', async () => {
+  const { LayerPanel } = await import('./layerPanel.js');
+  const { railFixture } = await import('./railTestFixture.mjs');
+  const { createTitlesPreference } = await import('./titles.js');
+  const f = railFixture();
+  const previousDocument = globalThis.document;
+  globalThis.document = f.document;
+  const host = [];
+  const titles = createTitlesPreference({
+    storage: null,
+    hash: '',
+    host: { set: (visible) => host.push(visible), get: () => host.at(-1) },
+  });
+  const panel = new LayerPanel({
+    getLayers: () => [
+      {
+        id: 'flights',
+        name: 'Flights',
+        icon: '*',
+        source: 'Source',
+        enabled: true,
+        showInTogglePanel: true,
+        stats: {},
+      },
+    ],
+    isEnabled: () => true,
+    setEnabled: () => {},
+    setLayerParams: () => {},
+    hasRowControls: () => false,
+    subscribeRowControls: () => {},
+    getRowControls: () => null,
+    titles,
+  });
+  try {
+    panel.mount(f.container);
+    const first = f.container.children[0];
+    assert.equal(first.dataset.panelSetting, 'titles');
+    assert.equal(first.querySelector('.data-name').textContent, 'Titles');
+    assert.equal(
+      first.querySelector('.data-toggle-meta').textContent,
+      'names on markers',
+    );
+    const button = first.querySelector('.data-toggle-btn');
+    assert.equal(button.textContent, 'ON');
+    button.click();
+    assert.equal(titles.get(), false);
+    assert.deepEqual(host, [true, false]);
+    assert.equal(button.textContent, 'OFF');
+    // A change from elsewhere (a restored link) repaints the row.
+    titles.set(true);
+    assert.equal(button.textContent, 'ON');
+    assert.deepEqual(host, [true, false, true]);
+  } finally {
+    panel.destroy();
+    globalThis.document = previousDocument;
+  }
+});

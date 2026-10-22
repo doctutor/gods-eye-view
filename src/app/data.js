@@ -3,6 +3,9 @@ import { LayerPresentation } from './layerPresentation.js';
 import { createCyberSonarScene } from '../cyberSonarScene.js';
 // Personal fork: the Lego rendering mode for raster layers (src/layers/lego/).
 import { createApplicationLego } from './lego.js';
+// Personal fork: the DATA LAYERS panel's Titles toggle.
+import { titlesPreference } from '../ui/titles.js';
+import { setOverlayTitlesVisible } from '../overlays/worldOverlay.js';
 /** Register the application layer catalog before allowing state restoration. */
 export function createApplicationData({
   scene: { viewer, mapStackController },
@@ -31,9 +34,13 @@ export function createApplicationData({
     mapStackController,
   });
   defer(() => lego.destroy());
+  const titles = titlesPreference();
+  titles.attachHost({ set: setOverlayTitlesVisible });
   const presentation = new LayerPresentation(dataManager, {
     weatherClock: catalog?.weatherClock,
     groupHeadingControls: lego.headingControls,
+    // Personal fork: names on markers on or off, for every layer.
+    titles,
   });
   defer(() => presentation.destroy());
   onData?.(dataManager);

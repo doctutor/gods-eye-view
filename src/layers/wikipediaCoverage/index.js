@@ -5,7 +5,8 @@ import { DEFAULT_VARIANT, VARIANTS, rowControls } from './presentation.js';
 import { createCoverageImageryProvider } from './provider.js';
 // The Hexes mode: H3 cells at the camera's resolution instead of the raster.
 import { createHexSurface, fallbackResolution } from './hexes.js';
-import { colourScales, encodeScaleFields } from '../../maps/colourScale.js';
+import { encodeScaleFields } from '../../maps/colourScale.js';
+import { colourScales } from '../../maps/colourScaleStore.js';
 import { scaleRowControl } from '../../ui/colourScaleWidget.js';
 import {
   WIKIPEDIA_SCALE_LAYER,

@@ -24,12 +24,12 @@ import {
   takesScale,
 } from './earthEngineScale.js';
 import {
-  createColourScaleStore,
   isDefaultScale,
   paletteById,
   rgbHex,
   scaleKey,
 } from '../maps/colourScale.js';
+import { createColourScaleStore } from '../maps/colourScaleStore.js';
 import { EARTH_ENGINE_LAYERS, layerVariants } from './earthEngineLayers.js';
 import {
   SCALED_MAPS_KEPT,

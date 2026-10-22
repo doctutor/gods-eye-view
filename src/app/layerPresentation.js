@@ -10,6 +10,8 @@ export class LayerPresentation {
       weatherClock,
       // Personal fork: controls beside group headings (LayerPanel).
       groupHeadingControls = {},
+      // Personal fork: the panel's Titles toggle (ui/titles.js).
+      titles = null,
       requestRender = governorRequestRender,
       invalidateDetection = markDetectionSourcesChanged,
     } = {},
@@ -17,6 +19,7 @@ export class LayerPresentation {
     this.manager = manager;
     this.weatherClock = weatherClock;
     this.groupHeadingControls = groupHeadingControls;
+    this.titles = titles;
     this._panel = null;
     this.pendingVisible = false;
     this._unsubscribe = manager.subscribeActivity((change) => {
@@ -42,6 +45,7 @@ export class LayerPresentation {
       this._panel = new LayerPanel({
         weatherClock: this.weatherClock,
         groupHeadingControls: this.groupHeadingControls,
+        titles: this.titles,
         getLayers: () => this.manager.getAll(),
         isEnabled: (id) => this.manager.isEnabled(id),
         setEnabled: (id, enabled, options) =>
