@@ -771,6 +771,75 @@ zero (`mask: 'self'`, or `'nonzero'` for signed values), `scale` by a
 factor, mask values below `atLeast`, and draw the `log10`. Mode keys start
 with a letter and may hold digits (`v200`, `density-2020`).
 
+### Boundary sources: LSIB, GAUL, Natural Earth, Overture
+
+The Administrative boundaries layer draws three levels from two sources
+in Earth Engine: countries from LSIB 2017 (`USDOS/LSIB/2017`), and states
+and provinces (`level1`) and districts (`level2`) from FAO GAUL 2025
+(`FAO/GAUL/2025/level1`, `level2`). Earth Engine names FAO's 2024 release
+"GAUL 2025". The Countries basemap draws Natural Earth from bundled packs
+in the browser. The Localities layer reads Overture's divisions as points
+only. Reviewed 2026-10-22, from each source's own pages and the Earth
+Engine catalogue, with no data fetched:
+
+| Source                                 | Levels                                                              | Licence                                     | Recency                                                                                        | Disputed territory                                                                                                                                       | Geometry                                                                                                                                                      |
+| -------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LSIB 2017 (in Earth Engine)            | 0                                                                   | US public domain                            | 2017-12-29. The State Department is at v11.4 (2025-02-24); Earth Engine has only 2013 and 2017 | US government policy on alignment, recognition and dispute, not necessarily de facto control                                                             | Detailed land borders; coasts from World Vector Shorelines, several hundred metres to over a kilometre off                                                    |
+| FAO GAUL 2024 ("2025" in Earth Engine) | 1, 2 (no 0)                                                         | CC BY 4.0 (GAUL 2015 was non-commercial)    | 2025                                                                                           | International lines matched to the UN's 2018 reference; FAO disclaims any opinion on legal status; no dispute field (`DISP_EN` is a display label)       | One feature per unit (3,104 and 43,819); a 500 m simplified sibling exists (`FAO/GAUL_SIMPLIFIED_500m/2025/level1`, `level2`)                                 |
+| Natural Earth 10m                      | 0, 1 (2: US counties only)                                          | Public domain                               | v5.1.1 on its download page; boundaries change slowly                                          | De facto by default ("who controls the territory"), with point-of-view editions for several dozen countries and disputed-area themes                     | 1:10 million, about 1 km; good from orbit, coarse below a few hundred km                                                                                      |
+| Overture divisions (2026-09-23.1)      | country, dependency, (macro)region, (macro)county, down to locality | ODbL (from OpenStreetMap and geoBoundaries) | Monthly releases                                                                               | Per boundary: `is_disputed`, and `perspectives` with `accepted_by` / `disputed_by` countries, so a map can be drawn from one country's view or neutrally | OpenStreetMap detail (metres), areas land-clipped or with territorial sea; `division_boundary` is lines, `division_area` polygons; sub-county coverage spotty |
+
+**Recommendation.** Keep GAUL for the regions and districts: it is
+current, CC BY 4.0, one feature per unit, and already in use. For the
+countries, LSIB 2017 is the weak link. It is eight years old, its coasts
+are off by up to a kilometre, and its lines are one government's policy.
+The best replacement is **Overture's `division_boundary`, country
+subtype**:
+
+- monthly, OpenStreetMap-detailed, and lines already, which is what the
+  layer draws;
+- disputes are first-class, so disputed segments could be drawn dashed or
+  from a chosen perspective, where LSIB says only what the US recognises;
+- ODbL, which the Overture buildings already carry (credit, share-alike
+  only if the derived database were published).
+
+It is not a one-line swap. Earth Engine does not host Overture, so the
+lines would be drawn locally, as the HydroSHEDS v2 rivers are.
+
+**Migration cost.**
+
+- **Data:** `theme=divisions/type=division_boundary`, 512 MB, one
+  download, which needs the user's go-ahead.
+- **Build:** a lines build like the rivers' (decode the GeoParquet WKB,
+  bucket by z 6 tile, a simplified copy per zoom band). The Parquet reader
+  and the bucket format are already in the tree.
+- **Server:** a tile route drawing the lines through the shared tile
+  pool's line renderer (`server/providers/riversV2/render.js`), with the
+  light and dark inks, and the disputed style.
+- **Client:** COUNTRIES (and AUTO from orbit) points at the local tiles
+  instead of Earth Engine's.
+- **Estimate:** two to three days of work, a few minutes to build. Earth
+  Engine's 0.4 to 4.4 s country tiles become local tiles.
+
+GAUL's levels could follow later from `division_area`, region and county,
+which is 4.5 GB, but GAUL is fine there.
+
+**Not recommended.**
+
+- Natural Earth for the countries layer: it is coarse below a few hundred
+  km, though fine for the Countries basemap from orbit, where it already
+  is.
+- GAUL 2015's level0: non-commercial, and chunked into false borders.
+- LSIB's newer v11.4 by our own import: public domain and current, but
+  still US policy lines with the same shorelines, for the same import work
+  as Overture's.
+
+One cheap step remains, unmeasured: GAUL's 500 m simplified tables for
+AUTO's far heights (above 800 km, where 500 m is under a pixel) may draw
+the coarse tiles faster. Before swapping, it needs a timed check that,
+unlike GAUL 2015's simplified level0, they are not chunked into false
+borders.
+
 ### Forest types and Population
 
 Two ANALYSIS layers added 2026-10-19. Each map is one pyramided image,
