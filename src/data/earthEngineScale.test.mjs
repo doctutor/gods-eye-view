@@ -16,6 +16,7 @@ import {
   concreteScale,
   decodeScaleToken,
   defaultScale,
+  drawnPosition,
   drawnScaleKey,
   drawnWindow,
   eeScaleDefaults,
@@ -25,9 +26,11 @@ import {
 } from './earthEngineScale.js';
 import {
   isDefaultScale,
+  normalizeScale as modelScale,
   paletteById,
   rgbHex,
   scaleKey,
+  scalePosition,
 } from '../maps/colourScale.js';
 import { createColourScaleStore } from '../maps/colourScaleStore.js';
 import { EARTH_ENGINE_LAYERS, layerVariants } from './earthEngineLayers.js';
@@ -92,9 +95,11 @@ test('defaults: every windowable layer in its own units; categorical and ink lay
     ],
     [1, 10000, 'log'],
   );
-  assert.equal(defaultScale('ee-surface-water', 'change').diverging, true);
+  assert.equal(defaultScale('ee-surface-water', 'change').kind, 'diverging');
   assert.equal(defaultScale('ee-surface-water', 'change').centre, 0);
-  assert.equal(defaultScale('ee-terrain-aspect').circular, true);
+  assert.equal(defaultScale('ee-terrain-aspect').kind, 'circular');
+  assert.equal(defaultScale('ee-terrain-aspect').period, 360);
+  assert.equal(defaultScale('ee-elevation').kind, 'sequential');
   assert.equal(defaultScale('ee-inundation', 'duration').ceiling, 316.228);
   for (const [id, mode] of [
     ['ee-forest-types', ''],
@@ -566,4 +571,168 @@ test('the row carries the scale widget; its legend follows a chosen scale; censu
     tracts.getRowControls().scale?.key || '',
     /^ee-census-tracts:income/,
   );
+});
+
+/** The model's position against the provider's (an inverted window draws the stops reversed: 1 − t). */
+function assertPositions(model, defaults, window, values, label) {
+  for (const value of values) {
+    const expected = scalePosition(model, value, defaults.range, defaults);
+    let drawn = drawnPosition(window, value);
+    if (model.invert && Number.isFinite(drawn)) drawn = 1 - drawn;
+    if (Number.isNaN(expected))
+      assert.ok(
+        Number.isNaN(drawn),
+        `${label} ${value}: hidden, drew ${drawn}`,
+      );
+    else
+      assert.ok(
+        Math.abs(drawn - expected) < 1e-9,
+        `${label} ${value}: ${drawn}, not ${expected}`,
+      );
+  }
+}
+
+test('a diverging scale keeps its centre at the ramp’s middle, on the server as in the model', () => {
+  const water = byId('ee-surface-water');
+  const variant = layerVariants(water)[0];
+  const defaults = eeScaleDefaults('ee-surface-water', 'change');
+  assert.equal(defaults.kind, 'diverging');
+  assert.equal(defaults.centre, 0);
+  const travel = (input) => {
+    const model = modelScale(input, defaults);
+    const token = encodeScaleToken('ee-surface-water', 'change', model);
+    return {
+      model,
+      token,
+      scale: decodeScaleToken('ee-surface-water', 'change', token),
+    };
+  };
+  const values = [-100, -50, -20, -10, 0, 5, 15, 30, 60, 75, 100];
+
+  // Locked: gains stretched to 60, losses to −20, each half to its own end.
+  const { scale } = travel({ floor: -20, ceiling: 60 });
+  assert.equal(scale.kind, 'diverging');
+  assert.equal(scale.centre, 0);
+  const window = drawnWindow(scale);
+  assert.deepEqual(
+    { min: window.min, max: window.max, remap: window.remap },
+    {
+      min: 0,
+      max: 1,
+      remap: { kind: 'diverging', floor: -20, centre: 0, ceiling: 60 },
+    },
+  );
+  assert.equal(drawnPosition(window, -10), 0.25);
+  assert.equal(drawnPosition(window, 30), 0.75);
+  for (const outside of ['clamp', 'hide'])
+    for (const invert of [false, true]) {
+      const chosen = travel({ floor: -20, ceiling: 60, outside, invert });
+      assertPositions(
+        chosen.model,
+        defaults,
+        drawnWindow(chosen.scale),
+        values,
+        `${outside}${invert ? ' inverted' : ''}`,
+      );
+    }
+
+  // The server draws it: the piecewise ramp, then the stops over 0–1.
+  const request = mapRequestFor(water, variant, 'default', 'change', scale);
+  assert.deepEqual(request.visualizationOptions.ranges, [{ min: 0, max: 1 }]);
+  assert.ok(functionsIn(request).includes('Image.where'));
+  assert.ok(functionsIn(request).includes('Image.lt'));
+
+  // A centre of its own is the token's fifth field, and moves the middle.
+  const moved = travel({ floor: -20, ceiling: 60, centre: 10 });
+  assert.equal(moved.token.split('.').length, 5);
+  assert.equal(moved.scale.centre, 10);
+  assertPositions(
+    moved.model,
+    defaults,
+    drawnWindow(moved.scale),
+    values,
+    'centre 10',
+  );
+  assert.notEqual(drawnScaleKey(moved.scale), drawnScaleKey(scale));
+
+  // A window symmetric about the centre (the automatic one, a new palette)
+  // draws plain min/max: the halves are the same stretch.
+  const symmetric = travel({ palette: 'blue-white-red' });
+  assert.equal(symmetric.scale.kind, undefined);
+  const plain = drawnWindow(symmetric.scale);
+  assert.deepEqual([plain.min, plain.max, plain.remap], [-50, 50, undefined]);
+  assert.ok(
+    !functionsIn(
+      mapRequestFor(water, variant, 'default', 'change', symmetric.scale),
+    ).includes('Image.lt'),
+  );
+
+  // Unlocked: plain linear between the ends; the token carries `u`.
+  const unlocked = travel({ floor: -20, ceiling: 60, lockCentre: false });
+  assert.match(unlocked.token.split('.')[3], /u$/);
+  assert.equal(unlocked.scale.kind, undefined);
+  const free = drawnWindow(unlocked.scale);
+  assert.deepEqual([free.min, free.max], [-20, 60]);
+
+  // A four-field token from before the kinds reads as it did, now drawn
+  // about its centre.
+  assert.equal(
+    decodeScaleToken('ee-surface-water', 'change', `${CODE}.-20.60.n`).kind,
+    'diverging',
+  );
+});
+
+test('a circular scale is an arc of the circle, on the server as in the model', () => {
+  const aspect = byId('ee-terrain-aspect');
+  const variant = layerVariants(aspect)[0];
+  const defaults = eeScaleDefaults('ee-terrain-aspect');
+  assert.equal(defaults.kind, 'circular');
+  assert.equal(defaults.period, 360);
+  assert.deepEqual(defaults.range, { min: 0, max: 360 });
+  const values = Array.from({ length: 48 }, (_, i) => i * 7.5);
+  for (const arc of [
+    { floor: 90, ceiling: 270 }, // east through south to west
+    { floor: 300, ceiling: 60 }, // across north: 300 to 420
+    { floor: 45, ceiling: 405 }, // the whole circle from north-east
+  ])
+    for (const outside of ['clamp', 'hide'])
+      for (const invert of [false, true]) {
+        const model = modelScale({ ...arc, outside, invert }, defaults);
+        const token = encodeScaleToken('ee-terrain-aspect', '', model);
+        const scale = decodeScaleToken('ee-terrain-aspect', '', token);
+        const label = `${arc.floor}–${arc.ceiling} ${outside}${invert ? ' inverted' : ''}`;
+        assert.equal(scale.kind, 'circular', label);
+        assert.equal(scale.period, 360, label);
+        const window = drawnWindow(scale);
+        assert.equal(window.remap.kind, 'circular', label);
+        assertPositions(model, defaults, window, values, label);
+        const request = mapRequestFor(
+          aspect,
+          variant,
+          'default',
+          'default',
+          scale,
+        );
+        assert.deepEqual(request.visualizationOptions.ranges, [
+          { min: 0, max: 1 },
+        ]);
+        const used = functionsIn(request);
+        for (const name of ['Image.where', 'Image.lt', 'Image.add'])
+          assert.ok(used.includes(name), `${label}: ${name}`);
+        if (outside === 'hide') assert.ok(used.includes('Image.updateMask'));
+      }
+  // Past the arc, clamped: the nearer end round the circle.
+  const narrow = drawnWindow(
+    decodeScaleToken(
+      'ee-terrain-aspect',
+      '',
+      encodeScaleToken(
+        'ee-terrain-aspect',
+        '',
+        modelScale({ floor: 90, ceiling: 180 }, defaults),
+      ),
+    ),
+  );
+  assert.equal(drawnPosition(narrow, 200), 1, 'just past the end');
+  assert.equal(drawnPosition(narrow, 60), 0, 'just before the start');
 });

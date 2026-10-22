@@ -521,7 +521,7 @@ function imageNode(layer, variant, modeKey, window = null) {
     });
   // A chosen colour scale draws in its own transform (and may hide what
   // lies outside its window); otherwise the layer's native log10, if any.
-  if (window) node = hideOutside(transformNode(node, window.transform), window);
+  if (window) node = drawnNode(node, window);
   else if (steps.log10) node = invoke('Image.log10', { value: node });
   return node;
 }
@@ -544,6 +544,84 @@ function transformNode(node, transform) {
       value: invoke('Image.max', { image1: node, image2: imageConstant(0) }),
     });
   return node;
+}
+
+/**
+ * The image a chosen scale draws: in its transform, masked outside its
+ * window when it hides; a diverging or circular scale as its ramp
+ * position t, 0 to 1 (src/data/earthEngineScale.js, drawnWindow).
+ */
+function drawnNode(node, window) {
+  if (window.remap?.kind === 'diverging') return divergingNode(node, window);
+  if (window.remap?.kind === 'circular') return circularNode(node, window);
+  return hideOutside(transformNode(node, window.transform), window);
+}
+
+const imageSubtract = (image, value) =>
+  invoke('Image.subtract', { image1: image, image2: imageConstant(value) });
+const imageScaled = (image, factor, offset = 0) => {
+  const scaled = invoke('Image.multiply', {
+    image1: image,
+    image2: imageConstant(factor),
+  });
+  return offset
+    ? invoke('Image.add', { image1: scaled, image2: imageConstant(offset) })
+    : scaled;
+};
+
+/**
+ * A locked diverging scale: each side of the centre stretched to its own
+ * end, below it t = 0.5 · (v − floor) / (centre − floor), above it
+ * t = 0.5 + 0.5 · (v − centre) / (ceiling − centre).
+ */
+function divergingNode(node, window) {
+  const { floor, centre, ceiling } = window.remap;
+  const values = hideOutside(node, {
+    hide: window.hide,
+    min: floor,
+    max: ceiling,
+  });
+  return invoke('Image.where', {
+    input: imageScaled(
+      imageSubtract(values, centre),
+      0.5 / (ceiling - centre),
+      0.5,
+    ),
+    test: invoke('Image.lt', { image1: values, image2: imageConstant(centre) }),
+    value: imageScaled(imageSubtract(values, floor), 0.5 / (centre - floor)),
+  });
+}
+
+/**
+ * A circular scale: along = (v − floor) mod period (values within a
+ * period of the start, as an aspect's are), t = along / span; past the
+ * arc hidden, or the nearer end (1 when along − span ≤ period − along).
+ */
+function circularNode(node, window) {
+  const { floor, span, period } = window.remap;
+  const offset = imageSubtract(node, floor);
+  const along = invoke('Image.where', {
+    input: offset,
+    test: invoke('Image.lt', { image1: offset, image2: imageConstant(0) }),
+    value: invoke('Image.add', {
+      image1: offset,
+      image2: imageConstant(period),
+    }),
+  });
+  const t = imageScaled(along, 1 / span);
+  if (window.hide)
+    return invoke('Image.updateMask', {
+      image: t,
+      mask: invoke('Image.lte', { image1: along, image2: imageConstant(span) }),
+    });
+  return invoke('Image.where', {
+    input: t,
+    test: invoke('Image.gt', { image1: along, image2: imageConstant(span) }),
+    value: invoke('Image.lte', {
+      image1: imageScaled(along, 2),
+      image2: imageConstant(span + period),
+    }),
+  });
 }
 
 /** With "outside: hide", the image masked below the window's floor and above its ceiling. */
@@ -773,7 +851,7 @@ function demStackExpression(
       images: { arrayValue: { values: images } },
     }),
   });
-  if (window) node = hideOutside(transformNode(node, window.transform), window);
+  if (window) node = drawnNode(node, window);
   else if (layer.transform === 'sqrt')
     node = invoke('Image.sqrt', {
       value: invoke('Image.max', {

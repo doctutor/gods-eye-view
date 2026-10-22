@@ -43,10 +43,15 @@ const UNITS = Object.freeze({
   'ee-inundation|count': 'floods',
   'ee-inundation|duration': 'days',
 });
-/** Ramps centred on zero (the model keeps 0 in the middle unless both ends move). */
-const DIVERGING = new Set(['ee-surface-water|change']);
-/** Circular palettes: a window cuts the circle. */
-const CIRCULAR = new Set(['ee-terrain-aspect']);
+/**
+ * What a layer's values are, when not a quantity from low to high
+ * (the shared model's kinds): a change about zero, whose locked centre
+ * stays the ramp's middle; an angle, whose window is an arc of the circle.
+ */
+const KINDS = Object.freeze({
+  'ee-surface-water|change': Object.freeze({ kind: 'diverging', centre: 0 }),
+  'ee-terrain-aspect': Object.freeze({ kind: 'circular', period: 360 }),
+});
 
 /**
  * Slider bounds wider than the default window, where the data runs past
@@ -98,8 +103,9 @@ export function isWindowable(layer, mode) {
 /**
  * Every windowable layer's default scale, keyed by "<layer>" or
  * "<layer>|<mode>": {layerId, modeKey, units, floor, ceiling, scale,
- * palette: ['#rrggbb'], invert: false, outside: 'clamp', diverging?,
- * centre?, circular?}, in the layer's units.
+ * palette: ['#rrggbb'], invert: false, outside: 'clamp', kind:
+ * 'sequential'|'diverging'|'circular', centre? (diverging), period?
+ * (circular)}, in the layer's units.
  */
 export const EE_SCALE_DEFAULTS = Object.freeze(
   Object.fromEntries(
@@ -125,8 +131,8 @@ export const EE_SCALE_DEFAULTS = Object.freeze(
               ),
               invert: false,
               outside: 'clamp',
-              ...(DIVERGING.has(key) ? { diverging: true, centre: 0 } : {}),
-              ...(CIRCULAR.has(key) ? { circular: true } : {}),
+              kind: 'sequential',
+              ...KINDS[key],
             }),
           ];
         });
@@ -149,9 +155,16 @@ const HEX = /^#?([0-9a-f]{6})$/i;
  * A concrete scale (the window and stops resolved) checked and made
  * canonical, or null: finite floor below ceiling (positive on a log scale,
  * not negative on sqrt), a known scale kind, 2 to 32 hex stops (lower-case,
- * no '#'), invert a boolean, outside clamp or hide.
+ * no '#'), invert a boolean, outside clamp or hide. A diverging scale
+ * (kind 'diverging', locked) carries its centre, strictly inside the
+ * window; a circular one (kind 'circular') its period, the floor (the
+ * start angle) in [0, period) and the arc no longer than the period; both
+ * are linear. A diverging window symmetric about its centre is plain
+ * linear: the piecewise ramp would draw it the same.
  * @returns {{floor: number, ceiling: number, scale: string,
- *   palette: string[], invert: boolean, outside: string}|null}
+ *   palette: string[], invert: boolean, outside: string, kind?: string,
+ *   centre?: number, period?: number}|null} (`kind` only when not
+ *   sequential)
  */
 export function normalizeDrawnScale(input) {
   if (!input || typeof input !== 'object') return null;
@@ -171,7 +184,7 @@ export function normalizeDrawnScale(input) {
     if (!match) return null;
     palette.push(match[1].toLowerCase());
   }
-  return {
+  const out = {
     floor: round(floor),
     ceiling: round(ceiling),
     scale,
@@ -179,11 +192,26 @@ export function normalizeDrawnScale(input) {
     invert: input.invert === true,
     outside: input.outside === 'hide' ? 'hide' : 'clamp',
   };
+  if (input.kind === 'diverging' && input.centre != null) {
+    const centre = Number(input.centre);
+    if (scale !== 'linear' || !(floor < centre && centre < ceiling))
+      return null;
+    if (round(centre - floor) !== round(ceiling - centre))
+      Object.assign(out, { kind: 'diverging', centre: round(centre) });
+  } else if (input.kind === 'circular') {
+    const period = Number(input.period);
+    if (scale !== 'linear' || !(period > 0)) return null;
+    if (!(floor >= 0 && floor < period && ceiling - floor <= period))
+      return null;
+    Object.assign(out, { kind: 'circular', period: round(period) });
+  }
+  return out;
 }
 
 /**
  * A concrete scale's cache key (the server's map key and nothing else):
- * floor~ceiling~scale~invert~outside~stop.stop.…; '' for none.
+ * floor~ceiling~scale~invert~outside~stop.stop.…, then ~d~<centre> for a
+ * diverging scale or ~o~<period> for a circular one; '' for none.
  */
 export function drawnScaleKey(input) {
   const scale = normalizeDrawnScale(input);
@@ -195,6 +223,8 @@ export function drawnScaleKey(input) {
     scale.invert ? 1 : 0,
     scale.outside === 'hide' ? 'h' : 'c',
     scale.palette.join('.'),
+    ...(scale.kind === 'diverging' ? ['d', scale.centre] : []),
+    ...(scale.kind === 'circular' ? ['o', scale.period] : []),
   ].join('~');
 }
 
@@ -217,6 +247,9 @@ export function eeScaleDefaults(layerId, modeKey = '') {
         stops: base.palette,
         range: { min: base.floor, max: base.ceiling },
         outside: base.outside,
+        kind: base.kind,
+        ...(base.centre !== undefined ? { centre: base.centre } : {}),
+        ...(base.period !== undefined ? { period: base.period } : {}),
       }),
     );
   return modelDefaults.get(key);
@@ -246,7 +279,9 @@ export function concreteScale(layerId, modeKey, model) {
   let auto = defaults.range;
   if (chosen.scale === 'log' && !(auto.min > 0))
     auto = { min: auto.max / 1000, max: auto.max };
-  const window = resolveWindow(chosen, auto);
+  // With the layer's defaults, the window follows its kind: a locked
+  // diverging one carries its centre, a circular one its period.
+  const window = resolveWindow(chosen, auto, defaults);
   if (!window) return null;
   return normalizeDrawnScale({
     floor: window.floor,
@@ -255,6 +290,12 @@ export function concreteScale(layerId, modeKey, model) {
     palette: paletteStopsHex(chosen, defaults),
     invert: chosen.invert,
     outside: chosen.outside,
+    ...(window.centre !== undefined
+      ? { kind: 'diverging', centre: window.centre }
+      : {}),
+    ...(window.period !== undefined
+      ? { kind: 'circular', period: window.period }
+      : {}),
   });
 }
 
@@ -281,12 +322,53 @@ export function decodeScaleToken(layerId, modeKey, token) {
 
 /**
  * The window in the space the provider draws in, and the stops in order:
- * {min, max, palette, transform, hide}. Log → log10 of the ends, sqrt →
- * their roots; invert reverses the stops.
+ * {min, max, palette, transform, hide, remap?}. Log → log10 of the ends,
+ * sqrt → their roots; invert reverses the stops (t → 1 − t).
+ *
+ * A diverging or circular scale is drawn as its ramp position t, 0 to 1
+ * (min 0, max 1), from the values by `remap` (the shared model's
+ * scalePosition, in the provider's image algebra):
+ * - diverging {kind, floor, centre, ceiling}: below the centre
+ *   t = 0.5 · (v − floor) / (centre − floor), else
+ *   t = 0.5 + 0.5 · (v − centre) / (ceiling − centre);
+ * - circular {kind, floor, span, period}: along = (v − floor) mod period,
+ *   t = along / span; past the arc hidden, or the nearer end.
  */
 export function drawnWindow(input) {
   const scale = normalizeDrawnScale(input);
   if (!scale) return null;
+  const palette = scale.invert
+    ? [...scale.palette].reverse()
+    : [...scale.palette];
+  const hide = scale.outside === 'hide';
+  if (scale.kind === 'diverging')
+    return {
+      min: 0,
+      max: 1,
+      palette,
+      transform: 'linear',
+      hide,
+      remap: {
+        kind: 'diverging',
+        floor: scale.floor,
+        centre: scale.centre,
+        ceiling: scale.ceiling,
+      },
+    };
+  if (scale.kind === 'circular')
+    return {
+      min: 0,
+      max: 1,
+      palette,
+      transform: 'linear',
+      hide,
+      remap: {
+        kind: 'circular',
+        floor: scale.floor,
+        span: round(scale.ceiling - scale.floor),
+        period: scale.period,
+      },
+    };
   const to = (value) =>
     scale.scale === 'log'
       ? Math.log10(value)
@@ -296,10 +378,39 @@ export function drawnWindow(input) {
   return {
     min: round(to(scale.floor)),
     max: round(to(scale.ceiling)),
-    palette: scale.invert ? [...scale.palette].reverse() : [...scale.palette],
+    palette,
     transform: scale.scale,
-    hide: scale.outside === 'hide',
+    hide,
   };
+}
+
+/**
+ * Where a value draws on a drawn window, 0 to 1, or NaN where it is
+ * hidden: the provider's image algebra for `remap` (and the plain
+ * window), in numbers, so the two can be held to the shared model.
+ */
+export function drawnPosition(window, value) {
+  const { remap } = window;
+  let t;
+  if (remap?.kind === 'diverging') {
+    if (window.hide && (value < remap.floor || value > remap.ceiling))
+      return NaN;
+    t =
+      value < remap.centre
+        ? (0.5 * (value - remap.floor)) / (remap.centre - remap.floor)
+        : 0.5 + (0.5 * (value - remap.centre)) / (remap.ceiling - remap.centre);
+  } else if (remap?.kind === 'circular') {
+    const offset = value - remap.floor;
+    const along = offset < 0 ? offset + remap.period : offset;
+    if (along > remap.span) {
+      if (window.hide) return NaN;
+      t = 2 * along <= remap.span + remap.period ? 1 : 0;
+    } else t = along / remap.span;
+  } else {
+    if (window.hide && (value < window.min || value > window.max)) return NaN;
+    t = (value - window.min) / (window.max - window.min);
+  }
+  return Math.max(0, Math.min(1, t));
 }
 
 /** The layer record for an id (server and client both resolve through this). */
