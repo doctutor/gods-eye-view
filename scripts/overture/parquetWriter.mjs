@@ -82,6 +82,14 @@ function rle(levels, width) {
 }
 
 function plain(type, values) {
+  // BOOLEAN: bit-packed, the first value in the lowest bit.
+  if (type === 0) {
+    const b = Buffer.alloc(Math.ceil(values.length / 8));
+    values.forEach((v, i) => {
+      if (v) b[i >> 3] |= 1 << (i & 7);
+    });
+    return b;
+  }
   if (type === 1) {
     const b = Buffer.alloc(values.length * 4);
     values.forEach((v, i) => b.writeInt32LE(v, i * 4));
@@ -239,6 +247,7 @@ export function writeParquet(file, { schema, columns, rows, codec = 0 }) {
   fs.writeFileSync(file, Buffer.concat(parts));
 }
 
+export const BOOLEAN = 0;
 export const BYTES = 6;
 export const INT32 = 1;
 export const FLOAT = 4;

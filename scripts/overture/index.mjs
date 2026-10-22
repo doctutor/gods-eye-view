@@ -15,6 +15,11 @@ import {
 import { buildInfrastructure, buildPlaces, placesStatus } from './places.mjs';
 import { buildRoads, roadsStatus } from './roads.mjs';
 import {
+  boundariesStatus,
+  findBoundaryInputs,
+  runBoundariesBuild,
+} from './boundaries.mjs';
+import {
   INDEX_FORMAT,
   CELL_DEGREES,
   writeIndex,
@@ -48,6 +53,7 @@ import {
  *     [--road-regions a,b] [--drop-raw] [--cap-gb N]
  *   node scripts/overture/index.mjs status [--json] [--dir DIR]
  *   node scripts/overture/index.mjs levels [--workers N] [--dir DIR]
+ *   node scripts/overture/index.mjs boundaries [--force] [--input FILE] [--dir DIR]
  *
  * `build` lists the release's division point files in Overture's public
  * bucket (one GeoParquet file of 4.69 M points, 582 MB, ODbL), downloads
@@ -60,6 +66,11 @@ import {
  * index (server/providers/overture/divisionsFile.js) into
  * build/<buildId>/, then points build/current.json at it. An unchanged
  * input and rule set is skipped unless --force.
+ *
+ * `boundaries` builds the country lines of the Administrative boundaries
+ * layer from the release's division_boundary file, already downloaded
+ * into raw/<release>/divisions/division_boundary/ (or --input), into
+ * build/boundaries/ (scripts/overture/boundaries.mjs).
  *
  * Everything lives in OVERTURE_CACHE_DIR (default .gev-cache/overture in
  * the repository; a worktree can point --dir at the main checkout's):
@@ -83,6 +94,9 @@ export const roadsDirFor = (dir, env = process.env) =>
   String(env.OVERTURE_ROADS_DIR || '').trim()
     ? overtureRoadsDir(env, ROOT)
     : path.join(dir, 'roads');
+
+/** The country lines' build: build/boundaries in the Overture cache. */
+export const boundariesDirFor = (dir) => path.join(dir, 'build', 'boundaries');
 
 /** A file's path for the manifest: relative inside the cache, else absolute. */
 export function cachePath(dir, file) {
@@ -121,6 +135,7 @@ export function parseArgs(argv) {
     else if (argv[i] === '--drop-raw') flags.dropRaw = true;
     else if (argv[i] === '--cap-gb') flags.capGb = Number(argv[++i]);
     else if (argv[i] === '--workers') flags.workers = Number(argv[++i]);
+    else if (argv[i] === '--input') flags.input = argv[++i];
     else throw new Error(`unknown option ${argv[i]}`);
   }
   return flags;
@@ -483,7 +498,12 @@ export async function build({
   for (const entry of fs.readdirSync(path.join(dir, 'build'), {
     withFileTypes: true,
   }))
-    if (entry.isDirectory() && entry.name !== buildId)
+    // Only builds of the divisions index: build/boundaries is its own.
+    if (
+      entry.isDirectory() &&
+      entry.name !== buildId &&
+      /^[0-9a-f]{12}$/.test(entry.name)
+    )
       try {
         fs.rmSync(path.join(dir, 'build', entry.name), { recursive: true });
       } catch {
@@ -508,6 +528,7 @@ export function status(dir, rawDir = path.join(dir, 'raw')) {
       places: placesStatus(dir),
       infrastructure: placesStatus(dir, 'infrastructure'),
       roads: roadsStatus(roadsDirFor(dir)),
+      boundaries: boundariesStatus(boundariesDirFor(dir)),
     };
   return {
     built: true,
@@ -525,6 +546,7 @@ export function status(dir, rawDir = path.join(dir, 'raw')) {
     places: placesStatus(dir),
     infrastructure: placesStatus(dir, 'infrastructure'),
     roads: roadsStatus(roadsDirFor(dir)),
+    boundaries: boundariesStatus(boundariesDirFor(dir)),
   };
 }
 
@@ -602,6 +624,30 @@ async function main() {
     await relevelBuildings({ dir, workers: flags.workers || 2 });
     return;
   }
+  // Personal fork: the Administrative boundaries layer's country lines.
+  if (flags.command === 'boundaries') {
+    const inputs = flags.input
+      ? [
+          {
+            file: path.resolve(flags.input),
+            name: path.basename(flags.input),
+            bytes: fs.statSync(path.resolve(flags.input)).size,
+          },
+        ]
+      : findBoundaryInputs([overtureRawDir(dir), path.join(dir, 'raw')]);
+    const outDir = boundariesDirFor(dir);
+    const { skipped, manifest } = runBoundariesBuild({
+      outDir,
+      inputs,
+      force: flags.force,
+      log: (line) => console.log(`[overture] boundaries: ${line}`),
+    });
+    if (!skipped)
+      console.log(
+        `[overture] boundaries ${manifest.buildId}: ${manifest.lines} lines (${manifest.disputed} disputed), ${(manifest.bytes / 1e6).toFixed(1)} MB in ${outDir}, ${(manifest.timings.totalMs / 1000).toFixed(1)} s`,
+      );
+    return;
+  }
   if (flags.command === 'status') {
     const answer = status(dir);
     if (flags.json) return console.log(JSON.stringify(answer, null, 2));
@@ -646,9 +692,17 @@ async function main() {
         ? `Overture roads ${roads.version} of ${roads.builtAt}: ${roads.segments.toLocaleString('en')} segments (${roads.regions.join(', ')}), ${(roads.bytes / 1e9).toFixed(2)} GB in ${roads.containers} containers`
         : 'Overture roads: not built. Run npm run overture:build -- --roads.',
     );
+    const { boundaries } = answer;
+    console.log(
+      boundaries.built
+        ? `Overture country lines ${boundaries.release} of ${boundaries.builtAt}: ${boundaries.lines.toLocaleString('en')} lines (${boundaries.disputed} disputed), ${(boundaries.bytes / 1e6).toFixed(1)} MB`
+        : 'Overture country lines: not built. Run npm run overture:boundaries.',
+    );
     return;
   }
-  throw new Error(`unknown command ${flags.command} (build, status)`);
+  throw new Error(
+    `unknown command ${flags.command} (build, levels, boundaries, status)`,
+  );
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href)

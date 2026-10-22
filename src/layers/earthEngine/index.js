@@ -40,6 +40,10 @@ import {
   overtureBuildingsImageryOptions,
 } from './overtureBuildings.js';
 import { censusImageryOptions, censusModeMessage } from '../census/source.js';
+import {
+  overtureBoundariesImageryOptions,
+  overtureBoundariesReady,
+} from './overtureBoundaries.js';
 
 /**
  * Personal fork: one Earth Engine overlay (src/data/earthEngineLayers.js) as
@@ -281,7 +285,12 @@ export const demCreditText = (sources) =>
  *   the Americas from v2's tiles and the rest from Earth Engine's
  *   `network-rest` maps, and `v2Credit` is registered; `demCredit`: for a
  *   terrain layer, a DEM source's popover entry (src/data/dataCredits.js
- *   demSourceCredit), registered when the source first draws.
+ *   demSourceCredit), registered when the source first draws;
+ *   `countriesSource`: for a record whose variant is `local:
+ *   'overture-boundaries'`, the Overture country lines' status
+ *   (./overtureBoundaries.js): while they are built, that variant (and
+ *   AUTO from its `localAutoAboveM` up) draws their tiles in place of
+ *   Earth Engine's, and `countriesCredit` is registered.
  */
 export function createEarthEngineLayer({
   record,
@@ -298,6 +307,8 @@ export function createEarthEngineLayer({
   demCredit = null,
   overtureSource = null,
   overtureCredit = null,
+  countriesSource = null,
+  countriesCredit = null,
   colourScales = null,
   setTimeoutImpl = (...args) => setTimeout(...args),
   clearTimeoutImpl = (...args) => clearTimeout(...args),
@@ -398,6 +409,8 @@ export function createEarthEngineLayer({
   /** Overture's buildings (the Buildings layer, outside Open Buildings). */
   let _overtureStatus = null;
   let _overtureImagery = null;
+  /** Overture's country lines (COUNTRIES, and AUTO from orbit). */
+  let _countriesStatus = null;
   const notify = () => {
     try {
       _rowListener?.();
@@ -456,7 +469,32 @@ export function createEarthEngineLayer({
       layerVariants(record).some((variant) => variant.key === _level)
     )
       return _level;
-    return variantForHeight(record, bandHeight()).key;
+    // A variant with local tiles joins AUTO from its height up while they
+    // are built (the Overture country lines from orbit).
+    const height = bandHeight();
+    const local = layerVariants(record).find(
+      (variant) =>
+        Number.isFinite(variant.localAutoAboveM) &&
+        height >= variant.localAutoAboveM &&
+        localVariantReady(variant),
+    );
+    return local ? local.key : variantForHeight(record, height).key;
+  }
+
+  /** Whether a variant's local tiles are built (in the ink drawn now). */
+  function localVariantReady(variant, ink = wantedInk()) {
+    return Boolean(
+      variant?.local === 'overture-boundaries' &&
+      countriesSource &&
+      overtureBoundariesReady(_countriesStatus, ink),
+    );
+  }
+
+  /** The variant drawn now, when its local tiles draw it; else null. */
+  function localVariant() {
+    const key = wantedVariant();
+    const variant = layerVariants(record).find((entry) => entry.key === key);
+    return localVariantReady(variant) ? variant : null;
   }
 
   /**
@@ -562,7 +600,30 @@ export function createEarthEngineLayer({
       notify();
       return;
     }
-    const key = `local|${_mode}|${options.url}`;
+    mountLocal(host, view, options, `local|${_mode}|${options.url}`);
+  }
+
+  /** A local variant (the Overture country lines) in the ink drawn now. */
+  function syncLocalVariant(host, view, variant) {
+    const ink = wantedInk();
+    const options = overtureBoundariesImageryOptions(_countriesStatus, ink);
+    if (!options) {
+      unmount();
+      notify();
+      return;
+    }
+    // Keyed as Earth Engine's are (variant, ink, …, mode) for the row.
+    mountLocal(
+      host,
+      view,
+      options,
+      `${variant.key}|${ink}|local|default|${options.url}`,
+    );
+    if (countriesCredit) credits?.register?.(_viewer, countriesCredit);
+  }
+
+  /** A local server's tiles over the view's square, under `key`. */
+  function mountLocal(host, view, options, key) {
     if (
       _imagery &&
       _mountedKey === key &&
@@ -611,6 +672,14 @@ export function createEarthEngineLayer({
     _aboveCeiling = view.height > (record.maxHeightM ?? Infinity);
     if (localMode()) {
       if (_enabled && host.collection && !_aboveCeiling) syncLocal(host, view);
+      else unmount();
+      return;
+    }
+    // Earth Engine is not asked: the local tiles draw without it.
+    const local = localVariant();
+    if (local) {
+      if (_enabled && host.collection && !_aboveCeiling)
+        syncLocalVariant(host, view, local);
       else unmount();
       return;
     }
@@ -889,6 +958,18 @@ export function createEarthEngineLayer({
     notify();
   }
 
+  /** The country lines' status: a failure reads as not built (LSIB). */
+  async function loadCountries({ refresh = false } = {}) {
+    if (!countriesSource) return;
+    try {
+      _countriesStatus = await countriesSource.status({ refresh });
+    } catch {
+      _countriesStatus = null;
+    }
+    if (_enabled) sync();
+    notify();
+  }
+
   /** HydroSHEDS v2's status: a failure reads as not built (v1 everywhere). */
   async function loadV2({ refresh = false } = {}) {
     if (!record.americasV2 || !v2Source) return;
@@ -1016,6 +1097,7 @@ export function createEarthEngineLayer({
       _v2Status = v2Source?.last?.() || _v2Status;
       _localStatus = localSource?.last?.() || _localStatus;
       _overtureStatus = overtureSource?.last?.() || _overtureStatus;
+      _countriesStatus = countriesSource?.last?.() || _countriesStatus;
       names?.enable();
       clicks?.enable(_viewer);
       if (colourScales?.subscribe && !_offScales) {
@@ -1027,6 +1109,7 @@ export function createEarthEngineLayer({
       void loadV2();
       void loadLocal();
       void loadOverture();
+      void loadCountries();
     },
 
     disable() {
@@ -1047,6 +1130,7 @@ export function createEarthEngineLayer({
       if (!_enabled) return false;
       void loadV2({ refresh: true });
       void loadOverture({ refresh: true });
+      void loadCountries({ refresh: true });
       return loadCatalog({ refresh: true });
     },
 
