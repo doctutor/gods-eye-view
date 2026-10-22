@@ -1570,6 +1570,24 @@ than a z 11 pixel (76 m at the equator, 58 m at Baltimore; at z 15 a cell is
 under the build's version (`buildings/tiles/<version>/`; the ink only in
 footprint tiles' paths), and the browser keeps one a day under its `?v=`.
 
+_The z 11 tiles' cells (D19)._ z 11–14 tiles need sums at a z 11 pixel.
+Without them, a z 11 tile decoded the footprints of the 64 z 14 tiles
+under it. Each bucket now also holds, for every z 11 tile with a
+building, that tile's 256 × 256 cells. These are the same sums the
+footprints give, and the tiles drawn from them are byte-identical. A z 11
+to 14 tile reads one block, and z 15 and closer still read the footprints
+for their outlines.
+
+- The manifest marks a bucket that has them (`d19`); an older bucket is
+  drawn from its footprints as before.
+- A build written before them gets them without Overture. It writes each
+  bucket again from its own footprints, one worker at a time (the densest
+  bucket holds 1.4 GB while it is written), then publishes a new manifest:
+
+  ```bash
+  node scripts/overture/index.mjs levels --workers 1
+  ```
+
 _Serving._ The dev server draws the tiles in worker threads (up to four,
 `server/providers/overture/buildingsTilePool.js`), so a tile being drawn
 never holds the server's other routes, and a tile asked twice while

@@ -22,6 +22,7 @@ import {
   openBucket,
   unitX,
   unitY,
+  writeBucket,
 } from '../../server/providers/overture/buildingsFile.js';
 import {
   planRowGroups,
@@ -33,6 +34,7 @@ import {
   writePart,
 } from '../../scripts/overture/buildingsParts.mjs';
 import { mergeBucket } from '../../scripts/overture/buildingsMerge.mjs';
+import { relevelBuildings } from '../../scripts/overture/buildings.mjs';
 import {
   gapBoxes,
   openBuildingsDraws,
@@ -218,14 +220,15 @@ test('the merge: footprints by tile, density sums at two levels, regions adding 
   const bucket = openBucket(target);
   t.after(() => bucket.close());
   const kinds = [...bucket.entries.values()].map((e) => e.kind).sort();
-  assert.deepEqual(kinds, [KIND.F, KIND.D18, KIND.D14]);
+  assert.deepEqual(kinds, [KIND.F, KIND.D18, KIND.D14, KIND.D19]);
+  assert.equal(result.d19, true, 'the z 11 tiles’ cells too');
   const sums = (kind) => {
     const entry = [...bucket.entries.values()].find((e) => e.kind === kind);
     const out = [];
     eachCell(bucket.block(kind, entry.key), (cell, ...v) => out.push(v));
     return out;
   };
-  for (const kind of [KIND.D18, KIND.D14]) {
+  for (const kind of [KIND.D18, KIND.D14, KIND.D19]) {
     const [cell] = sums(kind);
     assert.equal(cell[0], 3, 'buildings');
     assert.ok(Math.abs(cell[1] - 3 * 95.8) < 10, `built m² ${cell[1]}`);
@@ -378,6 +381,119 @@ test('tiles: density from orbit to the street, footprints in the ink from z 15',
   assert.ok(
     lit.some(([, , r, g, b]) => g > 60 && b > 150),
     'a light outline (antialiased) over the dark COVER fill',
+  );
+});
+
+/** Point the service dir's buildings at a copy of its manifest, changed. */
+function remanifest(dir, change) {
+  const root = path.join(dir, 'buildings');
+  const { manifest: name } = JSON.parse(
+    fs.readFileSync(path.join(root, 'current.json'), 'utf8'),
+  );
+  const manifest = change(
+    JSON.parse(fs.readFileSync(path.join(root, name), 'utf8')),
+  );
+  fs.writeFileSync(
+    path.join(root, `manifest-${manifest.version}.json`),
+    JSON.stringify(manifest),
+  );
+  fs.writeFileSync(
+    path.join(root, 'current.json'),
+    JSON.stringify({ manifest: `manifest-${manifest.version}.json` }),
+  );
+}
+
+test('tiles z 11–14 from the z 11 tiles’ cells are the footprints’ tiles', (t) => {
+  // A spread of sizes and heights over one z 14 tile's corner.
+  const buildings = Array.from({ length: 40 }, (_, i) => ({
+    height: i % 3 ? 4 + i : 0,
+    polygons: wkbPolygons(
+      square(
+        -76.61 + (i % 8) * 0.0007,
+        39.29 + Math.floor(i / 8) * 0.0007,
+        0.0002 + (i % 5) * 0.00005,
+      ),
+    ),
+  }));
+  const dir = service(t, buildings);
+  const drawAll = () => {
+    const tiles = createBuildingsTiles({ dir });
+    const out = [];
+    for (const z of [11, 12, 13, 14]) {
+      const [x, y] = tileOf(-76.61, 39.29, z);
+      for (const mode of ['count', 'cover', 'height'])
+        out.push(tiles.tile(mode, 'light', z, x, y).body);
+    }
+    tiles.close();
+    return out;
+  };
+  const fromFootprints = drawAll();
+  remanifest(dir, (m) => ({
+    ...m,
+    version: 'fedcba987654',
+    buckets: Object.fromEntries(
+      Object.entries(m.buckets).map(([key, b]) => [key, { ...b, d19: true }]),
+    ),
+  }));
+  const fromCells = drawAll();
+  assert.ok(fromFootprints.every(Boolean), 'every tile draws');
+  fromCells.forEach((body, i) =>
+    assert.deepEqual(body, fromFootprints[i], `tile ${i}`),
+  );
+  // And they are the D19 block's: a block saying a thousand times more
+  // buildings is what COUNT draws, while COVER (the same m²) stays.
+  const file = path.join(dir, 'buildings', 'buckets', 'b.bin');
+  const old = openBucket(file);
+  const blocks = [...old.entries.values()].map((e) => ({
+    kind: e.kind,
+    key: e.key,
+    raw: Buffer.from(old.block(e.kind, e.key)),
+    count: e.count,
+  }));
+  old.close();
+  for (const block of blocks)
+    if (block.kind === KIND.D19)
+      for (let at = 0; at + 18 <= block.raw.length; at += 18)
+        block.raw.writeFloatLE(block.raw.readFloatLE(at + 2) * 1000, at + 2);
+  writeBucket(file, blocks);
+  const told = drawAll();
+  assert.notDeepEqual(told[0], fromCells[0], 'z 11 COUNT from the D19 block');
+  assert.deepEqual(told[1], fromCells[1], 'z 11 COVER unchanged');
+});
+
+test('relevelling writes each bucket again with its z 11 cells, every building kept', async (t) => {
+  const polygons = wkbPolygons(square(-76.61, 39.29, 0.0002));
+  const dir = service(
+    t,
+    Array.from({ length: 5 }, () => ({ height: 9, polygons })),
+  );
+  const [x, y] = tileOf(-76.61, 39.29, 12);
+  const before = createBuildingsTiles({ dir });
+  const tile = before.tile('cover', 'light', 12, x, y).body;
+  before.close();
+  const lines = [];
+  const manifest = await relevelBuildings({
+    dir,
+    workers: 1,
+    log: (line) => lines.push(line),
+  });
+  const [bucket] = Object.values(manifest.buckets);
+  assert.equal(bucket.d19, true);
+  assert.equal(bucket.buildings, 5);
+  assert.notEqual(manifest.version, 'abcdef012345', 'a new version');
+  assert.deepEqual(
+    fs.readdirSync(path.join(dir, 'buildings', 'buckets')),
+    [bucket.file],
+    'the old file is gone',
+  );
+  assert.match(lines.at(-1), /1 buckets relevelled/);
+  const after = createBuildingsTiles({ dir });
+  assert.deepEqual(after.tile('cover', 'light', 12, x, y).body, tile);
+  after.close();
+  // Run again: nothing left to do.
+  assert.equal(
+    (await relevelBuildings({ dir, log: () => {} })).version,
+    manifest.version,
   );
 });
 

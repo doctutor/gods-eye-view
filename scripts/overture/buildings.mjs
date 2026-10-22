@@ -85,6 +85,43 @@ const mergeStats = (into, stats) => {
   return into;
 };
 
+/** A version from what the buckets are: a changed bucket is a new version. */
+const bucketsVersion = (buckets) =>
+  crypto
+    .createHash('sha256')
+    .update(JSON.stringify(buckets))
+    .digest('hex')
+    .slice(0, 12);
+
+/**
+ * Write a manifest, point buildings/current.json at it, and remove the
+ * bucket files and manifests it no longer names.
+ */
+function publishBuildings(outDir, manifest) {
+  const manifestName = `manifest-${manifest.version}.json`;
+  fs.writeFileSync(
+    path.join(outDir, manifestName),
+    `${JSON.stringify(manifest)}\n`,
+  );
+  const pointer = path.join(outDir, 'current.json');
+  fs.writeFileSync(
+    `${pointer}.tmp`,
+    `${JSON.stringify({ manifest: manifestName })}\n`,
+  );
+  fs.renameSync(`${pointer}.tmp`, pointer);
+  const keep = new Set(Object.values(manifest.buckets).map((b) => b.file));
+  for (const name of fs.readdirSync(path.join(outDir, 'buckets')))
+    if (!keep.has(name))
+      try {
+        fs.rmSync(path.join(outDir, 'buckets', name));
+      } catch {
+        /* still open by a server: the next build removes it */
+      }
+  for (const name of fs.readdirSync(outDir))
+    if (/^manifest-[0-9a-f]{12}\.json$/.test(name) && name !== manifestName)
+      fs.rmSync(path.join(outDir, name), { force: true });
+}
+
 /**
  * @param {{dir: string, regions?: string[], keepRaw?: boolean, capBytes?: number,
  *   workers?: number, userAgent?: string, log?: Function}} options
@@ -266,6 +303,7 @@ export async function buildBuildings({
             file: name,
             buildings: result.buildings,
             bytes: result.bytes,
+            d19: result.d19,
           };
           merged += 1;
         } finally {
@@ -289,11 +327,7 @@ export async function buildBuildings({
       (into, s) => mergeStats(into, s),
       {},
     );
-    const version = crypto
-      .createHash('sha256')
-      .update(JSON.stringify(buckets))
-      .digest('hex')
-      .slice(0, 12);
+    const version = bucketsVersion(buckets);
     const manifest = {
       format: 1,
       version,
@@ -328,28 +362,7 @@ export async function buildBuildings({
       ],
       done: doneNext,
     };
-    const manifestName = `manifest-${version}.json`;
-    fs.writeFileSync(
-      path.join(outDir, manifestName),
-      `${JSON.stringify(manifest)}\n`,
-    );
-    const pointer = path.join(outDir, 'current.json');
-    fs.writeFileSync(
-      `${pointer}.tmp`,
-      `${JSON.stringify({ manifest: manifestName })}\n`,
-    );
-    fs.renameSync(`${pointer}.tmp`, pointer);
-    const keep = new Set(Object.values(buckets).map((b) => b.file));
-    for (const name of fs.readdirSync(path.join(outDir, 'buckets')))
-      if (!keep.has(name))
-        try {
-          fs.rmSync(path.join(outDir, 'buckets', name));
-        } catch {
-          /* still open by a server: the next build removes it */
-        }
-    for (const name of fs.readdirSync(outDir))
-      if (/^manifest-[0-9a-f]{12}\.json$/.test(name) && name !== manifestName)
-        fs.rmSync(path.join(outDir, name), { force: true });
+    publishBuildings(outDir, manifest);
     for (const name of new Set(tasks.map((task) => task.pass)))
       fs.rmSync(path.join(outDir, 'parts', name), {
         recursive: true,
@@ -380,4 +393,93 @@ export function buildingsStatus(dir) {
     byDataset: manifest.totals?.byDataset || {},
     runs: manifest.runs,
   };
+}
+
+/**
+ * Personal fork: every bucket written again from its own footprints, with
+ * the density levels this code writes that the build's files lack (D19,
+ * the z 11 tiles' cells, for the tiles z 11–14), then a new manifest.
+ * Nothing is fetched or decoded from Overture: the footprints are the
+ * build's. `workers` buckets at a time; the densest holds its footprints
+ * (about 650 MB unpacked) while it is written.
+ *
+ * @param {{dir: string, workers?: number, log?: Function}} options
+ */
+export async function relevelBuildings({
+  dir,
+  workers = 2,
+  log = console.log,
+}) {
+  const started = Date.now();
+  const outDir = path.join(dir, 'buildings');
+  const previous = currentBuildings(dir);
+  if (!previous) throw new Error('Overture buildings are not built');
+  const keys = Object.keys(previous.buckets).filter(
+    (key) => !previous.buckets[key].d19,
+  );
+  if (!keys.length) {
+    log('[overture] buildings: every bucket has its levels');
+    return previous;
+  }
+  // Largest first, so a long one does not trail at the end alone.
+  keys.sort((a, b) => previous.buckets[b].bytes - previous.buckets[a].bytes);
+  const runId = crypto.randomBytes(4).toString('hex');
+  const buckets = { ...previous.buckets };
+  const workerPool = createWorkerPool(workers);
+  let merged = 0;
+  try {
+    await Promise.all(
+      keys.map(async (key) => {
+        const bucketKey = Number(key);
+        const bx = bucketKey % 2 ** BUCKET_ZOOM;
+        const by = Math.floor(bucketKey / 2 ** BUCKET_ZOOM);
+        const name = `${bx}-${by}.${runId}.bin`;
+        const result = await workerPool.run('merge', {
+          bucketKey,
+          previous: path.join(outDir, 'buckets', previous.buckets[key].file),
+          parts: [],
+          target: path.join(outDir, 'buckets', name),
+        });
+        if (result.buildings !== previous.buckets[key].buildings)
+          throw new Error(
+            `bucket ${key}: ${result.buildings} buildings, not ${previous.buckets[key].buildings}`,
+          );
+        buckets[key] = {
+          file: name,
+          buildings: result.buildings,
+          bytes: result.bytes,
+          d19: result.d19,
+        };
+        merged += 1;
+        if (merged % 20 === 0)
+          log(
+            `[overture] buildings: ${merged} of ${keys.length} buckets relevelled, ${((Date.now() - started) / 60000).toFixed(1)} min`,
+          );
+      }),
+    );
+  } finally {
+    await workerPool.close();
+  }
+  const seconds = (Date.now() - started) / 1000;
+  const manifest = {
+    ...previous,
+    version: bucketsVersion(buckets),
+    builtAt: new Date().toISOString(),
+    buckets,
+    bytes: Object.values(buckets).reduce((sum, b) => sum + b.bytes, 0),
+    runs: [
+      ...(previous.runs || []),
+      {
+        at: new Date().toISOString(),
+        levels: ['d19'],
+        buckets: keys.length,
+        seconds: { total: seconds },
+      },
+    ],
+  };
+  publishBuildings(outDir, manifest);
+  log(
+    `[overture] buildings ${manifest.version}: ${keys.length} buckets relevelled, ${(previous.bytes / 1e9).toFixed(2)} → ${(manifest.bytes / 1e9).toFixed(2)} GB, ${(seconds / 60).toFixed(1)} min`,
+  );
+  return manifest;
 }

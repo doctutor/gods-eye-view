@@ -20,6 +20,10 @@ import zlib from 'node:zlib';
  *   m² whose height is known. Sums, so a coarser cell is the sum of its
  *   four: every mode is the same quantity at every zoom.
  * - D14: the bucket's own 256 × 256 cells (the pixels of its z 6 tile).
+ * - D19 (personal fork): one z 11 tile's 256 × 256 cells (76 m at the
+ *   equator), the cells the tiles from z 11 sum, so a z 11–14 tile reads
+ *   one block instead of every z 14 tile's footprints under it. A bucket
+ *   the manifest marks `d19` has them for every z 11 tile with a building.
  *
  *   magic "GEVB", Uint32 version, Uint32 entries, then 24-byte entries:
  *   Uint8 kind, 3 unused, Uint32 key (the tile's x + y × 2^dz within the
@@ -31,7 +35,9 @@ export const WORLD_UNITS = 2 ** WORLD_BITS;
 export const BLOCK_ZOOM = 14;
 export const DENSITY_ZOOM = 10;
 export const BUCKET_ZOOM = 6;
-export const KIND = Object.freeze({ F: 1, D18: 2, D14: 3 });
+/** The D19 blocks' tiles (personal fork). */
+export const FINE_DENSITY_ZOOM = 11;
+export const KIND = Object.freeze({ F: 1, D18: 2, D14: 3, D19: 4 });
 const MAGIC = 0x42564547; // "GEVB"
 const VERSION = 1;
 const ENTRY_BYTES = 24;

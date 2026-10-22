@@ -7,6 +7,7 @@ import {
   BLOCK_ZOOM,
   BUCKET_ZOOM,
   DENSITY_ZOOM,
+  FINE_DENSITY_ZOOM,
   KIND,
   UNIT_M,
   WORLD_BITS,
@@ -41,7 +42,9 @@ import {
  * - z 0–4 from each bucket's own cells (D14) summed to 64 × 64 once and
  *   kept, z 5–6 from those cells, z 7–10 from the z 10 tiles' (D18);
  * - z 11 and closer from the footprints themselves (F), binned into cells
- *   no finer than a z 11 pixel (OVERTURE_DENSITY_CELL_ZOOM);
+ *   no finer than a z 11 pixel (OVERTURE_DENSITY_CELL_ZOOM); personal fork:
+ *   z 11–14 from the z 11 tiles' own cells (D19) where the build has them,
+ *   the same sums, one block a tile;
  * - from z 15 the footprints' outlines over it, in the ink.
  */
 
@@ -314,6 +317,41 @@ export function createBuildingsTiles({
       }
   }
 
+  /**
+   * z 11–14 from the D19 block of the z 11 tile holding the tile, when its
+   * bucket has them; false when it does not (an older build), and the
+   * footprints are read instead.
+   */
+  function fromFine(m, z, x, y, grid, cells) {
+    const shift = z - FINE_DENSITY_ZOOM;
+    const fx = x >>> shift;
+    const fy = y >>> shift;
+    const per = 2 ** (FINE_DENSITY_ZOOM - BUCKET_ZOOM);
+    const bx = Math.floor(fx / per);
+    const by = Math.floor(fy / per);
+    const entry = m.buckets[String(by * 2 ** BUCKET_ZOOM + bx)];
+    if (!entry) return true; // no buildings here
+    if (!entry.d19) return false;
+    const raw = bucket(m, bx, by)?.block(
+      KIND.D19,
+      (fy % per) * per + (fx % per),
+    );
+    if (!raw) return true;
+    const ox = (x - (fx << shift)) * cells;
+    const oy = (y - (fy << shift)) * cells;
+    eachCell(raw, (cell, count, area, heightArea, known) => {
+      const cx = (cell % TILE) - ox;
+      const cy = Math.floor(cell / TILE) - oy;
+      if (cx < 0 || cx >= cells || cy < 0 || cy >= cells) return;
+      const at = (cy * cells + cx) * 4;
+      grid[at] += count;
+      grid[at + 1] += area;
+      grid[at + 2] += heightArea;
+      grid[at + 3] += known;
+    });
+    return true;
+  }
+
   /** Visit the buildings of the z 14 blocks meeting a unit box. */
   function eachBuildingIn(m, x0, y0, x1, y1, visit) {
     const s = SHIFT(BLOCK_ZOOM);
@@ -347,7 +385,9 @@ export function createBuildingsTiles({
     let any = false;
     if (z <= OVERVIEW_ZOOM) fromOverviews(m, z, x, y, grid, cells);
     else if (z <= DENSITY_ZOOM) fromDensity(m, z, x, y, grid, cells);
-    else {
+    else if (!footprints && fromFine(m, z, x, y, grid, cells)) {
+      // z 11–14: the z 11 tile's own cells, summed as the footprints are.
+    } else {
       const cellShift = SHIFT(cellZoom);
       const pad = footprints ? EDGE_UNITS : 0;
       eachBuildingIn(

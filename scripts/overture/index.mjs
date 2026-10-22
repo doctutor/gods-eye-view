@@ -7,7 +7,11 @@ import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openParquet, rowsOfFlat, rowsOfRepeated } from './parquet.mjs';
 import { checkRawDir, rawDirFor, rawDirLabel } from '../rawDir.mjs';
-import { buildBuildings, buildingsStatus } from './buildings.mjs';
+import {
+  buildBuildings,
+  buildingsStatus,
+  relevelBuildings,
+} from './buildings.mjs';
 import { buildInfrastructure, buildPlaces, placesStatus } from './places.mjs';
 import { buildRoads, roadsStatus } from './roads.mjs';
 import {
@@ -43,6 +47,7 @@ import {
  *     [--buildings] [--places] [--infrastructure] [--roads]
  *     [--road-regions a,b] [--drop-raw] [--cap-gb N]
  *   node scripts/overture/index.mjs status [--json] [--dir DIR]
+ *   node scripts/overture/index.mjs levels [--workers N] [--dir DIR]
  *
  * `build` lists the release's division point files in Overture's public
  * bucket (one GeoParquet file of 4.69 M points, 582 MB, ODbL), downloads
@@ -115,6 +120,7 @@ export function parseArgs(argv) {
     else if (argv[i] === '--road-regions') flags.roadRegions = argv[++i];
     else if (argv[i] === '--drop-raw') flags.dropRaw = true;
     else if (argv[i] === '--cap-gb') flags.capGb = Number(argv[++i]);
+    else if (argv[i] === '--workers') flags.workers = Number(argv[++i]);
     else throw new Error(`unknown option ${argv[i]}`);
   }
   return flags;
@@ -586,6 +592,14 @@ async function main() {
         ...(flags.capGb ? { capBytes: flags.capGb * 1e9 } : {}),
         userAgent: USER_AGENT,
       });
+    return;
+  }
+  // Personal fork: the buildings' buckets written again from their own
+  // footprints with the density levels the build lacks (D19, z 11–14).
+  if (flags.command === 'levels') {
+    if (flags.workers !== undefined && !(flags.workers >= 1))
+      throw new Error('--workers takes a number');
+    await relevelBuildings({ dir, workers: flags.workers || 2 });
     return;
   }
   if (flags.command === 'status') {

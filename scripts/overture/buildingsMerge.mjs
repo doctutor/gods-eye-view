@@ -2,6 +2,7 @@ import {
   BLOCK_ZOOM,
   BUCKET_ZOOM,
   DENSITY_ZOOM,
+  FINE_DENSITY_ZOOM,
   KIND,
   WORLD_BITS,
   addToDense,
@@ -19,7 +20,8 @@ import { readPartBucket } from './buildingsParts.mjs';
  * its earlier file (when a region added before reached it) and the new
  * parts: the footprints by z 14 tile (F), and the density sums at the
  * z 10 tiles' cells (D18) and the bucket's own (D14), from each building's
- * centre, footprint and height.
+ * centre, footprint and height. Personal fork: and the z 11 tiles' cells
+ * (D19), which the tiles from z 11 read instead of the footprints.
  *
  * Personal fork tooling; not part of upstream God's Eye View.
  */
@@ -28,11 +30,14 @@ const LOCAL = 2 ** (BLOCK_ZOOM - BUCKET_ZOOM);
 const DENSITY_LOCAL = 2 ** (DENSITY_ZOOM - BUCKET_ZOOM);
 const CELL18_SHIFT = WORLD_BITS - DENSITY_ZOOM - 8;
 const CELL14_SHIFT = WORLD_BITS - BUCKET_ZOOM - 8;
+const FINE_LOCAL = 2 ** (FINE_DENSITY_ZOOM - BUCKET_ZOOM);
+const CELL19_SHIFT = WORLD_BITS - FINE_DENSITY_ZOOM - 8;
+const FINE_TILE_SHIFT = WORLD_BITS - FINE_DENSITY_ZOOM;
 const BLOCK_SHIFT = WORLD_BITS - BLOCK_ZOOM;
 
 /**
  * @param {{bucketKey: number, previous: string|null, parts: Array<{file: string, header: object}>, target: string}} job
- * @returns {{buildings: number, bytes: number, blocks: number}}
+ * @returns {{buildings: number, bytes: number, d19: true}}
  */
 export function mergeBucket({ bucketKey, previous, parts, target }) {
   const bx = bucketKey % 2 ** BUCKET_ZOOM;
@@ -66,13 +71,18 @@ export function mergeBucket({ bucketKey, previous, parts, target }) {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(local);
   }
-  const writer = bucketWriter(target, pieces.size + groups.size + 1);
+  // A z 10 tile's four z 11 tiles may each hold a D19 block.
+  const writer = bucketWriter(target, pieces.size + groups.size * 5 + 1, {
+    atMost: true,
+  });
   const d18 = denseCells();
   const d14 = denseCells();
+  const d19 = [denseCells(), denseCells(), denseCells(), denseCells()];
   let buildings = 0;
   try {
     for (const [dKey, locals] of [...groups].sort((a, b) => a[0] - b[0])) {
       d18.fill(0);
+      for (const dense of d19) dense.fill(0);
       for (const local of locals.sort((a, b) => a - b)) {
         const list = pieces.get(local);
         pieces.delete(local);
@@ -95,12 +105,33 @@ export function mergeBucket({ bucketKey, previous, parts, target }) {
             area,
             building.height,
           );
+          addToDense(
+            d19[
+              (((y >>> FINE_TILE_SHIFT) & 1) << 1) |
+                ((x >>> FINE_TILE_SHIFT) & 1)
+            ],
+            ((y >>> CELL19_SHIFT) & 255) * 256 + ((x >>> CELL19_SHIFT) & 255),
+            area,
+            building.height,
+          );
         });
         buildings += count;
         writer.add(KIND.F, local, raw, count);
       }
       const [cells, n] = encodeDense(d18);
       writer.add(KIND.D18, dKey, cells, n);
+      const fx = (dKey % DENSITY_LOCAL) * 2;
+      const fy = Math.floor(dKey / DENSITY_LOCAL) * 2;
+      d19.forEach((dense, quarter) => {
+        const [fine, count] = encodeDense(dense);
+        if (count)
+          writer.add(
+            KIND.D19,
+            (fy + (quarter >> 1)) * FINE_LOCAL + fx + (quarter & 1),
+            fine,
+            count,
+          );
+      });
     }
     const [cells, n] = encodeDense(d14);
     writer.add(KIND.D14, 0, cells, n);
@@ -109,5 +140,5 @@ export function mergeBucket({ bucketKey, previous, parts, target }) {
     throw error;
   }
   const bytes = writer.finish();
-  return { buildings, bytes };
+  return { buildings, bytes, d19: true };
 }
