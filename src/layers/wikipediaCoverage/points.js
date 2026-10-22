@@ -7,9 +7,12 @@ import * as Cesium from 'cesium';
 import { viewWindow } from '../../maps/h3Cells.js';
 import {
   WIKIPEDIA_POINT_CLASSES,
+  WIKIPEDIA_POINT_WIKIS,
+  pointWikiOfKey,
   pointZoomForHeight,
+  wikiArticleUrl,
 } from '../../data/wikipediaPoints.js';
-import { formatNumber, msg, t } from '../../i18n/index.js';
+import { formatNumber, getLocale, msg, t } from '../../i18n/index.js';
 
 export const POINTS_SOURCE = 'wikipedia-points';
 export const POINT_ID_PREFIX = 'wikipedia-point:';
@@ -25,9 +28,26 @@ const CLASS_COLOR = new Map(
 export const pointColor = (point) =>
   point.secondary ? SECONDARY_COLOR : CLASS_COLOR.get(point.class) || '#8ecae6';
 
-/** The article's page on Wikipedia, by page id (a title can be renamed). */
+/** The article's page on its Wikipedia, by page id (a title can be renamed). */
 export const articleUrl = (point) =>
-  `https://en.wikipedia.org/?curid=${encodeURIComponent(point.page)}`;
+  wikiArticleUrl(
+    pointWikiOfKey(point.wiki) || WIKIPEDIA_POINT_WIKIS[0],
+    point.page,
+  );
+
+/**
+ * The wiki a card opens: the viewer's language when its Wikipedia has the
+ * article (an index of several wikis), else the article's own.
+ */
+export function preferredWiki(point, locale = getLocale()) {
+  const lang = String(locale || 'en')
+    .toLowerCase()
+    .split('-')[0];
+  const wiki = WIKIPEDIA_POINT_WIKIS.find((w) => w.lang === lang);
+  return wiki && point.wikis?.includes(wiki.key) && wiki.key !== point.wiki
+    ? wiki.key
+    : null;
+}
 
 const EARTH_RADIUS_M = 6_371_000;
 function distanceM(aLat, aLon, bLat, bLon) {
@@ -77,6 +97,16 @@ export function cardDetails(point, { dumpDate = '', summary = null } = {}) {
   lines.push(point.secondary ? `${kind} · ${t('secondary coordinate')}` : kind);
   if (summary?.description) lines.push(summary.description);
   if (summary?.extract) lines.push(summary.extract);
+  // An index of several wikis: the languages with an article on the item.
+  if (point.wikis?.length)
+    lines.push(
+      t('Wikipedia in {languages}', {
+        languages: point.wikis
+          .map((key) => pointWikiOfKey(key)?.lang)
+          .filter(Boolean)
+          .join(' · '),
+      }),
+    );
   const facts = [];
   if (point.bytes) facts.push(sizeText(point.bytes));
   if (point.qid) facts.push(point.qid);
@@ -205,7 +235,7 @@ export function createPointsMode({
           title: point.title,
         }),
         activate: () => {
-          openUrl(articleUrl(point));
+          openUrl(selected?.url || articleUrl(point));
           return true;
         },
         horizonCull: true,
@@ -295,9 +325,24 @@ export function createPointsMode({
     selected = { point, summary: null, image: null };
     publish();
     requestRender('wikipedia-card');
+    // The viewer's language when its Wikipedia has the article too: its
+    // page from the item's langs, for the card's link.
+    const own = preferredWiki(point);
+    if (own && point.qid)
+      source
+        .langs?.(point.qid)
+        .then((langs) => {
+          const entry = langs.find((l) => l.wiki === own);
+          if (!entry || selected?.point.id !== point.id) return;
+          selected.url = entry.url;
+        })
+        .catch(() => {});
     // The summary only now, and once a session per title (source.summary).
     try {
-      const summary = await source.summary?.(point.title);
+      const summary = await source.summary?.(
+        point.title,
+        point.wiki || 'enwiki',
+      );
       if (selected?.point.id !== point.id || !summary) return;
       selected.summary = summary;
       publish();

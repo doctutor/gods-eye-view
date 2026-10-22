@@ -10,6 +10,8 @@ import {
 import {
   WIKIPEDIA_POINTS_FULL_ZOOM,
   WIKIPEDIA_POINTS_PER_TILE,
+  wikiBit,
+  wikiCount,
 } from '../../../src/data/wikipediaPoints.js';
 
 /**
@@ -20,7 +22,9 @@ import {
  *   Uint32 x, y; Uint32 page id; Uint32 Wikidata item number (Q…, 0 when
  *   none); Uint32 article bytes; Uint32 dim (GeoData's object size, m);
  *   Uint8 type class; Uint8 flags (1: a secondary coordinate); Uint8 wiki
- *   (WIKIPEDIA_POINT_WIKIS code); one unused byte
+ *   (WIKIPEDIA_POINT_WIKIS code: the record's own, whose page, title and
+ *   bytes these are); one unused byte; Uint32 wikis (format 3: the mask of
+ *   every wiki with an article on the item, bit code − 1)
  *   text: "title\0GeoData type"
  *
  * Zooms 0 to 11 keep a tile's best WIKIPEDIA_POINTS_PER_TILE articles, zoom
@@ -31,22 +35,38 @@ import {
  */
 
 export const POINT_KIND = 40;
-export const RECORD_BYTES = 28;
+/** Format 3's record; format 2's had no wiki mask (RECORD_BYTES_2). */
+export const RECORD_BYTES = 32;
+export const RECORD_BYTES_2 = 28;
+/** A manifest's record size. */
+export const recordBytesOf = (format) =>
+  format >= 3 ? RECORD_BYTES : RECORD_BYTES_2;
 export const POINTS_BUCKET_ZOOM = 6;
 export const OVERVIEW_MAX_ZOOM = POINTS_BUCKET_ZOOM;
 export const FLAG_SECONDARY = 1;
 
 /**
+ * A record's weight within its class: log2 of the article's size, plus
+ * log2 of the wikis with an article on its item (WIKI_BOOST bits a
+ * doubling), so an article in eight languages ranks as one eight times
+ * its size. One wiki adds nothing: the order is by size alone.
+ */
+export const WIKI_BOOST = 1;
+export const rankWeight = (point) =>
+  Math.log2(1 + (point.bytes || 0)) +
+  WIKI_BOOST * Math.log2(Math.max(1, wikiCount(point.wikis || 0)));
+
+/**
  * The ranking: primary coordinates before secondary ones (a lower class
- * of their own), then the type class, the article's size (the better
- * proxy for notability: GeoData's `dim` is often a template's default),
- * then the object's size as the tiebreak.
+ * of their own), then the type class, the article's weight (its size, the
+ * better proxy for notability: GeoData's `dim` is often a template's
+ * default; and its languages), then the object's size as the tiebreak.
  */
 export function rankCompare(a, b) {
   return (
     ((a.flags || 0) & FLAG_SECONDARY) - ((b.flags || 0) & FLAG_SECONDARY) ||
     a.cls - b.cls ||
-    (b.bytes || 0) - (a.bytes || 0) ||
+    rankWeight(b) - rankWeight(a) ||
     (b.dim || 0) - (a.dim || 0) ||
     a.page - b.page ||
     a.x - b.x ||
@@ -95,6 +115,7 @@ export function encodeBlock(points) {
     out.writeUInt8(p.cls, at + 24);
     out.writeUInt8(p.flags || 0, at + 25);
     out.writeUInt8(p.wiki || 1, at + 26);
+    out.writeUInt32LE((p.wikis || wikiBit(p.wiki || 1)) >>> 0, at + 28);
     at += RECORD_BYTES;
     let n = texts[i].length;
     while (n >= 0x80) {
@@ -108,10 +129,14 @@ export function encodeBlock(points) {
   return out.subarray(0, at);
 }
 
-/** Visit a block's points: visit(point) with the fields encodeBlock wrote. */
-export function eachBlockPoint(buf, visit) {
+/**
+ * Visit a block's points: visit(point) with the fields encodeBlock wrote;
+ * `recordBytes` RECORD_BYTES_2 for a format 2 index (its records' wiki
+ * mask is their own wiki).
+ */
+export function eachBlockPoint(buf, visit, recordBytes = RECORD_BYTES) {
   let at = 0;
-  while (at + RECORD_BYTES <= buf.length) {
+  while (at + recordBytes <= buf.length) {
     const point = {
       x: buf.readUInt32LE(at),
       y: buf.readUInt32LE(at + 4),
@@ -123,7 +148,11 @@ export function eachBlockPoint(buf, visit) {
       flags: buf.readUInt8(at + 25),
       wiki: buf.readUInt8(at + 26),
     };
-    at += RECORD_BYTES;
+    point.wikis =
+      recordBytes >= RECORD_BYTES
+        ? buf.readUInt32LE(at + 28)
+        : wikiBit(point.wiki || 1);
+    at += recordBytes;
     let length = 0;
     let shift = 0;
     for (;;) {

@@ -14,22 +14,31 @@ import {
   pageRowsForPoints,
   parseWikis,
   pointsStatusOf,
+  unionWikis,
   writePointsIndex,
 } from '../../scripts/wikipedia/points.mjs';
 import { addPageSizes, runBuild } from '../../scripts/wikipedia/build.mjs';
 import {
   FLAG_SECONDARY,
+  RECORD_BYTES_2,
+  WIKI_BOOST,
+  eachBlockPoint,
   rankCompare,
+  rankWeight,
   thinPoints,
   unitX,
   unitY,
 } from '../../server/providers/wikipediaCoverage/pointsFile.js';
+import { createSummaryFetcher } from '../../server/providers/wikipediaCoverage/summary.js';
 import { createPointsIndex } from '../../server/providers/wikipediaCoverage/pointsIndex.js';
 import {
   NOT_A_PLACE_TITLE,
   pointClassOf,
   pointClassOfType,
+  pointWikiOfKey,
   pointZoomForHeight,
+  wikiBit,
+  wikisOfMask,
 } from '../../src/data/wikipediaPoints.js';
 
 /** A dump's text: its CREATE TABLE and one INSERT of the rows. */
@@ -269,12 +278,16 @@ test('the index answers a sparse splatter from afar and every article close in',
   }
 });
 
-test('only enwiki is built so far, and the zoom follows the camera height', () => {
+test('the wikis a build takes, and the zoom follows the camera height', () => {
   assert.deepEqual(
     parseWikis('enwiki').map((w) => w.key),
     ['enwiki'],
   );
-  assert.throws(() => parseWikis('enwiki,dewiki'), /only enwiki/);
+  assert.deepEqual(
+    parseWikis('dewiki, enwiki,dewiki,frwiki').map((w) => w.key),
+    ['dewiki', 'enwiki', 'frwiki'],
+  );
+  assert.throws(() => parseWikis('enwiki,xxwiki'), /not one of enwiki, dewiki/);
   assert.equal(pointZoomForHeight(1e4), 12);
   assert.equal(pointZoomForHeight(2e7), 1);
   assert.equal(pointZoomForHeight(NaN), 1);
@@ -475,13 +488,13 @@ test('--points-only rebuilds the points and leaves the grid and hexagons as they
     });
     assert.equal(result.pointsOnly, true);
     assert.equal(result.points.points, 3);
-    assert.equal(result.points.format, 2);
+    assert.equal(result.points.format, 3);
     assert.equal(
       fs.readFileSync(path.join(dir, 'grid.bin'), 'utf8'),
       'the grid as it was',
     );
     assert.equal(fs.existsSync(path.join(dir, 'h3.bin')), false);
-    assert.equal(pointsStatusOf(path.join(dir, 'points')).format, 2);
+    assert.equal(pointsStatusOf(path.join(dir, 'points')).format, 3);
     await assert.rejects(
       runBuild({
         dir,
@@ -492,6 +505,270 @@ test('--points-only rebuilds the points and leaves the grid and hexagons as they
       }),
       /--points-only needs --points/,
     );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// dewiki: Paris and the Eiffel Tower again (on enwiki's items), the
+// Brandenburg Gate (an item enwiki has no coordinates for here) and a page
+// with no item.
+const deGeoText = () =>
+  sql('geo_tags', GEO, [
+    [1, 500, 'earth', 1, 48.8567, 2.3508, 10000, 'city'],
+    [2, 503, 'earth', 1, 48.8583, 2.2944, 300, 'landmark'],
+    [3, 501, 'earth', 1, 52.5163, 13.3777, 200, 'landmark'],
+    [4, 502, 'earth', 1, 52.52, 13.405, null, 'landmark'],
+  ]);
+const dePageText = () =>
+  sql('page', PAGE, [
+    [500, 0, 'Paris', 0, 200000],
+    [501, 0, 'Brandenburger_Tor', 0, 80000],
+    [502, 0, 'Kiez_ohne_Objekt', 0, 3000],
+    [503, 0, 'Eiffelturm', 0, 120000],
+  ]);
+const dePropsText = () =>
+  sql('page_props', PROPS, [
+    [500, 'wikibase_item', 'Q90', null],
+    [501, 'wikibase_item', 'Q82425', null],
+    [503, 'wikibase_item', 'Q243', null],
+  ]);
+
+/** A wiki's three dumps as joinPoints' points. */
+async function wikiPoints(wiki, geo, page, props) {
+  const chunks = (text) => [Buffer.from(text)];
+  const g = await collectGeoPoints(chunks(geo));
+  const rows = pageRowsForPoints(g.pages);
+  await addPageSizes(chunks(page), { onRow: rows.onRow });
+  const items = await collectWikidataItems(chunks(props), g.pages);
+  return {
+    wiki,
+    points: joinPoints({
+      pages: g.pages,
+      articles: rows.articles,
+      items: items.items,
+      wiki,
+    }).points,
+  };
+}
+
+test('several wikis: one dot an item, enwiki’s record kept, every language listed', async () => {
+  const en = pointWikiOfKey('enwiki');
+  const de = pointWikiOfKey('dewiki');
+  // Asked dewiki first: enwiki's record is still the one kept for an item it has.
+  const union = unionWikis([
+    await wikiPoints(de, deGeoText(), dePageText(), dePropsText()),
+    await wikiPoints(en, geoText(), pageText(), propsText()),
+  ]);
+  const byTitle = Object.fromEntries(union.points.map((p) => [p.title, p]));
+  assert.deepEqual(Object.keys(byTitle).sort(), [
+    'Brandenburger Tor',
+    'Eiffel Tower',
+    'Kiez ohne Objekt',
+    'Mont Blanc',
+    'Paris',
+  ]);
+  assert.equal(byTitle.Paris.wiki, en.code);
+  assert.equal(byTitle.Paris.bytes, 300000, 'enwiki’s size');
+  assert.deepEqual(
+    wikisOfMask(byTitle.Paris.wikis).map((w) => w.key),
+    ['enwiki', 'dewiki'],
+  );
+  assert.deepEqual(
+    wikisOfMask(byTitle['Mont Blanc'].wikis).map((w) => w.key),
+    ['enwiki'],
+  );
+  // An item only dewiki has, and a page with no item: dewiki's own dots.
+  assert.equal(byTitle['Brandenburger Tor'].wiki, de.code);
+  assert.equal(byTitle['Brandenburger Tor'].wikis, wikiBit(de.code));
+  assert.equal(byTitle['Kiez ohne Objekt'].qid, 0);
+  assert.equal(byTitle['Kiez ohne Objekt'].wikis, wikiBit(de.code));
+  // The langs: each item more than one wiki has, every wiki's page and size.
+  assert.deepEqual(union.langs, [
+    { qid: 90, wiki: en.code, page: 10, bytes: 300000 },
+    { qid: 90, wiki: de.code, page: 500, bytes: 200000 },
+    { qid: 243, wiki: en.code, page: 11, bytes: 150000 },
+    { qid: 243, wiki: de.code, page: 503, bytes: 120000 },
+  ]);
+  assert.deepEqual(union.byWiki.dewiki, {
+    articles: 4,
+    kept: 2,
+    onAnItemKept: 2,
+    withoutItem: 1,
+  });
+  // With enwiki left out, dewiki's record is kept.
+  const alone = unionWikis([
+    await wikiPoints(de, deGeoText(), dePageText(), dePropsText()),
+  ]);
+  assert.equal(alone.points.find((p) => p.qid === 90).title, 'Paris');
+  assert.equal(alone.points.find((p) => p.qid === 90).wiki, de.code);
+  assert.deepEqual(alone.langs, []);
+});
+
+test('an article in several wikis ranks above one its size in one; one wiki ranks by size alone', () => {
+  const at = { x: 1, y: 1, cls: 1, dim: 0, flags: 0 };
+  const single = { ...at, page: 1, bytes: 10000, wikis: 0b1 };
+  const many = { ...at, page: 2, bytes: 10000, wikis: 0b1111 };
+  const bigger = { ...at, page: 3, bytes: 30000, wikis: 0b1 };
+  assert.deepEqual(
+    [single, bigger, many].sort(rankCompare).map((p) => p.page),
+    [2, 3, 1],
+    'four languages count as four times the size',
+  );
+  assert.ok(rankWeight(many) - rankWeight(single) === 2 * WIKI_BOOST);
+  // A format 2 record (no mask) reads as its own wiki.
+  const old = Buffer.alloc(RECORD_BYTES_2 + 1);
+  old.writeUInt8(2, 26);
+  let read = null;
+  eachBlockPoint(old, (p) => void (read = p), RECORD_BYTES_2);
+  assert.equal(read.wikis, wikiBit(2));
+});
+
+test('a build of two wikis: the index, its languages, the card’s endpoints and the status', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gev-wiki-wikis-'));
+  try {
+    const gz = (text) => zlib.gzipSync(Buffer.from(text));
+    const meta = (lastModified) => JSON.stringify({ lastModified });
+    fs.writeFileSync(
+      path.join(dir, 'enwiki-latest-geo_tags.sql.gz'),
+      gz(geoText()),
+    );
+    fs.writeFileSync(
+      path.join(dir, 'geo_tags.meta.json'),
+      meta('Thu, 08 Oct 2026 03:30:29 GMT'),
+    );
+    fs.writeFileSync(
+      path.join(dir, 'enwiki-latest-page_props.sql.gz'),
+      gz(propsText()),
+    );
+    const pageFile = path.join(dir, 'enwiki-latest-page.sql.gz');
+    fs.writeFileSync(pageFile, gz(pageText()));
+    // dewiki's three under raw/dewiki/; offline, a missing one is named.
+    const deDir = path.join(dir, 'dewiki');
+    fs.mkdirSync(deDir);
+    fs.writeFileSync(
+      path.join(deDir, 'dewiki-latest-geo_tags.sql.gz'),
+      gz(deGeoText()),
+    );
+    fs.writeFileSync(
+      path.join(deDir, 'geo_tags.meta.json'),
+      meta('Fri, 09 Oct 2026 02:00:00 GMT'),
+    );
+    fs.writeFileSync(
+      path.join(deDir, 'dewiki-latest-page.sql.gz'),
+      gz(dePageText()),
+    );
+    const build = () =>
+      runBuild({
+        dir,
+        points: true,
+        offline: true,
+        force: true,
+        pageFile,
+        wikis: 'enwiki,dewiki',
+        fetchImpl: () => assert.fail('nothing is fetched offline'),
+        sleepImpl: async () => {},
+      });
+    await assert.rejects(
+      build(),
+      /dewiki-latest-page_props\.sql\.gz is not there \(https:\/\/dumps\.wikimedia\.org\/dewiki\/latest\/dewiki-latest-page_props\.sql\.gz\)/,
+    );
+    fs.writeFileSync(
+      path.join(deDir, 'dewiki-latest-page_props.sql.gz'),
+      gz(dePropsText()),
+    );
+    const result = await build();
+    assert.equal(result.points.format, 3);
+    assert.deepEqual(result.points.wikis, ['enwiki', 'dewiki']);
+    assert.equal(result.points.points, 5, 'Paris and the tower once each');
+    assert.deepEqual(
+      {
+        entries: result.points.langs.entries,
+        items: result.points.langs.items,
+      },
+      { entries: 4, items: 2 },
+    );
+    assert.equal(
+      result.points.dump.wikis.dewiki,
+      'Fri, 09 Oct 2026 02:00:00 GMT',
+    );
+    assert.deepEqual(Object.keys(result.points.stats.byWiki), [
+      'enwiki',
+      'dewiki',
+    ]);
+
+    const index = createPointsIndex({ dir: path.join(dir, 'points') });
+    const answer = index.points({
+      west: -10,
+      south: 40,
+      east: 20,
+      north: 60,
+      zoom: 14,
+    });
+    const byTitle = Object.fromEntries(
+      answer.body.points.map((p) => [p.title, p]),
+    );
+    assert.deepEqual(byTitle.Paris.wikis, ['enwiki', 'dewiki']);
+    assert.equal(byTitle.Paris.wiki, 'enwiki');
+    assert.equal(byTitle['Brandenburger Tor'].wiki, 'dewiki');
+    assert.deepEqual(byTitle['Brandenburger Tor'].wikis, ['dewiki']);
+    assert.equal(
+      byTitle['Mont Blanc'].wiki,
+      undefined,
+      'enwiki alone says nothing',
+    );
+    assert.deepEqual(index.langs('Q90').body.langs, [
+      {
+        wiki: 'enwiki',
+        lang: 'en',
+        page: 10,
+        bytes: 300000,
+        url: 'https://en.wikipedia.org/?curid=10',
+      },
+      {
+        wiki: 'dewiki',
+        lang: 'de',
+        page: 500,
+        bytes: 200000,
+        url: 'https://de.wikipedia.org/?curid=500',
+      },
+    ]);
+    assert.deepEqual(
+      index.langs('Q583').body.langs,
+      [],
+      'one wiki: the record is all',
+    );
+    assert.equal(index.langs('nope').status, 400);
+    assert.deepEqual(index.status().wikis, ['enwiki', 'dewiki']);
+    assert.equal(index.status().langs, 2);
+    index.close();
+    assert.deepEqual(pointsStatusOf(path.join(dir, 'points')).wikis, [
+      'enwiki',
+      'dewiki',
+    ]);
+
+    // The summary of an article on its own wiki.
+    const asked = [];
+    const summaries = createSummaryFetcher({
+      fetchImpl: async (url) => {
+        asked.push(url);
+        return Response.json({
+          title: 'Brandenburger Tor',
+          extract: 'Ein Tor.',
+        });
+      },
+    });
+    assert.equal(
+      (await summaries.summary('Brandenburger Tor', 'dewiki')).body.extract,
+      'Ein Tor.',
+    );
+    assert.equal(
+      (await summaries.summary('Brandenburger Tor', 'xxwiki')).status,
+      400,
+    );
+    assert.deepEqual(asked, [
+      'https://de.wikipedia.org/api/rest_v1/page/summary/Brandenburger_Tor',
+    ]);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -7,6 +7,10 @@
 
 export const WIKIPEDIA_COVERAGE_ENDPOINT = '/api/wikipedia-coverage';
 export { WIKIPEDIA_POINTS_ENDPOINT } from '../../data/wikipediaPoints.js';
+import {
+  WIKIPEDIA_LANGS_ENDPOINT,
+  pointWikiOfKey,
+} from '../../data/wikipediaPoints.js';
 /** The catalog is asked for again after this long. */
 export const CATALOG_TTL_MS = 5 * 60 * 1000;
 export const VARIANT_KEYS = Object.freeze([
@@ -164,6 +168,16 @@ export function toPoint(raw) {
     dim: Number.isFinite(raw.dim) ? raw.dim : 0,
     bytes: Number.isFinite(raw.bytes) ? raw.bytes : 0,
     secondary: raw.secondary === true,
+    // Its own wiki and every wiki with an article on its item (an index of
+    // several wikis); an enwiki-only article has neither.
+    ...(pointWikiOfKey(raw.wiki)
+      ? {
+          wiki: raw.wiki,
+          wikis: (Array.isArray(raw.wikis) ? raw.wikis : [raw.wiki]).filter(
+            (key) => pointWikiOfKey(key),
+          ),
+        }
+      : {}),
     at: [lon, lat],
   };
 }
@@ -265,6 +279,7 @@ export function createWikipediaCoverageSource({
   let pointsRequest = null;
   /** Summaries this session has asked for, by title (asked only on click). */
   const summaries = new Map();
+  const langs = new Map();
 
   async function load() {
     const response = await fetchImpl(`${WIKIPEDIA_COVERAGE_ENDPOINT}/layers`, {
@@ -322,15 +337,17 @@ export function createWikipediaCoverageSource({
       pointsRequest?.abort();
     },
     /**
-     * An article's summary (extract, thumbnail) for its card, asked once a
-     * session per title; null when Wikipedia has none.
+     * An article's summary (extract, thumbnail) for its card from its own
+     * wiki (enwiki unless named), asked once a session per article; null
+     * when Wikipedia has none.
      */
-    summary(title) {
-      if (!summaries.has(title))
+    summary(title, wiki = 'enwiki') {
+      const key = `${wiki} ${title}`;
+      if (!summaries.has(key))
         summaries.set(
-          title,
+          key,
           fetchImpl(
-            `${WIKIPEDIA_COVERAGE_ENDPOINT}/summary?${new URLSearchParams({ title })}`,
+            `${WIKIPEDIA_COVERAGE_ENDPOINT}/summary?${new URLSearchParams(wiki === 'enwiki' ? { title } : { title, wiki })}`,
             { credentials: 'same-origin' },
           )
             .then(async (response) => {
@@ -346,11 +363,45 @@ export function createWikipediaCoverageSource({
               };
             })
             .catch(() => {
-              summaries.delete(title);
+              summaries.delete(key);
               return null;
             }),
         );
-      return summaries.get(title);
+      return summaries.get(key);
+    },
+    /**
+     * Every wiki's article on a Wikidata item, for the card's languages:
+     * [{wiki, lang, page, url}], asked once a session per item; [] when
+     * the server has none.
+     */
+    langs(qid) {
+      if (!/^Q\d+$/.test(String(qid || ''))) return Promise.resolve([]);
+      if (!langs.has(qid))
+        langs.set(
+          qid,
+          fetchImpl(
+            `${WIKIPEDIA_LANGS_ENDPOINT}?${new URLSearchParams({ qid })}`,
+            { credentials: 'same-origin' },
+          )
+            .then(async (response) => {
+              if (!response.ok) return [];
+              const body = await response.json().catch(() => null);
+              return (Array.isArray(body?.langs) ? body.langs : [])
+                .filter((entry) => pointWikiOfKey(entry?.wiki))
+                .map((entry) => ({
+                  wiki: entry.wiki,
+                  lang: pointWikiOfKey(entry.wiki).lang,
+                  page: Number(entry.page) || 0,
+                  url: `https://${pointWikiOfKey(entry.wiki).host}/?curid=${encodeURIComponent(Number(entry.page) || 0)}`,
+                }))
+                .filter((entry) => entry.page > 0);
+            })
+            .catch(() => {
+              langs.delete(qid);
+              return [];
+            }),
+        );
+      return langs.get(qid);
     },
     /**
      * The Hexes mode's cells for a window. Throws a HexRequestError with

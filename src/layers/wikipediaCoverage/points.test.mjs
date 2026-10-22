@@ -11,6 +11,7 @@ import {
   cardDetails,
   labelCohort,
   pointColor,
+  preferredWiki,
 } from './points.js';
 import { pointsLegend } from './presentation.js';
 
@@ -271,4 +272,55 @@ test('without the points index the Articles mode says what to run', async () => 
   assert.equal(controls.chips.find((c) => c.id === 'points').state, 'error');
   assert.equal(controls.chips.find((c) => c.id === 'secondary').state, 'error');
   layer.destroy();
+});
+
+test('an index of several wikis: the card lists the languages and opens the viewer’s', async () => {
+  const shared = point(2, {
+    wiki: 'enwiki',
+    wikis: ['enwiki', 'dewiki', 'xxwiki'],
+  });
+  assert.deepEqual(shared.wikis, ['enwiki', 'dewiki'], 'unknown wikis dropped');
+  const german = point(3, { wiki: 'dewiki', wikis: ['dewiki'] });
+  assert.equal(articleUrl(german), 'https://de.wikipedia.org/?curid=103');
+  assert.equal(point(4).wiki, undefined, 'an enwiki-only index says nothing');
+  assert.ok(cardDetails(shared).includes('Wikipedia in en · de'));
+  assert.ok(
+    !cardDetails(point(4)).some((line) => line.startsWith('Wikipedia in')),
+  );
+  assert.equal(preferredWiki(shared, 'de'), 'dewiki');
+  assert.equal(preferredWiki(shared, 'en'), null, 'its own wiki already');
+  assert.equal(preferredWiki(shared, 'ru'), null, 'no Russian article');
+  // The source asks a wiki's summary by name, and an item's languages once.
+  const asked = [];
+  const source = createWikipediaCoverageSource({
+    fetchImpl: async (url) => {
+      asked.push(url);
+      return Response.json(
+        url.includes('/langs')
+          ? {
+              qid: 'Q1002',
+              langs: [
+                { wiki: 'enwiki', page: 102 },
+                { wiki: 'dewiki', page: 9 },
+                { wiki: 'xxwiki', page: 1 },
+              ],
+            }
+          : { title: 'x', extract: 'y' },
+      );
+    },
+  });
+  await source.summary('Brandenburger Tor', 'dewiki');
+  const langs = await source.langs('Q1002');
+  await source.langs('Q1002');
+  assert.deepEqual(
+    langs.map((l) => l.url),
+    [
+      'https://en.wikipedia.org/?curid=102',
+      'https://de.wikipedia.org/?curid=9',
+    ],
+  );
+  assert.deepEqual(asked, [
+    '/api/wikipedia-coverage/summary?title=Brandenburger+Tor&wiki=dewiki',
+    '/api/wikipedia-coverage/langs?qid=Q1002',
+  ]);
 });

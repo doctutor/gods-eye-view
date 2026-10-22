@@ -2581,27 +2581,71 @@ tiles), in the shared tile pool's worker; `GET
 built on this machine: the page_props download waits for a go-ahead, and
 the sizes and the build time are reported with the first run.
 
-### Wikipedia: more languages (later)
+### Wikipedia: more languages
 
-The index already carries a wiki code per article and its Wikidata item,
-and the CLI takes `--wikis enwiki` (anything else is refused for now).
-Two ways to add the other languages, without counting an article twice:
+`--wikis enwiki,dewiki,frwiki,…` builds the Articles mode from several
+wikis at once. Each wiki's articles are unioned by their Wikidata item,
+so an article is never counted twice.
 
-- **Each wiki's own dumps, unioned by item.** For dewiki, frwiki, eswiki,
-  ruwiki, jawiki, zhwiki, itwiki, ptwiki, plwiki and nlwiki: their
-  `geo_tags`, `page` (streamed) and `page_props` (kept), joined as for
-  enwiki; an article whose item another wiki already placed adds no dot
-  (the first wiki listed wins, with its title in its own language), one
-  without an item is its own dot. Measured 2026-10-21 (HEAD requests to
-  dumps.wikimedia.org): `geo_tags` 3–61 MB each (136 MB for the ten; dewiki
-  the largest), `page` 147–485 MB (2.69 GB, streamed), `page_props` 42–105
-  MB (654 MB, kept): about 3.5 GB to fetch for the ten and well under an
-  hour of parsing. The index grows by the articles no other wiki placed.
-- **Wikidata's coordinates (P625) for every item with a sitelink.** One
-  source for every language, ranked by sitelink count; but the Wikidata
-  JSON dump is 156.6 GB compressed (the "truthy" N-Triples 71.7 GB), most
-  of a day to stream, and an item's coordinate is not always the one its
-  articles carry.
+- **The dumps.** Each wiki's three dumps sit under
+  `GEV_RAW_DIR/wikipedia/raw/<wiki>/`
+  (`<wiki>-latest-{geo_tags,page,page_props}.sql.gz`, each with its
+  `.meta.json`), joined as enwiki's are. A build fetches a missing or
+  changed one once, single stream, and keeps it, so a rebuild only asks
+  whether it changed. `--offline` refuses a missing one by name and URL.
+  enwiki's dumps stay where the grid's build has always kept them, in
+  `raw/` itself (`raw/enwiki/` is read instead when it holds them).
+- **One dot an item.** enwiki's article is the one kept for an item it
+  has: its coordinates, title, type, class and size. For an item enwiki
+  lacks, the article from the first wiki listed that has one is kept, with
+  its title in its own language. Another wiki's article on a kept item
+  adds no dot. An article without an item is its own wiki's dot.
+- **The languages.** Each record carries the mask of the wikis with an
+  article on its item (`wikis`, bit code − 1, in format 3's 32-byte
+  record). A langs file (`points/langs.<stamp>.bin`, sorted by item) keeps
+  each such item's page id and size per wiki, searched on disk.
+  `GET /api/wikipedia-coverage/langs?qid=Q90` answers
+  `[{wiki, lang, page, bytes, url}]`.
+- **The card.** It lists the languages ("Wikipedia in en · de · fr"). A
+  click opens the article in the viewer's language when that Wikipedia
+  has it, else the kept article. Its summary comes from that article's
+  own wiki (`/summary?title=…&wiki=dewiki`).
+- **Ranking.** Thinning ranks as before: primary first, then the type
+  class, then the kept article's size. Within a class an article in
+  several languages ranks higher: `log2(bytes) + log2(wikis)`, so one in
+  eight languages ranks as if eight times its size (`WIKI_BOOST`). One
+  wiki adds nothing.
+- **Status.** `npm run wikipedia:status` lists the wikis, how many of each
+  wiki's articles were kept as dots, and how many items more than one
+  wiki has.
+
+The ten wikis besides enwiki, with their sizes, measured 2026-10-22 by
+HEAD requests to dumps.wikimedia.org (the dumps of 2026-10-01). They come
+to 140 MB of `geo_tags`, 2.69 GB of `page` and 658 MB of `page_props`:
+3.49 GB, kept on E: under `wikipedia/raw/<wiki>/`.
+
+| Wiki   | geo_tags | page     | page_props | All      |
+| ------ | -------- | -------- | ---------- | -------- |
+| dewiki | 61.4 MB  | 320.9 MB | 105.4 MB   | 487.7 MB |
+| frwiki | 10.4 MB  | 486.0 MB | 104.2 MB   | 600.6 MB |
+| eswiki | 11.6 MB  | 302.5 MB | 61.3 MB    | 375.4 MB |
+| ruwiki | 12.6 MB  | 315.0 MB | 64.0 MB    | 391.6 MB |
+| jawiki | 6.1 MB   | 172.7 MB | 60.3 MB    | 239.1 MB |
+| zhwiki | 9.2 MB   | 286.1 MB | 54.0 MB    | 349.3 MB |
+| itwiki | 10.2 MB  | 297.0 MB | 62.3 MB    | 369.5 MB |
+| ptwiki | 6.7 MB   | 209.9 MB | 42.1 MB    | 258.7 MB |
+| plwiki | 8.3 MB   | 147.1 MB | 47.9 MB    | 203.3 MB |
+| nlwiki | 3.8 MB   | 154.3 MB | 56.3 MB    | 214.4 MB |
+
+```bash
+npm run wikipedia:build -- --points --points-only --wikis enwiki,dewiki,frwiki,eswiki,ruwiki,jawiki,zhwiki,itwiki,ptwiki,plwiki,nlwiki
+```
+
+The other way, Wikidata's coordinates (P625) for every item with a
+sitelink, would be one source for every language. But the Wikidata JSON
+dump is 156.6 GB compressed (the "truthy" N-Triples 71.7 GB), most of a
+day to stream, and an item's coordinate is not always the one its
+articles carry.
 
 ### The coverage rasters: building and serving
 

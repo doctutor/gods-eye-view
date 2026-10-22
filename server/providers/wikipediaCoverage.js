@@ -61,9 +61,14 @@ import { WIKIPEDIA_POINT_LIMIT } from '../../src/data/wikipediaPoints.js';
  *       wikipedia:build -- --points`): below z 12 each tile's best ranked,
  *       from z 12 every article, at most 4,000; secondary coordinates only
  *       when asked; drawn in the shared tile pool's workers
- *   GET /api/wikipedia-coverage/summary?title=
- *       an article's REST summary (extract, thumbnail) from
- *       en.wikipedia.org, asked only when its card opens, kept a day
+ *   GET /api/wikipedia-coverage/langs?qid=Q…
+ *       every wiki's article on a Wikidata item (the points' langs file):
+ *       {qid, langs: [{wiki, lang, page, bytes, url}]}, [] for an item one
+ *       wiki alone has
+ *   GET /api/wikipedia-coverage/summary?title=[&wiki=dewiki]
+ *       an article's REST summary (extract, thumbnail) from its wiki
+ *       (en.wikipedia.org unless `wiki` names another of the index's),
+ *       asked only when its card opens, kept a day
  *
  * Variants: `articles` (per km²), `text` (bytes of wikitext per km², when
  * the build included the page table), `count` (articles under each pixel
@@ -329,8 +334,11 @@ export function createWikipediaCoverageService({
           )
         : points.points(query),
 
-    /** An article's REST summary for its card. */
-    summary: (title) => summaries.summary(title),
+    /** An article's REST summary for its card, on its own wiki. */
+    summary: (title, wiki) => summaries.summary(title, wiki || 'enwiki'),
+
+    /** Every wiki's article on a Wikidata item, for the card's languages. */
+    langs: (qid) => points.langs(qid),
 
     async close() {
       await pointsPool?.close();
@@ -543,7 +551,16 @@ export function createWikipediaCoverageHandler({ service }) {
         return sendJson(res, 200, { version: answer.version, ...answer.body });
       }
       if (route === '/summary') {
-        const answer = await service.summary(url.searchParams.get('title'));
+        const answer = await service.summary(
+          url.searchParams.get('title'),
+          url.searchParams.get('wiki') || 'enwiki',
+        );
+        if (answer.status !== 200)
+          return sendJson(res, answer.status, { error: answer.error });
+        return sendCached(req, res, answer.body);
+      }
+      if (route === '/langs') {
+        const answer = service.langs(url.searchParams.get('qid'));
         if (answer.status !== 200)
           return sendJson(res, answer.status, { error: answer.error });
         return sendCached(req, res, answer.body);

@@ -12,6 +12,7 @@ import {
   bucketOfTile,
   eachBlockPoint,
   rankCompare,
+  recordBytesOf,
   unitX,
   unitY,
 } from './pointsFile.js';
@@ -19,7 +20,13 @@ import {
   WIKIPEDIA_POINTS_FULL_ZOOM,
   WIKIPEDIA_POINT_LIMIT,
   pointClassOfCode,
+  pointWikiOfCode,
+  wikiArticleUrl,
+  wikisOfMask,
 } from '../../../src/data/wikipediaPoints.js';
+
+/** A langs file's entry (scripts/wikipedia/points.mjs, encodeLangs). */
+const LANG_BYTES = 16;
 
 /** The most tiles one answer reads; past it, the next zoom up. */
 export const MAX_TILES = 1024;
@@ -34,6 +41,8 @@ const latOf = (y) =>
 
 /** A point as the layer reads it. */
 export function pointAnswer(point) {
+  const wiki = pointWikiOfCode(point.wiki);
+  const wikis = wikisOfMask(point.wikis || 0).map((w) => w.key);
   return {
     id: `wp:${point.wiki}:${point.page}:${point.flags & FLAG_SECONDARY ? 's' : 'p'}:${point.x}:${point.y}`,
     page: point.page,
@@ -44,6 +53,11 @@ export function pointAnswer(point) {
     ...(point.dim ? { dim: point.dim } : {}),
     ...(point.bytes ? { bytes: point.bytes } : {}),
     ...(point.flags & FLAG_SECONDARY ? { secondary: true } : {}),
+    // Its own wiki, and every wiki with an article on its item, when that
+    // is more than enwiki alone.
+    ...(wiki.key !== 'enwiki' || wikis.length > 1
+      ? { wiki: wiki.key, wikis }
+      : {}),
     at: [round6(lonOf(point.x + 0.5)), round6(latOf(point.y + 0.5))],
   };
 }
@@ -63,9 +77,12 @@ export function createPointsIndex({
   let lastError = null;
   const open = new Map();
 
+  let langsFd = null;
   function closeAll() {
     for (const bucket of open.values()) bucket.close();
     open.clear();
+    if (langsFd !== null) fs.closeSync(langsFd);
+    langsFd = null;
   }
 
   function manifest() {
@@ -141,6 +158,54 @@ export function createPointsIndex({
         points: m.points,
         secondary: m.secondary,
         wikis: m.wikis,
+        ...(m.langs ? { langs: m.langs.items } : {}),
+      };
+    },
+
+    /**
+     * Every wiki's article on a Wikidata item (the langs file, searched on
+     * disk): [{wiki, lang, page, bytes, url}] in wiki order; [] for an item
+     * only one wiki has (its record says all there is) or none.
+     */
+    langs(qid) {
+      const m = manifest();
+      if (!m) return { status: 503, error: lastError || NEEDS_POINTS };
+      const item = Number(String(qid ?? '').replace(/^Q/, ''));
+      if (!Number.isInteger(item) || item <= 0 || item > 4294967295)
+        return { status: 400, error: 'qid is Q and a number' };
+      const found = [];
+      if (m.langs?.entries) {
+        if (langsFd === null)
+          langsFd = fs.openSync(path.join(dir, m.langs.file), 'r');
+        const entry = Buffer.alloc(LANG_BYTES);
+        const qidAt = (i) => {
+          fs.readSync(langsFd, entry, 0, LANG_BYTES, i * LANG_BYTES);
+          return entry.readUInt32LE(0);
+        };
+        // The first entry of the item, then each of its wikis.
+        let lo = 0;
+        let hi = m.langs.entries;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (qidAt(mid) < item) lo = mid + 1;
+          else hi = mid;
+        }
+        for (let i = lo; i < m.langs.entries && qidAt(i) === item; i++) {
+          const wiki = pointWikiOfCode(entry.readUInt8(12));
+          const page = entry.readUInt32LE(4);
+          found.push({
+            wiki: wiki.key,
+            lang: wiki.lang,
+            page,
+            bytes: entry.readUInt32LE(8),
+            url: wikiArticleUrl(wiki, page),
+          });
+        }
+      }
+      return {
+        status: 200,
+        version: m.version,
+        body: { qid: `Q${item}`, langs: found },
       };
     },
 
@@ -196,12 +261,21 @@ export function createPointsIndex({
               blockKey(tx, ty, level),
             );
             if (!raw) continue;
-            eachBlockPoint(raw, (point) => {
-              if (!secondary && point.flags & FLAG_SECONDARY) return;
-              if (point.x < x0 || point.x > x1 || point.y < y0 || point.y > y1)
-                return;
-              found.push(point);
-            });
+            eachBlockPoint(
+              raw,
+              (point) => {
+                if (!secondary && point.flags & FLAG_SECONDARY) return;
+                if (
+                  point.x < x0 ||
+                  point.x > x1 ||
+                  point.y < y0 ||
+                  point.y > y1
+                )
+                  return;
+                found.push(point);
+              },
+              recordBytesOf(m.format),
+            );
           }
       }
       found.sort(rankCompare);

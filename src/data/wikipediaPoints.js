@@ -83,13 +83,50 @@ export const pointClassOfCode = (code) =>
   WIKIPEDIA_POINT_CLASSES[3];
 
 export const WIKIPEDIA_POINTS_ENDPOINT = '/api/wikipedia-coverage/points';
-/** The wikis a points build can union by Wikidata item (enwiki for now). */
-export const WIKIPEDIA_POINT_WIKIS = Object.freeze([
-  Object.freeze({ code: 1, key: 'enwiki', host: 'en.wikipedia.org' }),
-]);
+/**
+ * The wikis a points build can union by Wikidata item (`--wikis`): enwiki
+ * and the ten largest by geotagged articles. A code is the wiki's bit in a
+ * record's wiki mask (bit code − 1), so it never changes once given.
+ */
+export const WIKIPEDIA_POINT_WIKIS = Object.freeze(
+  [
+    ['enwiki', 'en'],
+    ['dewiki', 'de'],
+    ['frwiki', 'fr'],
+    ['eswiki', 'es'],
+    ['ruwiki', 'ru'],
+    ['jawiki', 'ja'],
+    ['zhwiki', 'zh'],
+    ['itwiki', 'it'],
+    ['ptwiki', 'pt'],
+    ['plwiki', 'pl'],
+    ['nlwiki', 'nl'],
+  ].map(([key, lang], i) =>
+    Object.freeze({ code: i + 1, key, lang, host: `${lang}.wikipedia.org` }),
+  ),
+);
 export const pointWikiOfCode = (code) =>
   WIKIPEDIA_POINT_WIKIS.find((wiki) => wiki.code === code) ||
   WIKIPEDIA_POINT_WIKIS[0];
+export const pointWikiOfKey = (key) =>
+  WIKIPEDIA_POINT_WIKIS.find((wiki) => wiki.key === key) || null;
+/** A wiki's bit in a record's mask. */
+export const wikiBit = (code) => 2 ** (code - 1);
+/** The wikis in a mask, in code order. */
+export const wikisOfMask = (mask) =>
+  WIKIPEDIA_POINT_WIKIS.filter(
+    (wiki) => Math.floor(mask / wikiBit(wiki.code)) % 2,
+  );
+/** How many wikis a mask holds. */
+export function wikiCount(mask) {
+  let count = 0;
+  for (let m = mask >>> 0; m; m >>>= 1) count += m & 1;
+  return count;
+}
+/** An article's page on its wiki, by page id (a title can be renamed). */
+export const wikiArticleUrl = (wiki, page) =>
+  `https://${wiki.host}/?curid=${encodeURIComponent(page)}`;
+export const WIKIPEDIA_LANGS_ENDPOINT = '/api/wikipedia-coverage/langs';
 
 /**
  * The index keeps, per tile of each zoom below WIKIPEDIA_POINTS_FULL_ZOOM,

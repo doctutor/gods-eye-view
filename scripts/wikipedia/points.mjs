@@ -14,6 +14,7 @@ import {
   WIKIPEDIA_POINTS_PER_TILE,
   WIKIPEDIA_POINT_WIKIS,
   pointClassOf,
+  wikiBit,
 } from '../../src/data/wikipediaPoints.js';
 
 /**
@@ -26,19 +27,30 @@ import {
  * 2. page (streamed, as --text does): title, size, namespace; articles
  *    only (namespace 0, not redirects).
  * 3. page_props (enwiki-latest-page_props.sql.gz, kept with geo_tags):
- *    each article's Wikidata item (`wikibase_item`), the key a later build
- *    of other wikis unions by, so an article is never counted twice.
- * 4. Ranked (primary first, then the type class, article bytes, dim) and
- *    thinned per tile below z 12 (pointsFile.js), written under points/.
+ *    each article's Wikidata item (`wikibase_item`), the key the wikis
+ *    are unioned by, so an article is never counted twice.
+ * 4. With `--wikis enwiki,dewiki,…`, the same three for each other wiki
+ *    (raw/<wiki>/, wikiFiles), then one dot an item (unionWikis): enwiki's
+ *    article, else the first listed wiki's; each record carries the mask
+ *    of the wikis with an article on its item, and a langs file their
+ *    pages and sizes.
+ * 5. Ranked (primary first, then the type class, article bytes and
+ *    languages, dim) and thinned per tile below z 12 (pointsFile.js),
+ *    written under points/.
  *
  * Personal fork tooling; not part of upstream God's Eye View.
  */
 
 export const PAGE_PROPS_FILE = 'enwiki-latest-page_props.sql.gz';
-/** 2: ranked by article bytes before dim, list and period titles as other. */
-export const POINTS_FORMAT = 2;
+/**
+ * 2: ranked by article bytes before dim, list and period titles as other.
+ * 3: several wikis unioned by Wikidata item: a record carries the mask of
+ * the wikis with an article on its item, ranks by it too, and a langs
+ * file lists each item's page and size per wiki.
+ */
+export const POINTS_FORMAT = 3;
 
-/** The wikis a build reads (`--wikis`): only enwiki is built today. */
+/** The wikis a build reads (`--wikis`, comma-separated, enwiki first by default). */
 export function parseWikis(spec = 'enwiki') {
   const names = String(spec || 'enwiki')
     .split(',')
@@ -49,11 +61,40 @@ export function parseWikis(spec = 'enwiki') {
     const wiki = WIKIPEDIA_POINT_WIKIS.find((entry) => entry.key === name);
     if (!wiki)
       throw new Error(
-        `--wikis ${name}: only enwiki is built so far (docs/PERSONAL-FORK.md, Wikipedia: more languages)`,
+        `--wikis ${name}: not one of ${WIKIPEDIA_POINT_WIKIS.map((w) => w.key).join(', ')}`,
       );
     if (!wikis.includes(wiki)) wikis.push(wiki);
   }
+  if (!wikis.length) throw new Error('--wikis names no wiki');
   return wikis;
+}
+
+/** A wiki's dump on dumps.wikimedia.org. */
+export const wikiDumpUrl = (wiki, table) =>
+  `https://dumps.wikimedia.org/${wiki.key}/latest/${wiki.key}-latest-${table}.sql.gz`;
+
+/**
+ * A wiki's three dumps under the raw directory: raw/<wiki>/<wiki>-latest-
+ * {geo_tags,page,page_props}.sql.gz with their .meta.json. enwiki's sit
+ * in raw/ itself, as the grid's build has always kept them, unless
+ * raw/enwiki/ holds them.
+ */
+export function wikiFiles(raw, wiki) {
+  const nested = path.join(raw, wiki.key);
+  const flat =
+    wiki.key === 'enwiki' &&
+    !fs.existsSync(path.join(nested, `${wiki.key}-latest-geo_tags.sql.gz`));
+  const at = flat ? raw : nested;
+  const file = (table) => path.join(at, `${wiki.key}-latest-${table}.sql.gz`);
+  return {
+    dir: at,
+    geoTags: file('geo_tags'),
+    geoTagsMeta: path.join(at, 'geo_tags.meta.json'),
+    page: file('page'),
+    pageMeta: path.join(at, 'page.meta.json'),
+    pageProps: file('page_props'),
+    pagePropsMeta: path.join(at, 'page_props.meta.json'),
+  };
 }
 
 /**
@@ -217,6 +258,7 @@ export function joinPoints({
         cls: cls.code,
         flags: c.flags,
         wiki: wiki.code,
+        wikis: wikiBit(wiki.code),
         title: article.title,
         type: c.type,
       });
@@ -226,11 +268,100 @@ export function joinPoints({
 }
 
 /**
+ * Several wikis' points as one: one article an item. Each wiki's points
+ * (joinPoints') in `perWiki`, in the order asked; enwiki's record is the
+ * one kept for an item it has (its title, type, class and bytes), else the
+ * first wiki's in the list that has one. Another wiki's article on a kept
+ * item adds no dot, only its bit in the kept record's `wikis` mask and a
+ * langs entry (its page and bytes), so the card can open every language.
+ * An article without an item stays its wiki's own dot.
+ * @param {Array<{wiki: object, points: object[]}>} perWiki
+ * @returns {{points: object[], langs: Array<{qid, wiki, page, bytes}>,
+ *   byWiki: object}}
+ */
+export function unionWikis(perWiki) {
+  const order = [
+    ...perWiki.filter(({ wiki }) => wiki.key === 'enwiki'),
+    ...perWiki.filter(({ wiki }) => wiki.key !== 'enwiki'),
+  ];
+  const items = new Map(); // qid → {wiki code, page, masks, entries}
+  const kept = [];
+  const byWiki = {};
+  for (const { wiki, points } of order) {
+    const stats = (byWiki[wiki.key] = {
+      articles: 0,
+      kept: 0,
+      onAnItemKept: 0,
+      withoutItem: 0,
+    });
+    // An article's coordinates (primary, secondary) arrive together.
+    const pages = new Map();
+    for (const point of points) {
+      let list = pages.get(point.page);
+      if (!list) pages.set(point.page, (list = []));
+      list.push(point);
+    }
+    for (const [page, list] of pages) {
+      stats.articles += 1;
+      const qid = list[0].qid || 0;
+      if (!qid) {
+        stats.withoutItem += 1;
+        stats.kept += 1;
+        for (const point of list)
+          kept.push({ ...point, wikis: wikiBit(wiki.code) });
+        continue;
+      }
+      let item = items.get(qid);
+      if (item?.wikis.has(wiki.code)) continue; // a second page on one item
+      if (!item) {
+        item = { records: [], wikis: new Map() };
+        items.set(qid, item);
+        stats.kept += 1;
+        for (const point of list) {
+          const record = { ...point };
+          item.records.push(record);
+          kept.push(record);
+        }
+      } else stats.onAnItemKept += 1;
+      item.wikis.set(wiki.code, { page, bytes: list[0].bytes || 0 });
+    }
+  }
+  const langs = [];
+  for (const [qid, item] of items) {
+    let mask = 0;
+    for (const code of item.wikis.keys()) mask += wikiBit(code);
+    for (const record of item.records) record.wikis = mask;
+    if (item.wikis.size > 1)
+      for (const [code, { page, bytes }] of item.wikis)
+        langs.push({ qid, wiki: code, page, bytes });
+  }
+  langs.sort((a, b) => a.qid - b.qid || a.wiki - b.wiki);
+  return { points: kept, langs, byWiki };
+}
+
+/** A langs file's entry: Uint32 item, Uint32 page, Uint32 bytes, Uint8 wiki, three unused. */
+export const LANG_BYTES = 16;
+
+/** The langs file's bytes from unionWikis' langs (sorted by item, then wiki). */
+export function encodeLangs(langs) {
+  const out = Buffer.alloc(langs.length * LANG_BYTES);
+  langs.forEach(({ qid, wiki, page, bytes }, i) => {
+    const at = i * LANG_BYTES;
+    out.writeUInt32LE(qid >>> 0, at);
+    out.writeUInt32LE(page >>> 0, at + 4);
+    out.writeUInt32LE(Math.min(4294967295, bytes || 0), at + 8);
+    out.writeUInt8(wiki, at + 12);
+  });
+  return out;
+}
+
+/**
  * Write the points index under `dir` (the build's points/): files, a
  * manifest and current.json naming it; the earlier build's files go.
  */
 export function writePointsIndex({
   points,
+  langs = [],
   dir,
   dump = {},
   wikis = [WIKIPEDIA_POINT_WIKIS[0]],
@@ -243,6 +374,9 @@ export function writePointsIndex({
   const stamp = crypto.randomBytes(4).toString('hex');
   const levels = thinPoints(points);
   const overviewName = `overview.${stamp}.bin`;
+  const langsName = `langs.${stamp}.bin`;
+  const langsBytes = encodeLangs(langs);
+  fs.writeFileSync(path.join(dir, langsName), langsBytes);
   const written = writePointsFiles(levels, {
     overviewFile: path.join(dir, overviewName),
     fileOf: (bucket) =>
@@ -279,6 +413,12 @@ export function writePointsIndex({
     perTile: WIKIPEDIA_POINTS_PER_TILE,
     bytes,
     overview: { file: overviewName, bytes: written.overview },
+    langs: {
+      file: langsName,
+      entries: langs.length,
+      items: new Set(langs.map((entry) => entry.qid)).size,
+      bytes: langsBytes.length,
+    },
     buckets,
     stats,
     seconds: (now() - started) / 1000,
@@ -305,7 +445,8 @@ export function writePointsIndex({
   for (const name of fs.readdirSync(dir))
     if (
       (/^manifest-[0-9a-f]{12}\.json$/.test(name) && name !== manifestName) ||
-      (/^overview\.[0-9a-f]{8}\.bin$/.test(name) && name !== overviewName)
+      (/^overview\.[0-9a-f]{8}\.bin$/.test(name) && name !== overviewName) ||
+      (/^langs\.[0-9a-f]{8}\.bin$/.test(name) && name !== langsName)
     )
       try {
         fs.rmSync(path.join(dir, name));
@@ -332,6 +473,7 @@ export function pointsStatusOf(dir) {
       builtAt: m.builtAt,
       dump: m.dump,
       wikis: m.wikis,
+      langs: m.langs || null,
       points: m.points,
       secondary: m.secondary,
       bytes: m.bytes,

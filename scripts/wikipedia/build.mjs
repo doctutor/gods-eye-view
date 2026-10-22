@@ -24,8 +24,12 @@ import {
   pageRowsForPoints,
   parseWikis,
   pointsStatusOf,
+  unionWikis,
+  wikiDumpUrl,
+  wikiFiles,
   writePointsIndex,
 } from './points.mjs';
+import { pointClassOfCode } from '../../src/data/wikipediaPoints.js';
 
 /**
  * The steps of a Wikipedia coverage build (scripts/wikipedia/index.mjs):
@@ -415,6 +419,91 @@ export function writeCoverageH3({
 }
 
 /**
+ * Personal fork: one wiki's points other than enwiki's (whose dumps the
+ * grid's build reads already): its geo_tags, page and page_props under
+ * raw/<wiki>/ (wikiFiles), each fetched once when not offline (kept, so a
+ * rebuild asks only whether they changed), then the same joins as
+ * enwiki's. Offline, a missing dump is refused by name.
+ * @returns {Promise<{wiki: object, points: object[], stats: object,
+ *   lastModified: string|null}>}
+ */
+export async function pointsOfWiki(
+  wiki,
+  {
+    raw,
+    offline = false,
+    secondary = false,
+    force = false,
+    fetchImpl = (...args) => fetch(...args),
+    now = () => Date.now(),
+    log = () => {},
+    sleepImpl = sleep,
+  },
+) {
+  const files = wikiFiles(raw, wiki);
+  const dumps = [
+    ['geo_tags', files.geoTags, files.geoTagsMeta],
+    ['page', files.page, files.pageMeta],
+    ['page_props', files.pageProps, files.pagePropsMeta],
+  ];
+  const metas = {};
+  for (const [table, file, metaFile] of dumps) {
+    if (offline) {
+      if (!fs.existsSync(file))
+        throw new Error(
+          `offline, and ${file} is not there (${wikiDumpUrl(wiki, table)})`,
+        );
+      metas[table] = readJson(metaFile, {});
+      continue;
+    }
+    await sleepImpl(DOWNLOAD_GAP_MS);
+    const answer = await download({
+      url: wikiDumpUrl(wiki, table),
+      file,
+      metaFile,
+      fetchImpl,
+      now,
+      log,
+      force,
+    });
+    metas[table] = answer.meta;
+  }
+  log(`${wiki.key}: reading geo_tags…`);
+  const geo = await collectGeoPoints(gunzipFile(files.geoTags), { secondary });
+  log(`${wiki.key}: reading the page table…`);
+  const rows = pageRowsForPoints(geo.pages);
+  await addPageSizes(gunzipFile(files.page), {
+    onRow: rows.onRow,
+    onProgress: (count) => log(`  ${count.toLocaleString('en-US')} pages`),
+  });
+  log(`${wiki.key}: reading page_props for the Wikidata items…`);
+  const wikidata = await collectWikidataItems(
+    gunzipFile(files.pageProps),
+    geo.pages,
+  );
+  const joined = joinPoints({
+    pages: geo.pages,
+    articles: rows.articles,
+    items: wikidata.items,
+    wiki,
+  });
+  log(
+    `${wiki.key}: ${joined.points.length.toLocaleString('en-US')} coordinates of ${rows.stats.matched.toLocaleString('en-US')} articles, ${wikidata.stats.matched.toLocaleString('en-US')} with an item`,
+  );
+  return {
+    wiki,
+    points: joined.points,
+    lastModified: metas.geo_tags?.lastModified || null,
+    stats: {
+      geo: geo.stats,
+      page: rows.stats,
+      wikidata: wikidata.stats,
+      byClass: joined.byClass,
+    },
+  };
+}
+
+/**
  * The files a build directory holds. The dump and its metadata are the
  * build's raw download: in the directory itself unless `rawDir` says
  * otherwise (the CLI's GEV_RAW_DIR/wikipedia/raw, scripts/rawDir.mjs).
@@ -487,11 +576,15 @@ export async function runBuild({
   }
   const wantsText = text;
   const pointWikis = points ? parseWikis(wikis) : [];
+  // enwiki's points come from the dumps the grid reads; the others' from
+  // their own (pointsOfWiki).
+  const enwikiPoints = pointWikis.some((wiki) => wiki.key === 'enwiki');
   const pointsNow = points ? pointsStatusOf(files.points) : null;
   const pointsCurrent =
     !points ||
     (pointsNow.built &&
       pointsNow.format === POINTS_FORMAT &&
+      String(pointsNow.wikis) === String(pointWikis.map((wiki) => wiki.key)) &&
       pointsNow.dump?.lastModified === dump.lastModified &&
       (!secondary || pointsNow.secondary > 0));
   const upToDate =
@@ -525,7 +618,7 @@ export async function runBuild({
       `geo_tags: ${geo.stats.rows.toLocaleString('en-US')} rows, ${geo.stats.kept.toLocaleString('en-US')} primary Earth coordinates kept`,
     );
   // The points: every coordinate kept with its page id, for the joins.
-  const geoPoints = points
+  const geoPoints = enwikiPoints
     ? await collectGeoPoints(gunzipFile(files.geoTags), { secondary })
     : null;
   if (geoPoints)
@@ -534,7 +627,7 @@ export async function runBuild({
     );
   const pagePoints = geoPoints ? pageRowsForPoints(geoPoints.pages) : null;
   let page = null;
-  if ((wantsText && !pointsOnly) || points) {
+  if ((wantsText && !pointsOnly) || enwikiPoints) {
     if (offline && !pageFile)
       throw new Error(
         '--text and --points offline need the page table on disk: --page-file',
@@ -577,51 +670,101 @@ export async function runBuild({
     }
   }
   let pointsManifest = null;
-  if (geoPoints) {
-    let props;
-    if (offline) {
-      // Offline: the page_props dump already beside geo_tags, no request.
-      if (!fs.existsSync(files.pageProps))
-        throw new Error(`offline, and ${files.pageProps} is not there`);
-      props = { meta: readJson(files.pagePropsMeta, { url: PAGE_PROPS_URL }) };
-    } else {
-      await sleepImpl(DOWNLOAD_GAP_MS);
-      props = await download({
-        url: PAGE_PROPS_URL,
-        file: files.pageProps,
-        metaFile: files.pagePropsMeta,
-        fetchImpl,
-        now,
-        log,
-        force,
+  if (points) {
+    // Each wiki's points, enwiki's from the dumps read above, then one dot
+    // an item (unionWikis).
+    const perWiki = [];
+    let props = null;
+    if (geoPoints) {
+      if (offline) {
+        // Offline: the page_props dump already beside geo_tags, no request.
+        if (!fs.existsSync(files.pageProps))
+          throw new Error(`offline, and ${files.pageProps} is not there`);
+        props = {
+          meta: readJson(files.pagePropsMeta, { url: PAGE_PROPS_URL }),
+        };
+      } else {
+        await sleepImpl(DOWNLOAD_GAP_MS);
+        props = await download({
+          url: PAGE_PROPS_URL,
+          file: files.pageProps,
+          metaFile: files.pagePropsMeta,
+          fetchImpl,
+          now,
+          log,
+          force,
+        });
+      }
+      log('reading page_props for the Wikidata items…');
+      const wikidata = await collectWikidataItems(
+        gunzipFile(files.pageProps),
+        geoPoints.pages,
+      );
+      const joined = joinPoints({
+        pages: geoPoints.pages,
+        articles: pagePoints.articles,
+        items: wikidata.items,
+        wiki: pointWikis.find((wiki) => wiki.key === 'enwiki'),
+      });
+      perWiki.push({
+        wiki: pointWikis.find((wiki) => wiki.key === 'enwiki'),
+        points: joined.points,
+        lastModified: dump.lastModified || null,
+        stats: {
+          geo: geoPoints.stats,
+          page: pagePoints.stats,
+          wikidata: wikidata.stats,
+          byClass: joined.byClass,
+        },
       });
     }
-    log('reading page_props for the Wikidata items…');
-    const wikidata = await collectWikidataItems(
-      gunzipFile(files.pageProps),
-      geoPoints.pages,
-    );
-    const joined = joinPoints({
-      pages: geoPoints.pages,
-      articles: pagePoints.articles,
-      items: wikidata.items,
-      wiki: pointWikis[0],
-    });
+    for (const wiki of pointWikis)
+      if (wiki.key !== 'enwiki')
+        perWiki.push(
+          await pointsOfWiki(wiki, {
+            raw: files.raw,
+            offline,
+            secondary,
+            force,
+            fetchImpl,
+            now,
+            log,
+            sleepImpl,
+          }),
+        );
+    const union = unionWikis(perWiki);
+    const byClass = {};
+    // Every coordinate kept, by class (as joinPoints counts a wiki's).
+    for (const point of union.points) {
+      const key = pointClassOfCode(point.cls).key;
+      byClass[key] = (byClass[key] || 0) + 1;
+    }
+    const only = perWiki.length === 1 ? perWiki[0].stats : null;
     pointsManifest = writePointsIndex({
-      points: joined.points,
+      points: union.points,
+      langs: union.langs,
       dir: files.points,
       dump: {
         date: dumpDate(dump.lastModified),
         lastModified: dump.lastModified || null,
         etag: dump.etag || null,
-        pageProps: props.meta.lastModified || null,
+        pageProps: props?.meta.lastModified || null,
+        wikis: Object.fromEntries(
+          perWiki.map(({ wiki, lastModified }) => [wiki.key, lastModified]),
+        ),
       },
       wikis: pointWikis,
       stats: {
-        geo: geoPoints.stats,
-        page: pagePoints.stats,
-        wikidata: wikidata.stats,
-        byClass: joined.byClass,
+        ...(only
+          ? { geo: only.geo, page: only.page, wikidata: only.wikidata }
+          : {}),
+        byClass,
+        byWiki: Object.fromEntries(
+          perWiki.map(({ wiki, stats }) => [
+            wiki.key,
+            { ...stats, ...union.byWiki[wiki.key] },
+          ]),
+        ),
       },
       now,
       log,

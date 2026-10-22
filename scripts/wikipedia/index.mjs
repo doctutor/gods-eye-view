@@ -23,7 +23,7 @@ import {
  *
  *   node scripts/wikipedia/index.mjs build [--text] [--force] [--offline]
  *        [--limit N] [--dir DIR] [--population [--env-root DIR]]
- *        [--points [--secondary] [--wikis enwiki] [--points-only]] [--page-file FILE]
+ *        [--points [--secondary] [--wikis enwiki,dewiki,…] [--points-only]] [--page-file FILE]
  *   node scripts/wikipedia/index.mjs status [--json] [--dir DIR]
  *
  * `build` downloads Wikimedia's GeoData dump (enwiki-latest-geo_tags.sql.gz,
@@ -40,7 +40,9 @@ import {
  * the page_props dump (each article's Wikidata item; 484 MB, kept beside
  * geo_tags). `--secondary` adds the secondary coordinates (1.5 M, a lower
  * class the layer shows only when asked); `--wikis` names the wikis to
- * union by Wikidata item (only enwiki today). `--page-file` reads the page
+ * union by Wikidata item (enwiki and dewiki, frwiki, eswiki, ruwiki,
+ * jawiki, zhwiki, itwiki, ptwiki, plwiki, nlwiki: each other wiki's three
+ * dumps under raw/<wiki>/, fetched once and kept). `--page-file` reads the page
  * table from a downloaded copy instead of streaming it; with `--offline`
  * nothing is asked of the network (geo_tags and page_props must be there).
  * `--points-only` rebuilds the points alone, the grid and hexagons as they
@@ -187,6 +189,19 @@ function statusLines(status) {
       ? `points: ${number(status.points.points)} articles${status.points.secondary ? ` and ${number(status.points.secondary)} secondary coordinates` : ''} (${status.points.wikis.join(', ')}), ${(status.points.bytes / 1_048_576).toFixed(1)} MB in ${status.points.buckets} buckets, dump ${status.points.dump?.date || '?'}`
       : 'points: not built; run npm run wikipedia:build -- --points',
   );
+  // Several wikis: what each added, and the items more than one has.
+  const byWiki = status.points?.built ? status.points.stats?.byWiki : null;
+  if (byWiki && Object.keys(byWiki).length > 1)
+    lines.push(
+      `wikis: ${Object.entries(byWiki)
+        .map(
+          ([wiki, s]) =>
+            `${wiki} ${number(s.kept)} of ${number(s.articles)} articles kept`,
+        )
+        .join(
+          '; ',
+        )}; ${number(status.points.langs?.items || 0)} items in more than one`,
+    );
   return lines;
 }
 
