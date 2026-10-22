@@ -66,6 +66,7 @@
     "census:status": "node scripts/census/index.mjs status",
     "overture:build": "node scripts/overture/index.mjs build",
     "overture:status": "node scripts/overture/index.mjs status",
+    "overture:boundaries": "node scripts/overture/index.mjs boundaries",
     "property:build": "node scripts/property/index.mjs build",
     "property:status": "node scripts/property/index.mjs status",
     "overpass:status": "node scripts/overpass-status.mjs",

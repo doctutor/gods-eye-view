@@ -513,6 +513,16 @@ export const OVERTURE_BUILDINGS_CREDIT = {
     'the USGS 3D Elevation Program, Shi et al. (CC BY 4.0) and work derived from BTN 2024, ign.es (CC BY 4.0)',
 };
 
+/** Personal fork: the Administrative boundaries layer's Overture country
+ * lines (COUNTRIES, and AUTO from orbit), while they are drawn. */
+export const OVERTURE_BOUNDARIES_CREDIT = {
+  key: 'overture-boundaries',
+  html:
+    'Country lines: ' +
+    '<a href="https://docs.overturemaps.org/attribution/" target="_blank" rel="noopener">© OpenStreetMap contributors, Overture Maps Foundation</a> ' +
+    '(<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">ODbL</a>)',
+};
+
 export const HYDROSHEDS_V2_CREDIT = {
   key: 'hydrosheds-v2',
   html:

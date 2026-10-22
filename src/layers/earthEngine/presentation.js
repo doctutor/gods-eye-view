@@ -272,13 +272,15 @@ export const LEVEL_CHIPS = Object.freeze([
     key: 'auto',
     label: msg('AUTO'),
     title: msg(
-      'The level follows the camera: states and provinces from far out, districts below 800 km',
+      'The level follows the camera: countries above 5,000 km when built locally, states and provinces from far out, districts below 800 km',
     ),
   }),
   Object.freeze({
     key: 'level0',
     label: msg('COUNTRIES'),
-    title: msg('Country boundaries everywhere (LSIB 2017)'),
+    title: msg(
+      "Country boundaries everywhere: OpenStreetMap's through Overture when built locally, disputed lines dashed; otherwise LSIB 2017",
+    ),
   }),
   Object.freeze({
     key: 'level1',

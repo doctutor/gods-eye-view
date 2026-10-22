@@ -31,6 +31,8 @@ import { earthEngineProxy } from './earthEngine.js';
 import { wikipediaCoverageProxy } from './wikipediaCoverage.js';
 // Personal fork: the Rivers layer's self-hosted HydroSHEDS v2 tiles.
 import { riversV2Proxy } from './riversV2.js';
+// Personal fork: the Administrative boundaries layer's Overture country lines.
+import { overtureBoundariesProxy } from './overtureBoundaries.js';
 // Personal fork: clicking a river reach (the Rivers layer).
 import { riverReachProxy } from './riverReach.js';
 // Personal fork: the Rivers layer's names from OpenStreetMap.
@@ -89,6 +91,7 @@ function localProviderPlugins({ realtime } = {}) {
     earthEngineProxy({ sourceRoot: defaultSourceRoot }),
     wikipediaCoverageProxy({ sourceRoot: defaultSourceRoot }),
     riversV2Proxy({ sourceRoot: defaultSourceRoot }),
+    overtureBoundariesProxy({ sourceRoot: defaultSourceRoot }),
     riverReachProxy({ sourceRoot: defaultSourceRoot }),
     riverNamesProxy({ sourceRoot: defaultSourceRoot }),
     censusProxy({ sourceRoot: defaultSourceRoot }),

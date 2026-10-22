@@ -15,6 +15,10 @@ const DRAWERS = Object.freeze({
     ),
   'rivers-v2': () =>
     import('../riversV2.js').then((m) => m.createRiversV2Service),
+  'overture-boundaries': () =>
+    import('../overtureBoundaries.js').then(
+      (m) => m.createOvertureBoundariesService,
+    ),
   'wikipedia-points': () =>
     import('../wikipediaCoverage/pointsIndex.js').then(
       (m) => m.createPointsIndex,

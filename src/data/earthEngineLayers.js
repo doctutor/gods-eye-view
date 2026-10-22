@@ -21,7 +21,9 @@
  * - USDOS/LSIB/2017 (table, US public domain: "no restrictions on use"),
  *   the countries variant since 2026-10-18; its interior boundaries
  *   reflect US government policy on disputes. LSIB_SIMPLE/2017 stores
- *   Canada and the United States in chunks, like GAUL 2015's level0;
+ *   Canada and the United States in chunks, like GAUL 2015's level0.
+ *   Since 2026-10-22 only while the local Overture country lines are not
+ *   built (src/layers/earthEngine/overtureBoundaries.js);
  * - WWF/HydroSHEDS/v1/FreeFlowingRivers (table, 8,477,883 reaches: the
  *   HydroRIVERS v1 network with Grill et al. 2019's connectivity
  *   attributes; HydroSHEDS licence, free with attribution), the Rivers
@@ -151,6 +153,7 @@
  */
 
 import { INCOME_LEGEND, LST_LEGEND } from './censusTracts.js';
+import { BOUNDARY_INKS } from './overtureBoundaries.js';
 import { DEM_MAX_ZOOM, demVariants } from './demStack.js';
 import { OPEN_BUILDINGS_BOXES } from './openBuildingsCoverage.js';
 
@@ -1297,9 +1300,14 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
       // and 279), and its outlines took Earth Engine 0.4 to 3.6 s a z 1 to 3
       // tile (2026-10-18). Edges of GAUL 2015's code (Image.paint, focalMin)
       // hid the seams but took 15 s to over 240 s a z 1 to 3 tile.
+      // While Overture's country lines are built
+      // (`npm run overture:boundaries`), the local server draws them in
+      // place of LSIB, and AUTO draws them too from `localAutoAboveM` up.
       Object.freeze({
         key: 'level0',
         asset: Object.freeze({ table: 'USDOS/LSIB/2017' }),
+        local: 'overture-boundaries',
+        localAutoAboveM: 5_000_000,
       }),
       // On AUTO: states and provinces from far out; districts closer in.
       Object.freeze({
@@ -1322,7 +1330,7 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     }),
     // White on imagery and dark styles; near-black on the white globe,
     // Positron, the light Stamen styles and the light Countries maps.
-    inks: Object.freeze({ light: 'ffffffcc', dark: '1a1a1acc' }),
+    inks: BOUNDARY_INKS,
     legend: Object.freeze([
       // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
       Object.freeze({ label: 'Boundary', color: '#ffffff' }),

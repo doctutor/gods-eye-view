@@ -539,7 +539,7 @@ has level and ink chips (below).
 | Forest loss (2001–2025, coloured by year)                          | Hansen Global Forest Change v1.13, `UMD/hansen/global_forest_change_2025_v1_13`, band `lossyear`                                                                                                         | CC BY 4.0                                                                                                                                        |
 | Forest types (see [below](#forest-types-and-population))           | JRC global map of forest types 2020 v1, `JRC/GFC2020_subtypes/V1`, band `Map` (1 naturally regenerating, 10 primary, 20 planted)                                                                         | Free to use; citation requested                                                                                                                  |
 | Population (see [below](#forest-types-and-population))             | GHSL population P2023A, `JRC/GHSL/P2023A/GHS_POP`, band `population_count`, epochs 2020 (default), 2000, 1990, 1975                                                                                      | Reuse authorised with acknowledgement (EC reuse notice)                                                                                          |
-| Administrative boundaries                                          | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from LSIB 2017, `USDOS/LSIB/2017`                                                                                   | CC BY 4.0 (LSIB: US public domain)                                                                                                               |
+| Administrative boundaries                                          | FAO GAUL 2025, `FAO/GAUL/2025/level1` from far out, `level2` below 800 km; countries from Overture's country lines when built locally (`npm run overture:boundaries`), else LSIB 2017, `USDOS/LSIB/2017` | CC BY 4.0 (Overture: ODbL; LSIB: US public domain)                                                                                               |
 | Rivers (see [Rivers](#rivers))                                     | HydroRIVERS v1 with the Free-Flowing Rivers attributes, `WWF/HydroSHEDS/v1/FreeFlowingRivers`; names from Natural Earth                                                                                  | HydroSHEDS licence, attribution (Natural Earth: public domain)                                                                                   |
 | Surface water (see [Surface water](#surface-water))                | JRC Global Surface Water 1.4 (1984–2021, 30 m), `JRC/GSW1_4/GlobalSurfaceWater`, bands `occurrence`, `change_abs`, `seasonality`, masked by `max_extent`                                                 | Copernicus, free without restriction; "Source: EC JRC/Google"                                                                                    |
 | Land cover (see [Land cover](#land-cover))                         | ESA WorldCover 10 m, 2021 `ESA/WorldCover/v200/2021` and 2020 `ESA/WorldCover/v100/2020`, band `Map`                                                                                                     | CC BY 4.0, "© ESA WorldCover project" notice                                                                                                     |
@@ -695,7 +695,9 @@ that used the most:
   2026-10-18 with one authenticated request), so COUNTRIES draws the
   US Department of State's LSIB 2017 (`USDOS/LSIB/2017`, US public
   domain; its interior boundaries follow US government policy on
-  disputes).
+  disputes). Since 2026-10-22, while Overture's country lines are built,
+  COUNTRIES draws those instead, from the local server (see
+  [Boundary sources](#boundary-sources-lsib-gaul-natural-earth-overture)).
 - **Why LSIB 2017 for the countries.** GAUL 2015's level0 (the earlier
   choice) stores Canada and the United States as rectangular pieces cut
   along even parallels and meridians (292 features for 276 codes: Canada
@@ -804,22 +806,66 @@ subtype**:
   only if the derived database were published).
 
 It is not a one-line swap. Earth Engine does not host Overture, so the
-lines would be drawn locally, as the HydroSHEDS v2 rivers are.
+lines are drawn locally, as the HydroSHEDS v2 rivers are.
 
-**Migration cost.**
+**Built (2026-10-22).** COUNTRIES now draws Overture's lines while they
+are built, and LSIB 2017 from Earth Engine only without them.
 
-- **Data:** `theme=divisions/type=division_boundary`, 512 MB, one
-  download, which needs the user's go-ahead.
-- **Build:** a lines build like the rivers' (decode the GeoParquet WKB,
-  bucket by z 6 tile, a simplified copy per zoom band). The Parquet reader
-  and the bucket format are already in the tree.
-- **Server:** a tile route drawing the lines through the shared tile
-  pool's line renderer (`server/providers/riversV2/render.js`), with the
-  light and dark inks, and the disputed style.
-- **Client:** COUNTRIES (and AUTO from orbit) points at the local tiles
-  instead of Earth Engine's.
-- **Estimate:** two to three days of work, a few minutes to build. Earth
-  Engine's 0.4 to 4.4 s country tiles become local tiles.
+- **Data:** `release/2026-09-23.1/theme=divisions/type=division_boundary/`,
+  one file of 512,261,151 bytes (87,530 lines: 557 country, 8,202 region,
+  78,771 county). It goes in
+  `raw/2026-09-23.1/divisions/division_boundary/` of the Overture cache's
+  raw directory (or `GEV_RAW_DIR/overture/raw`), or is named with
+  `--input`. The build never downloads it.
+- **What is kept:** the 557 lines of the `country` subtype: 374 on land
+  (47 of them disputed) and 183 maritime. The maritime lines are kept and
+  drawn the same way: they carry borders on from the coast through
+  straits, bays and territorial seas, where a land-only drawing would
+  stop short (the United States and Canada's spans 130.7° W to 66.9° W,
+  coast to coast). The release has no `dependency` subtype among its lines,
+  so nothing more was needed there. No country line in this release fills
+  `perspectives`. The build keeps the field per line anyway (the `classes`
+  of each level header), so a later release's could be drawn. Every line
+  names OpenStreetMap as its only source.
+- **Coasts:** these are borders between countries, so coastlines are not
+  drawn and an island country has no line, unlike LSIB's outlines. The
+  basemap or imagery shows the coast.
+- **Build:** `npm run overture:boundaries` (`--force`, `--input FILE`,
+  `--dir DIR`; `scripts/overture/boundaries.mjs`). It reads the file once
+  with the Parquet reader, on one thread. For each of four zoom bands
+  (z 0–3, 4–6, 7–9 and 10–14) it simplifies to half a pixel, quantizes
+  and cuts the lines into cells. The output is the rivers' level files
+  (`server/providers/riversV2/levelFile.js`), with each piece's `order`
+  holding its line's class. It writes to `build/boundaries/` of the
+  Overture cache (`manifest.json`, `levels-<stamp>/`), never committed,
+  and an unchanged input is skipped. Measured on 2026-10-22: 4.4 s, 3.0 MB
+  (z 0–3: 6,251 points; z 10–14: 1,114,029). The divisions build now
+  removes only its own build ids from `build/`, so it leaves
+  `build/boundaries/` alone.
+- **Server:** `server/providers/overtureBoundaries.js`, at
+  `/api/boundaries/countries/layers` and
+  `/api/boundaries/countries/tile/<ink>/<z>/<x>/<y>`. It draws through the
+  rivers' line renderer in the layer's inks (`ffffffcc` light, `1a1a1acc`
+  dark), with lines 1 px wide at z 0–3, 1.25 px at z 4–6 and 1.5 px from
+  z 7. Disputed lines are dashed, 4 px on and 3 px off along each
+  segment's longer axis in world pixels, so a dash is in the same place
+  whichever tile draws it. Tiles are drawn in the shared tile pool and
+  kept under `build/boundaries/tiles/<ink>/<version>/`. A sample of tiles
+  drawn on one thread took 0.6 to 8.4 ms each, and the first in a process
+  29 to 43 ms. LSIB's took Earth Engine 0.4 to 4.4 s.
+- **Client:** the `level0` variant names `local: 'overture-boundaries'`
+  (`src/layers/earthEngine/overtureBoundaries.js` asks for the status).
+  COUNTRIES draws the local tiles in place of Earth Engine's, even when
+  Earth Engine is not set up. AUTO draws them above 5,000 km
+  (`localAutoAboveM`), as the Countries basemap switches to countries
+  above 5,000 km. Below that AUTO is GAUL's regions and districts as
+  before. Without the build, AUTO never draws countries, and COUNTRIES is
+  LSIB 2017.
+- **Earth Engine's LSIB layer is kept** as the fallback without a build.
+  It costs nothing extra: it is the variant that was already there.
+- **Credit:** `OVERTURE_BOUNDARIES_CREDIT` (`src/data/dataCredits.js`,
+  beside the Overture buildings' credit): © OpenStreetMap contributors,
+  Overture Maps Foundation, ODbL. It is registered while the lines draw.
 
 GAUL's levels could follow later from `division_area`, region and county,
 which is 4.5 GB, but GAUL is fine there.
@@ -5101,9 +5147,10 @@ drowning the view. There are four ways to do it, by the kind of data:
   the same way.
 - **Boundaries: level switching.** The administrative boundaries' AUTO
   chip draws states and provinces above 800 km and districts below;
-  COUNTRIES, REGIONS and DISTRICTS force one level (LSIB 2017 countries,
-  GAUL 2025 level1 and level2).
-  The lines are one pixel at every zoom. The Countries basemap's
+  COUNTRIES, REGIONS and DISTRICTS force one level (Overture's country
+  lines, or LSIB 2017 without them; GAUL 2025 level1 and level2). With
+  the country lines built, AUTO draws them above 5,000 km.
+  Earth Engine's lines are one pixel at every zoom. The Countries basemap's
   subdivisions style does the same (admin-1 below 5,000 km, countries
   above), and the Grid steps its spacing (30° at orbit to 1' at the street;
   MGRS from grid zones to 1 km lines). The Rivers draw more `RIV_ORD`

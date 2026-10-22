@@ -6,10 +6,12 @@ import { createEarthEngineSource } from '../../layers/earthEngine/source.js';
 import { createRiversV2Source } from '../../layers/riversV2/source.js';
 import { createCensusSource } from '../../layers/census/source.js';
 import { createOvertureBuildingsSource } from '../../layers/earthEngine/overtureBuildings.js';
+import { createOvertureBoundariesSource } from '../../layers/earthEngine/overtureBoundaries.js';
 import { governorRequestRender } from '../../renderGovernor.js';
 import { colourScales as sharedColourScales } from '../../maps/colourScaleStore.js';
 import {
   HYDROSHEDS_V2_CREDIT,
+  OVERTURE_BOUNDARIES_CREDIT,
   OVERTURE_BUILDINGS_CREDIT,
   RIVER_REACH_CREDIT,
   demSourceCredit,
@@ -24,7 +26,8 @@ import { overlayHost } from './overlayHost.js';
  * one layer per record of src/data/earthEngineLayers.js, sharing one catalog
  * source. The Rivers record also gets its names (world-overlay labels), its
  * clicks (a reach traced to the sea) and HydroSHEDS v2 over the Americas;
- * the terrain layers credit their DEM stack's sources (demSourceCredit).
+ * the terrain layers credit their DEM stack's sources (demSourceCredit);
+ * the Administrative boundaries draw Overture's country lines when built.
  * Every windowable layer draws the shared colour-scale store's choice.
  */
 export function createApplicationEarthEngineLayers({
@@ -32,6 +35,7 @@ export function createApplicationEarthEngineLayers({
   riversV2 = createRiversV2Source(),
   census = createCensusSource(),
   overtureBuildings = createOvertureBuildingsSource(),
+  overtureBoundaries = createOvertureBoundariesSource(),
   colourScales = sharedColourScales(),
 } = {}) {
   const credits = { register: registerDynamicCredit };
@@ -67,10 +71,21 @@ export function createApplicationEarthEngineLayers({
       // Buildings: Overture's outside Open Buildings, when built.
       overtureSource: record.overture ? overtureBuildings : null,
       overtureCredit: record.overture ? OVERTURE_BUILDINGS_CREDIT : null,
+      // Administrative boundaries: COUNTRIES from the local country lines.
+      countriesSource: hasCountryLines(record) ? overtureBoundaries : null,
+      countriesCredit: hasCountryLines(record)
+        ? OVERTURE_BOUNDARIES_CREDIT
+        : null,
       colourScales,
     }),
   );
 }
+
+/** Whether a record has a variant drawn from the Overture country lines. */
+const hasCountryLines = (record) =>
+  (record.variants || []).some(
+    (variant) => variant.local === 'overture-boundaries',
+  );
 
 /** The layer ids, for the panel and the catalog's local-only list. */
 export const EARTH_ENGINE_LAYER_IDS = Object.freeze(
