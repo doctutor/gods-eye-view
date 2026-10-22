@@ -971,6 +971,11 @@ export function expressionFor(
     color: constant(inkColor(layer, ink)),
     fillColor: constant(style.fillColor || '00000000'),
     width: constant(style.width ?? 1),
+    // A simplified table's islands collapsed to points: drawn as nothing,
+    // not as circles (Collection.style's default point).
+    ...(Number.isFinite(variant?.pointSize)
+      ? { pointSize: constant(variant.pointSize) }
+      : {}),
   });
   return { values: { 0: node }, result: '0' };
 }
@@ -1351,6 +1356,24 @@ const MODE_TILE_PATH =
 export function coarseVariant(layer, variant, z) {
   if (!variant?.zooms || !zoomMatched(layer)) return null;
   return variantForZoom(layer, z);
+}
+
+/**
+ * The variant a tile at zoom z is drawn from: a variant's `coarse` table
+ * (GAUL's 500 m simplified level1) for tiles at or below its `maxZoom`,
+ * where 500 m is under a pixel, as a variant of its own (its own map, hash
+ * and tile directory: "<key>-coarse"); else null.
+ */
+export function simplifiedVariant(variant, z) {
+  const coarse = variant?.coarse;
+  if (!coarse || !(z <= coarse.maxZoom)) return null;
+  return Object.freeze({
+    key: `${variant.key}-coarse`,
+    asset: Object.freeze({ table: coarse.table }),
+    ...(Number.isFinite(coarse.pointSize)
+      ? { pointSize: coarse.pointSize }
+      : {}),
+  });
 }
 
 /** The pseudo-variant a layer with zoom-matched bands is drawn through. */
@@ -1785,6 +1808,9 @@ export function createEarthEngineService({
           };
         variant = coarse;
       }
+      // Far out (GAUL's level1): the simplified table, faster and the same
+      // to the pixel.
+      variant = simplifiedVariant(variant, z) || variant;
       const file = tileFile(layer, variant, ink, z, x, y, mode, scale);
       try {
         const stat = fs.statSync(file);

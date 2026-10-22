@@ -17,7 +17,8 @@
  * - FAO/GAUL/2025/level1 and level2 (tables, CC-BY-4.0), the successors of
  *   the deprecated, noncommercial-only 2015 tables. GAUL 2025 has no
  *   level0 (checked with the API on 2026-10-18: the folder lists level1
- *   and level2 only);
+ *   and level2 only); FAO/GAUL_SIMPLIFIED_500m/2025/level1, the same
+ *   units simplified to 500 m, draws level1's tiles at z ≤ 8;
  * - USDOS/LSIB/2017 (table, US public domain: "no restrictions on use"),
  *   the countries variant since 2026-10-18; its interior boundaries
  *   reflect US government policy on disputes. LSIB_SIMPLE/2017 stores
@@ -1310,9 +1311,20 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
         localAutoAboveM: 5_000_000,
       }),
       // On AUTO: states and provinces from far out; districts closer in.
+      // Tiles at z 8 and coarser (AUTO above 800 km, and REGIONS from far
+      // out) draw GAUL's 500 m simplified table instead: one feature per
+      // unit like the full one, its lines within a pixel of the full
+      // table's, and a cold z 3 tile in a median 1.2 s against 2.5 s (worst
+      // 2.0 s against 9.7 s; 2026-10-22). Its smallest islands collapse to
+      // points, which `pointSize: 0` leaves undrawn.
       Object.freeze({
         key: 'level1',
         asset: Object.freeze({ table: 'FAO/GAUL/2025/level1' }),
+        coarse: Object.freeze({
+          table: 'FAO/GAUL_SIMPLIFIED_500m/2025/level1',
+          maxZoom: 8,
+          pointSize: 0,
+        }),
         auto: true,
         minHeightM: 800_000,
       }),
