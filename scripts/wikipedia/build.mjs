@@ -20,11 +20,10 @@ import {
   POINTS_FORMAT,
   collectGeoPoints,
   collectWikidataItems,
-  joinPoints,
+  createPointsUnion,
   pageRowsForPoints,
   parseWikis,
   pointsStatusOf,
-  unionWikis,
   wikiDumpUrl,
   wikiFiles,
   writePointsIndex,
@@ -423,13 +422,14 @@ export function writeCoverageH3({
  * grid's build reads already): its geo_tags, page and page_props under
  * raw/<wiki>/ (wikiFiles), each fetched once when not offline (kept, so a
  * rebuild asks only whether they changed), then the same joins as
- * enwiki's. Offline, a missing dump is refused by name.
- * @returns {Promise<{wiki: object, points: object[], stats: object,
- *   lastModified: string|null}>}
+ * enwiki's, folded into `union` (createPointsUnion); its coordinates go
+ * when this returns. Offline, a missing dump is refused by name.
+ * @returns {Promise<{wiki: object, stats: object, lastModified: string|null}>}
  */
 export async function pointsOfWiki(
   wiki,
   {
+    union,
     raw,
     offline = false,
     secondary = false,
@@ -471,7 +471,7 @@ export async function pointsOfWiki(
   log(`${wiki.key}: reading geo_tags…`);
   const geo = await collectGeoPoints(gunzipFile(files.geoTags), { secondary });
   log(`${wiki.key}: reading the page table…`);
-  const rows = pageRowsForPoints(geo.pages);
+  const rows = pageRowsForPoints(geo.coordinates);
   await addPageSizes(gunzipFile(files.page), {
     onRow: rows.onRow,
     onProgress: (count) => log(`  ${count.toLocaleString('en-US')} pages`),
@@ -479,29 +479,32 @@ export async function pointsOfWiki(
   log(`${wiki.key}: reading page_props for the Wikidata items…`);
   const wikidata = await collectWikidataItems(
     gunzipFile(files.pageProps),
-    geo.pages,
+    geo.coordinates,
   );
-  const joined = joinPoints({
-    pages: geo.pages,
-    articles: rows.articles,
-    items: wikidata.items,
-    wiki,
-  });
+  const before = union.count;
+  const byClass = union.add(wiki, geo.coordinates);
   log(
-    `${wiki.key}: ${joined.points.length.toLocaleString('en-US')} coordinates of ${rows.stats.matched.toLocaleString('en-US')} articles, ${wikidata.stats.matched.toLocaleString('en-US')} with an item`,
+    `${wiki.key}: ${Object.values(byClass)
+      .reduce((sum, n) => sum + n, 0)
+      .toLocaleString(
+        'en-US',
+      )} coordinates of ${rows.stats.matched.toLocaleString('en-US')} articles, ${wikidata.stats.matched.toLocaleString('en-US')} with an item; ${(union.count - before).toLocaleString('en-US')} records kept (${union.count.toLocaleString('en-US')} in all, heap ${heapMegabytes()} MB)`,
   );
   return {
     wiki,
-    points: joined.points,
     lastModified: metas.geo_tags?.lastModified || null,
     stats: {
       geo: geo.stats,
       page: rows.stats,
       wikidata: wikidata.stats,
-      byClass: joined.byClass,
+      byClass,
     },
   };
 }
+
+/** The V8 heap in use, MB: the build logs it per wiki (the default heap is its budget). */
+const heapMegabytes = () =>
+  Math.round(process.memoryUsage().heapUsed / 1048576);
 
 /**
  * The files a build directory holds. The dump and its metadata are the
@@ -618,14 +621,15 @@ export async function runBuild({
       `geo_tags: ${geo.stats.rows.toLocaleString('en-US')} rows, ${geo.stats.kept.toLocaleString('en-US')} primary Earth coordinates kept`,
     );
   // The points: every coordinate kept with its page id, for the joins.
-  const geoPoints = enwikiPoints
+  // `let`: they are let go once enwiki is folded into the union.
+  let geoPoints = enwikiPoints
     ? await collectGeoPoints(gunzipFile(files.geoTags), { secondary })
     : null;
   if (geoPoints)
     log(
       `points: ${geoPoints.stats.primary.toLocaleString('en-US')} primary${secondary ? ` and ${geoPoints.stats.secondary.toLocaleString('en-US')} secondary` : ''} coordinates`,
     );
-  const pagePoints = geoPoints ? pageRowsForPoints(geoPoints.pages) : null;
+  let pagePoints = geoPoints ? pageRowsForPoints(geoPoints.coordinates) : null;
   let page = null;
   if ((wantsText && !pointsOnly) || enwikiPoints) {
     if (offline && !pageFile)
@@ -671,8 +675,10 @@ export async function runBuild({
   }
   let pointsManifest = null;
   if (points) {
-    // Each wiki's points, enwiki's from the dumps read above, then one dot
-    // an item (unionWikis).
+    // Each wiki's points folded into one union as it is read (one dot an
+    // item), enwiki's first, from the dumps read above; each wiki's
+    // coordinates are let go before the next wiki is read.
+    const union = createPointsUnion();
     const perWiki = [];
     let props = null;
     if (geoPoints) {
@@ -698,30 +704,31 @@ export async function runBuild({
       log('reading page_props for the Wikidata items…');
       const wikidata = await collectWikidataItems(
         gunzipFile(files.pageProps),
-        geoPoints.pages,
+        geoPoints.coordinates,
       );
-      const joined = joinPoints({
-        pages: geoPoints.pages,
-        articles: pagePoints.articles,
-        items: wikidata.items,
-        wiki: pointWikis.find((wiki) => wiki.key === 'enwiki'),
-      });
+      const enwiki = pointWikis.find((wiki) => wiki.key === 'enwiki');
+      const byClass = union.add(enwiki, geoPoints.coordinates);
       perWiki.push({
-        wiki: pointWikis.find((wiki) => wiki.key === 'enwiki'),
-        points: joined.points,
+        wiki: enwiki,
         lastModified: dump.lastModified || null,
         stats: {
           geo: geoPoints.stats,
           page: pagePoints.stats,
           wikidata: wikidata.stats,
-          byClass: joined.byClass,
+          byClass,
         },
       });
+      geoPoints = null;
+      pagePoints = null;
+      log(
+        `enwiki: ${union.count.toLocaleString('en-US')} records kept (heap ${heapMegabytes()} MB)`,
+      );
     }
     for (const wiki of pointWikis)
       if (wiki.key !== 'enwiki')
         perWiki.push(
           await pointsOfWiki(wiki, {
+            union,
             raw: files.raw,
             offline,
             secondary,
@@ -732,17 +739,16 @@ export async function runBuild({
             sleepImpl,
           }),
         );
-    const union = unionWikis(perWiki);
     const byClass = {};
-    // Every coordinate kept, by class (as joinPoints counts a wiki's).
-    for (const point of union.points) {
-      const key = pointClassOfCode(point.cls).key;
+    // Every record kept, by class (as union.add counts a wiki's).
+    const classes = union.columns.cls.view();
+    for (let i = 0; i < classes.length; i++) {
+      const key = pointClassOfCode(classes[i]).key;
       byClass[key] = (byClass[key] || 0) + 1;
     }
     const only = perWiki.length === 1 ? perWiki[0].stats : null;
     pointsManifest = writePointsIndex({
-      points: union.points,
-      langs: union.langs,
+      union,
       dir: files.points,
       dump: {
         date: dumpDate(dump.lastModified),

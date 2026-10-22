@@ -221,17 +221,7 @@ export function writePointsFiles(levels, { overviewFile, fileOf }) {
         bucketBlocks.get(bucket).push(block);
       }
     }
-  const write = (file, blocks) => {
-    const writer = bucketWriter(file, blocks.length);
-    try {
-      for (const { zoom, key, list } of blocks)
-        writer.add(POINT_KIND + zoom, key, encodeBlock(list), list.length);
-      return writer.finish();
-    } catch (error) {
-      writer.abort();
-      throw error;
-    }
-  };
+  const write = (file, blocks) => writeBlocksFile(file, blocks);
   const overview = write(overviewFile, overviewBlocks);
   const buckets = new Map();
   for (const [bucket, blocks] of bucketBlocks) {
@@ -241,6 +231,23 @@ export function writePointsFiles(levels, { overviewFile, fileOf }) {
     buckets.set(bucket, { bytes: write(fileOf(bucket), blocks), points });
   }
   return { overview, buckets };
+}
+
+/**
+ * One file of blocks [{zoom, key, list}] in their order, each list's
+ * bytes from `encode` (encodeBlock; the build passes its own for records
+ * kept as columns); returns the file's size.
+ */
+export function writeBlocksFile(file, blocks, encode = encodeBlock) {
+  const writer = bucketWriter(file, blocks.length);
+  try {
+    for (const { zoom, key, list } of blocks)
+      writer.add(POINT_KIND + zoom, key, encode(list), list.length);
+    return writer.finish();
+  } catch (error) {
+    writer.abort();
+    throw error;
+  }
 }
 
 export { unitX, unitY, WORLD_BITS };

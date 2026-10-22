@@ -10,14 +10,14 @@ import zlib from 'node:zlib';
 import {
   collectGeoPoints,
   collectWikidataItems,
-  joinPoints,
+  createPointsUnion,
   pageRowsForPoints,
   parseWikis,
   pointsStatusOf,
-  unionWikis,
   writePointsIndex,
 } from '../../scripts/wikipedia/points.mjs';
 import { addPageSizes, runBuild } from '../../scripts/wikipedia/build.mjs';
+import { WikiCoordinates } from '../../scripts/wikipedia/pointStore.mjs';
 import {
   FLAG_SECONDARY,
   RECORD_BYTES_2,
@@ -106,18 +106,61 @@ const propsText = () =>
     [13, 'wikibase_item', 'Q583', null],
   ]);
 
+/** A page's coordinates in a WikiCoordinates, in order: {flags, type}. */
+function chainOf(coordinates, page) {
+  const out = [];
+  let at = coordinates.heads.get(page);
+  for (; at !== undefined && at >= 0; at = coordinates.next.array[at])
+    out.push({
+      flags: coordinates.flags.array[at],
+      type: coordinates.types.get(coordinates.type.array[at]),
+    });
+  return out;
+}
+/** A page's article, as the page table left it: {title, bytes, qid}, or null. */
+function articleOf(coordinates, page) {
+  const head = coordinates.heads.get(page);
+  if (head === undefined || coordinates.title.array[head] < 0) return null;
+  return {
+    title: coordinates.titles.get(coordinates.title.array[head]),
+    bytes: coordinates.bytes.array[head],
+    qid: coordinates.qid.array[head],
+  };
+}
+/** Every record of a union, as objects (after finish(): with each item's mask). */
+const recordsOf = (union) =>
+  Array.from({ length: union.count }, (_, i) => union.at(i));
+/** A finished union's langs as objects. */
+const langsOf = (langs) =>
+  Array.from({ length: langs.count }, (_, i) => ({
+    qid: langs.qid[i],
+    wiki: langs.wiki[i],
+    page: langs.page[i],
+    bytes: langs.bytes[i],
+  }));
+
 test('the joins keep articles with their title, size and Wikidata item', async () => {
   const primary = await collectGeoPoints([geoText()]);
-  assert.deepEqual([...primary.pages.keys()].sort(), [10, 11, 13, 14, 16]);
+  assert.deepEqual(
+    [...primary.coordinates.heads.keys()].sort(),
+    [10, 11, 13, 14, 16],
+  );
   assert.equal(
-    primary.pages.get(10).length,
+    chainOf(primary.coordinates, 10).length,
     1,
     'no secondary without the flag',
   );
-  assert.equal(primary.pages.get(13).length, 1, 'one primary an article');
+  assert.equal(
+    chainOf(primary.coordinates, 13).length,
+    1,
+    'one primary an article',
+  );
   const geo = await collectGeoPoints([geoText()], { secondary: true });
-  assert.equal(geo.pages.get(10).length, 2);
-  assert.equal(geo.pages.get(10)[1].flags, FLAG_SECONDARY);
+  const c = geo.coordinates;
+  assert.deepEqual(chainOf(c, 10), [
+    { flags: 0, type: 'city' },
+    { flags: FLAG_SECONDARY, type: 'landmark' },
+  ]);
   assert.deepEqual(geo.stats, {
     rows: 9,
     primary: 5,
@@ -125,37 +168,33 @@ test('the joins keep articles with their title, size and Wikidata item', async (
     skipped: 3,
   });
 
-  const page = pageRowsForPoints(geo.pages);
+  const page = pageRowsForPoints(c);
   await addPageSizes([pageText()], { onRow: page.onRow });
-  assert.deepEqual(page.articles.get(11), {
+  assert.deepEqual(articleOf(c, 11), {
     title: 'Eiffel Tower',
     bytes: 150000,
+    qid: 0,
   });
-  assert.equal(page.articles.has(14), false, 'a redirect');
-  assert.equal(page.articles.has(16), false, 'not an article');
-  assert.equal(page.articles.has(99), false, 'not geotagged');
+  assert.equal(articleOf(c, 14), null, 'a redirect');
+  assert.equal(articleOf(c, 16), null, 'not an article');
+  assert.equal(c.heads.has(99), false, 'not geotagged');
 
-  const { items, stats } = await collectWikidataItems([propsText()], geo.pages);
+  const { stats } = await collectWikidataItems([propsText()], c);
   assert.deepEqual(
-    [...items],
-    [
-      [10, 90],
-      [11, 243],
-      [13, 583],
-    ],
+    [10, 11, 13].map((p) => articleOf(c, p).qid),
+    [90, 243, 583],
   );
   assert.equal(stats.rows, 4);
 
-  const { points, byClass } = joinPoints({
-    pages: geo.pages,
-    articles: page.articles,
-    items,
-  });
-  assert.equal(points.length, 4);
+  const union = createPointsUnion();
+  const byClass = union.add(pointWikiOfKey('enwiki'), c);
+  assert.equal(union.count, 4);
   assert.deepEqual(byClass, { place: 1, landmark: 2, nature: 1 });
-  const paris = points.find((p) => p.page === 10 && !p.flags);
+  union.finish();
+  const paris = recordsOf(union).find((p) => p.page === 10 && !p.flags);
   assert.equal(paris.qid, 90);
   assert.equal(paris.title, 'Paris');
+  assert.equal(paris.type, 'city');
   assert.equal(paris.cls, pointClassOfType('city').code);
 });
 
@@ -534,33 +573,27 @@ const dePropsText = () =>
     [503, 'wikibase_item', 'Q243', null],
   ]);
 
-/** A wiki's three dumps as joinPoints' points. */
-async function wikiPoints(wiki, geo, page, props) {
+/** A wiki's three dumps read into its coordinates. */
+async function wikiCoordinates(geo, page, props) {
   const chunks = (text) => [Buffer.from(text)];
   const g = await collectGeoPoints(chunks(geo));
-  const rows = pageRowsForPoints(g.pages);
+  const rows = pageRowsForPoints(g.coordinates);
   await addPageSizes(chunks(page), { onRow: rows.onRow });
-  const items = await collectWikidataItems(chunks(props), g.pages);
-  return {
-    wiki,
-    points: joinPoints({
-      pages: g.pages,
-      articles: rows.articles,
-      items: items.items,
-      wiki,
-    }).points,
-  };
+  await collectWikidataItems(chunks(props), g.coordinates);
+  return g.coordinates;
 }
 
 test('several wikis: one dot an item, enwiki’s record kept, every language listed', async () => {
   const en = pointWikiOfKey('enwiki');
   const de = pointWikiOfKey('dewiki');
-  // Asked dewiki first: enwiki's record is still the one kept for an item it has.
-  const union = unionWikis([
-    await wikiPoints(de, deGeoText(), dePageText(), dePropsText()),
-    await wikiPoints(en, geoText(), pageText(), propsText()),
-  ]);
-  const byTitle = Object.fromEntries(union.points.map((p) => [p.title, p]));
+  const union = createPointsUnion();
+  union.add(en, await wikiCoordinates(geoText(), pageText(), propsText()));
+  union.add(
+    de,
+    await wikiCoordinates(deGeoText(), dePageText(), dePropsText()),
+  );
+  const langs = langsOf(union.finish());
+  const byTitle = Object.fromEntries(recordsOf(union).map((p) => [p.title, p]));
   assert.deepEqual(Object.keys(byTitle).sort(), [
     'Brandenburger Tor',
     'Eiffel Tower',
@@ -584,7 +617,7 @@ test('several wikis: one dot an item, enwiki’s record kept, every language lis
   assert.equal(byTitle['Kiez ohne Objekt'].qid, 0);
   assert.equal(byTitle['Kiez ohne Objekt'].wikis, wikiBit(de.code));
   // The langs: each item more than one wiki has, every wiki's page and size.
-  assert.deepEqual(union.langs, [
+  assert.deepEqual(langs, [
     { qid: 90, wiki: en.code, page: 10, bytes: 300000 },
     { qid: 90, wiki: de.code, page: 500, bytes: 200000 },
     { qid: 243, wiki: en.code, page: 11, bytes: 150000 },
@@ -597,12 +630,22 @@ test('several wikis: one dot an item, enwiki’s record kept, every language lis
     withoutItem: 1,
   });
   // With enwiki left out, dewiki's record is kept.
-  const alone = unionWikis([
-    await wikiPoints(de, deGeoText(), dePageText(), dePropsText()),
-  ]);
-  assert.equal(alone.points.find((p) => p.qid === 90).title, 'Paris');
-  assert.equal(alone.points.find((p) => p.qid === 90).wiki, de.code);
-  assert.deepEqual(alone.langs, []);
+  const alone = createPointsUnion();
+  alone.add(
+    de,
+    await wikiCoordinates(deGeoText(), dePageText(), dePropsText()),
+  );
+  assert.equal(langsOf(alone.finish()).length, 0);
+  const paris = recordsOf(alone).find((p) => p.qid === 90);
+  assert.equal(paris.title, 'Paris');
+  assert.equal(paris.wiki, de.code);
+  // enwiki after another wiki would lose its claim on the items: refused.
+  const late = createPointsUnion();
+  late.add(de, await wikiCoordinates(deGeoText(), dePageText(), dePropsText()));
+  assert.throws(
+    () => late.add(en, new WikiCoordinates()),
+    /enwiki must be the first wiki added/,
+  );
 });
 
 test('an article in several wikis ranks above one its size in one; one wiki ranks by size alone', () => {

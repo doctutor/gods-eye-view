@@ -2710,6 +2710,46 @@ to 140 MB of `geo_tags`, 2.69 GB of `page` and 658 MB of `page_props`:
 npm run wikipedia:build -- --points --points-only --wikis enwiki,dewiki,frwiki,eswiki,ruwiki,jawiki,zhwiki,itwiki,ptwiki,plwiki,nlwiki
 ```
 
+**The memory budget.** The build must fit Node's default heap (about
+4 GB) and leaves `--max-old-space-size` alone: while the Overpass import
+runs this 16 GB machine has about 1 GB free. The first eleven-wiki build
+ran out of heap at 4,014 MB while reading frwiki's page table. Two things
+filled it:
+
+- **Kept slices.** A value the dump parser hands out is a slice of the
+  text it was reading, and V8 keeps all of that text alive while any slice
+  of it is kept. Each title and GeoData type the join held kept a stretch
+  of the dump with it, so the heap grew with every row read, not every
+  article kept. dewiki alone ran out at 1,536 MB after 5 of its 8 million
+  page rows.
+- **An object a coordinate.** Each coordinate was an object in a list in
+  a Map, then again an object in the join and a copy in the union, and
+  enwiki's maps stayed alive through every later wiki.
+
+Now coordinates and records are columns of typed arrays, and titles are
+UTF-8 bytes in one pool; types are interned as fresh strings
+(`scripts/wikipedia/pointStore.mjs`). Each wiki is folded into one union
+as soon as its three dumps are read, and its columns go before the next
+wiki is read; enwiki's go too. The writer ranks record indexes and writes
+bucket by bucket, making objects only while a block is encoded. The files
+are the same, byte for byte. That was checked against the previous code
+on dewiki + frwiki (1,002,947 points, 2,186 buckets) and on synthetic
+dumps of three wikis with and without secondary coordinates. The build
+logs the heap after each wiki.
+
+Measured offline on the 2026-10 dumps with the heap capped at 1,536 MB:
+
+| Wikis                  | Peak heap before                        | Peak heap now | Time  |
+| ---------------------- | --------------------------------------- | ------------- | ----- |
+| dewiki                 | over 1,536 MB (ran out)                 | 101 MB        | 101 s |
+| dewiki, frwiki         | 600 MB (with slices fixed)              | 118 MB        | 247 s |
+| enwiki, dewiki, frwiki | over 4 GB (11 wikis, ran out at frwiki) | 197 MB        | 707 s |
+
+The three-wiki peaks: enwiki 133 MB (its 61 million page rows at
+117 MB), dewiki 197 MB, frwiki 144 MB. Columns live outside the V8 heap;
+the process's resident memory stayed under 500 MB. The union adds about
+60 bytes a record kept, plus its title.
+
 The other way, Wikidata's coordinates (P625) for every item with a
 sitelink, would be one source for every language. But the Wikidata JSON
 dump is 156.6 GB compressed (the "truthy" N-Triples 71.7 GB), most of a
