@@ -63,6 +63,13 @@ public sealed class SimConnectHeader
     {
         foreach (Match m in EnumPattern.Matches(_text))
             if (m.Groups["name"].Value == name) return Values(m.Groups["body"].Value);
+        // SDK 1.8 declares its flag types without a body (`SIMCONNECT_ENUM_FLAGS
+        // SIMCONNECT_CAMERA_DATA_MASK;`) and their values as constants:
+        // `static const SIMCONNECT_CAMERA_DATA_MASK SIMCONNECT_CAMERA_DATA_MASK_POSITION = 0x1;`.
+        var constants = new Dictionary<string, long>();
+        foreach (Match m in Regex.Matches(_text, @"\bstatic\s+const\s+" + Regex.Escape(name) + @"\s+(?<member>\w+)\s*=\s*(?<value>[^;]+);"))
+            constants[m.Groups["member"].Value] = Evaluate(m.Groups["value"].Value, constants);
+        if (constants.Count > 0) return constants;
         throw new InvalidDataException($"{FilePath} has no enum {name}");
     }
 
@@ -106,7 +113,8 @@ public sealed class SimConnectHeader
 
     private static long Number(string token, IReadOnlyDictionary<string, long> known)
     {
-        var t = token.Trim().Trim('(', ')').TrimEnd('u', 'U', 'l', 'L');
+        // A C cast, `(SIMCONNECT_CAMERA_DATA_MASK)0x1`, says nothing about the value.
+        var t = Regex.Replace(token.Trim(), @"^\(\s*\w+\s*\)\s*", "").Trim('(', ')').TrimEnd('u', 'U', 'l', 'L');
         if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return Convert.ToInt64(t[2..], 16);
         if (long.TryParse(t, out var n)) return n;
         if (known.TryGetValue(t, out var k)) return k;
