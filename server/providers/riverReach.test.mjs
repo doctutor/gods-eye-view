@@ -706,3 +706,50 @@ test('the routes: 400 for bad parameters, the regional source first, ids by sour
   });
   assert.equal(crossSite.status, 403);
 });
+
+test('a clicked reach carries the name the river names sidecar gives the click', async (t) => {
+  const root = await tempRoot(t);
+  const asked = [];
+  const named = createRiverReachService({
+    sourceRoot: root,
+    backend: fakeEngine(),
+    names: {
+      nearest: (point) => {
+        asked.push(point);
+        return {
+          name: 'Río Grande',
+          nameEn: 'Rio Grande',
+          wikidata: 'Q2',
+          confidence: 'direct',
+          distanceM: 12,
+        };
+      },
+    },
+  });
+  const answer = await named.atPoint({
+    lat: 0.25,
+    lon: 0.0001,
+    heightM: 100_000,
+  });
+  assert.equal(answer.status, 200);
+  assert.deepEqual(answer.body.osmName, {
+    name: 'Río Grande',
+    nameEn: 'Rio Grande',
+    wikidata: 'Q2',
+    confidence: 'direct',
+    distanceM: 12,
+  });
+  assert.deepEqual(asked, [{ lat: 0.25, lon: 0.0001 }]);
+  // No sidecar, or no name there: the answer is as before.
+  const unnamed = createRiverReachService({
+    sourceRoot: root,
+    backend: fakeEngine(),
+    names: { nearest: () => null },
+  });
+  const plain = await unnamed.atPoint({
+    lat: 0.25,
+    lon: 0.0001,
+    heightM: 100_000,
+  });
+  assert.equal('osmName' in plain.body, false);
+});

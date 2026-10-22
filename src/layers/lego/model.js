@@ -166,7 +166,9 @@ export function paletteColor(palette, t) {
  * palette. `spec` {palette, min, max, scale} (see layerSpecs.js).
  */
 export function columnColor(spec, value) {
-  const t = scalePosition(value, spec.min, spec.max, spec.scale);
+  const t = spec.positionOf
+    ? spec.positionOf(value)
+    : scalePosition(value, spec.min, spec.max, spec.scale);
   const color = paletteColor(spec.palette, Number.isFinite(t) ? t : 0);
   return snapToLego(color || '#9ba19d');
 }
@@ -289,15 +291,27 @@ export function gridColumns(
       // bricks map it too, and with `hide` a value outside raises nothing.
       if (
         spec.hide &&
+        !spec.positionOf &&
         Number.isFinite(value) &&
         (value < spec.min || value > spec.max)
       )
         continue;
+      // A diverging or circular scale places the value itself; NaN (no
+      // value, or hidden outside the window) raises nothing.
+      const placed = spec.positionOf ? spec.positionOf(value) : null;
+      if (spec.positionOf && !Number.isFinite(placed)) continue;
       const bricks = elevation
         ? elevationBricks(value, cellSizeM, exaggeration)
-        : spec.windowed
-          ? valueBricks(value, spec.min, spec.max, spec.scale)
-          : valueBricks(value, header.legendMin, header.legendMax, spec.scale);
+        : spec.positionOf
+          ? 1 + Math.round(placed * (MAX_VALUE_BRICKS - 1))
+          : spec.windowed
+            ? valueBricks(value, spec.min, spec.max, spec.scale)
+            : valueBricks(
+                value,
+                header.legendMin,
+                header.legendMax,
+                spec.scale,
+              );
       if (!bricks) continue;
       const baseValue = base?.values?.[index];
       columns.push({

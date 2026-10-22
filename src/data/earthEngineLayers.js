@@ -620,7 +620,7 @@ export const LAND_COVER_MODES = Object.freeze([
 ]);
 
 const RIVERS_NOTICE =
-  'HydroSHEDS/WWF: HydroRIVERS v1 (Lehner, Verdin & Jarvis 2008, Eos 89:93) and the Free-Flowing Rivers attributes (Grill et al. 2019, Nature 569:215); names from Natural Earth (public domain)';
+  'HydroSHEDS/WWF: HydroRIVERS v1 (Lehner, Verdin & Jarvis 2008, Eos 89:93) and the Free-Flowing Rivers attributes (Grill et al. 2019, Nature 569:215); names from Natural Earth (public domain) and, close in, OpenStreetMap (© OpenStreetMap contributors, ODbL)';
 
 // --- Elevation contours ----------------------------------------------------------
 

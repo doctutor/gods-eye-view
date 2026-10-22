@@ -2,6 +2,7 @@ import { msg, t } from '../i18n/index.js';
 import {
   PALETTES,
   SCALES,
+  circularGradient,
   formatScaleValue,
   isDefaultScale,
   paletteGradient,
@@ -19,6 +20,11 @@ import {
  * with number inputs in the layer's units (empty: automatic); LINEAR, LOG
  * (and SQRT where it is the layer's own); INVERT; HIDE OUTSIDE (values
  * beyond the window clear rather than painted the end colours); RESET.
+ * A diverging layer drops the mappings for LOCK CENTRE (on: the centre
+ * keeps the ramp's middle and dragging one end mirrors the other) and a
+ * centre input; a circular one shows its window as a start angle and an
+ * arc (two sliders over one period) and previews the ramp as a bar of one
+ * period, the arc wrapping past its right edge.
  * Every control is a native button, select, range or number input, so the
  * keyboard reaches and works all of them. Nodes are kept across the
  * panel's refreshes; an input being used is never overwritten.
@@ -57,7 +63,11 @@ export function scaleRowControl({
     model,
     defaults,
     auto: autoRange,
-    range: widenRange(range || autoRange, model),
+    // A circular slider spans one period (the arc wraps; nothing to widen).
+    range:
+      defaults.kind === 'circular'
+        ? { min: 0, max: defaults.period }
+        : widenRange(range || autoRange, model),
     onChange: (partial) => store.set(key, partial),
     onReset: () => store.reset(key),
   };
@@ -90,7 +100,37 @@ function widenRange(range, model) {
  */
 export function scaleControlState(descriptor) {
   const { model, defaults, auto, range } = descriptor;
-  const window = resolveWindow(model, auto);
+  const kind = defaults.kind || 'sequential';
+  const window = resolveWindow(model, auto, defaults);
+  const isDefault = isDefaultScale(model, defaults);
+  const units = defaults.units || '';
+  if (kind === 'circular') {
+    // floor: the start angle; ceiling: start + arc. The handles and the
+    // inputs show the start and the arc.
+    const { period } = defaults;
+    const span = window ? window.ceiling - window.floor : period;
+    const toHandle = (value) =>
+      Math.round(Math.min(1, Math.max(0, value / period)) * SLIDER_STEPS);
+    return {
+      kind,
+      window,
+      floorHandle: toHandle(window?.floor ?? 0),
+      ceilingHandle: toHandle(span),
+      floorText: model.floor === null ? '' : String(model.floor),
+      ceilingText:
+        model.ceiling === null
+          ? ''
+          : String(Number((model.ceiling - (model.floor ?? 0)).toPrecision(6))),
+      floorPlaceholder: formatScaleValue(window?.floor ?? 0),
+      ceilingPlaceholder: formatScaleValue(span),
+      scales: [],
+      locked: false,
+      centreText: '',
+      centrePlaceholder: '',
+      isDefault,
+      units,
+    };
+  }
   const mapping = model.scale;
   const handle = (value) =>
     window && range
@@ -104,12 +144,22 @@ export function scaleControlState(descriptor) {
     ceilingText: model.ceiling === null ? '' : String(model.ceiling),
     floorPlaceholder: window ? formatScaleValue(window.floor) : '',
     ceilingPlaceholder: window ? formatScaleValue(window.ceiling) : '',
-    // SQRT only where it is the layer's own mapping (Elevation).
-    scales: SCALES.filter(
-      (scale) => scale !== 'sqrt' || defaults.model.scale === 'sqrt',
-    ),
-    isDefault: isDefaultScale(model, defaults),
-    units: defaults.units || '',
+    // SQRT only where it is the layer's own mapping (Elevation); a
+    // diverging scale is linear.
+    scales:
+      kind === 'diverging'
+        ? []
+        : SCALES.filter(
+            (scale) => scale !== 'sqrt' || defaults.model.scale === 'sqrt',
+          ),
+    kind,
+    locked: kind === 'diverging' && model.lockCentre !== false,
+    centreText:
+      kind === 'diverging' && model.centre !== null ? String(model.centre) : '',
+    centrePlaceholder:
+      kind === 'diverging' ? formatScaleValue(defaults.centre) : '',
+    isDefault,
+    units,
   };
 }
 
@@ -118,8 +168,8 @@ export function scaleControlState(descriptor) {
  * hair inside the other handle, rounded to 3 significant figures.
  */
 export function handleValue(descriptor, which, position) {
-  const { model, auto, range } = descriptor;
-  const window = resolveWindow(model, auto);
+  const { model, auto, range, defaults } = descriptor;
+  const window = resolveWindow(model, auto, defaults);
   if (!range || !window) return null;
   let value = rangeValue(position / SLIDER_STEPS, range, model.scale);
   value = Number(value.toPrecision(3));
@@ -140,6 +190,62 @@ export function handleValue(descriptor, which, position) {
       ).toPrecision(3),
     );
   return value;
+}
+
+/**
+ * What moving a handle to `position` (0 to SLIDER_STEPS) changes, for the
+ * store: {floor} or {ceiling}; a locked diverging handle mirrors the other
+ * end about the centre (and stays on its side of it); a circular one moves
+ * the start (keeping the arc) or the arc. Null when there is no window.
+ */
+export function handlePartial(descriptor, which, position) {
+  const { model, defaults, auto, range } = descriptor;
+  const kind = defaults.kind || 'sequential';
+  const window = resolveWindow(model, auto, defaults);
+  if (kind === 'circular') {
+    const { period } = defaults;
+    const value = Number(((position / SLIDER_STEPS) * period).toPrecision(4));
+    const start = window?.floor ?? 0;
+    const span = window ? window.ceiling - window.floor : period;
+    if (which === 'floor') return { floor: value, ceiling: value + span };
+    return { floor: start, ceiling: start + Math.max(period / 360, value) };
+  }
+  if (kind === 'diverging' && model.lockCentre !== false) {
+    if (!range || !window) return null;
+    const { centre } = window;
+    const margin = (range.max - range.min) / 100;
+    let value = Number(
+      rangeValue(position / SLIDER_STEPS, range, 'linear').toPrecision(3),
+    );
+    if (which === 'floor') value = Math.min(value, centre - margin);
+    else value = Math.max(value, centre + margin);
+    const mirror = Number((2 * centre - value).toPrecision(6));
+    return which === 'floor'
+      ? { floor: value, ceiling: mirror }
+      : { floor: mirror, ceiling: value };
+  }
+  const value = handleValue(descriptor, which, position);
+  return value === null ? null : { [which]: value };
+}
+
+/**
+ * What typing `text` into the floor or ceiling input changes ('' for
+ * automatic). Circular: the inputs are the start and the arc.
+ */
+export function inputPartial(descriptor, which, text) {
+  const { model, defaults, auto } = descriptor;
+  const value = text === '' ? null : Number(text);
+  if ((defaults.kind || 'sequential') !== 'circular') return { [which]: value };
+  const window = resolveWindow(model, auto, defaults);
+  const start = window?.floor ?? 0;
+  if (which === 'floor') {
+    const span = model.ceiling === null ? null : model.ceiling - start;
+    return {
+      floor: value,
+      ceiling: span === null ? null : (value ?? 0) + span,
+    };
+  }
+  return { floor: model.floor, ceiling: value === null ? null : start + value };
 }
 
 const el = (doc, tag, className, props = {}) => {
@@ -211,8 +317,8 @@ function buildWidget(doc, live) {
     input.addEventListener('input', () => {
       const descriptor = live();
       if (!descriptor) return;
-      const value = handleValue(descriptor, which, Number(input.value));
-      if (value !== null) descriptor.onChange({ [which]: value });
+      const partial = handlePartial(descriptor, which, Number(input.value));
+      if (partial) descriptor.onChange(partial);
     });
   track.append(floorRange, ceilingRange);
   const numbers = el(doc, 'div', 'data-scale-numbers');
@@ -230,12 +336,25 @@ function buildWidget(doc, live) {
     [ceilingInput, 'ceiling'],
   ])
     input.addEventListener('change', () => {
-      const text = input.value.trim();
-      live()?.onChange({ [which]: text === '' ? null : Number(text) });
+      const descriptor = live();
+      if (!descriptor) return;
+      descriptor.onChange(inputPartial(descriptor, which, input.value.trim()));
     });
   const dash = el(doc, 'span', 'data-scale-dash', { textContent: '–' });
   numbers.append(floorInput, dash, ceilingInput, units);
-  windowRow.append(track, numbers);
+  // A diverging layer's centre (empty: the layer's own).
+  const centreRow = el(doc, 'label', 'data-scale-label data-scale-centre');
+  const centreText = el(doc, 'span');
+  const centreInput = el(doc, 'input', 'data-scale-number', {
+    type: 'number',
+    step: 'any',
+  });
+  centreInput.addEventListener('change', () => {
+    const text = centreInput.value.trim();
+    live()?.onChange({ centre: text === '' ? null : Number(text) });
+  });
+  centreRow.append(centreText, centreInput);
+  windowRow.append(track, numbers, centreRow);
 
   // Mapping, inversion, outside, reset.
   const buttons = el(doc, 'div', 'data-scale-line data-scale-buttons');
@@ -249,6 +368,16 @@ function buildWidget(doc, live) {
     scaleButtons.set(scale, button);
     buttons.appendChild(button);
   }
+  const lock = el(doc, 'button', 'data-toggle-chip data-scale-lock', {
+    type: 'button',
+  });
+  lock.addEventListener('click', () => {
+    const descriptor = live();
+    descriptor?.onChange({
+      lockCentre: descriptor.model.lockCentre === false,
+    });
+  });
+  buttons.appendChild(lock);
   const invert = el(doc, 'button', 'data-toggle-chip data-scale-invert', {
     type: 'button',
   });
@@ -284,7 +413,11 @@ function buildWidget(doc, live) {
     floorInput,
     ceilingInput,
     units,
+    centreRow,
+    centreText,
+    centreInput,
     scaleButtons,
+    lock,
     invert,
     outside,
     reset,
@@ -319,6 +452,8 @@ export function syncColourScaleWidget(container, descriptor, { live }) {
   parts.root.hidden = false;
   const state = scaleControlState(descriptor);
   const { model, defaults } = descriptor;
+  if (parts.root.dataset.kind !== state.kind)
+    parts.root.dataset.kind = state.kind;
   setIfChanged(
     parts.toggle,
     'textContent',
@@ -336,11 +471,13 @@ export function syncColourScaleWidget(container, descriptor, { live }) {
   }
   if (!focused(parts.select))
     setIfChanged(parts.select, 'value', model.palette);
-  parts.preview.style.background = paletteGradient(model.palette, defaults, {
-    invert: model.invert,
-  });
-  const floorLabel = t('Floor');
-  const ceilingLabel = t('Ceiling');
+  parts.preview.style.background =
+    state.kind === 'circular'
+      ? circularGradient(model, defaults)
+      : paletteGradient(model.palette, defaults, { invert: model.invert });
+  const circular = state.kind === 'circular';
+  const floorLabel = circular ? t('Start') : t('Floor');
+  const ceilingLabel = circular ? t('Arc') : t('Ceiling');
   for (const [node, label] of [
     [parts.floorRange, floorLabel],
     [parts.floorInput, floorLabel],
@@ -368,6 +505,22 @@ export function syncColourScaleWidget(container, descriptor, { live }) {
   setIfChanged(parts.floorInput, 'placeholder', state.floorPlaceholder);
   setIfChanged(parts.ceilingInput, 'placeholder', state.ceilingPlaceholder);
   setIfChanged(parts.units, 'textContent', state.units);
+  setIfChanged(parts.centreRow, 'hidden', !state.locked);
+  setIfChanged(parts.centreText, 'textContent', t('Centre'));
+  if (parts.centreInput.getAttribute('aria-label') !== t('Centre'))
+    parts.centreInput.setAttribute('aria-label', t('Centre'));
+  if (!focused(parts.centreInput))
+    setIfChanged(parts.centreInput, 'value', state.centreText);
+  setIfChanged(parts.centreInput, 'placeholder', state.centrePlaceholder);
+  setIfChanged(parts.lock, 'hidden', state.kind !== 'diverging');
+  setIfChanged(parts.lock, 'textContent', t('LOCK CENTRE'));
+  setIfChanged(
+    parts.lock,
+    'title',
+    t('The centre keeps the ramp’s middle; dragging one end moves the other'),
+  );
+  parts.lock.classList.toggle('active', state.locked);
+  parts.lock.setAttribute('aria-pressed', String(state.locked));
   for (const [scale, button] of parts.scaleButtons) {
     const shown = state.scales.includes(scale);
     setIfChanged(button, 'hidden', !shown);

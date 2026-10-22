@@ -51,6 +51,7 @@ unless its switch is set to `0`.
 - [Property sales (ANALYSIS)](#property-sales-analysis)
 - [Rivers: HydroSHEDS v2 for the Americas](#rivers-hydrosheds-v2-for-the-americas)
 - [Rivers: click a reach](#rivers-click-a-reach)
+- [Rivers: names from OpenStreetMap](#rivers-names-from-openstreetmap)
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
 - [Lego rendering mode](#lego-rendering-mode)
 - [Colour scales: palettes and a window per layer](#colour-scales-palettes-and-a-window-per-layer)
@@ -3249,6 +3250,77 @@ layer; a click on the sky clears; a tool holding the pointer gets the click
 first. The highlight's pick ids start with `river-reach:` and are registered
 with the pick registry. Strings are translated into Spanish and Russian.
 
+## Rivers: names from OpenStreetMap
+
+HydroSHEDS v2 (the Americas, self-hosted) and HydroRIVERS v1 carry no
+river names of their own (v1's Free-Flowing Rivers table has a backbone
+name, `BB_NAME`, for some), so `npm run rivers:names` names the reaches
+from OpenStreetMap's named waterways (`scripts/rivers/names.mjs`):
+
+1. **Extract**, once (`npm run rivers:names -- --extract --pbf
+E:/gev-data/osm/planet-261012.osm.pbf`): osmium in the Overpass image
+   (`docker run --rm --entrypoint osmium wiktorn/overpass-api:0.7.62`, the
+   PBF mounted read-only) keeps the ways tagged
+   `waterway=river|stream|canal|drain|ditch`, then exports them as GeoJSON
+   lines, both written one file at a time under
+   `GEV_RAW_DIR/rivers/names/` (`waterways.osm.pbf`,
+   `waterways.geojsonseq`). The planet PBF (95 GB) is read once.
+2. **Group**: each named way's name, `name:en`, `wikidata` and kind;
+   ways are grouped by their Wikidata item, else by their name, so a
+   river split into many ways counts as one.
+3. **Match** each v2 reach (21 M) to the waterway it follows
+   (`namesMatch.mjs`): the reach is sampled along its length (at most 24
+   samples); each sample counts for the waterways whose nearest segment
+   lies within a tolerance by the reach's Strahler order (30 m for orders
+   1–2, 100 m for 3–5, 250 m from 6: a large river's centreline can sit a
+   channel's width from OSM's) and runs within 45° of the reach (OSM's
+   ways are usually digitised downstream, but either way counts). The
+   group covering the most of the reach names it when it covers at least
+   40%. Both inputs are spilled by 1° cell (the waterways with a 0.1°
+   margin) under `GEV_RAW_DIR/rivers/names/tmp`, in long appends from one
+   writer, and the cells are matched in worker threads.
+4. **Main stems**: a reach without a name of its own takes the name of the
+   reach above it of the same Strahler order (the stem goes on; a
+   confluence of two equal orders raises the order and ends it), the
+   largest such reach where stems meet, walking down until a reach has
+   its own name or the order changes. Each name is kept with its source:
+   `direct` or `inherited`.
+5. **The sidecar** under the rivers cache's `names/`
+   (`server/providers/riverNames/namesFile.js`): `names.bin` (the name
+   groups), and bucket files of one z 8 tile each with the named lines by
+   z 12 tile (the v2 reaches, direct or inherited, and every OSM named
+   waterway, for v1's cards anywhere) and a label point per name and z 10
+   tile for Strahler 5 and up; the manifest keeps the match rates by
+   order.
+
+**What the app does with it**:
+
+- The reach card (`src/layers/rivers/reachCard.js`) is titled by the name
+  at the click (`osmName` on the `/api/rivers/reach` answer): a named v2
+  reach within 150 m first, else the nearest named OSM waterway within
+  150 m (how v1's reaches outside the Americas get a name), in its own
+  language with `name:en` in brackets when different; then v1's
+  `BB_NAME`, "Tributary of …", the basin, and "Unnamed river" only when
+  nothing matched. A line under it says where the name came from
+  (OpenStreetMap, carried down the main stem, or the nearest waterway).
+- Below 150 km, where Natural Earth's names stop, the Rivers layer labels
+  the nearest 12 named rivers of Strahler 5 and up in view
+  (`/api/rivers/names/labels`), overlay variant `label`, so the panel's
+  Titles toggle hides them like the others.
+- `GET /api/rivers/names/nearest?lat=&lon=` answers a point's name too.
+
+Attribution: the names are © OpenStreetMap contributors, under the
+[ODbL](https://opendatacommons.org/licenses/odbl/1-0/), beside
+HydroSHEDS' (the Rivers layer's credit, and the card's line). The sidecar
+is a derived database: not to be published except under the ODbL.
+
+**Status (2026-10-21)**: the matching and inheritance are tested on
+synthetic geometry (`src/tooling/riverNames.test.mjs`); the extract and
+the real build wait for the local Overpass import to finish (it holds
+Docker's memory and E:), so the match rates by order are not measured
+yet. They are printed per Strahler order at the end of the build and kept
+in the manifest.
+
 ## Keyless basemaps (MAP SOURCE)
 
 Fourteen more map sources that need no key, under the five upstream chips in
@@ -4611,15 +4683,45 @@ itself with `defineScaleDefaults({ scale, units, outside, colourAt | stops,
 range, format })`; `normalizeScale` validates anything read back,
 `createScalePainter` paints a value array, `scaleLegend` draws the row's
 legend from the model, and `rangeFraction`/`rangeValue` map the slider.
-The model cannot say "diverging around zero" or "circular" (aspect); a
-layer that needs those keeps its default window symmetric.
+
+**Kinds: diverging and circular.** A layer's defaults also say what its
+values are (`kind`):
+
+- **sequential** (the rest): as above.
+- **diverging** (a change either side of a `centre`, default 0; Surface
+  water change): the scale is linear and the row shows **LOCK CENTRE**
+  (on by default) instead of the mappings. Locked, the centre always
+  paints the ramp's middle and each half stretches to its own end, so a
+  lopsided window (−10 to 40) still has white at 0; the automatic window
+  is symmetric about the centre over the wider side of the data; dragging
+  one handle mirrors the other; a Centre input moves the centre (empty:
+  the layer's). Unlocked, the window is plain linear and the middle
+  follows it. A diverging legend has an odd number of swatches, the
+  middle one the centre.
+- **circular** (an angle over a `period`, 360 for Aspect): the window is
+  a start angle (`floor`) and an arc (`ceiling` − `floor`, at most one
+  period) that wraps: start 315°, arc 90° paints 315° → 45° through
+  north. Outside the arc a value takes the nearer end's colour round the
+  circle, or none with HIDE OUTSIDE. The row shows Start and Arc sliders
+  and inputs, and previews the result as one period's bar, 0° at the
+  left, the arc wrapping past the right edge (`circularGradient`). The
+  **Hue wheel** palette (ends that meet) suits it.
+
+Lego places diverging and circular columns by the same rule
+(`withColourScale(spec, model, defaults)` gives the spec a `positionOf`).
+No client-drawn layer is diverging or circular today; the Earth Engine
+layers declare theirs.
 
 **Where it is kept** (`src/maps/colourScaleStore.js`): per `layerId:mode`,
 in this browser as `gev.colourScale.<layerId>:<mode>`, and in the share
 link as `cs`, in the `lo` grammar: `_` between entries, `.` between
 fields, `<layer>[-<mode>].<palette>.<floor>.<ceiling>.<flags>`, `p` for
-the decimal point, flags `l|n|s` then `i` (invert) and `h` (hide). For
-example `cs=ct-income.g.50000.120000.n_w-articles.v.0p5.200.lih`. The hash
+the decimal point, flags `l|n|s` then `i` (invert), `h` (hide) and `u` (a
+diverging centre unlocked), and an optional fifth field for a centre of
+the user's own. For example
+`cs=ct-income.g.50000.120000.n_w-articles.v.0p5.200.lih`, or
+`sw-change.d.-10.40.nu` and `as.u.315.405.n`. Links made before the kinds
+read the same. The hash
 is read once at start and wins over what the browser kept; only scales
 that differ from the default are written.
 

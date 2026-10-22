@@ -3768,5 +3768,14 @@
   },
   "the most notable; zoom in for all": "самые заметные; приблизьте, чтобы увидеть все",
   "Secondary coordinates": "Вторичные координаты",
-  "Wikipedia": "Википедия"
+  "Wikipedia": "Википедия",
+  "Name from OpenStreetMap (© OpenStreetMap contributors, ODbL)": "Название из OpenStreetMap (© участники OpenStreetMap, ODbL)",
+  "Name from OpenStreetMap, carried down the main stem (© OpenStreetMap contributors, ODbL)": "Название из OpenStreetMap, продолженное вниз по основному руслу (© участники OpenStreetMap, ODbL)",
+  "Name of the nearest OpenStreetMap waterway (© OpenStreetMap contributors, ODbL)": "Название ближайшего водотока OpenStreetMap (© участники OpenStreetMap, ODbL)",
+  "Arc": "Дуга",
+  "Centre": "Центр",
+  "Hue wheel": "Цветовой круг",
+  "LOCK CENTRE": "ЗАКРЕПИТЬ ЦЕНТР",
+  "Start": "Начало",
+  "The centre keeps the ramp’s middle; dragging one end moves the other": "Центр остаётся в середине шкалы; перетаскивание одного края двигает другой"
 }

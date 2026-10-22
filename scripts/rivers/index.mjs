@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DOWNLOADS, buildPaths, fetchDownloads, runBuild } from './build.mjs';
-import { findRiverInputs } from './sources.mjs';
+import { findRiverInputs, forEachReach } from './sources.mjs';
+import { spawnSync } from 'node:child_process';
+import { buildRiverNames, linesOf, osmiumExtractCommands } from './names.mjs';
 import { checkRawDir, rawDirFor, rawDirLabel } from '../rawDir.mjs';
 import { readLevelHeader } from '../../server/providers/riversV2/levelFile.js';
 import { tileVersion } from '../../server/providers/riversV2/bands.js';
@@ -15,6 +17,7 @@ import { tileVersion } from '../../server/providers/riversV2/bands.js';
  *   node scripts/rivers/index.mjs fetch [--dir DIR]
  *   node scripts/rivers/index.mjs build [--force] [--limit N] [--dir DIR]
  *   node scripts/rivers/index.mjs status [--json] [--dir DIR]
+ *   node scripts/rivers/index.mjs names [--extract --pbf FILE] [--workers N] [--dir DIR]
  *
  * `fetch` downloads the two zipped File Geodatabases of the v2 river
  * network (RIV, 4.8 GB in all) from data.hydrosheds.org, one at a time,
@@ -23,6 +26,15 @@ import { tileVersion } from '../../server/providers/riversV2/bands.js';
  * writes one level file per zoom band plus manifest.json; an unchanged
  * input is skipped unless --force. --limit N builds from the first N
  * reaches of each region (a quick look). `status` reports the build.
+ *
+ * `names` (names.mjs) names the reaches from OpenStreetMap: with
+ * `--extract` it first filters the planet PBF (`--pbf`) to its waterways
+ * and exports them as GeoJSON lines with osmium in Docker (the Overpass
+ * image), into raw/names/ (GEV_RAW_DIR/rivers/names); then it matches
+ * every v2 reach to the waterway it follows, carries the names down the
+ * main stems, and writes the sidecar to names/ beside v2/, with the match
+ * rates by Strahler order in its manifest. The spill goes under
+ * raw/names/tmp and is deleted at the end.
  *
  * Everything lives in RIVERS_CACHE_DIR (default .gev-cache/rivers in the
  * repository; a worktree can point it at the main checkout's): raw/ holds
@@ -194,7 +206,56 @@ async function main(argv) {
     else for (const line of statusLines(status)) console.log(line);
     return status.built ? 0 : 1;
   }
-  if (command === 'fetch' || command === 'build') checkRawDir(paths.raw);
+  if (command === 'fetch' || command === 'build' || command === 'names')
+    checkRawDir(paths.raw);
+  if (command === 'names') {
+    const namesRaw = path.join(paths.raw, 'names');
+    fs.mkdirSync(namesRaw, { recursive: true });
+    const geojson = path.join(namesRaw, 'waterways.geojsonseq');
+    if (flags.extract) {
+      if (typeof flags.pbf !== 'string')
+        throw new Error('--extract needs --pbf <planet .osm.pbf>');
+      const pbf = path.resolve(flags.pbf);
+      for (const argv of osmiumExtractCommands({
+        pbfDir: path.dirname(pbf),
+        pbf: path.basename(pbf),
+        outDir: namesRaw,
+      })) {
+        log(`$ ${argv.join(' ')}`);
+        const run = spawnSync(argv[0], argv.slice(1), { stdio: 'inherit' });
+        if (run.status !== 0)
+          throw new Error(
+            `${argv.slice(0, 2).join(' ')} … exited ${run.status}`,
+          );
+      }
+    }
+    if (!fs.existsSync(geojson))
+      throw new Error(
+        `${geojson} is not there: run names --extract --pbf <planet .osm.pbf> first`,
+      );
+    const inputs = findRiverInputs(paths.raw);
+    if (!inputs.length) throw new Error(`no river inputs under ${paths.raw}`);
+    const manifest = await buildRiverNames({
+      waterways: linesOf(geojson),
+      regions: inputs.map((input) => ({
+        name: input.region,
+        forEachReach: (onReach) => forEachReach(input, onReach),
+      })),
+      dir: path.join(dir, 'names'),
+      tmpDir: path.join(namesRaw, 'tmp'),
+      workers: flags.workers ? Number(flags.workers) : 4,
+      log,
+      source: {
+        waterways: path.basename(geojson),
+        regions: inputs.map((i) => i.region),
+      },
+    });
+    for (const [order, entry] of Object.entries(manifest.rates.byOrder))
+      log(
+        `Strahler ${order}: ${entry.reaches.toLocaleString('en-US')} reaches, ${((100 * entry.direct) / entry.reaches).toFixed(1)}% named from OSM, ${((100 * (entry.direct + entry.inherited)) / entry.reaches).toFixed(1)}% with the main stems`,
+      );
+    return 0;
+  }
   if (command === 'fetch') {
     await fetchDownloads({ rawDir: paths.raw, log });
     log(
@@ -214,7 +275,9 @@ async function main(argv) {
       for (const line of statusLines(statusOf(dir, rawDir))) log(line);
     return 0;
   }
-  console.error(`unknown command ${command}; use fetch, build or status`);
+  console.error(
+    `unknown command ${command}; use fetch, build, names or status`,
+  );
   return 2;
 }
 

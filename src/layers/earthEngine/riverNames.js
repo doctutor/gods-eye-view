@@ -120,6 +120,140 @@ function centralAngle(lat1, lon1, lat2, lon2) {
   return 2 * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
+/** Personal fork: OSM's names for the large rivers once zoomed in. */
+export const OSM_NAMES_SOURCE = 'ee-rivers-osm-names';
+export const OSM_NAMES_ENDPOINT = '/api/rivers/names/labels';
+/** OSM's names show below the Natural Earth names' floor… */
+export const OSM_NAMES_MAX_HEIGHT_M = NAMES_MIN_HEIGHT_M;
+/** …the nearest this many to the middle of the view. */
+export const OSM_NAME_LIMIT = 12;
+
+/** An OSM label's text: the English name for English, else the local one. */
+export function osmNameText(label, locale = 'en') {
+  const english =
+    String(locale || 'en')
+      .slice(0, 2)
+      .toLowerCase() === 'en';
+  return (english && label?.nameEn) || label?.name || '';
+}
+
+/**
+ * The large named rivers (Strahler 5 and up) from the river names sidecar
+ * (/api/rivers/names/labels, `npm run rivers:names`) below
+ * OSM_NAMES_MAX_HEIGHT_M, where Natural Earth's names stop: the view
+ * window's labels, the nearest OSM_NAME_LIMIT to its middle. A missing
+ * sidecar (503) draws nothing and is not asked again this session.
+ */
+export function createOsmRiverNames({
+  overlayHost = null,
+  cesium = Cesium,
+  fetchImpl = (...args) => globalThis.fetch(...args),
+  locale = getLocale,
+} = {}) {
+  let enabled = false;
+  let unavailable = false;
+  let held = null; // {key, labels}
+  let request = 0;
+  let count = 0;
+
+  function clear() {
+    count = 0;
+    overlayHost?.clearSource?.(OSM_NAMES_SOURCE);
+  }
+
+  function publish(labels, view, ink) {
+    const accent = NAME_COLORS[ink] || NAME_COLORS.light;
+    const language = locale();
+    const nearest = labels
+      .map((label) => ({
+        label,
+        angle: centralAngle(view.lat, view.lon, label.at[1], label.at[0]),
+      }))
+      .sort((a, b) => a.angle - b.angle)
+      .slice(0, OSM_NAME_LIMIT);
+    count = nearest.length;
+    overlayHost?.setEntries?.(
+      OSM_NAMES_SOURCE,
+      nearest.map(({ label }, i) => ({
+        id: `${label.at[0]},${label.at[1]}`,
+        variant: 'label',
+        position: cesium.Cartesian3.fromDegrees(label.at[0], label.at[1], 0),
+        title: osmNameText(label, language),
+        details: [],
+        accent,
+        priority: label.strahler * 10 - i / 100,
+        collisionGroup: 'river-name',
+        interactive: false,
+        horizonCull: true,
+        terrainOcclusion: false,
+        gapPx: 2,
+        placement: 'above',
+      })),
+      { moving: false },
+    );
+  }
+
+  return {
+    enable() {
+      enabled = true;
+      overlayHost?.setVisible?.(OSM_NAMES_SOURCE, true);
+    },
+    update(view, ink = 'light') {
+      if (!enabled || unavailable) return;
+      if (!(view?.height < OSM_NAMES_MAX_HEIGHT_M)) {
+        if (count) clear();
+        return;
+      }
+      const window = viewWindow(view.lat, view.lon, view.height);
+      if (!window || window.west > window.east) return clear();
+      const round = (v) => Math.round(v * 100) / 100;
+      const box = {
+        west: round(window.west),
+        south: round(window.south),
+        east: round(window.east),
+        north: round(window.north),
+      };
+      const key = JSON.stringify(box);
+      if (held?.key === key) return publish(held.labels, view, ink);
+      const mine = ++request;
+      const params = new URLSearchParams(
+        Object.entries(box).map(([k, v]) => [k, String(v)]),
+      );
+      fetchImpl(`${OSM_NAMES_ENDPOINT}?${params}`, {
+        credentials: 'same-origin',
+      })
+        .then(async (response) => {
+          if (response.status === 503) {
+            unavailable = true;
+            return null;
+          }
+          if (!response.ok) return null;
+          return response.json();
+        })
+        .then((body) => {
+          if (!enabled || mine !== request || !body) return;
+          const labels = (Array.isArray(body.labels) ? body.labels : []).filter(
+            (label) =>
+              Array.isArray(label?.at) &&
+              label.at.every(Number.isFinite) &&
+              typeof label.name === 'string',
+          );
+          held = { key, labels };
+          publish(labels, view, ink);
+        })
+        .catch(() => {});
+    },
+    disable() {
+      enabled = false;
+      request += 1;
+      held = null;
+      clear();
+      overlayHost?.setVisible?.(OSM_NAMES_SOURCE, false);
+    },
+    count: () => count,
+  };
+}
+
 let packPromise = null;
 /** The pack's features, loaded once on first use. */
 export function loadRiverNames(load = loadBundledJson) {
@@ -143,7 +277,15 @@ export function createRiverNames({
   cesium = Cesium,
   load = () => loadRiverNames(),
   locale = getLocale,
+  fetchImpl,
 } = {}) {
+  // Personal fork: OSM's names close in, beside Natural Earth's from afar.
+  const osm = createOsmRiverNames({
+    overlayHost,
+    cesium,
+    locale,
+    ...(fetchImpl ? { fetchImpl } : {}),
+  });
   let features = null;
   let enabled = false;
   let last = null;
@@ -185,6 +327,7 @@ export function createRiverNames({
     enable() {
       if (enabled) return;
       enabled = true;
+      osm.enable();
       overlayHost?.setVisible(RIVER_NAMES_SOURCE, true);
       if (!features)
         load()
@@ -199,17 +342,20 @@ export function createRiverNames({
     /** A settled view ({lat, lon, height}) and the ink the lines are drawn in. */
     update(view, ink = 'light') {
       last = { view, ink };
+      osm.update(view, ink);
       draw();
     },
     disable() {
       if (!enabled) return;
       enabled = false;
+      osm.disable();
       last = null;
       count = 0;
       overlayHost?.clearSource(RIVER_NAMES_SOURCE);
       overlayHost?.setVisible(RIVER_NAMES_SOURCE, false);
     },
-    /** How many names are published. */
+    /** How many names are published (Natural Earth's; OSM's: osmCount). */
     count: () => count,
+    osmCount: () => osm.count(),
   };
 }
