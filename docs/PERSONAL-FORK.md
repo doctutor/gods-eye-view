@@ -2498,8 +2498,11 @@ page views; the coverage rasters beside it.
    `gt_type` and `gt_dim`; a second primary coordinate for a page is
    dropped as GeoData's duplicate.
 2. The page table, streamed as `--text` does (once, never kept; one pass
-   serves both): each geotagged article's title and size; namespace 0
-   only, redirects dropped.
+   serves both), or read from a downloaded copy with `--page-file FILE`:
+   each geotagged article's title and size; namespace 0 only, redirects
+   dropped. With `--offline` and `--page-file` the build asks nothing of
+   the network: `geo_tags` and `page_props` must already be in the raw
+   directory.
 3. `enwiki-latest-page_props.sql.gz` (484 MB, kept beside `geo_tags` with
    its ETag): each article's Wikidata item (`pp_propname =
 'wikibase_item'`). The item is the key other wikis' articles will be
