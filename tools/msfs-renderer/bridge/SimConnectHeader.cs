@@ -53,7 +53,10 @@ public sealed class SimConnectHeader
         return null;
     }
 
-    private static readonly Regex EnumPattern = new(@"\benum\s+(?<name>\w+)\s*(?::\s*\w+\s*)?\{(?<body>[^}]*)\}", RegexOptions.Compiled);
+    // SDK 1.8 declares its enums through the SIMCONNECT_ENUM (and
+    // SIMCONNECT_ENUM_FLAGS) macros, `SIMCONNECT_ENUM SIMCONNECT_RECV_ID{`;
+    // older headers wrote `enum NAME {`, possibly with an underlying type.
+    private static readonly Regex EnumPattern = new(@"\b(?:SIMCONNECT_ENUM(?:_FLAGS)?|enum(?:\s+class)?)\s+(?<name>\w+)\s*(?::\s*\w+\s*)?\{(?<body>[^}]*)\}", RegexOptions.Compiled);
 
     /// <summary>An enum's members and values, counting as C does.</summary>
     public Dictionary<string, long> Enum(string name)
