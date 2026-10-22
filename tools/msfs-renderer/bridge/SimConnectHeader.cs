@@ -43,7 +43,8 @@ public sealed class SimConnectHeader
     /// <summary>SimConnect.h under the SDK root given, or MSFS2024_SDK, or MSFS_SDK.</summary>
     public static string? Find(string? sdkRoot)
     {
-        foreach (var root in new[] { sdkRoot, Environment.GetEnvironmentVariable("MSFS2024_SDK"), Environment.GetEnvironmentVariable("MSFS_SDK") })
+        // Last, the SDK installer's default directory.
+        foreach (var root in new[] { sdkRoot, Environment.GetEnvironmentVariable("MSFS2024_SDK"), Environment.GetEnvironmentVariable("MSFS_SDK"), @"C:\MSFS 2024 SDK" })
         {
             if (string.IsNullOrWhiteSpace(root)) continue;
             var file = Path.Combine(root, "SimConnect SDK", "include", "SimConnect.h");
@@ -117,7 +118,10 @@ public sealed class SimConnectHeader
         var members = new List<(string, string)>();
         foreach (var declaration in m.Groups["body"].Value.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
-            var tokens = Regex.Split(declaration.Trim(), @"\s+");
+            // SDK 1.8 gives some members default initializers (`DWORD acquiredState = 0`):
+            // the type and name are what is compared, not the default.
+            var equals = declaration.IndexOf('=');
+            var tokens = Regex.Split((equals < 0 ? declaration : declaration[..equals]).Trim(), @"\s+");
             if (tokens.Length < 2) continue;
             members.Add((string.Join(' ', tokens[..^1]), tokens[^1].TrimStart('*')));
         }

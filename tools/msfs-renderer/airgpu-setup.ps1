@@ -215,7 +215,16 @@ Step 'GEV bridge' {
     Where-Object { $_ -and (Test-Path (Join-Path $_ 'SimConnect SDK\lib\SimConnect.dll')) } | Select-Object -First 1
   $out = Join-Path $Root 'bridge'
   $arguments = @('publish', (Join-Path $source 'GevBridge.csproj'), '-c', 'Release', '-o', $out, '--nologo')
-  if ($sdk) { $arguments += "-p:MsfsSdk=$sdk"; Write-Output "MSFS 2024 SDK: $sdk" }
+  if ($sdk) {
+    $arguments += "-p:MsfsSdk=$sdk"
+    Write-Output "MSFS 2024 SDK: $sdk"
+    # The bridge reads the camera API's values from the SDK's SimConnect.h at
+    # run time; a machine-wide MSFS2024_SDK saves the --sdk flag in new shells.
+    if ([Environment]::GetEnvironmentVariable('MSFS2024_SDK', 'Machine') -ne $sdk) {
+      [Environment]::SetEnvironmentVariable('MSFS2024_SDK', $sdk, 'Machine')
+      Write-Output 'MSFS2024_SDK set machine-wide (new shells see it)'
+    }
+  }
   else { Write-Output 'no MSFS 2024 SDK yet: --dry-run works; re-run after installing the SDK' }
   & (Join-Path $Env:ProgramFiles 'dotnet\dotnet.exe') @arguments
   if ($LASTEXITCODE -ne 0) { throw "dotnet publish exited with $LASTEXITCODE" }
