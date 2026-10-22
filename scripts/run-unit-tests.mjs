@@ -71,8 +71,18 @@ export function allocationTestArgs(file) {
   return ['--expose-gc', '--test', '--test-concurrency=1', file];
 }
 
+/**
+ * Personal fork: every test file runs with the network guard preloaded, so a
+ * test that reaches a host other than this machine fails at once instead of
+ * waiting out a timeout (test-network-guard.mjs).
+ */
+export const NETWORK_GUARD_ARGS = Object.freeze([
+  '--import',
+  new URL('./test-network-guard-preload.mjs', import.meta.url).href,
+]);
+
 function runTests(args) {
-  const result = spawnSync(process.execPath, args, {
+  const result = spawnSync(process.execPath, [...NETWORK_GUARD_ARGS, ...args], {
     cwd: process.cwd(),
     stdio: 'inherit',
     env: process.env,

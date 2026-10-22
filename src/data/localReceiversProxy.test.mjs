@@ -8,6 +8,7 @@ import {
   parseLocalReceiverFeeds,
 } from '../../server/providers/local-receivers.js';
 import { localProviderPlugins } from '../../server/providers/local.js';
+import { ALLOW_HOSTS_ENV } from '../../scripts/test-network-guard.mjs';
 
 const FIXTURE = readFileSync(
   new URL('./fixtures/adsb-austin-dump1090-aircraft.json', import.meta.url),
@@ -16,6 +17,20 @@ const FIXTURE = readFileSync(
 const FIXTURE_NOW_MS = JSON.parse(FIXTURE).now * 1000;
 const FEED_1090 = 'http://localhost:8080/data/aircraft.json';
 const FEED_978 = 'http://127.0.0.1:8978/data/aircraft.json';
+
+/**
+ * Personal fork: let the network guard (scripts/test-network-guard.mjs) pass
+ * a name this test pins to a loopback server through `lookupImpl`, for the
+ * test's own duration. It sees the name, not the pinned address.
+ */
+function allowPinnedHosts(t, ...hosts) {
+  const saved = process.env[ALLOW_HOSTS_ENV];
+  process.env[ALLOW_HOSTS_ENV] = [saved, ...hosts].filter(Boolean).join(',');
+  t.after(() => {
+    if (saved === undefined) delete process.env[ALLOW_HOSTS_ENV];
+    else process.env[ALLOW_HOSTS_ENV] = saved;
+  });
+}
 
 function quietLogger() {
   const lines = [];
@@ -363,6 +378,7 @@ test('the default transport connects to the validated address, not a re-resoluti
   const { port } = server.address();
   // `receiver-pin-test.local` has no real DNS entry: only the pinned lookup
   // can reach the loopback server.
+  allowPinnedHosts(t, 'receiver-pin-test.local');
   const handler = createLocalReceiversHandler({
     feedsValue: `1090=http://receiver-pin-test.local:${port}/data/aircraft.json`,
     now: () => FIXTURE_NOW_MS,
@@ -387,6 +403,7 @@ test('null-body statuses (204, 205, 304) from a named feed are a clean feed erro
   const onUncaught = (error) => uncaught.push(error);
   process.on('uncaughtException', onUncaught);
   t.after(() => process.off('uncaughtException', onUncaught));
+  allowPinnedHosts(t, 'receiver-null-body.local');
   const handler = createLocalReceiversHandler({
     feedsValue: [204, 205, 304]
       .map(

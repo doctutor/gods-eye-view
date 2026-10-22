@@ -11,7 +11,10 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { discoverUnitTestFiles } from './run-unit-tests.mjs';
+import {
+  NETWORK_GUARD_ARGS,
+  discoverUnitTestFiles,
+} from './run-unit-tests.mjs';
 
 export const BENCH_ENV = 'GEV_BENCH';
 export const benchEnabled = (env = process.env) => env[BENCH_ENV] === '1';
@@ -57,7 +60,7 @@ export function runBench(root = process.cwd()) {
   console.log(`[bench] ${files.length} files, one at a time`);
   const result = spawnSync(
     process.execPath,
-    ['--test', '--test-concurrency=1', ...files],
+    [...NETWORK_GUARD_ARGS, '--test', '--test-concurrency=1', ...files],
     {
       cwd: root,
       stdio: 'inherit',

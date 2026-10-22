@@ -4997,12 +4997,27 @@ result depends on how fast the machine is that minute isn't a gate.
   stalled event loop can't eat: the CCTV media idle-deadline test sends a
   chunk every 10 ms against a 100 ms deadline (it was 40 ms) and watches for
   four and a half deadlines.
-- **Tests stay offline.** A test that reaches a real host is a bug. The
-  linked-webcam pack's QLever fallback goes over `node:https`, past a
-  `fetch` mock, so a test that loads the whole CCTV catalog sets
-  `CCTV_LINKED_ENABLED=0`. Without it the Catalonia and WSDOT catalog tests
-  waited out QLever's 300 s timeout, and the King County one asked the real
-  QLever.
+- **Tests stay offline.** A test that reaches a real host is a bug, and
+  `npm test` (and `npm run bench`) fail it. Every test file runs with
+  `scripts/test-network-guard-preload.mjs` loaded (`node --import`), which
+  refuses `fetch()` and any socket connection to a host other than this
+  machine (`localhost`, `*.localhost`, `127.x`, `::1`, `0.0.0.0`, `::`)
+  before a byte or a DNS query leaves. The code under test sees an
+  unreachable host. The test file fails with
+  `unit tests stay offline: a connection to <host> was refused` and the
+  frames that asked, even when the code swallows the error. node:test pins
+  an error thrown outside a test's own callback on the file, so the file
+  fails rather than one test; the frames name the line.
+  - A test that pins a made-up name to a loopback fixture server (the local
+    receivers' DNS-pinning tests) names it in `GEV_TEST_ALLOW_HOSTS`,
+    comma-separated, for its own duration. The guard sees names, not the
+    addresses a custom `lookup` gives them. `*` allows every host, for a
+    one-off investigation only.
+  - The linked-webcam pack's QLever fallback goes over `node:https`, past a
+    `fetch` mock, so a test that loads the whole CCTV catalog sets
+    `CCTV_LINKED_ENABLED=0`. Without it the Catalonia and WSDOT catalog tests
+    waited out QLever's 300 s timeout, and the King County one asked the real
+    QLever. The guard would now fail them at once.
 - **A flake is a bug with a cause.** A test that fails in the suite and
   passes alone is not rerun until green and left. Loop it under load to find
   the cause, and fix that. A small CPU burner (a worker thread per core
