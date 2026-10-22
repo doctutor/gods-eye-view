@@ -1,0 +1,24 @@
+# Personal fork: the local Overpass API filled by cloning dev.overpass-api.de's
+# database instead of importing the planet (README.md, "Clone instead of
+# import"). An override of docker-compose.yml, NOT in use: switch only with
+# an empty database volume. To switch, add to tools/overpass/.env
+#
+#   COMPOSE_FILE=docker-compose.yml;docker-compose.clone.yml
+#
+# (";" separates them on Windows), then `docker compose down -v` (it
+# deletes the import's database) and `docker compose up -d`.
+services:
+  overpass:
+    volumes:
+      # The resumable clone in place of the planet import (same mount path,
+      # so it replaces docker-compose.yml's initdb).
+      - ./initdb-clone:/docker-entrypoint-initdb.d:ro
+    environment:
+      OVERPASS_MODE: clone
+      # No metadata: none of the app's queries reads it, and with it the
+      # clone (405 GB) would not fit on D:.
+      OVERPASS_META: 'no'
+      OVERPASS_CLONE_SOURCE: https://dev.overpass-api.de/api_drolbr/
+      # The clone's replicate_id counts the minutely feed (7336388 for the
+      # 2026-10-20 clone), not the hourly one this file's import uses.
+      OVERPASS_DIFF_URL: https://planet.openstreetmap.org/replication/minute

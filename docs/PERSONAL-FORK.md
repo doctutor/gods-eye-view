@@ -55,6 +55,7 @@ unless its switch is set to `0`.
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
 - [Lego rendering mode](#lego-rendering-mode)
 - [Colour scales: palettes and a window per layer](#colour-scales-palettes-and-a-window-per-layer)
+- [Local Overpass: clone or import](#local-overpass-clone-or-import)
 - [MSFS renderer on AWS](#msfs-renderer-on-aws)
 - [Level of detail](#level-of-detail)
 
@@ -5061,6 +5062,148 @@ canopy, buildings, inundation, forest loss) are drawn by the server from
 `src/data/earthEngineScale.js` on their own branch. The point rollup
 hexes' count window is under Point rollups above. Not wired: Traffic
 (categorical).
+
+## Local Overpass: clone or import
+
+The local Overpass API (`tools/overpass`, its README has the commands)
+serves the parts of the app that still ask Overpass: the CCTV layer's
+OpenStreetMap-linked webcams, the military installations cache, Street
+assets' sparse fallbacks, Localities without its Overture build, and the
+annotation and footprint lookups. The river names come from an osmium
+extract of the planet, not from Overpass. On 2026-10-22 a reboot (an
+installer asked for one) cut the planet import off at 46%, after 25
+hours. An import cannot resume, so it was started again from nothing at
+16:52 UTC.
+Reviewed the same day, from the image's own scripts
+(`/app/docker-entrypoint.sh`, `/app/bin/download_clone.sh`), the clone
+server's listing and two timed downloads.
+
+|                 | Planet import (running)                                                                                          | Clone, no metadata (ready, not in use)                                       |
+| --------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Source          | `planet-261012.osm.pbf` on E: (95 GB, data of 2026-10-12)                                                        | dev.overpass-api.de's latest clone (2026-10-20 on 2026-10-22)                |
+| Time            | 25 h to 46% (2026-10-21/22); about 54 h if that rate holds. The restart reached 10% in 2 h 10 min, the same pace | 302 GB at 5.4 to 9.4 MB/s (one 20 MB and one 100 MB timed sample): 9 to 16 h |
+| After a restart | Starts again from nothing                                                                                        | Resumes from the last byte (`initdb-clone/10-clone-resumable.sh`)            |
+| Size            | 16 GB at 10%, 45 GB at 20%, 145 GB at 46%: about 350 GB at 100% if the last stretch's 3.8 GB a point holds (gz)  | 302 GB (lz4 blocks, uncompressed maps)                                       |
+| Metadata        | yes (`--meta`)                                                                                                   | no                                                                           |
+| Updates         | hourly diffs from the planet's date                                                                              | minutely diffs from the clone's `replicate_id`                               |
+| Areas (`is_in`) | built afterwards, locally                                                                                        | the same (the clone has none)                                                |
+
+**Space.** D: has 206 GB free. Docker's data disk
+(`D:\DockerDesktop\DockerDesktopWSL\disk\docker_data.vhdx`) is 207 GB on
+D:, and the database inside it is about 21 GB, so about 185 GB inside it
+can be reused without growing the file. That makes about 390 GB for the
+database:
+
+- **The import:** at about 350 GB it would leave D: near the 40 GB line
+  where the import monitor stops, before the areas. That is a rough
+  extrapolation: the growth per point rose from 2.9 GB (10 to 20%) to 3.8
+  GB (20 to 46%).
+- **The clone without metadata:** 302 GB would leave about 90 GB.
+- **The clone with metadata:** 405 GB would not fit.
+
+**Metadata is not needed.** None of the app's queries reads it. The
+`out` statements in `src/` and `server/` are all `geom`, `center`,
+`tags`, `body`, `skel` or `qt`, none with `meta`. None of them filters by
+`user`, `uid`, `newer`, `changed` or a date, and no build or script asks
+Overpass for metadata.
+
+**What the clone is.** `download_clone.sh` asks the source's
+`trigger_clone` for the latest clone directory, then fetches the
+`replicate_id` and the database files, each with its `.idx`. With
+`--meta=yes` it adds the `*_meta` files and the user files; with `attic`
+it adds history (about 400 GB more). There are no area files: the image's
+areas loop builds them while it serves, as after an import. The image's
+script deletes each file before fetching it, so a restarted container
+downloads everything again. `initdb-clone/10-clone-resumable.sh` keeps
+complete files, resumes partial ones with `curl -C -`, and starts over
+only if the server no longer has the clone it began. The clone's
+`replicate_id` (7336388) is a sequence of the minutely feed, which was at
+7340222 that day, against 123684 for the hourly feed. So the clone's
+compose override uses the minutely feed. The image's diff loop applies
+it as it would the hourly one.
+
+**Recommendation: switch to the clone without metadata.**
+
+- It takes a fifth to a third of the import's time.
+- A restart costs nothing but the minutes it was down.
+- It fits on D: with room to spare.
+- It is Overpass's own recommended route ("the recommended way to
+  populate the database is via cloning", and it "needs the least space").
+
+Switching gives up the running import's progress (11% on 2026-10-22 at
+19:12 UTC). The commands are in `tools/overpass/README.md` ("Clone
+instead of import"), and nothing has been switched: the user decides.
+
+**If the import stays,** it cannot be made restart-safe:
+`update_database` has no resume. It can only be made shorter:
+
+- An import without metadata writes about a quarter less (the clone's
+  meta files are 25% of its base and meta together). It still starts
+  over after a restart.
+- A continent extract imports in a fraction of the time, but the layers
+  ask Overpass wherever the view is. A continent would leave the rest of
+  the world to the public mirrors, which refuse these queries.
+- Docker's memory is not raised: the PC has 16 GB.
+
+### Surprise restart
+
+What a reboot does to this PC's work, and what to do after it.
+
+**What dies:**
+
+- Docker Desktop's WSL VM, and with it every container mid-write: the
+  Overpass import (which cannot resume), or the clone (which can).
+- Every Node build in progress (property, Wikipedia, rivers and the
+  rest): run its command again. The builds skip unchanged inputs where
+  they say so, and the downloads that take `-C -` or ETags resume.
+- The dev server and every Claude session, with their background tasks
+  (the import monitor among them).
+- A write to E: mid-file: check the file's size or checksum before using
+  it.
+
+**What comes back by itself:** Docker Desktop is a per-user app, so
+nothing starts before someone signs in. After sign-in, Docker Desktop
+starts if Settings > General > "Start Docker Desktop when you sign in to
+your computer" is on. On 2026-10-22 its setting read `AutoStart false`
+(`%APPDATA%\Docker\settings-store.json`), yet a "Docker Desktop" entry is
+in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Turn the setting
+on in Docker Desktop, so the two agree. Once Docker runs, `gev-overpass`
+starts by itself (`restart: unless-stopped`).
+
+**Then:**
+
+1. `npm run overpass:status`. It says one of: the import cut off at N%
+   (the database incomplete, wipe and start again), the import or clone in
+   progress, serving, or Docker not running.
+2. `npm run overpass:recover` prints the commands for that state, the
+   destructive `docker compose down -v` included. It runs nothing.
+3. Start the import monitor and any builds again.
+
+**Fewer reboots (Windows 10 Education). The user applies these, not a
+script:**
+
+- **Installers:** no silent installs that may restart. Run them by hand,
+  or with `/norestart` where they take it. The 2026-10-22 reboot was
+  one.
+- **Pause updates:** Settings > Update & Security > Windows Update >
+  Pause updates for 7 days (Advanced options: up to 35 days).
+- **Active hours:** set to 05:00 to 23:00 on 2026-10-22 (smart active
+  hours on). Windows does not restart for updates inside them.
+- **No auto-restart with a user signed in:** `gpedit.msc` > Computer
+  Configuration > Administrative Templates > Windows Components > Windows
+  Update. (Newer templates put it under Legacy Policies.)
+  - Set "No auto-restart with logged on users for scheduled automatic
+    updates installations" to Enabled. This is the registry value
+    `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU`,
+    `NoAutoRebootWithLoggedOnUsers` (DWORD) = 1. It is already 1 on this
+    PC.
+  - The policy applies only while "Configure Automatic Updates", in the
+    same folder, is Enabled with scheduled installs (option 4). That is
+    not set here: the AU key holds no `AUOptions`.
+  - An alternative is "Configure Automatic Updates" = Enabled, option 3
+    ("Auto download and notify for install", `AUOptions` = 3). Updates
+    then download but install only when told to, so they never restart
+    the PC by themselves.
 
 ## MSFS renderer on AWS
 

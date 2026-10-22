@@ -15,12 +15,14 @@ answers 406 to non-browser clients and the public mirrors are overloaded
 
 ## Files
 
-| File                                | What it is                                        |
-| ----------------------------------- | ------------------------------------------------- |
-| `docker-compose.yml`                | The service, its settings and the database volume |
-| `.env.example`                      | The paths: copy to `.env` (ignored by git)        |
-| `initdb/10-import-pbf.sh`           | The planet import (below)                         |
-| `../../scripts/overpass-status.mjs` | `npm run overpass:status`                         |
+| File                                 | What it is                                                               |
+| ------------------------------------ | ------------------------------------------------------------------------ |
+| `docker-compose.yml`                 | The service, its settings and the database volume                        |
+| `.env.example`                       | The paths: copy to `.env` (ignored by git)                               |
+| `initdb/10-import-pbf.sh`            | The planet import (below)                                                |
+| `docker-compose.clone.yml`           | Not in use: a clone of dev.overpass-api.de instead of the import (below) |
+| `initdb-clone/10-clone-resumable.sh` | The clone, resumable after a restart                                     |
+| `../../scripts/overpass-status.mjs`  | `npm run overpass:status` and `npm run overpass:recover`                 |
 
 ## How the import works
 
@@ -74,6 +76,85 @@ script finds `/db/import_started` without `/db/init_done` on the next start
 and waits, saying so in the log, instead of importing over a half-written
 database. Start again with `docker compose down -v` (it deletes the volume)
 and `docker compose up -d`.
+
+## Clone instead of import
+
+Not in use: the planet import above runs. This is ready to switch, and
+docs/PERSONAL-FORK.md ("Local Overpass: clone or import") has the numbers
+behind it. The user decides.
+
+Overpass's install guide calls cloning "the recommended way to populate the
+database". The image's clone mode (`OVERPASS_MODE=clone`) downloads the
+database files of dev.overpass-api.de's latest clone:
+
+- **Base:** nodes, ways, relations, their tags and maps, 302 GB.
+- **Metadata (`OVERPASS_META=yes`):** `*_meta` and the user files, 103 GB
+  more.
+- **Attic:** history, about 400 GB more.
+- **No areas:** they are built here afterwards, as after an import.
+
+The sizes are from the 2026-10-20 clone's listing. Its blocks are lz4 and
+its maps uncompressed (the method byte of each `.idx` header: 2 and 0),
+where the import writes gz (1), so a clone is larger than the same data
+imported here.
+
+`docker-compose.clone.yml` is an override that switches to it:
+
+- clone mode, without metadata (none of the app's queries reads it, and 405
+  GB would not fit on D:);
+- the minutely diffs, because the clone's `replicate_id` counts the minutely
+  feed (7336388 for the 2026-10-20 clone, when the hourly feed was at
+  123684);
+- `initdb-clone/10-clone-resumable.sh` in place of the import.
+
+The image's own `download_clone.sh` deletes every file before fetching it,
+so a container restarted mid-clone downloads all 302 GB again. The
+resumable script keeps what is there:
+
+- a file already at the server's size is skipped;
+- a partial one resumes from its last byte (`curl -C -`);
+- the clone it began is named in `/db/clone-base-url`. If the server no
+  longer has it (two were listed on 2026-10-22), the files go and the newest clone
+  starts, since two clones' files must never mix.
+
+It logs to `/db/clone.log` every 10 minutes (`[clone] downloaded 12%; 36
+of 302 GB`), which `npm run overpass:status` reads. It was tried against a
+local stand-in server serving files of the real names: a partial file
+resumed, a complete one was skipped, a vanished clone started over, and
+every file matched byte for byte.
+
+To switch, with the import's database given up (`down -v` deletes it):
+
+```bash
+cd tools/overpass
+# In .env (";" separates the files on Windows):
+#   COMPOSE_FILE=docker-compose.yml;docker-compose.clone.yml
+docker compose down -v
+docker compose up -d
+npm run overpass:status
+```
+
+Without metadata, the verification query below answers node 1 without its
+version and timestamp. The app is unaffected.
+
+## After a surprise restart
+
+`npm run overpass:status` says which state the server is in, and
+`npm run overpass:recover` prints what to run for it. Neither runs any
+compose command.
+
+| State                                                           | What to do                                                                     |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Docker is not running                                           | Start Docker Desktop; the container starts with it (`restart: unless-stopped`) |
+| Import cut off at N%: the database is incomplete, cannot resume | `docker compose down -v && docker compose up -d` (deletes the database)        |
+| Import in progress                                              | Nothing; a restart now means starting again                                    |
+| Clone in progress                                               | Nothing; a restart resumes it                                                  |
+| Serving                                                         | Nothing; the diffs catch up from `/db/replicate_id`                            |
+
+An import that a restart cuts off is not restarted over itself: on the next
+start `initdb/10-import-pbf.sh` finds `/db/import_started` without
+`/db/init_done`, logs "did not finish; the database is incomplete", and
+waits.
 
 ## Disk
 
