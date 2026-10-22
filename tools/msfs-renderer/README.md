@@ -8,12 +8,16 @@ camera API) and records the video with OBS. Personal fork only.
 Everything is driven from this PC with one script and the AWS CLI. Nothing
 here needs the AWS console once an access key exists.
 
-| File            | What it is                                                                                           |
-| --------------- | ---------------------------------------------------------------------------------------------------- |
-| `template.yaml` | CloudFormation: the security group, the instance role and the instance                               |
-| `user-data.ps1` | First boot: the NVIDIA gaming driver, Parsec, Steam, OBS, 7-Zip, one restart                         |
-| `msfs.mjs`      | `deploy`, `start`, `stop`, `status`, `destroy`, `quota`                                              |
-| `lib.mjs`       | Its pure parts (arguments, address, template, prices), tested in `src/tooling/msfsRenderer.test.mjs` |
+| File                  | What it is                                                                                           |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| `template.yaml`       | CloudFormation: the security group, the instance role and the instance                               |
+| `user-data.ps1`       | First boot: the NVIDIA gaming driver, Parsec, Steam, OBS, 7-Zip, one restart                         |
+| `msfs.mjs`            | `deploy`, `start`, `stop`, `status`, `destroy`, `quota`                                              |
+| `lib.mjs`             | Its pure parts (arguments, address, template, prices), tested in `src/tooling/msfsRenderer.test.mjs` |
+| `airgpu-setup.ps1`    | AirGPU instead of AWS: Steam, OBS, 7-Zip, .NET 8 and the bridge, run by hand inside the machine      |
+| `airgpu-smoke.ps1`    | AirGPU: a one-screen check of the GPU, Parsec, OBS's websocket, the bridge and the disk              |
+| `airgpu-buildbox.ps1` | AirGPU as a temporary build runner for GEV's RAM-heavy data builds                                   |
+| `airgpu-serve.mjs`    | Serves a build's zip once, to one address, for the trip back                                         |
 
 ## What gets built
 
@@ -363,3 +367,151 @@ Nothing here has called AWS, and these are the open points:
   Preparation Tool. Parsec's documentation page was not reachable.
 - **gp3 price.** The EBS pricing page gives $0.08 per GB-month without naming
   us-east-1.
+
+## AirGPU (opportunistic)
+
+The AWS account's GPU quota is still 0 vCPUs, so the same work can run on
+a machine rented by the hour from AirGPU (airgpu.com). It is
+opportunistic: only for what this PC cannot run (MSFS 2024 first, a
+RAM-heavy build during a paid hour second), and nothing may assume the
+machine is still there next time. Every script here is safe to run again
+on a new machine.
+
+**Tier:** Nvidia A10G, the same GPU as the AWS plan's `g5.2xlarge`, in US
+East (N. Virginia), with the Windows image. AirGPU supplies the NVIDIA
+driver and Parsec, so the scripts only report them. We don't control the
+first boot: the user runs the scripts once inside the machine.
+
+**What the user clicks at AirGPU:**
+
+1. Create a machine on the A10G tier with the Windows image.
+2. Give it enough disk for MSFS 2024: about 50 GB installed, plus Steam,
+   OBS and the recordings. AirGPU sells storage as SSD add-ons in 50 GB
+   steps from 100 GB. A disk kept between sessions is billed while the
+   machine is off.
+3. Connect with Parsec.
+
+**Cost:** pay by the hour, from credit bought in advance. The prices are in
+the pricing section of AirGPU's site (https://airgpu.com/#pricing); none
+are copied here.
+
+### Run order (MSFS)
+
+1. **Get the scripts.** Push the branch from this PC first
+   (`git push fork local-fixes`), so the fork on GitHub has it. Then, in
+   the machine, open PowerShell as administrator:
+
+   ```powershell
+   $base = 'https://raw.githubusercontent.com/doctutor/gods-eye-view/local-fixes/tools/msfs-renderer'
+   foreach ($f in 'airgpu-setup.ps1', 'airgpu-smoke.ps1', 'airgpu-buildbox.ps1') { Invoke-WebRequest "$base/$f" -OutFile "C:\$f" -UseBasicParsing }
+   ```
+
+2. **Set up.** Run
+   `powershell -ExecutionPolicy Bypass -File C:\airgpu-setup.ps1`. Its log
+   is `C:\gev-provision.log`. It asks for nothing and stores no credential.
+   Its steps:
+
+   | Step                                                          | What it does                                                                                                            |
+   | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+   | `NVIDIA driver (AirGPU supplies it; reported, not installed)` | Prints the GPU, the driver version and the memory (`nvidia-smi`)                                                        |
+   | `Parsec (AirGPU supplies it; reported, not installed)`        | Prints Parsec's version and whether it runs                                                                             |
+   | `Windows Audio service (Parsec streams the sound)`            | Starts the audio service, automatic from then on                                                                        |
+   | `Steam`                                                       | Installs Steam                                                                                                          |
+   | `OBS Studio`                                                  | Installs OBS. Version 28 and later carry obs-websocket v5, which the bridge speaks; no separate plugin                  |
+   | `7-Zip`                                                       | Installs 7-Zip                                                                                                          |
+   | `.NET 8 (Desktop Runtime and SDK)`                            | Installs the .NET 8 Desktop Runtime and SDK from Microsoft's release metadata, each checked against its SHA-512         |
+   | `GEV bridge`                                                  | Reads `bridge/` from the fork's branch (or `-BridgeSource DIR`) and publishes it framework-dependent to `C:\gev\bridge` |
+   | `Camera path and recording folders`                           | Makes `C:\gev\paths` (camera paths go here) and `C:\gev\recordings`                                                     |
+   | `Open Steam`                                                  | Opens Steam as the signed-in user, not elevated                                                                         |
+
+   A step whose program is already installed skips the install. A failed
+   step is logged and the rest go on; the summary lists the failures.
+
+3. **Steam.** Sign in (Steam Guard) and install **Microsoft Flight
+   Simulator 2024** from your library. The sign-in and the purchase are
+   yours, in the Steam window.
+4. **The SDK.** In the sim: Developer Mode on, then Help > SDK Installer.
+   Run `airgpu-setup.ps1` again, so the bridge is built with
+   `SimConnect.dll` beside it.
+5. **OBS.** Tools > WebSocket Server Settings: enable the server (port 4455)
+   and set a password. Put it in `$env:OBS_WEBSOCKET_PASSWORD` in the shell
+   that runs the bridge (`bridge/README.md`, "OBS").
+6. **Check.** `powershell -ExecutionPolicy Bypass -File C:\airgpu-smoke.ps1`
+   prints one line each for `GPU`, `Parsec`, `OBS websocket`,
+   `Bridge dry run` (a two-sample path through `--dry-run --fast`),
+   `MSFS 2024 SDK` and `Disk`, as PASS, WARN or FAIL. It exits 1 on a FAIL
+   and changes nothing.
+7. **Fly.** Make the path on this PC with `npm run msfs:path` (its
+   `--out path.json`) and copy the file into `C:\gev\paths`. Then run
+   `C:\gev\bridge\gev-bridge.exe C:\gev\paths\path.json --record`, after
+   the attitude test the first time (`bridge/README.md`).
+
+The bridge is published framework-dependent: the Desktop Runtime is
+installed anyway, and the SDK that builds it is on the machine. This PC
+has no .NET SDK, so nothing is built here.
+
+### Build box
+
+`airgpu-buildbox.ps1` (from an elevated PowerShell, log
+`C:\gev-buildbox.log`) turns the same machine into a temporary runner for
+GEV's RAM-heavy data builds. The point is the 32 GB of RAM and a
+datacenter's bandwidth for dump downloads. Its steps:
+
+| Step            | What it does                                                                                   |
+| --------------- | ---------------------------------------------------------------------------------------------- |
+| `Git`           | Installs Git for Windows (the latest release)                                                  |
+| `Node.js 24`    | Installs the latest Node.js 24, this PC's major, checked against nodejs.org's `SHASUMS256.txt` |
+| `GEV checkout`  | Clones `https://github.com/doctutor/gods-eye-view.git` at `local-fixes` into `C:\gev\repo`     |
+| `npm ci`        | Installs the dependencies                                                                      |
+| `Build folders` | Makes `C:\gev\raw`, `C:\gev\cache` and `C:\gev\out`                                            |
+
+The fork is public, so the clone needs no token and nothing is signed in.
+Push the branch first (`git push fork local-fixes`). Nothing goes up from
+this PC: no `.env` and no key. So run only keyless builds there. The
+Wikipedia points build needs no key. `--population` (Earth Engine's key
+file and project) and the census build (`CENSUS_API_KEY`) do; run those on
+this PC.
+
+**The multi-wiki Wikipedia points build**, in a new PowerShell in
+`C:\gev\repo`:
+
+```powershell
+$env:GEV_RAW_DIR = 'C:\gev\raw'
+$env:WIKIPEDIA_COVERAGE_DIR = 'C:\gev\cache\wikipedia'
+npm run wikipedia:build -- --points --wikis enwiki,dewiki,frwiki,eswiki,ruwiki,jawiki,zhwiki,itwiki,ptwiki,plwiki,nlwiki
+```
+
+The dumps land on the machine's disk and stay there. Only the result comes
+back: `C:\gev\cache\wikipedia\points`.
+
+**Bringing it back.** Run `airgpu-buildbox.ps1 -Package` to zip the points
+into `C:\gev\out\wikipedia-points-<time>.zip` and print its SHA-256. Then
+choose one:
+
+- **Parsec's file transfer, if the session offers it.** This is the
+  simplest. Whether AirGPU's Parsec allows it was not checked.
+- **Otherwise, the one-shot server.** Run `airgpu-buildbox.ps1 -Serve`
+  with the zip and `-AllowFrom` this PC's public IPv4. It opens TCP 8765 in
+  the machine's Windows firewall to that one address and serves the zip
+  once (`airgpu-serve.mjs`). The zip is at a random 32-hex-digit path and
+  nowhere else. The server stops after one complete download or 30
+  minutes, and the rule is removed when it stops. On this PC, run the
+  `curl` line it prints and compare the SHA-256. It is plain HTTP, which
+  is acceptable only because the points are built from Wikimedia's public
+  dumps; never serve anything that needs a key this way. Whether AirGPU's
+  own network lets the port through was not checked.
+
+On this PC, unzip it into `.gev-cache/wikipedia/points` (or the
+`WIKIPEDIA_COVERAGE_DIR` the server reads).
+
+### Nothing persists
+
+Treat every session as a new machine. Re-run the scripts; they skip what
+is there. Copy back what you keep before the session ends, recordings
+first, since they are the large files. Nothing in GEV depends on the
+machine.
+
+Not verified yet: none of this has run on an AirGPU machine. The scripts
+parse (`src/tooling/airgpuScripts.test.mjs`), and the smoke script ran on
+this PC, where it reported a GTX 1080 Ti as "not the A10G tier" and the
+missing bridge as a FAIL.
