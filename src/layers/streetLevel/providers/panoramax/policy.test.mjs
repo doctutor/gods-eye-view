@@ -11,6 +11,7 @@ import {
 } from './policy.js';
 import { PROVIDER_COLORS } from '../../policy.js';
 import { stacItem } from '../../../../testSupport/panoramaxFixtures.mjs';
+import { withinBudget } from '../../../../../scripts/bench.mjs';
 
 test('Panoramax draws in its own orange, and every pick id starts pnx:', () => {
   assert.equal(COLORS.coverage, '#ff6f00');
@@ -214,7 +215,7 @@ test('hostile item data: a malformed link escape, null coordinates, a huge produ
   const huge = normalizeItem(
     stacItem({ id: 'a', lon: 1, lat: 2, producer: 'a'.repeat(1_000_000) }),
   );
-  assert.ok(Date.now() - started < 500, `${Date.now() - started} ms`);
+  withinBudget(Date.now() - started, 500, 'a million-character producer');
   assert.equal(huge.creator.length, 80);
   const named = (producer) =>
     normalizeItem(stacItem({ id: 'a', lon: 1, lat: 2, producer })).creator;
@@ -238,7 +239,7 @@ test('thousands of producers are credited in linear time', () => {
   }));
   const started = performance.now();
   const { creator } = normalizeItem(item);
-  assert.ok(performance.now() - started < 1000);
+  withinBudget(performance.now() - started, 1000, '50,000 producers');
   assert.ok(creator.startsWith('tester, producer-0, producer-1'));
   assert.ok(creator.length <= 120);
 });

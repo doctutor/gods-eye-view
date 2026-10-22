@@ -181,6 +181,8 @@ function track(task) {
 /** @type {Map<string, number>} cache file to its newest write's sequence */
 const _diskWrites = new Map();
 let _diskWriteSeq = 0;
+const RENAME_RETRIES = 4;
+const RENAME_RETRY_MS = 25;
 
 function diskWritePending(address) {
   return _diskWrites.has(diskPath(address));
@@ -203,9 +205,22 @@ function writeDisk(address, bytes, at = null) {
       .mkdir(path.dirname(file), { recursive: true })
       .then(() => fsp.writeFile(tmp, bytes))
       .then(() => at != null && fsp.utimes(tmp, new Date(), new Date(at)))
-      .then(() => {
-        if (!newest()) return fsp.rm(tmp, { force: true });
-        return fsp.rename(tmp, file).then(() => scheduleSweep(root));
+      .then(async () => {
+        // Windows refuses a rename over a file a concurrent hit is reading
+        // (EPERM, EBUSY, EACCES): try again a few times, as keepTile does.
+        for (let attempt = 0; ; attempt++) {
+          if (!newest()) return fsp.rm(tmp, { force: true });
+          try {
+            await fsp.rename(tmp, file);
+            return scheduleSweep(root);
+          } catch (error) {
+            const busy = ['EPERM', 'EBUSY', 'EACCES'].includes(error?.code);
+            if (!busy || attempt >= RENAME_RETRIES) throw error;
+            await new Promise((resolve) =>
+              setTimeout(resolve, RENAME_RETRY_MS * (attempt + 1)),
+            );
+          }
+        }
       })
       .catch(async (error) => {
         await fsp.rm(tmp, { force: true }).catch(() => {});
@@ -425,8 +440,14 @@ export async function fetchTile(request, { signal } = {}) {
   const disk = await readDisk(address);
   if (disk) {
     // Older cache files may be untrimmed: rewrite once, keeping the fetch time.
+    // A concurrent hit whose read finished first has put the tile in memory
+    // and started that rewrite, which may have landed by now.
     const bytes = trim(address, disk.bytes);
-    if (bytes !== disk.bytes && !diskWritePending(address))
+    if (
+      bytes !== disk.bytes &&
+      !diskWritePending(address) &&
+      !_memory.has(address.key)
+    )
       writeDisk(address, bytes, disk.at);
     memoryPut(address.key, bytes, disk.at);
     return { bytes, source: 'disk', address };

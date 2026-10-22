@@ -8,6 +8,7 @@ import {
   maskedSegments,
   tileSegments,
 } from './decode.js';
+import { withinBudget } from '../../../../../scripts/bench.mjs';
 
 const at = (lng, lat) => ({ lat: String(lat), lng: String(lng) });
 const TILE = { x: 4412, y: 6061, z: 14 };
@@ -103,9 +104,10 @@ test('a tile whose segments all share one point decodes in linear time', () => {
   const started = performance.now();
   const { sequences } = decodeCoverageTile({ lines }, TILE);
   const ms = performance.now() - started;
-  assert.ok(
-    ms < 1_000,
-    `${Math.round(ms)} ms (quadratic chaining took ~200 ms per 20k and grows fourfold per doubling)`,
+  withinBudget(
+    ms,
+    1_000,
+    'quadratic chaining took ~200 ms per 20k and grows fourfold per doubling',
   );
   const points = sequences.reduce((sum, s) => sum + s.parts[0].length, 0);
   assert.ok(sequences.every((s) => s.parts[0].length <= MAX_LINE_POINTS));

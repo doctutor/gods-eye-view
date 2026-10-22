@@ -19,6 +19,7 @@ import {
   applyDedupe,
   createCctvCatalog,
 } from '../../server/providers/cctv/catalog.js';
+import { withinBudget } from '../../scripts/bench.mjs';
 
 /** A point `north`/`east` metres from a base. */
 function offset(base, north = 0, east = 0) {
@@ -480,7 +481,6 @@ test('the capped catalog gives way to the winner without losing a camera', () =>
 
 test(
   '50,000 cameras de-duplicate in well under 300 ms',
-  { skip: process.env.CI ? 'timing on shared CI' : false },
   () => {
     const packs = [
       'mdot',
@@ -534,10 +534,7 @@ test(
       reference = Math.min(reference, performance.now() - started);
     }
     const budget = 300 * Math.max(1, reference / 60);
-    assert.ok(
-      elapsed < budget,
-      `${Math.round(elapsed)} ms, budget ${Math.round(budget)} ms (reference ${Math.round(reference)} ms)`,
-    );
+    withinBudget(elapsed, budget, `reference ${Math.round(reference)} ms`);
   },
 );
 

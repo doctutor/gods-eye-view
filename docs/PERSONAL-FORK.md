@@ -63,6 +63,7 @@ unless its switch is set to `0`.
 - [H3 hexes (resolution by perspective)](#h3-hexes-resolution-by-perspective)
 - [Point rollups: camera counts per hex](#point-rollups-camera-counts-per-hex)
 - [Smaller additions](#smaller-additions)
+- [Tests: budgets and flakes](#tests-budgets-and-flakes)
 - [Keeping up with upstream](#keeping-up-with-upstream)
 - [What you need to do](#what-you-need-to-do)
 
@@ -4973,6 +4974,54 @@ drowning the view. There are four ways to do it, by the kind of data:
   own way (#1092, #693). The 2026-10-16 upstream sync replaced the fork's
   versions with upstream's.
 
+## Tests: budgets and flakes
+
+`npm test` passes or fails on correctness alone. It runs on a machine that
+is often busy with an import, a build or another suite, so a test whose
+result depends on how fast the machine is that minute isn't a gate.
+
+- **Wall-clock budgets.** A test that times its own work ("50,000 cameras
+  de-duplicate in well under 300 ms", "decodes in linear time") checks the
+  time with `withinBudget(ms, budget, note)` from `scripts/bench.mjs`. In
+  `npm test` a missed budget is printed as `[bench] over budget …` and the
+  test still passes on its correctness assertions. `npm run bench` runs the
+  files that call `withinBudget()`, one at a time, with `GEV_BENCH=1`, and
+  fails on a miss. Run it on a quiet machine after touching one of those
+  paths.
+- **Promptness checks stay.** A check that an injected short deadline was
+  used rather than the production one (`< 500 ms` against a production
+  timeout of seconds) is a correctness assertion and stays in `npm test`.
+  Its bound sits well below the production value, so a loaded machine still
+  passes it.
+- **Real timers need headroom.** A test racing real timers keeps a margin a
+  stalled event loop can't eat: the CCTV media idle-deadline test sends a
+  chunk every 10 ms against a 100 ms deadline (it was 40 ms) and watches for
+  four and a half deadlines.
+- **Tests stay offline.** A test that reaches a real host is a bug. The
+  linked-webcam pack's QLever fallback goes over `node:https`, past a
+  `fetch` mock, so a test that loads the whole CCTV catalog sets
+  `CCTV_LINKED_ENABLED=0`. Without it the Catalonia and WSDOT catalog tests
+  waited out QLever's 300 s timeout, and the King County one asked the real
+  QLever.
+- **A flake is a bug with a cause.** A test that fails in the suite and
+  passes alone is not rerun until green and left. Loop it under load to find
+  the cause, and fix that. A small CPU burner (a worker thread per core
+  spinning for a minute) next to `node --test --test-name-pattern=… file`, a
+  few at a time, reproduces most of them. Two were real Windows races, fixed
+  in the code rather than the tests:
+  - Windows refuses, for a moment, a rename over a file another process is
+    reading (EPERM). The MCP panel key's malformed-file repair
+    (`server/mcp/panelKey.js`) and the Mapillary tile cache's untrimmed-tile
+    rewrite (`server/providers/mapillary/tiles.js`) now try again, as
+    `keepTile` does.
+  - The tile cache also no longer starts a second rewrite when a concurrent
+    hit's read finishes after the first rewrite landed.
+
+node:test sets no per-file timeout, and `npm test` passes none, so a heavy
+file (transit lifecycle, about 16 s alone; constructCatalog and the wind
+layer files, about 5–6 s) cannot time out. Its time is only the suite's
+wall clock.
+
 ## Keeping up with upstream
 
 The fork branched from upstream at `8b8ccc9a`. It was last synced with
@@ -5057,9 +5106,8 @@ npm run format:check
 npm run check:boundaries
 ```
 
-On Windows, `npm test` has one known failure ("Codex login resolves an
-installed executable before PATH…"). Set `CCTV_LINKED_ENABLED=0` while
-testing so the catalog tests stay offline.
+A failure there is read the way [Tests: budgets and flakes](#tests-budgets-and-flakes)
+says.
 
 ## What you need to do
 

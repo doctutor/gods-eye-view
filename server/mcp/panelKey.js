@@ -20,20 +20,37 @@ function readKey(file) {
   return KEY_PATTERN.test(text) ? text : null;
 }
 
+// Windows refuses, for a moment, a rename over a file another process is
+// reading, a read of one being renamed over, and an open of a lock being
+// removed. Repair retries those until its deadline.
+const BUSY = new Set(['EPERM', 'EBUSY', 'EACCES']);
+
+function untilDeadline(deadline, pause, step) {
+  for (;;) {
+    try {
+      return step();
+    } catch (error) {
+      if (!BUSY.has(error.code) || Date.now() >= deadline) throw error;
+      Atomics.wait(pause, 0, 0, 10);
+    }
+  }
+}
+
 /** Serialize malformed-file repair; ordinary first creation still uses link(). */
 function repairKey(file, tmp, key) {
   const lock = `${file}.repair-lock`;
   const deadline = Date.now() + 2000;
   const pause = new Int32Array(new SharedArrayBuffer(4));
+  const read = () => untilDeadline(deadline, pause, () => readKey(file));
   let fd;
   for (;;) {
     try {
       fd = fs.openSync(lock, 'wx', 0o600);
       break;
     } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
+      if (error.code !== 'EEXIST' && !BUSY.has(error.code)) throw error;
       // Another repair may already have published a usable key.
-      const winner = readKey(file);
+      const winner = read();
       if (winner) return winner;
       if (Date.now() >= deadline) {
         throw Object.assign(new Error('panel key repair is busy'), {
@@ -45,9 +62,9 @@ function repairKey(file, tmp, key) {
   }
   try {
     // A repair completed between our earlier read and acquiring the lock.
-    const winner = readKey(file);
+    const winner = read();
     if (winner) return winner;
-    fs.renameSync(tmp, file);
+    untilDeadline(deadline, pause, () => fs.renameSync(tmp, file));
     return key;
   } finally {
     fs.closeSync(fd);

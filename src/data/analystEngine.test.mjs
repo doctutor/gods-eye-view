@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createAnalystEngine, applyScope, haversineKm } from './analystEngine.js';
+import { withinBudget } from '../../scripts/bench.mjs';
 
 // Stub world: a square "Texland" region, flights + ships + fires around it.
 const TEXLAND = { name: 'Texland', ring: [[-100, 28], [-94, 28], [-94, 33], [-100, 33]] };
@@ -640,7 +641,7 @@ test('ranking 250k rows stays within a budget and yields to the page', async () 
   clearInterval(timer);
   assert.equal(result.count, 250_000);
   assert.equal(result.items[0].frp, 100_002);
-  assert.ok(elapsed < 400, `took ${Math.round(elapsed)} ms`);
+  withinBudget(elapsed, 400, 'ranking 250k rows');
   assert.ok(ticks > 0, 'the scan yielded between slices');
   let current = true;
   const pending = engine.query({ layers: ['local-firms'], scope: { kind: 'anywhere' }, sortBy: 'distance' }, { isCurrent: () => current });
