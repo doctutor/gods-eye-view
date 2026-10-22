@@ -14,6 +14,7 @@ import {
   unitY,
   writeBlocksFile,
 } from '../../server/providers/wikipediaCoverage/pointsFile.js';
+import { checkpointDir, listCheckpoints } from './checkpoints.mjs';
 import {
   Column,
   Interned,
@@ -297,8 +298,11 @@ export function createPointsUnion() {
     get count() {
       return columns.x.length;
     },
-    /** Fold a wiki in; returns its join's records by type class. */
-    add(wiki, coordinates) {
+    /**
+     * Fold a wiki's articles in (WikiArticles: read from its dumps, or a
+     * checkpoint's); returns its records by type class.
+     */
+    add(wiki, articles) {
       if (finished) throw new Error('The points union is finished');
       if (wiki.key === 'enwiki' && columns.x.length)
         throw new Error('enwiki must be the first wiki added');
@@ -310,18 +314,20 @@ export function createPointsUnion() {
         withoutItem: 0,
       });
       const byClass = {};
-      const c = coordinates;
-      for (const [page, head] of c.heads) {
-        const titleId = c.title.array[head];
-        if (titleId < 0) continue; // not an article
-        const title = c.titles.get(titleId);
-        const bytes = c.bytes.array[head];
-        const qid = c.qid.array[head];
+      const a = articles;
+      const coordinateType = (at) => a.types[a.type.array[at]];
+      for (let i = 0; i < a.articles; i++) {
+        const page = a.page.array[i];
+        const title = a.titles.get(i);
+        const bytes = a.bytes.array[i];
+        const qid = a.qid.array[i];
+        const first = a.first.array[i];
+        const end = first + a.count.array[i];
         stats.articles += 1;
         // Every coordinate of an article, by class (as the record would be).
         const classes = [];
-        for (let at = head; at >= 0; at = c.next.array[at]) {
-          const cls = pointClassOf(c.types.get(c.type.array[at]), title);
+        for (let at = first; at < end; at++) {
+          const cls = pointClassOf(coordinateType(at), title);
           byClass[cls.key] = (byClass[cls.key] || 0) + 1;
           classes.push(cls.code);
         }
@@ -347,24 +353,22 @@ export function createPointsUnion() {
         stats.kept += 1;
         start = columns.x.length;
         const titleKept = titles.add(title);
-        let n = 0;
-        for (let at = head; at >= 0; at = c.next.array[at]) {
-          columns.x.push(c.x.array[at]);
-          columns.y.push(c.y.array[at]);
+        for (let at = first; at < end; at++) {
+          columns.x.push(a.x.array[at]);
+          columns.y.push(a.y.array[at]);
           columns.page.push(page);
           columns.qid.push(qid);
           columns.bytes.push(bytes);
-          columns.dim.push(c.dim.array[at]);
-          columns.cls.push(classes[n]);
-          columns.flags.push(c.flags.array[at]);
+          columns.dim.push(a.dim.array[at]);
+          columns.cls.push(classes[at - first]);
+          columns.flags.push(a.flags.array[at]);
           columns.wiki.push(wiki.code);
           columns.wikis.push(bit);
           columns.title.push(titleKept);
-          columns.type.push(types.id(c.types.get(c.type.array[at])));
+          columns.type.push(types.id(coordinateType(at)));
           columns.run.push(0);
-          n += 1;
         }
-        columns.run.array[start] = n;
+        columns.run.array[start] = end - first;
       }
       return byClass;
     },
@@ -590,6 +594,17 @@ export function writeUnionFiles(
   return { overview, buckets };
 }
 
+/** Write a file and sync it to disk (a crash leaves it whole or absent once renamed). */
+function writeDurable(file, data) {
+  const fd = fs.openSync(file, 'w');
+  try {
+    fs.writeFileSync(fd, data);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /**
  * Write the points index under `dir` (the build's points/) from a points
  * union (createPointsUnion, finished here), or from `points` already made
@@ -615,7 +630,7 @@ export function writePointsIndex({
   const overviewName = `overview.${stamp}.bin`;
   const langsName = `langs.${stamp}.bin`;
   const langsBytes = encodeLangs(langs);
-  fs.writeFileSync(path.join(dir, langsName), langsBytes);
+  writeDurable(path.join(dir, langsName), langsBytes);
   const written = writeUnionFiles(union, {
     overviewFile: path.join(dir, overviewName),
     fileOf: (bucket) =>
@@ -669,12 +684,13 @@ export function writePointsIndex({
     seconds: (now() - started) / 1000,
   };
   const manifestName = `manifest-${version}.json`;
-  fs.writeFileSync(
-    path.join(dir, manifestName),
-    `${JSON.stringify(manifest)}\n`,
-  );
+  writeDurable(path.join(dir, manifestName), `${JSON.stringify(manifest)}\n`);
+  // The switch: every file above is whole on disk; current.json moves to
+  // the new manifest in one rename. A build stopped before this leaves the
+  // earlier index current and whole (its files go only after the switch);
+  // the next build clears what this one left half-written.
   const pointer = path.join(dir, 'current.json');
-  fs.writeFileSync(
+  writeDurable(
     `${pointer}.tmp`,
     `${JSON.stringify({ manifest: manifestName })}\n`,
   );
@@ -691,7 +707,9 @@ export function writePointsIndex({
     if (
       (/^manifest-[0-9a-f]{12}\.json$/.test(name) && name !== manifestName) ||
       (/^overview\.[0-9a-f]{8}\.bin$/.test(name) && name !== overviewName) ||
-      (/^langs\.[0-9a-f]{8}\.bin$/.test(name) && name !== langsName)
+      (/^langs\.[0-9a-f]{8}\.bin$/.test(name) && name !== langsName) ||
+      // A file a stopped build left half-written (bucketWriter's temporary).
+      /\.bin\.\d+\.tmp$/.test(name)
     )
       try {
         fs.rmSync(path.join(dir, name));
@@ -704,8 +722,13 @@ export function writePointsIndex({
   return manifest;
 }
 
-/** What wikipedia:status says about the points. */
+/** What wikipedia:status says about the points, and the wikis checkpointed for the next build. */
 export function pointsStatusOf(dir) {
+  const checkpoints = listCheckpoints(checkpointDir(dir));
+  return { ...builtStatusOf(dir), checkpoints };
+}
+
+function builtStatusOf(dir) {
   try {
     const { manifest: name } = JSON.parse(
       fs.readFileSync(path.join(dir, 'current.json'), 'utf8'),

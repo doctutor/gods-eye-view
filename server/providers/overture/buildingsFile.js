@@ -332,7 +332,11 @@ export function writeBucket(file, blocks) {
  *   says how many came)
  * @param {{atMost?: boolean}} [options]
  */
-export function bucketWriter(file, blockCount, { atMost = false } = {}) {
+export function bucketWriter(
+  file,
+  blockCount,
+  { atMost = false, sync = false } = {},
+) {
   const temporary = `${file}.${process.pid}.tmp`;
   const fd = fs.openSync(temporary, 'w');
   const head = Buffer.alloc(12 + blockCount * ENTRY_BYTES);
@@ -366,6 +370,9 @@ export function bucketWriter(file, blockCount, { atMost = false } = {}) {
         throw new Error(`${n} of ${blockCount} blocks written`);
       head.writeUInt32LE(n, 8);
       fs.writeSync(fd, head, 0, head.length, 0);
+      // Personal fork: `sync` makes the bytes durable before the rename, so
+      // after a crash the file is whole or absent (the points index).
+      if (sync) fs.fsyncSync(fd);
       fs.closeSync(fd);
       fs.renameSync(temporary, file);
       return offset;

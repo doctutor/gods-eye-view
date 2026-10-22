@@ -17,7 +17,7 @@ import {
   writePointsIndex,
 } from '../../scripts/wikipedia/points.mjs';
 import { addPageSizes, runBuild } from '../../scripts/wikipedia/build.mjs';
-import { WikiCoordinates } from '../../scripts/wikipedia/pointStore.mjs';
+import { WikiArticles } from '../../scripts/wikipedia/pointStore.mjs';
 import {
   FLAG_SECONDARY,
   RECORD_BYTES_2,
@@ -187,7 +187,10 @@ test('the joins keep articles with their title, size and Wikidata item', async (
   assert.equal(stats.rows, 4);
 
   const union = createPointsUnion();
-  const byClass = union.add(pointWikiOfKey('enwiki'), c);
+  const byClass = union.add(
+    pointWikiOfKey('enwiki'),
+    WikiArticles.fromCoordinates(c),
+  );
   assert.equal(union.count, 4);
   assert.deepEqual(byClass, { place: 1, landmark: 2, nature: 1 });
   union.finish();
@@ -360,10 +363,11 @@ test('a build with --points writes the index from the three dumps', async () => 
       fetchImpl,
       sleepImpl: async () => {},
     });
+    // page_props before the page table: a checkpoint's key needs all three.
     assert.deepEqual(asked, [
       'enwiki-latest-geo_tags.sql.gz',
-      'enwiki-latest-page.sql.gz',
       'enwiki-latest-page_props.sql.gz',
+      'enwiki-latest-page.sql.gz',
     ]);
     assert.equal(result.points.points, 3);
     assert.equal(result.points.secondary, 1);
@@ -573,24 +577,24 @@ const dePropsText = () =>
     [503, 'wikibase_item', 'Q243', null],
   ]);
 
-/** A wiki's three dumps read into its coordinates. */
-async function wikiCoordinates(geo, page, props) {
+/** A wiki's three dumps joined into its articles. */
+async function wikiArticles(geo, page, props) {
   const chunks = (text) => [Buffer.from(text)];
   const g = await collectGeoPoints(chunks(geo));
   const rows = pageRowsForPoints(g.coordinates);
   await addPageSizes(chunks(page), { onRow: rows.onRow });
   await collectWikidataItems(chunks(props), g.coordinates);
-  return g.coordinates;
+  return WikiArticles.fromCoordinates(g.coordinates);
 }
 
 test('several wikis: one dot an item, enwiki’s record kept, every language listed', async () => {
   const en = pointWikiOfKey('enwiki');
   const de = pointWikiOfKey('dewiki');
   const union = createPointsUnion();
-  union.add(en, await wikiCoordinates(geoText(), pageText(), propsText()));
+  union.add(en, await wikiArticles(geoText(), pageText(), propsText()));
   union.add(
     de,
-    await wikiCoordinates(deGeoText(), dePageText(), dePropsText()),
+    await wikiArticles(deGeoText(), dePageText(), dePropsText()),
   );
   const langs = langsOf(union.finish());
   const byTitle = Object.fromEntries(recordsOf(union).map((p) => [p.title, p]));
@@ -633,7 +637,7 @@ test('several wikis: one dot an item, enwiki’s record kept, every language lis
   const alone = createPointsUnion();
   alone.add(
     de,
-    await wikiCoordinates(deGeoText(), dePageText(), dePropsText()),
+    await wikiArticles(deGeoText(), dePageText(), dePropsText()),
   );
   assert.equal(langsOf(alone.finish()).length, 0);
   const paris = recordsOf(alone).find((p) => p.qid === 90);
@@ -641,9 +645,9 @@ test('several wikis: one dot an item, enwiki’s record kept, every language lis
   assert.equal(paris.wiki, de.code);
   // enwiki after another wiki would lose its claim on the items: refused.
   const late = createPointsUnion();
-  late.add(de, await wikiCoordinates(deGeoText(), dePageText(), dePropsText()));
+  late.add(de, await wikiArticles(deGeoText(), dePageText(), dePropsText()));
   assert.throws(
-    () => late.add(en, new WikiCoordinates()),
+    () => late.add(en, new WikiArticles()),
     /enwiki must be the first wiki added/,
   );
 });
