@@ -670,12 +670,15 @@ test('an upstream that goes silent after its headers is released at the idle dea
 });
 
 test('a live feed that keeps producing is not cut off by the idle deadline', async (t) => {
+  // A chunk every 10 ms against a 100 ms deadline, watched for four and a
+  // half deadlines: a deadline on the stream's life would cut it off, and a
+  // loaded machine has 90 ms of a stalled event loop to spare.
   const feed = mediaUpstream({ everyMs: 10 });
   const res = pipeTarget();
   t.after(() => res.destroy());
-  await proxyMediaResponse(res, feed.upstream, { idleTimeoutMs: 40 });
+  await proxyMediaResponse(res, feed.upstream, { idleTimeoutMs: 100 });
 
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  await new Promise((resolve) => setTimeout(resolve, 450));
   assert.equal(feed.released, false, 'a healthy feed was torn down');
   assert.equal(res.writableEnded, false, 'a healthy feed was ended early');
   assert.ok(

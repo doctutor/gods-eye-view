@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateValue } from './schema.js';
+import { withinBudget } from '../../scripts/bench.mjs';
 test('tool string schemas count Unicode characters rather than UTF-16 units', () => {
   const value = '𠮷野家😀';
   assert.deepEqual(validateValue({ type: 'string', maxLength: 4 }, value), []);
@@ -29,5 +30,9 @@ test('tool string bounds hold at their edges and on huge arguments', () => {
   const huge = 'x'.repeat(1e8);
   const started = performance.now();
   assert.equal(validateValue(string({ maxLength: 60 }), huge).length, 1);
-  assert.ok(performance.now() - started < 200, 'stops counting past the limit');
+  withinBudget(
+    performance.now() - started,
+    200,
+    'stops counting past the limit',
+  );
 });

@@ -274,6 +274,9 @@ test('CCTV_WSDOT_ENABLED=0 skips the WSDOT request', async (t) => {
     CCTV_MAX_SOURCES: undefined,
     CCTV_WSDOT_ENABLED: undefined,
     CCTV_WSDOT_MAX_SOURCES: undefined,
+    // Personal fork: the linked-webcam pack falls back to QLever over
+    // node:https, past the fetch mock, and waits out its 300 s timeout.
+    CCTV_LINKED_ENABLED: '0',
   });
   const requested = [];
   t.mock.method(globalThis, 'fetch', async (url) => {

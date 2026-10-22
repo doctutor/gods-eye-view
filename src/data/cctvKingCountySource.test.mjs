@@ -204,6 +204,9 @@ test('King County model and manufacturer survive the /api/cctv/sources boundary 
     CCTV_KINGCOUNTY_ENABLED: undefined,
     CCTV_KINGCOUNTY_MAX_SOURCES: undefined,
     CCTV_MAX_SOURCES: undefined,
+    // Personal fork: the linked-webcam pack falls back to QLever over
+    // node:https, past the fetch mock, and asks the real QLever.
+    CCTV_LINKED_ENABLED: '0',
   });
   t.mock.method(globalThis, 'fetch', async (url) => {
     if (String(url) !== KING_COUNTY_CAMERAS_URL)
