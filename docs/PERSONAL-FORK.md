@@ -4169,6 +4169,26 @@ The click answers in 5 to 100 ms. Bike lanes for a 0.2° box over
 Baltimore take 163 ms (1,391 lines); a 1° box of middle points for the
 counts takes 1.0 s (10,081 points).
 
+### The click card in a narrow pane
+
+In a narrow window (the dev tooling's preview pane is 720 × 507) a road's
+card could be lost: the left panel stack is 360 px wide, half the pane,
+and the world overlay fades cards out beyond the keyhole (a circle about
+the pane's height across), so the four sides the host tries could all sit
+under the panel or out where the card is at 1 % opacity. A click card (a
+protected `card` entry: Roads, and the other click cards, unless one says
+`fitPane: false`) whose sides would lose it now gets one more placement,
+tried first: `paneFitPlacement` (`src/overlays/worldOverlayDraw.js`)
+searches positions inside the pane less its margin, at the click's sides
+and against each panel's edges, and keeps the nearest one that clears the
+chrome, leaves the clicked road uncovered and sits inside the keyhole. Its
+side follows where it landed: below when there is no room above, beside
+the panel when the click is under it, so the leader still meets the card.
+In a wide window the sides are clear and visible and nothing changes.
+Tested on a fake 720 × 507 viewport with the app's chrome
+(`src/overlays/paneFit.test.mjs`, and the host in
+`src/overlays/worldOverlay.test.mjs`).
+
 ### Street assets' BIKE LANES
 
 BIKE LANES now read the roads when they are built. Below 8 km they draw

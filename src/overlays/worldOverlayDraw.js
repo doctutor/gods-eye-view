@@ -543,6 +543,158 @@ export function placementVariants(
   return out;
 }
 
+// Pooled for paneFitPlacement: it runs every frame a lost card is drawn.
+const _fitXs = [];
+const _fitYs = [];
+
+/**
+ * How visible a point is in the keyhole ({centerX, centerY, radius,
+ * featherPx}): 1 inside the circle, 0 past its feather, linear between.
+ * The placement's measure (the paint's own fade floors at the tuned
+ * outside opacity); no Math.hypot, which allocates per call.
+ */
+export function keyholeVisibility(x, y, keyhole) {
+  if (!keyhole || !(keyhole.radius > 0)) return 1;
+  const dx = x - keyhole.centerX;
+  const dy = y - keyhole.centerY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  if (distance <= keyhole.radius) return 1;
+  const feather = keyhole.featherPx;
+  if (!(feather > 0) || distance >= keyhole.radius + feather) return 0;
+  return 1 - (distance - keyhole.radius) / feather;
+}
+
+/**
+ * Personal fork: a placement for a card the four sides would lose: every
+ * side under the panels, or its best side out where the keyhole fades
+ * cards away, as when the app runs in a narrow pane. Searches positions
+ * inside the viewport (less `viewportMargin`) at the anchor's sides and
+ * against each exclusion's edges, and keeps the one nearest the anchor
+ * that clears every exclusion, leaves the anchor itself uncovered (with
+ * `gap` round it), and is visible in the `keyhole` (keyholeVisibility at
+ * least `minAlpha`; fuller is preferred; no keyhole: everywhere). Its corner follows
+ * where the card ended up (flipped below when there is no room above,
+ * beside when the anchor is under a panel) so the leader still meets it.
+ * Null when the card cannot fit at all. Allocates nothing once `out` exists.
+ * @param {object} input
+ * @param {number} input.anchorX
+ * @param {number} input.anchorY
+ * @param {number} input.width
+ * @param {number} input.height
+ * @param {number} input.viewportWidth
+ * @param {number} input.viewportHeight
+ * @param {number} [input.gap=12]
+ * @param {number} [input.viewportMargin=4]
+ * @param {number} [input.leaderOffset=0]
+ * @param {Array<{x:number,y:number,w:number,h:number}>} [input.exclusions]
+ * @param {{centerX:number,centerY:number,radius:number,featherPx:number}|null} [input.keyhole]
+ * @param {number} [input.minAlpha=0.5]
+ * @param {object} [out] A placement object to reuse.
+ */
+export function paneFitPlacement(
+  {
+    anchorX,
+    anchorY,
+    width,
+    height,
+    viewportWidth,
+    viewportHeight,
+    gap = 12,
+    viewportMargin = 4,
+    leaderOffset = 0,
+    exclusions = null,
+    keyhole = null,
+    minAlpha = 0.5,
+  },
+  out = null,
+) {
+  if (
+    !Number.isFinite(anchorX) ||
+    !Number.isFinite(anchorY) ||
+    !(width > 0) ||
+    !(height > 0)
+  )
+    return null;
+  const margin = viewportMargin;
+  const maxX = viewportWidth - width - margin;
+  const maxY = viewportHeight - height - margin;
+  if (!(maxX >= margin) || !(maxY >= margin)) return null;
+  const count = exclusions ? exclusions.length : 0;
+  _fitXs.length = 0;
+  _fitYs.length = 0;
+  _fitXs.push(anchorX - width / 2, anchorX + gap, anchorX - gap - width);
+  _fitXs.push(margin, maxX);
+  _fitYs.push(anchorY - gap - height, anchorY + gap, anchorY - height / 2);
+  _fitYs.push(margin, maxY);
+  for (let i = 0; i < count; i++) {
+    const rect = exclusions[i];
+    _fitXs.push(rect.x + rect.w, rect.x - width);
+    _fitYs.push(rect.y + rect.h, rect.y - height);
+  }
+  let bestX = 0;
+  let bestY = 0;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < _fitXs.length; i++) {
+    const x = Math.round(Math.max(margin, Math.min(maxX, _fitXs[i])));
+    for (let j = 0; j < _fitYs.length; j++) {
+      const y = Math.round(Math.max(margin, Math.min(maxY, _fitYs[j])));
+      // Never over the thing that was clicked.
+      if (
+        anchorX > x - gap &&
+        anchorX < x + width + gap &&
+        anchorY > y - gap &&
+        anchorY < y + height + gap
+      )
+        continue;
+      let blocked = false;
+      for (let k = 0; k < count; k++) {
+        const rect = exclusions[k];
+        if (
+          x < rect.x + rect.w &&
+          x + width > rect.x &&
+          y < rect.y + rect.h &&
+          y + height > rect.y
+        ) {
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) continue;
+      const alpha = keyholeVisibility(x + width / 2, y + height / 2, keyhole);
+      if (!(alpha >= minAlpha)) continue;
+      const dx = Math.max(x - anchorX, 0, anchorX - (x + width));
+      const dy = Math.max(y - anchorY, 0, anchorY - (y + height));
+      const score = Math.sqrt(dx * dx + dy * dy) + (1 - alpha) * 200;
+      if (score < bestScore) {
+        bestScore = score;
+        bestX = x;
+        bestY = y;
+      }
+    }
+  }
+  if (bestScore === Number.POSITIVE_INFINITY) return null;
+  const corner =
+    anchorX >= bestX && anchorX <= bestX + width
+      ? bestY >= anchorY
+        ? 'below'
+        : 'above'
+      : bestX >= anchorX
+        ? 'right'
+        : 'left';
+  const offset = Math.round(leaderOffset);
+  return writePlacement(
+    out,
+    corner,
+    bestX,
+    bestY,
+    width,
+    height,
+    anchorX,
+    anchorY,
+    corner === 'above' || corner === 'left' ? -offset : offset,
+  );
+}
+
 function drawLeader(
   ctx,
   placement,

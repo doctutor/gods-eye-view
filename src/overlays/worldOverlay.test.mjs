@@ -627,6 +627,8 @@ test('shared fade tuning reaches a host-painted card on the next rendered frame'
       variant: 'card',
       edgeFade: 'keyhole',
       placement: 'above',
+      // Measures the fade at the keyhole's edge: not fitted inside it.
+      fitPane: false,
     })]);
     env.postRender.raise();
     const firstAlpha = paintedAlphas.at(-1);
@@ -2346,4 +2348,116 @@ test('Titles off skips every label entry, across sources, and keeps the rest', (
     setOverlayTitlesVisible(true);
     env.cleanup();
   }
+});
+
+// Personal fork: a click card in a narrow pane (the dev tooling's preview
+// pane is 720 × 507): the left panel stack takes half the width and cards
+// fade out beyond the keyhole, so the four sides could leave a road's card
+// under the panel or faded away. It is fitted into the free, visible part.
+test('a click card in a 720 × 507 pane lands inside it, clear of the chrome and visible', () => {
+  const width = 720;
+  const height = 507;
+  const chrome = [
+    { id: 'title-bar', rect: { left: 0, top: 0, width: 720, height: 44 } },
+    { id: 'left-panel-stack', rect: { left: 8, top: 52, width: 360, height: 440 } },
+    { id: 'right-context-rail', rect: { left: 676, top: 52, width: 40, height: 400 } },
+    { id: 'command-dock', rect: { left: 200, top: 455, width: 320, height: 48 } },
+  ];
+  const keyhole = getKeyholeGeometry(width, height);
+  const roadCard = (id, x, y, overrides = {}) => ({
+    id,
+    variant: 'card',
+    position: positionAtScreen(x, y, width, height),
+    title: 'Pennsylvania Avenue',
+    details: [
+      'primary road · bridge',
+      'Speed limit 25 mph',
+      'Surface: asphalt',
+      'Source: Overture Maps · OpenStreetMap',
+    ],
+    accent: '#ffb347',
+    priority: 1000,
+    protected: true,
+    collisionGroup: `roads-card-${id}`,
+    interactive: false,
+    horizonCull: false,
+    terrainOcclusion: false,
+    gapPx: 12,
+    placement: 'above',
+    ...overrides,
+  });
+  const clicks = {
+    'under-the-panel': [300, 200],
+    'top-right': [650, 80],
+    'bottom-right': [600, 430],
+    'centre-right': [430, 260],
+  };
+  const paint = (overrides) => {
+    const env = installMockEnvironment({ width, height, dpr: 1, occluders: chrome });
+    initWorldOverlay(env.viewer);
+    const out = {};
+    for (const [name, [x, y]] of Object.entries(clicks)) {
+      setOverlayEntries('roads', [roadCard(name, x, y, overrides)]);
+      env.postRender.raise();
+      out[name] = getOverlayPaintRect('roads', name);
+    }
+    env.cleanup();
+    return out;
+  };
+  const lost = (rect) =>
+    keyholeLabelAlphaFromGeometry(rect.x + rect.w / 2, rect.y + rect.h / 2, keyhole) < 0.5 ||
+    chrome.some(({ rect: c }) => rectsIntersect(rect, inflatedRect(c)));
+
+  // The sides alone (fitting off) lose the card at some of these clicks.
+  const unfitted = paint({ fitPane: false });
+  assert.ok(
+    Object.values(unfitted).some((rect) => !rect || lost(rect)),
+    'without fitting, some click card ends under the chrome or faded out',
+  );
+
+  const fitted = paint({});
+  for (const [name, rect] of Object.entries(fitted)) {
+    const [x, y] = clicks[name];
+    assert.ok(rect, `${name}: painted`);
+    assert.ok(
+      rect.x >= 4 && rect.y >= 4 && rect.x + rect.w <= width - 4 && rect.y + rect.h <= height - 4,
+      `${name}: inside the pane with its margin (${JSON.stringify(rect)})`,
+    );
+    for (const { id, rect: c } of chrome)
+      assert.equal(rectsIntersect(rect, inflatedRect(c)), false, `${name}: clear of ${id}`);
+    assert.ok(
+      keyholeLabelAlphaFromGeometry(rect.x + rect.w / 2, rect.y + rect.h / 2, keyhole) >= 0.5,
+      `${name}: inside the keyhole, not faded out`,
+    );
+    assert.equal(
+      x > rect.x && x < rect.x + rect.w && y > rect.y && y < rect.y + rect.h,
+      false,
+      `${name}: the clicked road stays uncovered`,
+    );
+  }
+  // Under the panel, the card flips beside it, to the right of the click.
+  assert.ok(fitted['under-the-panel'].x > 368, 'beside the panel, not under it');
+});
+
+test('in a wide window a click card keeps its usual side', () => {
+  const env = installMockEnvironment({ width: 1600, height: 900, dpr: 1 });
+  initWorldOverlay(env.viewer);
+  setOverlayEntries('roads', [{
+    id: 'card',
+    variant: 'card',
+    position: positionAtScreen(800, 450, 1600, 900),
+    title: 'Main Street',
+    details: ['residential road'],
+    protected: true,
+    collisionGroup: 'roads-card',
+    horizonCull: false,
+    gapPx: 12,
+    placement: 'above',
+  }]);
+  env.postRender.raise();
+  const rect = getOverlayPaintRect('roads', 'card');
+  assert.ok(rect);
+  assert.ok(rect.y + rect.h <= 450 - 12, 'above the click, as before');
+  assert.ok(Math.abs(rect.x + rect.w / 2 - 800) <= 1, 'centred on it');
+  env.cleanup();
 });

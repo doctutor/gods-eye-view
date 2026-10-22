@@ -18,6 +18,8 @@ import {
   distanceScale,
   measureOverlayEntry,
   paintOverlayEntry,
+  keyholeVisibility,
+  paneFitPlacement,
   placementVariants,
 } from './worldOverlayDraw.js';
 import { WORLD_OVERLAY_STYLE } from './worldOverlayTokens.js';
@@ -620,6 +622,12 @@ export function normalizeOverlayEntry(sourceId, entry) {
             )
         : '',
   };
+  // Personal fork: a click card (a protected card) is fitted into the free
+  // part of the pane when its four sides would lose it (worldOverlayDraw.js
+  // paneFitPlacement); `fitPane` true or false says so for any entry. Set
+  // only when given: entries are renormalised every frame, and one more
+  // field on each costs the frame budget.
+  if (typeof entry.fitPane === 'boolean') normalized.fitPane = entry.fitPane;
   normalized._overlayKey = entryKey(source, id);
   normalized._cohortPriority = normalized.priority;
   normalized._cohortBand = 0;
@@ -2058,6 +2066,7 @@ function snapshotAndProject(entry, source, viewProjection, keyhole) {
   record.placementInput.preferred = entry.placement;
   record.placementInput.verticalOnly = entry.verticalOnly;
   record.placementInput.viewportMargin = entry.viewportMargin;
+  if (record.fitPlacement) dropFitPlacement(record);
   placementVariants(record.placementInput, record.placements);
   // UI exclusion is a PREFERENCE for chrome that composites ABOVE the host, and
   // a HARD VETO for chrome that composites below it.
@@ -2090,6 +2099,8 @@ function snapshotAndProject(entry, source, viewProjection, keyhole) {
   } else {
     record.placements.length = softClear;
   }
+  if (entry.fitPane ?? (entry.protected && entry.variant === 'card'))
+    fitLostCard(record, entry, softClear, keyhole);
   if (record.placements.length === 0) return null;
   let centerDistance = Number.POSITIVE_INFINITY;
   let closestCenterX = 0;
@@ -2126,6 +2137,56 @@ function snapshotAndProject(entry, source, viewProjection, keyhole) {
   record.candidate.screenX = record.screen.x;
   record.candidate.screenY = record.screen.y;
   return record;
+}
+
+/**
+ * Personal fork: last frame's fitted placement (fitLostCard) leads the
+ * list; take it out before the sides are rebuilt (moved down in place:
+ * shift() allocates). Kept out of the projection loop, which is tuned.
+ */
+function dropFitPlacement(record) {
+  const list = record.placements;
+  if (list[0] !== record.fitPlacement) return;
+  for (let i = 1; i < list.length; i++) list[i - 1] = list[i];
+  list.length -= 1;
+}
+
+/**
+ * Personal fork: a click card the sides would lose (all under the chrome,
+ * or the first that is clear fading out beyond the keyhole, as in a narrow
+ * pane) is fitted into the free part of the pane (worldOverlayDraw.js
+ * paneFitPlacement), and that placement is tried first.
+ */
+function fitLostCard(record, entry, softClear, keyhole) {
+  const keyholed = entry.edgeFade === 'keyhole';
+  const first = record.placements[0];
+  if (
+    softClear > 0 &&
+    !(
+      keyholed && keyholeVisibility(first.centerX, first.centerY, keyhole) < 0.5
+    )
+  )
+    return;
+  const input = record.placementInput;
+  const fitInput = (record.fitInput ||= {});
+  fitInput.anchorX = input.anchorX;
+  fitInput.anchorY = input.anchorY;
+  fitInput.width = input.width;
+  fitInput.height = input.height;
+  fitInput.viewportWidth = input.viewportWidth;
+  fitInput.viewportHeight = input.viewportHeight;
+  fitInput.gap = input.gap;
+  fitInput.viewportMargin = input.viewportMargin;
+  fitInput.leaderOffset = input.leaderOffset;
+  fitInput.exclusions = _uiOcclusionRects;
+  fitInput.keyhole = keyholed ? keyhole : null;
+  const fitted = paneFitPlacement(fitInput, record.fitPlacement);
+  if (!fitted) return;
+  record.fitPlacement = fitted;
+  const list = record.placements;
+  list.push(fitted);
+  for (let i = list.length - 1; i > 0; i--) list[i] = list[i - 1];
+  list[0] = fitted;
 }
 
 /**
