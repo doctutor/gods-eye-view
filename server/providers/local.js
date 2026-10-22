@@ -33,6 +33,8 @@ import { wikipediaCoverageProxy } from './wikipediaCoverage.js';
 import { riversV2Proxy } from './riversV2.js';
 // Personal fork: clicking a river reach (the Rivers layer).
 import { riverReachProxy } from './riverReach.js';
+// Personal fork: the Rivers layer's names from OpenStreetMap.
+import { riverNamesProxy } from './riverNames.js';
 // Personal fork: the Census tracts layer's locally drawn income tiles.
 import { censusProxy } from './census.js';
 // Personal fork: the Localities layer's Overture places close in.
@@ -88,6 +90,7 @@ function localProviderPlugins({ realtime } = {}) {
     wikipediaCoverageProxy({ sourceRoot: defaultSourceRoot }),
     riversV2Proxy({ sourceRoot: defaultSourceRoot }),
     riverReachProxy({ sourceRoot: defaultSourceRoot }),
+    riverNamesProxy({ sourceRoot: defaultSourceRoot }),
     censusProxy({ sourceRoot: defaultSourceRoot }),
     overtureProxy({ sourceRoot: defaultSourceRoot }),
     overtureRoadsProxy({ sourceRoot: defaultSourceRoot }),

@@ -170,6 +170,8 @@ export async function forEachGeoPackageReach(file, onReach) {
       'UPLAND_SKM',
       has('ORD_STRAH') ? 'ORD_STRAH' : 'NULL AS ORD_STRAH',
       has('LENGTH_KM') ? 'LENGTH_KM' : 'NULL AS LENGTH_KM',
+      has('STRM_ID') ? 'STRM_ID' : 'NULL AS STRM_ID',
+      has('STRM_DN') ? 'STRM_DN' : 'NULL AS STRM_DN',
     ].join(', ');
     const statement = db.prepare(
       `SELECT ${select} FROM ${quoteIdentifier(layer.name)}`,
@@ -189,6 +191,8 @@ export async function forEachGeoPackageReach(file, onReach) {
         upland: Number(row.UPLAND_SKM),
         strahler: row.ORD_STRAH ?? null,
         lengthKm: row.LENGTH_KM ?? null,
+        id: row.STRM_ID ?? null,
+        down: row.STRM_DN ?? null,
         parts,
       });
       if (verdict === false) {
