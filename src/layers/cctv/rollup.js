@@ -147,6 +147,8 @@ export function createRollup({ state: layerState, parts, services }) {
         ),
         chip('off', t('OFF'), t('Always draw every camera pin')),
       ],
+      // The hexes' count window, while they stand in for the pins.
+      scale: state?.active ? _rollup?.scaleControl?.() || null : null,
       info: state?.active
         ? t('{count} cameras in {cells} hexes at resolution {res}', {
             count: state.inView,

@@ -674,7 +674,7 @@ export function createStreetAssetsLayer({
     },
 
     getRowControls() {
-      return rowControls({
+      const controls = rowControls({
         asset: _asset,
         onAsset: setAsset,
         inkColor: LINE_COLORS[ink()] || LINE_COLORS.light,
@@ -682,6 +682,11 @@ export function createStreetAssetsLayer({
         enabled: _enabled,
         overture: fromOverture(assetTypeOf(_asset)),
       });
+      // Personal fork: the rollup hexes' count window while they show.
+      const scale = _rollup?.isActive?.()
+        ? _rollup.scaleControl?.() || null
+        : null;
+      return scale ? { ...controls, scale } : controls;
     },
 
     setRowControlsListener(listener) {
