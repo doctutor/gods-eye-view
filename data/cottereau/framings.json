@@ -1,0 +1,317 @@
+{
+ "source": "Fitted on the coastline of one frame each (fitFraming.py) against Natural Earth 10 m land; residuals: observed coastline to fitted, km.",
+ "frames": {
+  "width": 3840,
+  "height": 1920
+ },
+ "framings": [
+  {
+   "id": 1,
+   "fromT": 0.5,
+   "toT": 148.65,
+   "fromYear": -2500,
+   "toYear": -1000,
+   "projection": "miller",
+   "sx": 1945.846,
+   "tx": -439.64,
+   "sy": 1945.946,
+   "ty": 1952.813,
+   "fittedAt": 74.58,
+   "residualKm": {
+    "equirectangular": {
+     "median": 7.9,
+     "p75": 24.1,
+     "p90": 46.9,
+     "within25km": 0.758,
+     "aspect": 1.0724
+    },
+    "mercator": {
+     "median": 5.2,
+     "p75": 13,
+     "p90": 26.5,
+     "within25km": 0.891,
+     "aspect": 0.9561
+    },
+    "miller": {
+     "median": 0,
+     "p75": 0,
+     "p90": 5.9,
+     "within25km": 0.948,
+     "aspect": 1.0001
+    },
+    "gall": {
+     "median": 0,
+     "p75": 5.8,
+     "p90": 11.6,
+     "within25km": 0.945,
+     "aspect": 0.8426
+    },
+    "robinson": {
+     "median": 24.6,
+     "p75": 63.2,
+     "p90": 160.2,
+     "within25km": 0.502,
+     "aspect": 0.921
+    }
+   },
+   "extent": {
+    "west": 12.95,
+    "east": 126.01,
+    "south": 0.97,
+    "north": 52.16
+   }
+  },
+  {
+   "id": 2,
+   "fromT": 148.65,
+   "toT": 553.05,
+   "fromYear": -996,
+   "toYear": 799,
+   "projection": "miller",
+   "sx": 1446.716,
+   "tx": 339.601,
+   "sy": 1446.695,
+   "ty": 1771.354,
+   "fittedAt": 350.85,
+   "residualKm": {
+    "equirectangular": {
+     "median": 15.5,
+     "p75": 39.6,
+     "p90": 94.2,
+     "within25km": 0.631,
+     "aspect": 1.0713
+    },
+    "mercator": {
+     "median": 8.5,
+     "p75": 24.6,
+     "p90": 73.1,
+     "within25km": 0.758,
+     "aspect": 0.9582
+    },
+    "miller": {
+     "median": 0,
+     "p75": 0,
+     "p90": 8.2,
+     "within25km": 0.925,
+     "aspect": 1
+    },
+    "gall": {
+     "median": 0,
+     "p75": 11,
+     "p90": 37.4,
+     "within25km": 0.875,
+     "aspect": 0.845
+    },
+    "robinson": {
+     "median": 38.1,
+     "p75": 99.9,
+     "p90": 195,
+     "within25km": 0.398,
+     "aspect": 1.0005
+    }
+   },
+   "cut": {
+    "t": 148.65,
+    "year": -996,
+    "zoom": 0.744,
+    "labels": 13,
+    "carriedVsFittedKm": 8.3
+   },
+   "extent": {
+    "west": -13.45,
+    "east": 138.63,
+    "south": -5.88,
+    "north": 61.05
+   }
+  },
+  {
+   "id": 3,
+   "fromT": 553.05,
+   "toT": 792.29,
+   "fromYear": 800,
+   "toYear": 1449,
+   "projection": "miller",
+   "sx": 1219.204,
+   "tx": 661.63,
+   "sy": 1219.402,
+   "ty": 1684.041,
+   "fittedAt": 672.67,
+   "residualKm": {
+    "equirectangular": {
+     "median": 25.9,
+     "p75": 75,
+     "p90": 222.6,
+     "within25km": 0.493,
+     "aspect": 1.0777
+    },
+    "mercator": {
+     "median": 14.5,
+     "p75": 76.6,
+     "p90": 241.7,
+     "within25km": 0.597,
+     "aspect": 0.966
+    },
+    "miller": {
+     "median": 0,
+     "p75": 9.5,
+     "p90": 165.9,
+     "within25km": 0.778,
+     "aspect": 1.0002
+    },
+    "gall": {
+     "median": 9.8,
+     "p75": 37.8,
+     "p90": 164.2,
+     "within25km": 0.681,
+     "aspect": 0.8509
+    },
+    "robinson": {
+     "median": 58.7,
+     "p75": 146.6,
+     "p90": 296.9,
+     "within25km": 0.321,
+     "aspect": 1.0141
+    }
+   },
+   "cut": {
+    "t": 553.05,
+    "year": 800,
+    "zoom": 0.8427,
+    "labels": 45,
+    "carriedVsFittedKm": 3.8
+   },
+   "extent": {
+    "west": -31.09,
+    "east": 149.37,
+    "south": -11.04,
+    "north": 66.68
+   }
+  },
+  {
+   "id": 4,
+   "fromT": 792.29,
+   "toT": 923.42,
+   "fromYear": 1451,
+   "toYear": 1778,
+   "projection": "miller",
+   "sx": 806.139,
+   "tx": 1776.729,
+   "sy": 806.469,
+   "ty": 1341.747,
+   "fittedAt": 857.86,
+   "residualKm": {
+    "equirectangular": {
+     "median": 55.9,
+     "p75": 147,
+     "p90": 270.8,
+     "within25km": 0.337,
+     "aspect": 1.1348
+    },
+    "mercator": {
+     "median": 35.3,
+     "p75": 110.6,
+     "p90": 261.5,
+     "within25km": 0.429,
+     "aspect": 0.9471
+    },
+    "miller": {
+     "median": 0,
+     "p75": 9.3,
+     "p90": 171.7,
+     "within25km": 0.794,
+     "aspect": 1.0004
+    },
+    "gall": {
+     "median": 21.9,
+     "p75": 63.1,
+     "p90": 187.8,
+     "within25km": 0.518,
+     "aspect": 0.8695
+    },
+    "robinson": {
+     "median": 69.9,
+     "p75": 204.2,
+     "p90": 448,
+     "within25km": 0.307,
+     "aspect": 0.9976
+    }
+   },
+   "cut": {
+    "t": 792.29,
+    "year": 1451,
+    "zoom": 0.6611,
+    "labels": 89,
+    "carriedVsFittedKm": 9.3
+   },
+   "extent": {
+    "west": -126.28,
+    "east": 146.65,
+    "south": -39,
+    "north": 75.5
+   }
+  },
+  {
+   "id": 5,
+   "fromT": 923.42,
+   "toT": 1044.54,
+   "fromYear": 1780,
+   "toYear": 2025,
+   "projection": "miller",
+   "sx": 620.121,
+   "tx": 1890.251,
+   "sy": 620.184,
+   "ty": 1235.167,
+   "fittedAt": 983.98,
+   "residualKm": {
+    "equirectangular": {
+     "median": 78,
+     "p75": 174.9,
+     "p90": 289.9,
+     "within25km": 0.286,
+     "aspect": 1.1481
+    },
+    "mercator": {
+     "median": 48.7,
+     "p75": 135.3,
+     "p90": 248.8,
+     "within25km": 0.365,
+     "aspect": 0.9066
+    },
+    "miller": {
+     "median": 0,
+     "p75": 11.7,
+     "p90": 216.2,
+     "within25km": 0.788,
+     "aspect": 1.0001
+    },
+    "gall": {
+     "median": 27.3,
+     "p75": 86.7,
+     "p90": 214.3,
+     "within25km": 0.478,
+     "aspect": 0.8746
+    },
+    "robinson": {
+     "median": 54.6,
+     "p75": 213.2,
+     "p90": 582.2,
+     "within25km": 0.402,
+     "aspect": 0.9271
+    }
+   },
+   "cut": {
+    "t": 923.42,
+    "year": 1780,
+    "zoom": 0.7701,
+    "labels": 114,
+    "carriedVsFittedKm": 16.6
+   },
+   "extent": {
+    "west": -174.65,
+    "east": 180.15,
+    "south": -56.35,
+    "north": 83.78
+   }
+  }
+ ]
+}

@@ -54,6 +54,7 @@ unless its switch is set to `0`.
 - [Rivers: click a reach](#rivers-click-a-reach)
 - [Rivers: names from OpenStreetMap](#rivers-names-from-openstreetmap)
 - [Builds and restarts](#builds-and-restarts)
+- [Cottereau's world history against Cliopatria](#cottereaus-world-history-against-cliopatria)
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
 - [Lego rendering mode](#lego-rendering-mode)
 - [Colour scales: palettes and a window per layer](#colour-scales-palettes-and-a-window-per-layer)
@@ -5716,6 +5717,126 @@ drowning the view. There are four ways to do it, by the kind of data:
       Rivers).
 - [ ] A boundary table has one feature per unit (compare its feature count
       with its distinct codes); a chunked one draws its cuts as borders.
+
+## Cottereau's world history against Cliopatria
+
+For a future world-history layer: which polities to show in which years,
+and under which names. **Cottereau**'s video "History of the World: Every
+Year" (2500 BC to 2025, YouTube `hzWwp9JM7Hw`) is a map
+that names, every year, the polities its author chose to show. Its labels
+are matched to **Cliopatria** v0.2.1 (Seshat's polity borders, CC BY 4.0;
+13,797 records of 1,637 names), which has far more polities than any map
+can name: the match is the subsetting Cottereau did by hand.
+
+**Copyright.** The video is Cottereau's copyrighted work. Frames are
+decoded in memory or kept in a scratch directory only while a fit runs,
+and deleted. No frame or image of it is ever committed. Names, years and
+coordinates derived from it are facts, and those are what `data/cottereau/`
+holds.
+
+```bash
+node scripts/cottereau/index.mjs fit     # framings: data/cottereau/framings.json
+node scripts/cottereau/index.mjs build   # tracks.json, matches.json, review.md
+```
+
+**Inputs** (read only): the OCR'd labels,
+`E:\gev-data\cottereau\labels-1fps.jsonl`. These are RapidOCR boxes at one
+sample a second, 1,043 samples and 76,880 boxes, with the year from the
+caption track. Also the video under `E:\gev-data\cottereau\raw\`, and
+Cliopatria's zip under `E:\gev-data\cliopatria\raw\`, streamed a feature
+a line (`scripts/cottereau/cliopatria.mjs`, about 61 MB of vertices
+outside the heap).
+
+**The map is Miller cylindrical.** Each framing was fitted on its
+coastline (`scripts/cottereau/fitFraming.py`, Python with OpenCV in
+`D:\gev-tools\cottereau-venv`):
+
+1. The sea, the map's one flat light blue, is segmented. Bluish pixels are
+   kept only near their commonest colour, because some polities are painted
+   near the sea's blue: Kievan Rus', Sweden, the Tibetan Kingdoms.
+2. Natural Earth's land is drawn in each candidate projection.
+3. The pixel mapping (x and y scale and offset, free) is fitted by
+   Nelder–Mead on the chamfer distance between the two coastlines.
+
+Only Miller fits with equal x and y scales (aspect 1.0000 to 1.0006). The
+other projections need a distorted aspect and still leave residuals several
+times larger. The residuals are each observed coastline pixel's distance to
+the fitted coastline, in km:
+
+| Framing | Years           | View                       | Miller median / p75 / p90 km | Coast within 25 km | p75 equirect. | p75 Mercator | p75 Gall (aspect) | p75 Robinson | Cut: zoom, carried vs fitted |
+| ------- | --------------- | -------------------------- | ---------------------------- | -----------------: | ------------: | -----------: | ----------------- | -----------: | ---------------------------- |
+| 1       | 2500 BC–1000 BC | 13° to 126°, 1° to 52°     | 0 / 0 / 5.9                  |                95% |          24.1 |           13 | 5.8 (0.84)        |         63.2 | —                            |
+| 2       | 996 BC–799      | −13° to 139°, −6° to 61°   | 0 / 0 / 8.2                  |                93% |          39.6 |         24.6 | 11 (0.85)         |         99.9 | 0.744, 8.3 km                |
+| 3       | 800–1449        | −31° to 149°, −11° to 67°  | 0 / 9.5 / 166                |                78% |            75 |         76.6 | 37.8 (0.85)       |        146.6 | 0.843, 3.8 km                |
+| 4       | 1451–1778       | −126° to 147°, −39° to 76° | 0 / 9.3 / 172                |                79% |           147 |        110.6 | 63.1 (0.87)       |        204.2 | 0.661, 9.3 km                |
+| 5       | 1780–2025       | −175° to 180°, −56° to 84° | 0 / 11.7 / 216               |                79% |           175 |        135.3 | 86.7 (0.87)       |        213.2 | 0.770, 16.6 km               |
+
+The wide framings' p90 is mostly what the reference lacks, not the fit.
+Natural Earth's countries count the Great Lakes as land, where the video
+draws them as water. Islets add some, and one pixel is about 8 km at the
+equator by framing 4.
+
+The four cuts were found from the labels alone (`framings.mjs`). Between
+two samples, nearly all the labels both share move by one zoom and shift,
+with x and y factors equal (89 of 94 labels at the 1451 widening, for
+instance). Each framing after the first was started from the one before
+carried through its cut. That carried mapping and the coastline fit agree
+to 4–17 km at the frame's corners.
+
+**The pipeline** (`scripts/cottereau/`):
+
+1. **Cleaning** (`labels.mjs`). The year box at the bottom centre goes, and
+   so do digits and crumbs. A two-line label is joined from its lines: one
+   line under another at a line's pitch (1.1–1.3 line heights; two labels
+   stacked by chance sit 1.6 and more apart), centred on it, about the same
+   size. A hyphen joins without a space ("Syro-Hittites"). A line ending in
+   "." ends its label, so "Wal." over "Bul." over "Ottomans" stays three.
+2. **Tracking** (`tracks.mjs`, in lon/lat so a track survives a cut). The
+   same text, or one within an OCR slip (similarity 0.75 and more), within
+   450 km of where it was last seen at most four samples before, is one
+   track. Tracks split by the tracker are joined after, and the spellings
+   kept as variants ("Bur." 9, "Bur.s" 1).
+3. **Places**: each track's median position, through its framing's fit.
+4. **Matching** (`match.mjs`). The candidates are Cliopatria's records
+   alive in the track's years whose polygon holds the label or comes within
+   600 km, grouped by name. Then, in order:
+   - a like name (accent-folded, also against the Wikipedia title, with
+     words like "Kingdom of" set aside, "Minoa" for "Minoan", plurals as
+     singulars) within 300 km, or 700 km for an exact one, since a small
+     polity's label is often set beside it;
+   - an abbreviation ("Eng.", "Se.", "Bur.") whose words each begin one of
+     the name's, within 200 km;
+   - place and time: the polity holding the label (or within 50 km,
+     failing that 250 km), the best name and then the label's size against
+     the polity's area as tiebreaks.
+
+   A namesake 1,000 km or more away is refused and noted. Each match also
+   carries `periods`: the track's Cliopatria name year by year, because one
+   label lives through several of Cliopatria's polities ("France" through
+   the Kingdom, the First Republic, the Directory, … the Fifth Republic).
+   Cliopatria's bracketed twin of a polity (it with its dependencies,
+   "(Kingdom of France)") gives way to the plain one.
+
+**Results** (the whole video):
+
+- 1,711 tracks, 1,505 of them seen three times or more.
+- 1,360 matched (90.4%): 450 high, 318 medium (51.0% by name or
+  abbreviation) and 592 low. Low is a guess by place alone, often a polity
+  Cottereau shows inside one Cliopatria has.
+- `review.md` lists the 737 tracks with no match or a weak one, with their
+  nearest candidates.
+- It also lists 18 large Cliopatria polities in view that no label names:
+  steppe peoples (Xiongnu, Xianbei, Scythia, Yuezhi), Gothia, dynasties
+  Cottereau draws under another name, and so on.
+- Per century, it sets the labels against Cliopatria's polities alive in
+  the view: Cottereau names from a third to all of them, fewer in the
+  crowded centuries.
+
+Tests: `src/tooling/cottereau.test.mjs` (synthetic frames and a mini
+Cliopatria): joining and keeping apart stacked lines, a cut found and one
+label's own move not taken for one, Miller against the other cylinders on
+control points, tracking with a slip and a far namesake, and matching by
+name, by abbreviation, by another name, and refusing the namesake far away.
 
 ## Smaller additions
 
