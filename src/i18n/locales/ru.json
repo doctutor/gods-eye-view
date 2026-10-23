@@ -3834,5 +3834,11 @@
   "Outline an area by clicking its corners on the map": "Обведите область, щёлкая по её вершинам на карте",
   "UNDO": "ОТМЕНИТЬ",
   "FINISH": "ГОТОВО",
-  "CANCEL": "ОТМЕНА"
+  "CANCEL": "ОТМЕНА",
+  "PARCEL": "УЧАСТОК",
+  "Cut out the property parcel under the view centre": "Вырезать земельный участок в центре вида",
+  "Maryland parcels only": "Только участки Мэриленда",
+  "MD iMAP did not answer: try again": "MD iMAP не ответил: попробуйте ещё раз",
+  "No parcel at the view centre": "В центре вида нет участка",
+  "ADD PARCEL AT VIEW CENTRE": "ДОБАВИТЬ УЧАСТОК В ЦЕНТРЕ ВИДА"
 }

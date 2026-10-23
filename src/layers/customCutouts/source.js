@@ -4,8 +4,10 @@
  * these boundary-class answers 30 days on disk): is_in for the areas at a
  * point, then a relation's geometry by its area id. When Overpass is not
  * configured or fails, the bundled boundary packs (src/data/adminBoundaries.js:
- * countries, states and provinces, US counties) answer by name. Rings are
- * kept in memory for the page; the URL holds only sources.
+ * countries, states and provinces, US counties) answer by name. Maryland's
+ * property parcels come from the app's /api/parcels/md (MD iMAP, kept on
+ * disk there by parcel). Rings are kept in memory for the page; the URL
+ * holds only sources.
  */
 import {
   areasFromIsIn,
@@ -15,6 +17,13 @@ import {
   relationGeometryQuery,
   simplifyRings,
 } from '../../data/customCutouts.js';
+import {
+  MD_PARCELS_ROUTE,
+  inMaryland,
+  parcelName,
+  parcelSourceKey,
+  parseParcelSourceKey,
+} from '../../data/mdParcels.js';
 
 const unavailable = (answer) =>
   Boolean(answer && !Array.isArray(answer) && answer.unavailable);
@@ -35,12 +44,44 @@ const PACK_LEVELS = Object.freeze({ country: 2, state: 4, county: 6 });
 
 /**
  * @param {{boundaries: {query: Function},
- *   findAdminArea?: (query: string, options?: object) => Promise<object|null>}} options
+ *   findAdminArea?: (query: string, options?: object) => Promise<object|null>,
+ *   fetchImpl?: typeof fetch}} options
  *   `boundaries` is the app's Overpass transport (applicationServices.boundaries);
- *   `findAdminArea` the packs' name lookup.
+ *   `findAdminArea` the packs' name lookup; `fetchImpl` asks the parcels route.
  */
-export function createCutoutSource({ boundaries, findAdminArea = null }) {
+export function createCutoutSource({
+  boundaries,
+  findAdminArea = null,
+  fetchImpl = (...args) => fetch(...args),
+}) {
   const rings = new Map();
+
+  /** A parcel of the route's answer as an area with its rings. */
+  const parcelArea = (parcel) => ({
+    source: parcelSourceKey(parcel),
+    name: parcelName(parcel),
+    level: null,
+    kind: 'parcel',
+    acres: parcel.acres,
+    rings: simplifyRings(parcel.rings),
+  });
+
+  /** The parcels route: {parcels} or {failed}. */
+  async function parcels(query, signal) {
+    try {
+      const response = await fetchImpl(`${MD_PARCELS_ROUTE}?${query}`, {
+        signal,
+      });
+      if (!response.ok) return { failed: 'failed' };
+      const body = await response.json();
+      return Array.isArray(body?.parcels)
+        ? { parcels: body.parcels }
+        : { failed: 'failed' };
+    } catch (error) {
+      if (error?.name === 'AbortError') throw error;
+      return { failed: 'failed' };
+    }
+  }
 
   async function overpass(text, signal) {
     try {
@@ -92,6 +133,26 @@ export function createCutoutSource({ boundaries, findAdminArea = null }) {
       };
     },
 
+    /**
+     * The Maryland parcels under a point: {areas: [{source, name, kind:
+     * 'parcel', rings}], from: 'parcels'}, or {areas: [], from: 'none',
+     * reason} ('outside' | 'failed').
+     */
+    async parcelsAt(lat, lon, { signal } = {}) {
+      if (!inMaryland(lat, lon))
+        return { from: 'none', areas: [], reason: 'outside' };
+      const query = new URLSearchParams({
+        lat: Number(lat).toFixed(6),
+        lon: Number(lon).toFixed(6),
+      }).toString();
+      const answer = await parcels(query, signal);
+      if (!answer.parcels)
+        return { from: 'none', areas: [], reason: answer.failed };
+      const areas = answer.parcels.map(parcelArea);
+      for (const area of areas) rings.set(area.source, area);
+      return { from: 'parcels', areas };
+    },
+
     /** A pack's area named `query` (the fallback), as an area with its rings. */
     async packArea(query, { near = null } = {}) {
       const made = await fromPack(query, near);
@@ -118,6 +179,17 @@ export function createCutoutSource({ boundaries, findAdminArea = null }) {
         // the vertex budget by its cap).
         const ring = decodeDrawnRing(source);
         if (ring) cutout = { name: null, level: null, rings: [ring] };
+      } else if (parseParcelSourceKey(source)) {
+        const key = parseParcelSourceKey(source);
+        const answer = await parcels(
+          new URLSearchParams(key).toString(),
+          signal,
+        );
+        const parcel = answer.parcels?.[0];
+        if (parcel) {
+          const area = parcelArea(parcel);
+          cutout = { name: area.name, level: null, rings: area.rings };
+        }
       }
       if (cutout) rings.set(source, cutout);
       return cutout;

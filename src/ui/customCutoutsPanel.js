@@ -4,7 +4,8 @@
  *
  * - The plate: BLACK or WHITE under the cut Google 3D tiles.
  * - ADD AT VIEW CENTRE lists the administrative areas under the middle of
- *   the view (Overpass is_in), most local first; FIND does the same for a
+ *   the view (Overpass is_in), most local first; ADD PARCEL AT VIEW CENTRE
+ *   the property parcel there (Maryland only, MD iMAP); FIND does the same for a
  *   typed place through the search box's geocoder, falling back to the
  *   bundled boundary packs by name.
  * - DRAW outlines an area by its corners clicked on the map (UNDO, FINISH,
@@ -52,11 +53,27 @@ export function statusText(view) {
 export const levelTag = (level) =>
   Number.isInteger(level) ? t('L{level}', { level }) : '';
 
-/** A listed cutout's tag: DRAWN for a drawn one, else its level. */
-export const cutoutTag = (cutout) =>
-  String(cutout.source || '').startsWith('draw:')
-    ? t('DRAWN', { context: 'cutout drawn on the map' })
-    : levelTag(cutout.level);
+/**
+ * A cutout's or an area's tag: DRAWN for an outline drawn on the map,
+ * PARCEL for a Maryland parcel, else its level.
+ */
+export function cutoutTag(entry) {
+  const source = String(entry?.source || '');
+  if (source.startsWith('draw:'))
+    return t('DRAWN', { context: 'cutout drawn on the map' });
+  if (source.startsWith('mdp:')) return t('PARCEL');
+  return levelTag(entry?.level);
+}
+
+/** The parcels button: enabled with the view centre in Maryland, else why not. */
+export function parcelButtonState(view) {
+  return view.parcelsHere
+    ? {
+        disabled: false,
+        title: t('Cut out the property parcel under the view centre'),
+      }
+    : { disabled: true, title: t('Maryland parcels only') };
+}
 
 /** What the draw line says: the corners so far, or why it stopped. */
 export function drawText(draw) {
@@ -109,6 +126,12 @@ export function lookupText(answer) {
   }
   if (answer.reason === 'unconfigured')
     return t('No Overpass configured: add by name from the bundled boundaries');
+  if (answer.kind === 'parcels') {
+    if (answer.reason === 'outside') return t('Maryland parcels only');
+    if (answer.reason === 'failed')
+      return t('MD iMAP did not answer: try again');
+    return t('No parcel at the view centre');
+  }
   if (answer.reason === 'failed')
     return t('Overpass did not answer: try again, or add by name');
   return t('No administrative area found');
@@ -158,6 +181,13 @@ export function createCustomCutoutsPanel(container, { layer }) {
   const add = el('div', 'cutouts-add');
   const atView = el('button', 'panel-layer-toggle', t('ADD AT VIEW CENTRE'));
   atView.type = 'button';
+  const parcelAt = el(
+    'button',
+    'panel-layer-toggle',
+    t('ADD PARCEL AT VIEW CENTRE'),
+  );
+  parcelAt.type = 'button';
+  const parcelNote = el('div', 'cutouts-note');
   const form = el('form', 'cutouts-find');
   const input = el('input');
   input.type = 'search';
@@ -167,7 +197,7 @@ export function createCustomCutoutsPanel(container, { layer }) {
   find.type = 'submit';
   form.append(input, find);
   const candidates = el('div', 'cutouts-areas');
-  add.append(atView, form, candidates);
+  add.append(atView, parcelAt, parcelNote, form, candidates);
 
   const draw = el('div', 'cutouts-draw');
   const drawButton = el('button', 'panel-layer-toggle', t('DRAW'));
@@ -208,7 +238,14 @@ export function createCustomCutoutsPanel(container, { layer }) {
       const answer =
         kind === 'view'
           ? await layer.areasAtView({ signal: controller.signal })
-          : await layer.areasByName(input.value, { signal: controller.signal });
+          : kind === 'parcel'
+            ? {
+                kind: 'parcels',
+                ...(await layer.parcelsAtView({ signal: controller.signal })),
+              }
+            : await layer.areasByName(input.value, {
+                signal: controller.signal,
+              });
       if (lookup !== controller) return;
       areas = { ...answer, note: lookupText(answer) };
     } catch (error) {
@@ -218,6 +255,7 @@ export function createCustomCutoutsPanel(container, { layer }) {
     renderAreas();
   }
   atView.addEventListener('click', () => runLookup('view'));
+  parcelAt.addEventListener('click', () => runLookup('parcel'));
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     if (input.value.trim()) runLookup('name');
@@ -230,7 +268,7 @@ export function createCustomCutoutsPanel(container, { layer }) {
     for (const area of areas.areas) {
       const row = el('div', 'cutouts-area');
       row.append(
-        el('span', 'cutouts-level', levelTag(area.level)),
+        el('span', 'cutouts-level', cutoutTag(area)),
         el('span', 'cutouts-name', area.name),
       );
       const button = el(
@@ -325,6 +363,11 @@ export function createCustomCutoutsPanel(container, { layer }) {
     finish.disabled = (view.draw?.count || 0) < 3;
     drawNote.textContent = drawText(view.draw);
     drawNote.hidden = !drawNote.textContent;
+    const parcels = parcelButtonState(view);
+    parcelAt.disabled = parcels.disabled;
+    parcelAt.title = parcels.title;
+    parcelNote.textContent = parcels.disabled ? parcels.title : '';
+    parcelNote.hidden = !parcels.disabled;
     renderList(view);
     renderAreas();
     // First appearance opens it, unless a collapse choice was restored.

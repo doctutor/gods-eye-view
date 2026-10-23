@@ -45,6 +45,8 @@ import { overtureProxy } from './overture.js';
 import { overtureRoadsProxy } from './overtureRoads.js';
 // Personal fork: the Property sales layer (realestatedataset.com records).
 import { propertyProxy } from './property.js';
+// Personal fork: Maryland's parcels for the Custom cutouts layer.
+import { mdParcelsProxy } from './mdParcels.js';
 // Personal fork: raster values (numbers, not tiles) for the Lego mode.
 import { rasterValuesProxy } from './rasterValues.js';
 import { keySetupEndpoint } from '../standalone/key-setup.js';
@@ -99,6 +101,7 @@ function localProviderPlugins({ realtime } = {}) {
     overtureRoadsProxy({ sourceRoot: defaultSourceRoot }),
     propertyProxy({ sourceRoot: defaultSourceRoot }),
     rasterValuesProxy({ sourceRoot: defaultSourceRoot }),
+    mdParcelsProxy({ sourceRoot: defaultSourceRoot }),
     firePerimetersProxy(),
     gnssIntegrityProxy(),
     keySetupEndpoint(),

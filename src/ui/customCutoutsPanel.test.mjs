@@ -8,6 +8,7 @@ import {
   drawText,
   levelTag,
   lookupText,
+  parcelButtonState,
   rowStatus,
   statusText,
 } from './customCutoutsPanel.js';
@@ -59,4 +60,36 @@ test('drawing: the DRAWN tag, the corner count, and why a corner or a finish was
   );
   assert.match(drawText({ reason: 'full' }), /holds 12 cutouts/);
   assert.match(drawText({ reason: 'pointer' }), /is using the pointer/);
+});
+
+test('the parcels button: enabled in Maryland, else one line why; a parcel’s tag reads PARCEL', () => {
+  assert.deepEqual(parcelButtonState({ parcelsHere: true }), {
+    disabled: false,
+    title: 'Cut out the property parcel under the view centre',
+  });
+  assert.deepEqual(parcelButtonState({ parcelsHere: false }), {
+    disabled: true,
+    title: 'Maryland parcels only',
+  });
+  assert.equal(
+    cutoutTag({ source: 'mdp:BACI-0327665082_008A', level: null }),
+    'PARCEL',
+  );
+  assert.equal(cutoutTag({ source: 'osm:133345', level: 6 }), 'L6');
+  assert.equal(
+    lookupText({ kind: 'parcels', from: 'parcels', areas: [{}] }),
+    '',
+  );
+  assert.equal(
+    lookupText({ kind: 'parcels', areas: [], reason: 'outside' }),
+    'Maryland parcels only',
+  );
+  assert.match(
+    lookupText({ kind: 'parcels', areas: [], reason: 'failed' }),
+    /MD iMAP/,
+  );
+  assert.match(
+    lookupText({ kind: 'parcels', from: 'parcels', areas: [] }),
+    /No parcel/,
+  );
 });

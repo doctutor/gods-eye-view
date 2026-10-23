@@ -11,7 +11,12 @@ import {
   decodeCutoutsParam,
   encodeCutoutsParam,
 } from './store.js';
-import { CUSTOM_CUTOUTS_LAYER_ID, createCustomCutoutsLayer } from './index.js';
+import {
+  CUSTOM_CUTOUTS_LAYER_ID,
+  MD_PARCELS_CREDIT,
+  createCustomCutoutsLayer,
+} from './index.js';
+import fs from 'node:fs';
 
 const square = (lon, lat, d) => [
   { lon, lat },
@@ -369,4 +374,116 @@ test('the store and its URL value round-trip', () => {
   store.reset();
   assert.equal(store.get().cutouts.length, 0);
   assert.equal(store.get().plate, 'white', 'reset keeps the plate');
+});
+
+test('a Maryland parcel: the lot under the view centre, tagged a parcel, credited, and fetched again by key after a reload', async () => {
+  const sycamore = JSON.parse(
+    fs.readFileSync(
+      new URL(
+        '../../data/fixtures/md-parcel-6204-sycamore.json',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  );
+  const parcel = {
+    acctid: '0327665082 008A',
+    jurscode: 'BACI',
+    address: '6204 SYCAMORE RD',
+    acres: 1.33,
+    rings: [sycamore.features[0].geometry.coordinates[0]],
+  };
+  const asked = [];
+  const fetchImpl = async (url) => {
+    asked.push(String(url));
+    return new Response(JSON.stringify({ parcels: [parcel] }), { status: 200 });
+  };
+  const toRadians = (d) => (d * Math.PI) / 180;
+  const moved = new Set();
+  const viewer = {
+    scene: {},
+    camera: {
+      positionCartographic: {
+        latitude: toRadians(39.3699327),
+        longitude: toRadians(-76.6131013),
+      },
+      moveEnd: {
+        addEventListener: (fn) => (moved.add(fn), () => moved.delete(fn)),
+      },
+    },
+  };
+  const cesium = {
+    ...fakeCesium,
+    Math: { toDegrees: (r) => (r * 180) / Math.PI },
+  };
+  const registered = [];
+  const make = (initial) => {
+    const store = createCutoutStore({ initial });
+    const layer = createCustomCutoutsLayer({
+      store,
+      source: createCutoutSource({ boundaries: fakeOverpass(), fetchImpl }),
+      cesium,
+      clipping: fakeClipping(),
+      credits: { register: (_viewer, credit) => registered.push(credit.key) },
+      setTimeoutImpl: (fn) => fn(),
+    });
+    layer.init(viewer);
+    layer.attachMapStackController(fakeController());
+    layer.enable(viewer);
+    return { store, layer };
+  };
+  const { store, layer } = make({
+    enabled: false,
+    plate: 'black',
+    cutouts: [],
+  });
+  assert.equal(layer.view().parcelsHere, true, 'Baltimore is in Maryland');
+  const answer = await layer.parcelsAtView();
+  assert.equal(answer.from, 'parcels');
+  assert.deepEqual(
+    answer.areas.map((a) => [a.source, a.name, a.kind, a.rings[0].length]),
+    [['mdp:BACI-0327665082_008A', '6204 Sycamore Rd', 'parcel', 10]],
+  );
+  assert.match(
+    asked[0],
+    /^\/api\/parcels\/md\?lat=39\.369933&lon=-76\.613101$/,
+  );
+  layer.add(answer.areas[0]);
+  await settle();
+  assert.equal(layer.view().cutouts[0].status, 'ready');
+  assert.equal(layer.view().cutouts[0].vertices, 10);
+  assert.ok(registered.includes(MD_PARCELS_CREDIT.key));
+  assert.match(MD_PARCELS_CREDIT.html, /MD iMAP, MDP, SDAT/);
+  assert.equal(asked.length, 1, 'the rings came with the lookup');
+  // Out of Maryland: the button says so after the camera settles.
+  let told = 0;
+  layer.onChange(() => told++);
+  viewer.camera.positionCartographic = {
+    latitude: toRadians(40.71),
+    longitude: toRadians(-74.0),
+  };
+  for (const fn of moved) fn();
+  assert.equal(layer.view().parcelsHere, false);
+  assert.ok(told >= 1);
+  assert.deepEqual(await layer.parcelsAtView(), {
+    from: 'none',
+    areas: [],
+    reason: 'outside',
+  });
+  assert.equal(asked.length, 1, 'outside Maryland asks nothing');
+  // A reload: the URL brings the key back, and the rings come by key.
+  const reloaded = make(decodeCutoutsParam(encodeCutoutsParam(store.get())));
+  await settle();
+  assert.match(
+    asked.at(-1),
+    /^\/api\/parcels\/md\?jurscode=BACI&acctid=0327665082\+008A$/,
+  );
+  assert.equal(reloaded.layer.view().cutouts[0].status, 'ready');
+  assert.equal(reloaded.layer.view().cutouts[0].name, '6204 Sycamore Rd');
+  layer.disable();
+  assert.equal(
+    moved.size,
+    1,
+    'the first layer stopped listening; the reloaded one listens',
+  );
 });

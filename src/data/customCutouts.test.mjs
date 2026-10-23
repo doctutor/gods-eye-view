@@ -31,6 +31,7 @@ import {
   updateCutout,
   visibleRings,
 } from './customCutouts.js';
+import { parcelSourceKey, parseParcelSourceKey } from './mdParcels.js';
 import {
   isOverpassBoundaryQuery,
   sanitizeOverpassBody,
@@ -471,4 +472,68 @@ test('crossing rings are caught; a ring drawn either way round clips the same', 
     new Set(square.map(String)),
     'the same corners',
   );
+});
+
+test('all four kinds in one list round-trip through the cc token; no kind reads as another, none holds a separator', () => {
+  const ring = [
+    [-76.6132, 39.3701],
+    [-76.6129, 39.3701],
+    [-76.613, 39.3698],
+  ];
+  const drawn = encodeDrawnRing(ring);
+  const parcel = parcelSourceKey({
+    jurscode: 'BACI',
+    acctid: '0327665082 008A',
+  });
+  assert.equal(parcel, 'mdp:BACI-0327665082_008A');
+  let cutouts = [];
+  for (const [source, name] of [
+    ['osm:133345', 'Baltimore'],
+    ['pack:baltimore-city', 'Baltimore city'],
+    [parcel, '6204 SYCAMORE RD'],
+    [drawn, 'Drawn 1'],
+  ])
+    cutouts = addCutout(cutouts, { source, name });
+  assert.equal(cutouts.length, 4, 'every kind accepted');
+  cutouts = updateCutout(cutouts, parcel, { visible: false });
+  const token = encodeCutouts({ plate: 'white', cutouts });
+  assert.equal(
+    token,
+    `white~osm:133345*Baltimore~pack:baltimore-city*Baltimore%20city~${parcel}!6204%20SYCAMORE%20RD~${drawn}*Drawn%201`,
+  );
+  const back = decodeCutouts(token);
+  assert.equal(back.plate, 'white');
+  assert.deepEqual(
+    back.cutouts.map((c) => [c.source, c.name, c.visible, c.rings]),
+    [
+      ['osm:133345', 'Baltimore', true, null],
+      ['pack:baltimore-city', 'Baltimore city', true, null],
+      [parcel, '6204 SYCAMORE RD', false, null],
+      [drawn, 'Drawn 1', true, [ring]],
+    ],
+    'fetched kinds come back to fetch; the drawn ring from its key',
+  );
+  assert.equal(encodeCutouts(back), token, 'and out again the same');
+
+  // A key of one kind never reads as another.
+  assert.equal(parseParcelSourceKey(drawn), null);
+  assert.equal(decodeDrawnRing(parcel), null);
+  assert.equal(isCutoutSource('draw:BACI-0327665082_008A'), true);
+  assert.equal(parseParcelSourceKey('draw:BACI-0327665082_008A'), null);
+  assert.equal(isCutoutSource('mdp:AbC-x'), false, 'jurscode is capitals');
+  assert.equal(isCutoutSource('mdp:BACI-a-b'), false, 'one dash only');
+  // No pattern lets a separator in, wherever it is put.
+  for (const pattern of CUTOUT_SOURCE_PATTERNS) {
+    const whole = new RegExp(`^(?:${pattern})$`);
+    for (const key of ['osm:1', 'pack:a', parcel, drawn]) {
+      if (!whole.test(key)) continue;
+      for (const separator of ['~', '*', '!'])
+        for (const at of [key.indexOf(':') + 1, key.length - 1, key.length])
+          assert.equal(
+            whole.test(key.slice(0, at) + separator + key.slice(at)),
+            false,
+            `${pattern} with ${separator} in ${key}`,
+          );
+    }
+  }
 });

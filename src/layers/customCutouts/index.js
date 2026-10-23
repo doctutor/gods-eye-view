@@ -16,6 +16,7 @@ import {
   nextDrawnName,
   visibleRings,
 } from '../../data/customCutouts.js';
+import { MD_PARCELS_CREDIT_TEXT, inMaryland } from '../../data/mdParcels.js';
 import { createCutoutClipping } from './clipping.js';
 import { createCutoutDrawer } from './drawInput.js';
 
@@ -27,6 +28,12 @@ const PLATE_RGB = Object.freeze({ black: [0, 0, 0], white: [1, 1, 1] });
 export const CUTOUTS_CREDIT = Object.freeze({
   key: 'custom-cutouts',
   html: 'Custom cutouts: boundaries © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors (ODbL), through the local Overpass API',
+});
+
+/** Popover credit while a Maryland parcel is drawn. */
+export const MD_PARCELS_CREDIT = Object.freeze({
+  key: 'custom-cutouts-md-parcels',
+  html: `Custom cutouts: Maryland parcels from <a href="https://imap.maryland.gov" target="_blank" rel="noopener">${MD_PARCELS_CREDIT_TEXT}</a> (Parcel Boundaries)`,
 });
 
 /**
@@ -56,6 +63,9 @@ export function createCustomCutoutsLayer({
   let unsubscribeStore = null;
   let enabled = false;
   let rowListener = null;
+  /** The camera's moveEnd subscription, and whether the centre was in Maryland. */
+  let offMove = null;
+  let parcelsHere = false;
   /** source -> 'loading' | 'failed' */
   const loading = new Map();
   /** Why nothing is cut now, for the panel ('' when cutting). */
@@ -112,6 +122,12 @@ export function createCustomCutoutsLayer({
       controller?.setPlate?.(plateColor(state.plate));
       osmCredit?.show(viewer);
       credits?.register?.(viewer, CUTOUTS_CREDIT);
+      if (
+        state.cutouts.some(
+          (c) => c.visible && c.rings && c.source.startsWith('mdp:'),
+        )
+      )
+        credits?.register?.(viewer, MD_PARCELS_CREDIT);
     }
     requestRender('custom-cutouts');
     if (next !== reason) {
@@ -221,6 +237,20 @@ export function createCustomCutoutsLayer({
     return { ...now, reason: now.reason || drawNote };
   };
 
+  /** Whether the middle of the view is in Maryland (its parcels can be cut). */
+  function centreInMaryland() {
+    const centre = viewCentre();
+    return Boolean(centre && inMaryland(centre.lat, centre.lon));
+  }
+
+  /** After a camera move: tell the panel when the parcels button changes. */
+  function onMove() {
+    const next = centreInMaryland();
+    if (next === parcelsHere) return;
+    parcelsHere = next;
+    notify();
+  }
+
   const layer = {
     id: CUSTOM_CUTOUTS_LAYER_ID,
     name: 'Custom cutouts',
@@ -237,6 +267,14 @@ export function createCustomCutoutsLayer({
       enabled = true;
       unsubscribeStore ||= store.subscribe(onStore);
       store.setEnabled(true);
+      if (!offMove && viewer?.camera?.moveEnd?.addEventListener) {
+        const off = viewer.camera.moveEnd.addEventListener(onMove);
+        offMove =
+          typeof off === 'function'
+            ? off
+            : () => viewer?.camera?.moveEnd?.removeEventListener?.(onMove);
+      }
+      parcelsHere = centreInMaryland();
       fetchMissing();
       sync();
       notify();
@@ -246,6 +284,8 @@ export function createCustomCutoutsLayer({
       drawer?.stop();
       drawNote = '';
       enabled = false;
+      offMove?.();
+      offMove = null;
       store.setEnabled(false);
       sync();
       notify();
@@ -316,6 +356,7 @@ export function createCustomCutoutsLayer({
         enabled,
         plate: state.plate,
         reason,
+        parcelsHere,
         cutouts: state.cutouts.map((cutout) => ({
           source: cutout.source,
           name: cutout.name,
@@ -340,6 +381,12 @@ export function createCustomCutoutsLayer({
       const centre = viewCentre();
       if (!centre) return { areas: [], from: 'none' };
       return source.areasAt(centre.lat, centre.lon, { signal });
+    },
+    /** The Maryland parcels under the middle of the view (MD iMAP). */
+    async parcelsAtView({ signal } = {}) {
+      const centre = viewCentre();
+      if (!centre) return { areas: [], from: 'none', reason: 'outside' };
+      return source.parcelsAt(centre.lat, centre.lon, { signal });
     },
     /**
      * A place's areas by name, through the search box's geocoder: the

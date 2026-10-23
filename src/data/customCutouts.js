@@ -1,8 +1,9 @@
 /**
  * Personal fork: the Custom cutouts layer's model (src/layers/customCutouts/).
  * A cutout is a boundary the Google 3D tiles are clipped to: an OpenStreetMap
- * administrative relation (from the local Overpass) or a bundled pack's
- * polygon, simplified to a vertex budget so the clipping stays cheap. This
+ * administrative relation (from the local Overpass), a bundled pack's
+ * polygon or a Maryland parcel, simplified to a vertex budget so the
+ * clipping stays cheap, or a ring drawn on the map, carried in its key. This
  * module is pure: the Overpass queries and their parsing, the ring
  * simplification, the list operations and the compact URL form. Nothing here
  * imports Cesium.
@@ -12,6 +13,7 @@ import {
   douglasPeucker,
   ringAreaM2,
 } from '../sources/featureGeometry.js';
+import { MD_PARCEL_SOURCE_PATTERN } from './mdParcels.js';
 
 /** OSM area ids of relations: the relation id plus this. */
 export const OSM_AREA_OFFSET = 3_600_000_000;
@@ -164,11 +166,16 @@ export function cutoutFromRelationGeometry(
  * may hold the `cc` separators `~ * !`. Add a source with one line here.
  * - `osm:` an OpenStreetMap relation (rings fetched from Overpass);
  * - `pack:` a bundled boundary pack's area, by its folded name;
+ * - `mdp:<JURSCODE>-<ACCTID>` a Maryland parcel (src/data/mdParcels.js),
+ *   the account id's spaces as `_`;
  * - `draw:` a hand-drawn ring, carried in the key itself (encodeDrawnRing).
+ * Each starts with its own prefix and the patterns are matched whole, so no
+ * key of one kind reads as another.
  */
 export const CUTOUT_SOURCE_PATTERNS = Object.freeze([
   'osm:\\d+',
   'pack:[\\w.-]+',
+  MD_PARCEL_SOURCE_PATTERN,
   'draw:[A-Za-z0-9_-]+',
 ]);
 const SOURCE = `(?:${CUTOUT_SOURCE_PATTERNS.join('|')})`;
