@@ -62,6 +62,20 @@ test('the report: answering with its dates, or not answering', () => {
     '  areas: not built yet (is_in answers nothing until the first rules pass ends)',
     '  rate limit 8, 7 slots free, 1 running',
   ]);
+  // A clone without metadata keeps no areas date; the is_in answer is the proof.
+  const dateless = summarize({
+    url: 'http://localhost:12345/api',
+    status: parseStatusText(STATUS),
+    base: '2026-10-20T11:00:00Z',
+    areas: null,
+    areasPresent: true,
+    container: { state: 'running', health: 'healthy' },
+    now,
+  });
+  assert.equal(
+    dateless[2],
+    '  areas: present (is_in answers; a clone without metadata keeps no areas date)',
+  );
   const down = summarize({
     url: 'http://localhost:12345/api',
     error: 'ECONNREFUSED',

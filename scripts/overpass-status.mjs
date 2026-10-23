@@ -182,6 +182,7 @@ export function summarize({
   status,
   base,
   areas,
+  areasPresent = false,
   container,
   lastLog,
   error,
@@ -208,7 +209,9 @@ export function summarize({
     lines.push(
       areas
         ? `  areas as of ${areas}${areaAge ? ` (${areaAge} old)` : ''}`
-        : '  areas: not built yet (is_in answers nothing until the first rules pass ends)',
+        : areasPresent
+          ? '  areas: present (is_in answers; a clone without metadata keeps no areas date)'
+          : '  areas: not built yet (is_in answers nothing until the first rules pass ends)',
     );
     if (status?.rateLimit !== null && status?.rateLimit !== undefined)
       lines.push(
@@ -282,6 +285,11 @@ async function main() {
       '[out:json][timeout:10];is_in(51.5,-0.12);out ids;',
     );
     found.areas = area?.osm3s?.timestamp_areas_base || null;
+    // A clone without metadata never writes that date, so the answer itself
+    // is the proof: London lies in several administrative areas.
+    found.areasPresent =
+      Boolean(found.areas) ||
+      (Array.isArray(area?.elements) && area.elements.length > 0);
   } catch (error) {
     found.error = error?.cause?.code || error?.message || String(error);
   }
