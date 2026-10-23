@@ -3817,5 +3817,11 @@
   "Delete this cutout": "Удалить этот вырез",
   "Custom cutouts": "Свои вырезы",
   "CUSTOM CUTOUTS": "СВОИ ВЫРЕЗЫ",
-  "Cutouts in the list": "Вырезы в списке"
+  "Cutouts in the list": "Вырезы в списке",
+  "PARCEL": "УЧАСТОК",
+  "Cut out the property parcel under the view centre": "Вырезать земельный участок в центре вида",
+  "Maryland parcels only": "Только участки Мэриленда",
+  "MD iMAP did not answer: try again": "MD iMAP не ответил: попробуйте ещё раз",
+  "No parcel at the view centre": "В центре вида нет участка",
+  "ADD PARCEL AT VIEW CENTRE": "ДОБАВИТЬ УЧАСТОК В ЦЕНТРЕ ВИДА"
 }

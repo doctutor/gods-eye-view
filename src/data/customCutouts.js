@@ -12,6 +12,7 @@ import {
   douglasPeucker,
   ringAreaM2,
 } from '../sources/featureGeometry.js';
+import { MD_PARCEL_SOURCE_PATTERN } from './mdParcels.js';
 
 /** OSM area ids of relations: the relation id plus this. */
 export const OSM_AREA_OFFSET = 3_600_000_000;
@@ -159,8 +160,25 @@ export function cutoutFromRelationGeometry(
 // ── The list ────────────────────────────────────────────────────────────
 
 /**
- * A cutout's source key: `osm:<relation id>` or `pack:<key>`, the identity
- * the list and the URL keep (the rings are fetched again from it).
+ * The source keys a cutout may have, one pattern per kind: `osm:<relation
+ * id>`, `pack:<key>`, `mdp:<JURSCODE>-<ACCTID>` (a Maryland parcel,
+ * src/data/mdParcels.js). None holds `*`, `!` or `~` (the URL's separators).
+ * A new kind is one line here.
+ */
+export const CUTOUT_SOURCE_PATTERNS = Object.freeze([
+  'osm:\\d+',
+  'pack:[\\w.-]+',
+  MD_PARCEL_SOURCE_PATTERN,
+]);
+const SOURCE_ALTERNATIVES = CUTOUT_SOURCE_PATTERNS.join('|');
+const SOURCE_RE = new RegExp(`^(?:${SOURCE_ALTERNATIVES})$`);
+const URL_PART_RE = new RegExp(`^(${SOURCE_ALTERNATIVES})([*!])(.*)$`);
+/** Whether a string is a cutout source key of a known kind. */
+export const isCutoutSource = (source) => SOURCE_RE.test(String(source ?? ''));
+
+/**
+ * A cutout's source key (one of CUTOUT_SOURCE_PATTERNS), the identity the
+ * list and the URL keep (the rings are fetched again from it).
  */
 export const cutoutKey = (cutout) => String(cutout?.source || '');
 
@@ -173,7 +191,7 @@ const cleanName = (name) =>
 /** A list with `cutout` added (or, already there, shown again). */
 export function addCutout(list, cutout) {
   const source = cutoutKey(cutout);
-  if (!/^(osm:\d+|pack:[\w.-]+)$/.test(source)) return list;
+  if (!isCutoutSource(source)) return list;
   const existing = list.find((entry) => entry.source === source);
   if (existing)
     return list.map((entry) =>
@@ -245,7 +263,7 @@ export function decodeCutouts(token) {
   const plate = PLATES.includes(parts[0]) ? parts[0] : 'black';
   let cutouts = [];
   for (const part of parts.slice(1)) {
-    const match = /^(osm:\d+|pack:[\w.-]+)([*!])(.*)$/.exec(part);
+    const match = URL_PART_RE.exec(part);
     if (!match) continue;
     let name = match[3];
     try {
