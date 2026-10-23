@@ -200,6 +200,7 @@
     .cctv-panel-inner,
     .weather-panel-inner,
     .recent-imagery-panel-inner,
+    .custom-cutouts-panel-inner,
     .street-level-panel-inner,
     .scene-panel-inner,
     .global-context-panel-inner,
@@ -221,6 +222,7 @@
     .cctv-panel-inner,
     .weather-panel-inner,
     .recent-imagery-panel-inner,
+    .custom-cutouts-panel-inner,
     .street-level-panel-inner,
     .scene-panel-inner,
     .global-context-panel-inner,
@@ -243,6 +245,7 @@
     .cctv-panel-inner,
     .weather-panel-inner,
     .recent-imagery-panel-inner,
+    .custom-cutouts-panel-inner,
     .street-level-panel-inner,
     .global-context-panel-inner
   ) {
@@ -258,6 +261,7 @@
     #cctv-panel,
     #weather-panel,
     #recent-imagery-panel,
+    #custom-cutouts-panel,
     #street-level-panel,
     #global-context-panel
   ).collapsed
@@ -265,6 +269,7 @@
     .cctv-panel-inner,
     .weather-panel-inner,
     .recent-imagery-panel-inner,
+    .custom-cutouts-panel-inner,
     .street-level-panel-inner,
     .global-context-panel-inner
   ) {
@@ -277,6 +282,7 @@
     #cctv-panel,
     #weather-panel,
     #recent-imagery-panel,
+    #custom-cutouts-panel,
     #street-level-panel,
     #global-context-panel
   ).collapsed
@@ -284,6 +290,7 @@
     .cctv-panel-inner,
     .weather-panel-inner,
     .recent-imagery-panel-inner,
+    .custom-cutouts-panel-inner,
     .street-level-panel-inner,
     .global-context-panel-inner
   )
@@ -303,6 +310,7 @@
     .cctv-panel-inner,
     .weather-panel-inner,
     .recent-imagery-panel-inner,
+    .custom-cutouts-panel-inner,
     .street-level-panel-inner,
     .scene-panel-inner,
     .global-context-panel-inner,
@@ -319,6 +327,7 @@
     .cctv-panel-inner,
     .weather-panel-inner,
     .recent-imagery-panel-inner,
+    .custom-cutouts-panel-inner,
     .street-level-panel-inner,
     .scene-panel-inner,
     .global-context-panel-inner,
@@ -343,6 +352,7 @@
     .cctv-panel-inner,
     .weather-panel-inner,
     .recent-imagery-panel-inner,
+    .custom-cutouts-panel-inner,
     .street-level-panel-inner,
     .scene-panel-inner,
     .global-context-panel-inner,
@@ -1733,6 +1743,7 @@
       #cctv-panel,
       #weather-panel,
       #recent-imagery-panel,
+      #custom-cutouts-panel,
       #street-level-panel,
       #global-context-panel
     ):not(.collapsed) {

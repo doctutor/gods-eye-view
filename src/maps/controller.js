@@ -74,6 +74,8 @@ export class MapSourceController {
     this._replacedTerrain = null;
     this._subscribers = new Set();
     this._destroyed = false;
+    /** Personal fork: the Custom cutouts layer's plate colour, or null. */
+    this._plate = null;
   }
 
   getStack(id) {
@@ -284,6 +286,54 @@ export class MapSourceController {
     this._showTileset(tileset);
     this.viewer.scene.globe.show = false;
     // Terrain is intentionally untouched while the globe is hidden.
+    this._applyPlate();
+  }
+
+  /**
+   * Personal fork: the Custom cutouts layer's plate (src/layers/customCutouts).
+   * While a colour is set and a 3D tileset is the active stack, the globe is
+   * shown under the tiles in that colour, so the tiles' clipped-away parts
+   * show a plain plate; draped overlays then host on the globe
+   * (resolveImageryHost prefers a shown globe) and lie on the plate around
+   * the cut pieces. null restores the stack as it was. Subscribers hear the
+   * change, as on a map switch, so overlays re-host.
+   * @param {object|null} color A Cesium.Color, or null.
+   */
+  setPlate(color) {
+    if (this._destroyed) return;
+    const next = color || null;
+    if (next === this._plate) return;
+    this._plate = next;
+    if (this._applyPlate()) {
+      this._requestRender('map-plate');
+      this._notifySubscribers();
+    }
+  }
+
+  /** Whether the plate shows now (a colour set and a 3D tileset active). */
+  hasPlate() {
+    return Boolean(this._plate && this._tilesetActive());
+  }
+
+  // A shown tileset, not the active id: mid-switch the id is still the
+  // stack before, and a globe stack hides every tileset.
+  _tilesetActive() {
+    return Boolean(this.getImageryHostTileset());
+  }
+
+  /** Show or hide the globe under an active tileset; true when it changed. */
+  _applyPlate() {
+    if (!this._tilesetActive()) return false;
+    const globe = this.viewer.scene.globe;
+    const before = globe.show;
+    if (this._plate) {
+      globe.show = true;
+      applyGlobeBaseColor(this.viewer, this._plate);
+    } else {
+      globe.show = false;
+      applyGlobeBaseColor(this.viewer, undefined);
+    }
+    return before !== globe.show || Boolean(this._plate);
   }
 
   _showTileset(active) {

@@ -99,7 +99,8 @@ const PANEL_GROUPS = [
     label: msg('Reference'),
     // Personal fork: Wikipedia (src/layers/wikipediaCoverage/), next to the
     // place names since its Articles mode is one dot per article.
-    ids: ['grid', 'localities', 'wikipedia-coverage'],
+    // Personal fork: Custom cutouts, the Google 3D tiles cut to boundaries.
+    ids: ['grid', 'localities', 'wikipedia-coverage', 'custom-cutouts'],
   },
   // Personal fork: Earth Engine overlays (src/data/earthEngineLayers.js).
   {

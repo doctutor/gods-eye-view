@@ -4,6 +4,8 @@ import {
   encodeColourScaleParam,
 } from './maps/colourScale.js';
 import { colourScales } from './maps/colourScaleStore.js';
+// Personal fork: the Custom cutouts layer's list and toggle (`cc`).
+import { CUTOUTS_PARAM, cutoutStore } from './layers/customCutouts/store.js';
 import * as Cesium from 'cesium';
 import { BLOOM_INTENSITY_DEFAULT, BLOOM_SCALE_VERSION } from './bloom.js';
 import {
@@ -159,6 +161,8 @@ export class ShareLinkManager {
     this._removeColourScales = colourScales().subscribe(() =>
       this._scheduleUpdate(),
     );
+    // Personal fork: so is a changed cutout list.
+    this._removeCutouts = cutoutStore().subscribe(() => this._scheduleUpdate());
   }
 
   /**
@@ -612,6 +616,10 @@ export class ShareLinkManager {
     const scales = encodeColourScaleParam(colourScales().snapshot());
     if (scales) params.set(COLOUR_SCALE_PARAM, scales);
     else params.delete(COLOUR_SCALE_PARAM);
+    // Personal fork: the Custom cutouts (src/layers/customCutouts/store.js).
+    const cutouts = cutoutStore().param();
+    if (cutouts) params.set(CUTOUTS_PARAM, cutouts);
+    else params.delete(CUTOUTS_PARAM);
     this._encodePanelStateParam(params, this._panelStateProvider?.());
     // Personal fork: the panel's Titles toggle, in the same `ui` param.
     if (this._titlesProvider) encodeTitlesParam(params, this._titlesProvider());
@@ -643,6 +651,8 @@ export class ShareLinkManager {
     this._destroyed = true;
     this._removeColourScales?.();
     this._removeColourScales = null;
+    this._removeCutouts?.();
+    this._removeCutouts = null;
     clearTimeout(this._debounceTimer);
     this._debounceTimer = null;
     this._removeCameraChanged?.();

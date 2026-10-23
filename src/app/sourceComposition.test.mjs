@@ -44,8 +44,8 @@ test('all acquisition sources may be absent, and enable fails before initializin
   // Census tracts and Inundation history since 2026-10-19), the Grid, the
   // Wikipedia layer (REFERENCE, moved, still one layer), Localities, Street
   // assets, Places, Roads and
-  // Property sales.
-  assert.equal(actual.layers.length, 58);
+  // Property sales, and Custom cutouts.
+  assert.equal(actual.layers.length, 59);
   const manager = new LayerLifecycle(
     {},
     { getSourceAvailability: actual.getSourceAvailability },
