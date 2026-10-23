@@ -41,6 +41,7 @@ unless its switch is set to `0`.
 - [Elevation: the DEM stack](#elevation-the-dem-stack)
 - [Raster values (for Lego mode)](#raster-values-for-lego-mode)
 - [Grid (REFERENCE)](#grid-reference)
+- [Custom cutouts (REFERENCE)](#custom-cutouts-reference)
 - [Wikipedia (REFERENCE)](#wikipedia-reference)
   - [Per capita](#per-capita)
 - [Localities (REFERENCE)](#localities-reference)
@@ -2596,6 +2597,135 @@ lines cross the view: 30°, 10°, 5°, 2°, 1°, 30', 10', 5', 1'.
       sixth order (Karney 2011). Round trips agree to the nanometre, and
       the Eiffel Tower gives Veness's published `31U DQ 48251 11932`. The
       100 km lettering is the WGS84 ("AA") scheme. There is no dependency.
+
+## Custom cutouts (REFERENCE)
+
+A cookie-cutter for Google's photorealistic 3D tiles. With the layer on and
+the Google 3D map active, the tiles are clipped to one or more boundaries
+(a city's limits, a neighbourhood), and everything outside them shows a
+plain plate. The plate is black or white, and the draped overlays
+(districts, rivers, localities) lie on it around the cut pieces. Each piece
+stands as a 3D "cookie" on the plate. With the layer off, or with every
+cutout hidden, the tiles are exactly as without it.
+
+**Using it.** Turn on Custom cutouts (REFERENCE, in the DATA LAYERS panel).
+The CUSTOM CUTOUTS panel opens in the right rail:
+
+- **PLATE: BLACK / WHITE** sets the colour under the cut tiles.
+- **ADD AT VIEW CENTRE** lists the administrative areas under the middle
+  of the view, most local first, with their OSM `admin_level` (L10 a
+  neighbourhood, L6 a US city or county, L4 a state). ADD puts one in the
+  list.
+- **FIND** takes a place name through the search box's geocoder, then lists
+  the areas at the place it finds, the one named like the query first.
+- **The list:**
+  - ◉/○ shows or hides a cutout;
+  - its name field renames it (Enter or leaving the field keeps the name,
+    Escape undoes the edit);
+  - × deletes it;
+  - RESET LIST empties the list (the plate and the toggle stay).
+  - A cutout whose boundary could not be fetched says NOT FOUND; a click on
+    it tries again.
+- **Needs Google 3D:** on any other map the layer changes nothing, and the
+  panel says to choose Google 3D.
+
+The user's test case is `map=photoreal` with Baltimore (relation 133345,
+`admin_level` 6) and Cedarcroft (relation 12744748, `admin_level` 10),
+both under 39.3699, −76.6131.
+
+**Where the boundaries come from.**
+
+1. **The local Overpass**, through the app's own proxy (`/api/overpass`,
+   so its sanitizer and cache apply):
+   - `is_in(lat,lon)` lists the areas at a point.
+   - Each area's geometry comes from
+     `area(3600000000 + id)->.a; rel(pivot.a); out geom;`. That is the
+     sanitizer's bounded pivot form: `relation(id)` on its own is refused as
+     unbounded.
+   - Both are boundary-class queries, kept 30 days in the proxy's disk
+     cache.
+   - The outer members' ways are stitched into closed rings
+     (`buildRingComponents`, `src/sources/featureGeometry.js`). Rings under
+     10,000 m² are dropped.
+   - Measured on 2026-10-23 at the test point:
+     - is_in took 25.8 s the first time after the clone, then 0.6 to 1.0 s.
+       The proxy waits 22 s for an upstream (`OVERPASS_TIMEOUT_MS`), so that
+       very first lookup can fail once; the panel's "try again" covers it.
+     - Baltimore's geometry was 0.8 s and gave 1 ring of 113 points.
+     - Cedarcroft's was 13 s cold and gave 1 ring of 46 points.
+2. **The bundled boundary packs**, when Overpass is not configured or does
+   not answer:
+   - FIND falls back to `findAdminArea` (`src/data/adminBoundaries.js`:
+     countries, states and provinces, US counties, "Baltimore city"
+     included).
+   - Such a cutout's key is its query, folded (`pack:baltimore-city`), so a
+     reload finds it again.
+   - ADD AT VIEW CENTRE has no pack fallback, because the packs answer only
+     by name.
+   - The neighbourhood polygons (`src/data/neighborhoodPolygons.js`) cover
+     San Francisco only, so they are not used.
+
+**Rendering.**
+
+- **Clipping:** a `ClippingPolygonCollection` (Cesium 1.138 here) with one
+  `ClippingPolygon` per outer ring, set on the Google tileset with
+  `inverse: true`. That keeps what is inside any polygon (a union).
+- **Inner rings (holes) are ignored** in this pass: a cutout covers its
+  outer boundary whole.
+- **Requires WebGL2** (`ClippingPolygonCollection.isSupported(scene)`).
+  Without it the tiles stay whole, and the panel says so.
+- **The vertex budget:** 400 points a cutout over all its rings
+  (`CUTOUT_VERTEX_BUDGET`). Douglas–Peucker's tolerance is raised by
+  bisection until the rings fit, and the bigger rings keep more. Clipping's
+  cost grows with the vertex count per fragment.
+- **Outlines:** a clipped tileset has no side walls, so each ring also gets
+  a 2 px outline on the ground (white on black, black on white). That reads
+  as the cut edge; there is no extruded wall.
+- **The plate:** `MapSourceController.setPlate(color)`, used only by this
+  layer.
+  - While a colour is set and a 3D tileset is the active stack, the globe
+    is shown under the tiles in that colour.
+  - Draped overlays then host on the globe (`resolveImageryHost` prefers a
+    shown globe) instead of on the tileset, so the clipping never cuts
+    them away.
+  - Set back to null, the stack is as before: globe hidden, overlays on the
+    tiles.
+  - The plate is the bare ellipsoid. Where a city's ground lies below the
+    ellipsoid (the geoid is some 33 m under it at Baltimore, so a harbour
+    is too), an opaque plate would cover it inside the cookie. So the
+    globe is clipped too, the other way round (`inverse: false`): it is cut
+    away inside the cutouts. Each piece then stands in its own hole in the
+    plate, never covered by it, slightly proud of the plate where the
+    ground is high and a little below its rim where the ground is low.
+- **No quota saving:** clipping hides tiles but does not stop them
+  streaming. Google 3D loads and bills the same tiles as without the layer.
+
+**State and the URL.**
+
+- The layer is local-only (never in `l=`). Its toggle, plate and list ride
+  in a hash parameter of their own, `cc`, e.g.
+  `cc=1.black~osm:133345*Baltimore~osm:12744748!Cedarcroft`:
+  - `1`/`0` is the toggle;
+  - `*` shows a cutout and `!` hides it;
+  - names are URI-encoded;
+  - rings are never stored.
+- A reload restores the list and turns the layer on, then fetches the rings
+  again (from the proxy's cache). The list holds at most 12 cutouts.
+- **Credit:** while cutouts are drawn, the on-screen "© OpenStreetMap"
+  credit shows, and the Data attribution popover lists the boundaries as
+  OpenStreetMap's (ODbL), through the local Overpass.
+
+**Not verified in a browser.** The checks here are unit tests:
+- the model (`src/data/customCutouts.test.mjs`);
+- the clipping against a tileset stub
+  (`src/layers/customCutouts/clipping.test.mjs`);
+- the layer, through the acceptance steps against stubs
+  (`src/layers/customCutouts/layer.test.mjs`);
+- the plate in the controller (`src/maps/controllerPlate.test.mjs`);
+- the panel's words (`src/ui/customCutoutsPanel.test.mjs`).
+
+The real Overpass answers above were parsed by the same code. The puppeteer
+harness needs the dev server, which is not run from a worktree here.
 
 ## Wikipedia (REFERENCE)
 

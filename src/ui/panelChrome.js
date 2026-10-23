@@ -28,6 +28,7 @@ const COCKPIT_ENTRY_COLLAPSE_PANEL_IDS = Object.freeze([
   'cctv-panel',
   'weather-panel',
   'recent-imagery-panel',
+  'custom-cutouts-panel',
   'street-level-panel',
   'scene-panel',
   'pp-toggles',
@@ -293,6 +294,7 @@ export class PanelChrome {
       'cctv-panel',
       'weather-panel',
       'recent-imagery-panel',
+      'custom-cutouts-panel',
       'street-level-panel',
       'global-context-panel',
     ].includes(panelEl?.id);
