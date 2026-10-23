@@ -10,6 +10,7 @@
 import {
   areasFromIsIn,
   cutoutFromRelationGeometry,
+  decodeDrawnRing,
   isInQuery,
   relationGeometryQuery,
   simplifyRings,
@@ -112,6 +113,11 @@ export function createCutoutSource({ boundaries, findAdminArea = null }) {
           cutout = { name: made.name, level: made.level, rings: made.rings };
       } else if (source.startsWith('pack:')) {
         cutout = await fromPack(packQuery(source.slice(5)), null);
+      } else if (source.startsWith('draw:')) {
+        // Drawn: the ring is the key itself, never simplified (it is within
+        // the vertex budget by its cap).
+        const ring = decodeDrawnRing(source);
+        if (ring) cutout = { name: null, level: null, rings: [ring] };
       }
       if (cutout) rings.set(source, cutout);
       return cutout;

@@ -3817,5 +3817,22 @@
   "Delete this cutout": "Удалить этот вырез",
   "Custom cutouts": "Свои вырезы",
   "CUSTOM CUTOUTS": "СВОИ ВЫРЕЗЫ",
-  "Cutouts in the list": "Вырезы в списке"
+  "Cutouts in the list": "Вырезы в списке",
+  "cutout drawn on the map|DRAWN": "НАРИСОВАН",
+  "An outline needs at least 3 corners": "Контуру нужно не меньше 3 вершин",
+  "The outline would cross itself: undo a corner or click elsewhere": "Контур пересечёт сам себя: отмените вершину или щёлкните в другом месте",
+  "{max} corners is the most a drawn cutout holds: finish or undo": "В нарисованном вырезе не больше {max} вершин: завершите или отмените",
+  "The list holds {max} cutouts: delete one to draw another": "В списке не больше {max} вырезов: удалите один, чтобы нарисовать другой",
+  "The map is not ready yet": "Карта ещё не готова",
+  "Click the corners on the map: {count} corners, Enter or the first corner finishes": {
+    "one": "Щёлкайте по вершинам на карте: {count} вершина; Enter или первая вершина завершает",
+    "few": "Щёлкайте по вершинам на карте: {count} вершины; Enter или первая вершина завершает",
+    "many": "Щёлкайте по вершинам на карте: {count} вершин; Enter или первая вершина завершает",
+    "other": "Щёлкайте по вершинам на карте: {count} вершины; Enter или первая вершина завершает"
+  },
+  "DRAW": "НАРИСОВАТЬ",
+  "Outline an area by clicking its corners on the map": "Обведите область, щёлкая по её вершинам на карте",
+  "UNDO": "ОТМЕНИТЬ",
+  "FINISH": "ГОТОВО",
+  "CANCEL": "ОТМЕНА"
 }

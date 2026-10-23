@@ -3,6 +3,7 @@ import {
   createCustomCutoutsLayer,
 } from '../../layers/customCutouts/index.js';
 import { createCutoutSource } from '../../layers/customCutouts/source.js';
+import { pickWorldFromScreen } from '../../annotations/annotationResolver.js';
 import { cutoutStore } from '../../layers/customCutouts/store.js';
 import { applicationServices } from '../../services/application.js';
 import { findAdminArea } from '../../data/adminBoundaries.js';
@@ -32,6 +33,8 @@ export function createApplicationCustomCutouts() {
       findAdminArea,
     }),
     placeSearch: defaultGeospatial,
+    // Corners drawn on the map land on Google's ground or roofs.
+    pickWorld: pickWorldFromScreen,
     requestRender: governorRequestRender,
     credits: { register: registerDynamicCredit },
     osmCredit: {

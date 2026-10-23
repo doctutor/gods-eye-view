@@ -1,19 +1,29 @@
 // Personal fork: the Custom cutouts model (src/data/customCutouts.js): the
 // Overpass queries pass the proxy's sanitizer, is_in and relation answers
 // become cutouts, rings fit the vertex budget, and the list and the URL
-// round-trip.
+// round-trip; drawn rings travel in their source key, crossing rings are
+// caught, and a ring's winding never matters.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  CUTOUT_SOURCE_PATTERNS,
   CUTOUT_VERTEX_BUDGET,
+  DRAW_MAX_VERTICES,
   MAX_CUTOUTS,
   OSM_AREA_OFFSET,
   addCutout,
   areasFromIsIn,
   cutoutFromRelationGeometry,
   decodeCutouts,
+  decodeDrawnRing,
   encodeCutouts,
+  encodeDrawnRing,
+  isCutoutSource,
+  nextDrawnName,
+  pathSelfIntersects,
+  ringSelfIntersects,
+  ringSignedArea,
   isInQuery,
   relationGeometryQuery,
   removeCutout,
@@ -287,4 +297,178 @@ test('the URL token: the plate, sources, visibility and names round-trip; rings 
     ['osm:1'],
   );
   assert.equal(decodeCutouts('pink').plate, 'black');
+});
+
+test('a drawn ring in its key: round-trips at 1e-6°, anywhere on Earth, URL-safe, capped', () => {
+  const lot = [
+    [-76.631234, 39.340123],
+    [-76.630988, 39.34013],
+    [-76.630981, 39.339877],
+    [-76.63123, 39.339871],
+  ];
+  const key = encodeDrawnRing(lot);
+  assert.match(key, /^draw:[A-Za-z0-9_-]+$/, 'no separator, nothing escaped');
+  const payload = key.slice('draw:'.length);
+  assert.equal(encodeURIComponent(payload), payload, 'nothing to escape');
+  assert.ok(key.length < 40, `${key.length} characters for a lot`);
+  assert.deepEqual(decodeDrawnRing(key), lot);
+  // All four quadrants, the poles and the antimeridian, and 1e-6 steps.
+  const far = [
+    [-179.999999, -89.999999],
+    [179.999999, 89.999999],
+    [0.000001, -0.000001],
+    [151.2093, -33.8688],
+    [-0.1276, 51.5072],
+  ];
+  assert.deepEqual(decodeDrawnRing(encodeDrawnRing(far)), far);
+  const rounded = decodeDrawnRing(
+    encodeDrawnRing([
+      [1.23456789, 2.98765432],
+      [2, 2],
+      [2, 3],
+    ]),
+  );
+  assert.deepEqual(rounded[0], [1.234568, 2.987654], 'kept to 1e-6°');
+
+  const many = (n) =>
+    Array.from({ length: n }, (_, i) => {
+      const a = (2 * Math.PI * i) / n;
+      return [-76.6 + 0.01 * Math.cos(a), 39.3 + 0.01 * Math.sin(a)];
+    });
+  const capped = encodeDrawnRing(many(DRAW_MAX_VERTICES));
+  assert.equal(decodeDrawnRing(capped).length, DRAW_MAX_VERTICES);
+  assert.ok(capped.length < 1200, `the cap is ${capped.length} characters`);
+  assert.equal(encodeDrawnRing(many(DRAW_MAX_VERTICES + 1)), null);
+  assert.equal(encodeDrawnRing(lot.slice(0, 2)), null, 'under 3 corners');
+  assert.equal(
+    encodeDrawnRing([
+      [0, 91],
+      [1, 1],
+      [2, 2],
+    ]),
+    null,
+  );
+  for (const bad of ['draw:', 'draw:A', 'draw:a*b', 'osm:1', 'draw:AAAA', ''])
+    assert.equal(decodeDrawnRing(bad), null, bad);
+  assert.ok(DRAW_MAX_VERTICES <= CUTOUT_VERTEX_BUDGET, 'never simplified');
+});
+
+test('the accepted source keys are one list; a drawn cutout round-trips through the cc token with its ring', () => {
+  assert.ok(Array.isArray(CUTOUT_SOURCE_PATTERNS));
+  for (const ok of ['osm:133345', 'pack:baltimore-cedarcroft', 'draw:AbC-_9'])
+    assert.equal(isCutoutSource(ok), true, ok);
+  for (const no of ['osm:x', 'draw:a~b', 'draw:a*b', 'draw:a!b', 'evil:1'])
+    assert.equal(isCutoutSource(no), false, no);
+
+  const ring = [
+    [-76.63, 39.34],
+    [-76.62, 39.34],
+    [-76.62, 39.33],
+  ];
+  const source = encodeDrawnRing(ring);
+  let cutouts = addCutout([], { source: 'osm:133345', name: 'Baltimore' });
+  cutouts = addCutout(cutouts, { source, name: 'Drawn 1' });
+  assert.deepEqual(cutouts[1].rings, [ring], 'decoded on the way in');
+  assert.equal(
+    addCutout(cutouts, { source: 'draw:AAAA', name: 'x' }),
+    cutouts,
+    'a drawn key that does not decode is refused',
+  );
+  const token = encodeCutouts({ plate: 'black', cutouts });
+  assert.equal(token, `black~osm:133345*Baltimore~${source}*Drawn%201`);
+  const back = decodeCutouts(token).cutouts;
+  assert.deepEqual(
+    back.map((c) => [c.source, c.name, c.visible, c.rings]),
+    [
+      ['osm:133345', 'Baltimore', true, null],
+      [source, 'Drawn 1', true, [ring]],
+    ],
+  );
+  assert.equal(nextDrawnName(back), 'Drawn 2');
+  assert.equal(nextDrawnName([]), 'Drawn 1');
+  assert.equal(
+    nextDrawnName([{ source: 'osm:1', name: 'Drawn 7' }]),
+    'Drawn 1',
+    'only drawn cutouts count',
+  );
+});
+
+test('crossing rings are caught; a ring drawn either way round clips the same', () => {
+  const square = [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [0, 1],
+  ];
+  const concave = [
+    [0, 0],
+    [4, 0],
+    [4, 4],
+    [2, 1],
+    [0, 4],
+  ];
+  assert.equal(ringSelfIntersects(square), false);
+  assert.equal(ringSelfIntersects(concave), false);
+  assert.equal(ringSelfIntersects(square.slice(0, 3)), false);
+  // A bow tie, a figure of eight, a corner on another edge, a spike, a line.
+  for (const crossing of [
+    [square[0], square[2], square[1], square[3]],
+    [
+      [0, 0],
+      [2, 2],
+      [2, 0],
+      [0, 2],
+      [-1, 1],
+    ],
+    [
+      [0, 0],
+      [2, 0],
+      [2, 2],
+      [1, 0],
+      [0, 2],
+    ],
+    [
+      [0, 0],
+      [2, 0],
+      [1, 0],
+      [1, 1],
+    ],
+    [
+      [0, 0],
+      [1, 0],
+      [2, 0],
+    ],
+  ])
+    assert.equal(ringSelfIntersects(crossing), true, JSON.stringify(crossing));
+  // Open: only the edges drawn so far.
+  assert.equal(
+    pathSelfIntersects([
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0.5, -1],
+    ]),
+    true,
+  );
+  assert.equal(
+    pathSelfIntersects([
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+    ]),
+    false,
+  );
+
+  assert.ok(ringSignedArea(square) > 0, 'counter-clockwise is positive');
+  const clockwise = [...square].reverse();
+  assert.ok(ringSignedArea(clockwise) < 0);
+  const one = visibleRings([{ visible: true, rings: [square] }]);
+  const other = visibleRings([{ visible: true, rings: [clockwise] }]);
+  assert.ok(ringSignedArea(one[0]) > 0 && ringSignedArea(other[0]) > 0);
+  assert.deepEqual(
+    new Set(other[0].map(String)),
+    new Set(square.map(String)),
+    'the same corners',
+  );
 });

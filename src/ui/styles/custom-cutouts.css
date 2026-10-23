@@ -125,6 +125,19 @@
   display: flex;
   gap: 6px;
 }
+.cutouts-draw {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cutouts-draw-controls {
+  display: flex;
+  gap: 6px;
+}
+.cutouts-draw-controls[hidden],
+.cutouts-draw .cutouts-note[hidden] {
+  display: none;
+}
 .cutouts-find input,
 .cutouts-name-input {
   flex: 1 1 auto;

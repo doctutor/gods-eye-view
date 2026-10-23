@@ -2633,6 +2633,45 @@ The user's test case is `map=photoreal` with Baltimore (relation 133345,
 `admin_level` 6) and Cedarcroft (relation 12744748, `admin_level` 10),
 both under 39.3699, −76.6131.
 
+**Drawing a cutout.** For an area no boundary has, such as a house lot,
+**DRAW** outlines it by its corners:
+
+- Each left click on the map adds a corner where it lands. The pick is the
+  app's depth-aware one (`pickWorldFromScreen`, as the annotation Draw tool
+  uses), so a corner sits on Google's ground or roof, not on the ellipsoid
+  under it.
+- The open outline is drawn live, with a dot at each corner; the first dot
+  is larger.
+- **UNDO** or Backspace takes the last corner back.
+- **FINISH**, Enter, or a click on the first corner (within 10 px) closes
+  it, from 3 corners.
+- **CANCEL** or Escape leaves draw mode with nothing added.
+- While drawing:
+  - the left button only places corners: it never starts a pan;
+  - right-drag pans, middle-drag tilts, and the wheel zooms;
+  - map clicks do nothing else (the tool holds the shared pointer), and the
+    Viewer's own entity click and double click are borrowed.
+- Every way out (finish, cancel, the layer off) gives the camera's input
+  lists, the clicks, the keys and the pointer back exactly as they were.
+- Backspace and Enter are left alone while a text field has the focus.
+- The new cutout is named "Drawn 1", "Drawn 2" and so on (one more than the
+  highest drawn number listed). It is renamed, hidden, shown and deleted
+  like the others, and its row's tag says DRAWN.
+- **A crossing outline is refused, not repaired.** A corner whose edge
+  would cross an earlier one is not added, and FINISH is refused when the
+  closing edge would cross. The panel says why in one line; a guess at
+  what was meant could cut the wrong lot. Edges folding back on each other
+  count as crossing.
+- **Winding does not matter:** every ring is turned counter-clockwise
+  before it is clipped, so a ring drawn either way round cuts the same.
+- **The cap is 200 corners** (`DRAW_MAX_VERTICES`), because the ring lives
+  in the URL. At the cap the panel says so; FINISH or UNDO goes on from
+  there.
+- A drawn ring is never simplified: the cap is below the 400-point vertex
+  budget.
+- The list's limit of 12 holds: with 12 cutouts listed, DRAW says to
+  delete one first.
+
 **Where the boundaries come from.**
 
 1. **The local Overpass**, through the app's own proxy (`/api/overpass`,
@@ -2708,7 +2747,22 @@ both under 39.3699, −76.6131.
   - `1`/`0` is the toggle;
   - `*` shows a cutout and `!` hides it;
   - names are URI-encoded;
-  - rings are never stored.
+  - fetched rings are never stored.
+- **A drawn cutout has no upstream, so its ring is its source key:**
+  `draw:` and the base64url, unpadded, of its corners.
+  - The corners are kept at 1e-6° (about 11 cm). Each latitude and
+    longitude is stored as its difference from the corner before, as a
+    zigzag varint.
+  - The alphabet is `A–Z a–z 0–9 - _`, so a key never holds the `cc`
+    separators `~ * !` or anything to escape.
+  - Measured with the code: a four-corner lot is 28 characters. 200 corners
+    on a circle of 0.01° radius (about 1 km) are 1,009, and of 1° radius
+    1,524. At most five bytes a value keep any 200-corner key below 2,700
+    characters.
+  - On a reload the ring is decoded from the key, with nothing to fetch.
+- The source keys the list accepts are one exported list,
+  `CUTOUT_SOURCE_PATTERNS` in `src/data/customCutouts.js`: `osm:`, `pack:`
+  and `draw:`. A new source adds one line there.
 - A reload restores the list and turns the layer on, then fetches the rings
   again (from the proxy's cache). The list holds at most 12 cutouts.
 - **Credit:** while cutouts are drawn, the on-screen "© OpenStreetMap"
@@ -2722,7 +2776,10 @@ both under 39.3699, −76.6131.
 - the layer, through the acceptance steps against stubs
   (`src/layers/customCutouts/layer.test.mjs`);
 - the plate in the controller (`src/maps/controllerPlate.test.mjs`);
-- the panel's words (`src/ui/customCutoutsPanel.test.mjs`).
+- the panel's words (`src/ui/customCutoutsPanel.test.mjs`);
+- drawing: the state machine, the scene input against stubbed picks, and
+  the camera, clicks, keys and pointer given back on every way out
+  (`src/layers/customCutouts/draw.test.mjs`).
 
 The real Overpass answers above were parsed by the same code. The puppeteer
 harness needs the dev server, which is not run from a worktree here.

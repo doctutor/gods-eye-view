@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  cutoutTag,
+  drawText,
   levelTag,
   lookupText,
   rowStatus,
@@ -41,4 +43,20 @@ test('rows and lookups: levels, fetch states, and why a lookup is empty', () => 
   );
   assert.match(lookupText({ areas: [], reason: 'failed' }), /try again/);
   assert.match(lookupText({ areas: [] }), /No administrative area/);
+});
+
+test('drawing: the DRAWN tag, the corner count, and why a corner or a finish was refused', () => {
+  assert.equal(cutoutTag({ source: 'draw:AbC', level: null }), 'DRAWN');
+  assert.equal(cutoutTag({ source: 'osm:1', level: 8 }), 'L8');
+  assert.equal(drawText({ drawing: false }), '');
+  assert.match(drawText({ drawing: true, count: 1 }), /1 corner,/);
+  assert.match(drawText({ drawing: true, count: 4 }), /4 corners/);
+  assert.match(drawText({ drawing: true, reason: 'too-few' }), /at least 3/);
+  assert.match(drawText({ drawing: true, reason: 'crosses' }), /cross itself/);
+  assert.match(
+    drawText({ drawing: true, reason: 'cap', max: 200 }),
+    /^200 corners is the most/,
+  );
+  assert.match(drawText({ reason: 'full' }), /holds 12 cutouts/);
+  assert.match(drawText({ reason: 'pointer' }), /is using the pointer/);
 });

@@ -3728,5 +3728,21 @@
   "Delete this cutout": "Eliminar este recorte",
   "Custom cutouts": "Recortes personalizados",
   "CUSTOM CUTOUTS": "RECORTES PERSONALIZADOS",
-  "Cutouts in the list": "Recortes en la lista"
+  "Cutouts in the list": "Recortes en la lista",
+  "cutout drawn on the map|DRAWN": "DIBUJADO",
+  "An outline needs at least 3 corners": "Un contorno necesita al menos 3 vértices",
+  "The outline would cross itself: undo a corner or click elsewhere": "El contorno se cruzaría consigo mismo: deshaz un vértice o haz clic en otro sitio",
+  "{max} corners is the most a drawn cutout holds: finish or undo": "Un recorte dibujado admite como máximo {max} vértices: termina o deshaz",
+  "The list holds {max} cutouts: delete one to draw another": "La lista admite {max} recortes: borra uno para dibujar otro",
+  "The map is not ready yet": "El mapa aún no está listo",
+  "Click the corners on the map: {count} corners, Enter or the first corner finishes": {
+    "one": "Haz clic en los vértices del mapa: {count} vértice; Intro o el primer vértice termina",
+    "many": "Haz clic en los vértices del mapa: {count} vértices; Intro o el primer vértice termina",
+    "other": "Haz clic en los vértices del mapa: {count} vértices; Intro o el primer vértice termina"
+  },
+  "DRAW": "DIBUJAR",
+  "Outline an area by clicking its corners on the map": "Traza un área haciendo clic en sus vértices sobre el mapa",
+  "UNDO": "DESHACER",
+  "FINISH": "TERMINAR",
+  "CANCEL": "CANCELAR"
 }

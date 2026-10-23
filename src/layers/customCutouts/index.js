@@ -7,11 +7,17 @@
  * cutout, the tiles are exactly as without the layer. Nothing happens on a
  * globe map: the panel says it needs Google 3D. The list, the plate and the
  * toggle live in ./store.js (and the share link's `cc`); rings come from
- * ./source.js.
+ * ./source.js, or, for an outline drawn on the map (./drawInput.js), from
+ * its own source key.
  */
 import * as Cesium from 'cesium';
-import { visibleRings } from '../../data/customCutouts.js';
+import {
+  MAX_CUTOUTS,
+  nextDrawnName,
+  visibleRings,
+} from '../../data/customCutouts.js';
 import { createCutoutClipping } from './clipping.js';
+import { createCutoutDrawer } from './drawInput.js';
 
 export const CUSTOM_CUTOUTS_LAYER_ID = 'custom-cutouts';
 /** The plate colours, as the keyless blank styles paint the globe. */
@@ -27,7 +33,9 @@ export const CUTOUTS_CREDIT = Object.freeze({
  * @param {{store: object, source: object, placeSearch?: object,
  *   cesium?: object, clipping?: object, requestRender?: Function,
  *   credits?: {register?: Function}, osmCredit?: {show: Function, hide: Function},
- *   setTimeoutImpl?: Function}} options
+ *   setTimeoutImpl?: Function, pickWorld?: Function, createDrawer?: Function}} options
+ *   `pickWorld(viewer, nx, ny)` is the app's depth-aware surface pick for
+ *   drawing (normalised screen coordinates to {lat, lon, height}).
  */
 export function createCustomCutoutsLayer({
   store,
@@ -39,6 +47,8 @@ export function createCustomCutoutsLayer({
   credits = null,
   osmCredit = null,
   setTimeoutImpl = (...args) => setTimeout(...args),
+  pickWorld = null,
+  createDrawer = createCutoutDrawer,
 }) {
   let viewer = null;
   let controller = null;
@@ -51,6 +61,10 @@ export function createCustomCutoutsLayer({
   /** Why nothing is cut now, for the panel ('' when cutting). */
   let reason = '';
   const panelListeners = new Set();
+  let drawer = null;
+  let drawerViewer = null;
+  /** Why drawing did not start ('full'), else ''. */
+  let drawNote = '';
 
   const notify = () => {
     for (const listener of [...panelListeners]) {
@@ -134,6 +148,8 @@ export function createCustomCutoutsLayer({
   }
 
   function onStore() {
+    if (drawNote === 'full' && store.get().cutouts.length < MAX_CUTOUTS)
+      drawNote = '';
     if (enabled) fetchMissing();
     sync();
     notify();
@@ -166,6 +182,45 @@ export function createCustomCutoutsLayer({
     };
   }
 
+  /** The pick when the app gives none: the ellipsoid under the pointer. */
+  function ellipsoidPick(target, nx, ny) {
+    const canvas = target?.scene?.canvas;
+    const hit = target?.camera?.pickEllipsoid?.(
+      new cesium.Cartesian2(nx * canvas.clientWidth, ny * canvas.clientHeight),
+    );
+    if (!hit) return null;
+    const point = cesium.Cartographic.fromCartesian(hit);
+    return {
+      lat: cesium.Math.toDegrees(point.latitude),
+      lon: cesium.Math.toDegrees(point.longitude),
+      height: 0,
+    };
+  }
+
+  function drawerFor(target) {
+    if (drawer && drawerViewer === target) return drawer;
+    drawer?.stop();
+    drawerViewer = target;
+    drawer = createDrawer({
+      viewer: target,
+      cesium,
+      pick: pickWorld || ellipsoidPick,
+      onChange: notify,
+      onFinish: (key) =>
+        store.add({
+          source: key,
+          name: nextDrawnName(store.get().cutouts),
+          visible: true,
+        }),
+    });
+    return drawer;
+  }
+
+  const drawView = () => {
+    const now = drawer?.view() || { drawing: false, count: 0, max: 0 };
+    return { ...now, reason: now.reason || drawNote };
+  };
+
   const layer = {
     id: CUSTOM_CUTOUTS_LAYER_ID,
     name: 'Custom cutouts',
@@ -188,6 +243,8 @@ export function createCustomCutoutsLayer({
     },
 
     disable() {
+      drawer?.stop();
+      drawNote = '';
       enabled = false;
       store.setEnabled(false);
       sync();
@@ -206,6 +263,8 @@ export function createCustomCutoutsLayer({
       unsubscribeMap?.();
       unsubscribeMap = null;
       controller = null;
+      drawer = null;
+      drawerViewer = null;
       viewer = null;
       rowListener = null;
       panelListeners.clear();
@@ -269,6 +328,7 @@ export function createCustomCutoutsLayer({
             ? cutout.rings.reduce((sum, ring) => sum + ring.length, 0)
             : 0,
         })),
+        draw: drawView(),
       };
     },
     onChange(listener) {
@@ -329,8 +389,33 @@ export function createCustomCutoutsLayer({
       fetchMissing();
     },
 
+    /**
+     * Draw mode: corners clicked on the map make a ring, added as
+     * "Drawn N" when it closes. False when it cannot start (the list is
+     * full, the scene not up, or another tool has the pointer).
+     */
+    startDraw() {
+      drawNote = '';
+      if (!viewer) return false;
+      if (store.get().cutouts.length >= MAX_CUTOUTS) {
+        drawNote = 'full';
+        notify();
+        return false;
+      }
+      const started = drawerFor(viewer).start();
+      notify();
+      return started.ok;
+    },
+    undoDraw: () => drawer?.undo() || false,
+    finishDraw: () => drawer?.finish() || { done: false },
+    cancelDraw() {
+      drawer?.cancel();
+      drawNote = '';
+      notify();
+    },
+
     /** For tests: what is clipped. */
-    _state: () => ({ enabled, reason, clipping: clipping.state() }),
+    _state: () => ({ enabled, reason, clipping: clipping.state(), drawer }),
   };
   return layer;
 }
