@@ -2616,6 +2616,10 @@ The CUSTOM CUTOUTS panel opens in the right rail:
   of the view, most local first, with their OSM `admin_level` (L10 a
   neighbourhood, L6 a US city or county, L4 a state). ADD puts one in the
   list.
+- **ADD PARCEL AT VIEW CENTRE** lists the property parcel under the middle
+  of the view, in Maryland only (see below). Its tag reads PARCEL, and it is
+  named from its street address. Outside Maryland the button is disabled
+  and says "Maryland parcels only".
 - **FIND** takes a place name through the search box's geocoder, then lists
   the areas at the place it finds, the one named like the query first.
 - **The list:**
@@ -2664,6 +2668,42 @@ both under 39.3699, −76.6131.
      by name.
    - The neighbourhood polygons (`src/data/neighborhoodPolygons.js`) cover
      San Francisco only, so they are not used.
+3. **Maryland's property parcels**, for ADD PARCEL AT VIEW CENTRE: MD
+   iMAP's Parcel Boundaries, the statewide polygons from MDP and SDAT.
+   - **Upstream:** `https://mdgeodata.md.gov/imap/rest/services/PlanningCadastre/MD_ParcelBoundaries/MapServer/0/query`.
+     Layer 0 is polygons, at most 1,000 records a request, as GeoJSON. The
+     usual host, `geodata.md.gov`, answered 503 ("emergency maintenance")
+     on 2026-10-23. It stays as a fallback, asked only when the first host
+     fails.
+   - **The app's route:** `GET /api/parcels/md?lat=&lon=` (the parcels
+     under a point) and `GET /api/parcels/md?jurscode=&acctid=` (one
+     parcel by its key) (`server/providers/mdParcels.js`, the shared code
+     in `src/data/mdParcels.js`). It is same-site and GET only, and
+     answers `{parcels: [{acctid, jurscode, address, acres, rings}]}`:
+     rings in lon/lat, one outer ring per polygon part, holes left out.
+   - **Asking upstream:** a point query (`esriGeometryPoint`,
+     `esriSpatialRelIntersects`, WGS 84 in and out), a 15 s timeout (45 s for a key: an attribute query, which took 4.7 to 8 s, once over 15 s), the
+     app's own User-Agent (`gods-eye-view-md-parcels/1.0`), and one
+     request at a time.
+   - **Points outside Maryland's box** (37.85–39.76° N, 79.55–74.98° W)
+     are refused with 400, and upstream is not asked.
+   - **The cache:** each parcel is kept on disk by its key
+     (`.gev-cache/md-parcels/<JURSCODE>-<ACCTID>.json`, 30 days), and each
+     point's answer in memory for 10 minutes. A reload asks upstream
+     nothing.
+   - **The fields:** only `ACCTID`, `ADDRESS`, `ACRES` and `JURSCODE` are
+     asked for, and only they are kept. The layer also carries owners'
+     names and mailing addresses (`OWNNAME1`, `OWNADD1`, `OWNCITY` and so
+     on). They are never asked for (never `outFields=*`), stored or shown.
+   - **The key:** `mdp:<JURSCODE>-<ACCTID>`, with the account id's spaces
+     as `_`, e.g. `mdp:BACI-0327665082_008A`. The rings are fetched again
+     by key on reload, like `osm:` and `pack:`. Every kind's pattern is in
+     one list, `CUTOUT_SOURCE_PATTERNS` (`src/data/customCutouts.js`).
+   - **Measured on 2026-10-23:** at 39.3699327, −76.6131013 it answered
+     `0327665082 008A`, 6204 SYCAMORE RD, 1.33 acres, BACI, a ring of 11
+     vertices, in about 2 s. A lot that small passes the vertex budget
+     untouched.
+   - **Maryland only.** Other states' parcels are not wired.
 
 **Rendering.**
 
@@ -2713,16 +2753,23 @@ both under 39.3699, −76.6131.
   again (from the proxy's cache). The list holds at most 12 cutouts.
 - **Credit:** while cutouts are drawn, the on-screen "© OpenStreetMap"
   credit shows, and the Data attribution popover lists the boundaries as
-  OpenStreetMap's (ODbL), through the local Overpass.
+  OpenStreetMap's (ODbL), through the local Overpass. Once a Maryland
+  parcel draws, the popover also names it as "MD iMAP, MDP, SDAT"
+  (`MD_PARCELS_CREDIT`).
 
 **Not verified in a browser.** The checks here are unit tests:
+
 - the model (`src/data/customCutouts.test.mjs`);
 - the clipping against a tileset stub
   (`src/layers/customCutouts/clipping.test.mjs`);
 - the layer, through the acceptance steps against stubs
   (`src/layers/customCutouts/layer.test.mjs`);
 - the plate in the controller (`src/maps/controllerPlate.test.mjs`);
-- the panel's words (`src/ui/customCutoutsPanel.test.mjs`).
+- the panel's words (`src/ui/customCutoutsPanel.test.mjs`);
+- the parcels' query and parsing (`src/data/mdParcels.test.mjs`), and
+  their route against a mocked MD iMAP
+  (`server/providers/mdParcels.test.mjs`; `MD_PARCELS_LIVE=1` adds one live
+  request).
 
 The real Overpass answers above were parsed by the same code. The puppeteer
 harness needs the dev server, which is not run from a worktree here.

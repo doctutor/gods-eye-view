@@ -3728,5 +3728,11 @@
   "Delete this cutout": "Eliminar este recorte",
   "Custom cutouts": "Recortes personalizados",
   "CUSTOM CUTOUTS": "RECORTES PERSONALIZADOS",
-  "Cutouts in the list": "Recortes en la lista"
+  "Cutouts in the list": "Recortes en la lista",
+  "PARCEL": "PARCELA",
+  "Cut out the property parcel under the view centre": "Recortar la parcela catastral bajo el centro de la vista",
+  "Maryland parcels only": "Solo parcelas de Maryland",
+  "MD iMAP did not answer: try again": "MD iMAP no respondió: inténtalo de nuevo",
+  "No parcel at the view centre": "No hay ninguna parcela en el centro de la vista",
+  "ADD PARCEL AT VIEW CENTRE": "AÑADIR PARCELA EN EL CENTRO DE LA VISTA"
 }

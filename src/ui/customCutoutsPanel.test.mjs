@@ -4,8 +4,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  cutoutTag,
   levelTag,
   lookupText,
+  parcelButtonState,
   rowStatus,
   statusText,
 } from './customCutoutsPanel.js';
@@ -41,4 +43,36 @@ test('rows and lookups: levels, fetch states, and why a lookup is empty', () => 
   );
   assert.match(lookupText({ areas: [], reason: 'failed' }), /try again/);
   assert.match(lookupText({ areas: [] }), /No administrative area/);
+});
+
+test('the parcels button: enabled in Maryland, else one line why; a parcel’s tag reads PARCEL', () => {
+  assert.deepEqual(parcelButtonState({ parcelsHere: true }), {
+    disabled: false,
+    title: 'Cut out the property parcel under the view centre',
+  });
+  assert.deepEqual(parcelButtonState({ parcelsHere: false }), {
+    disabled: true,
+    title: 'Maryland parcels only',
+  });
+  assert.equal(
+    cutoutTag({ source: 'mdp:BACI-0327665082_008A', level: null }),
+    'PARCEL',
+  );
+  assert.equal(cutoutTag({ source: 'osm:133345', level: 6 }), 'L6');
+  assert.equal(
+    lookupText({ kind: 'parcels', from: 'parcels', areas: [{}] }),
+    '',
+  );
+  assert.equal(
+    lookupText({ kind: 'parcels', areas: [], reason: 'outside' }),
+    'Maryland parcels only',
+  );
+  assert.match(
+    lookupText({ kind: 'parcels', areas: [], reason: 'failed' }),
+    /MD iMAP/,
+  );
+  assert.match(
+    lookupText({ kind: 'parcels', from: 'parcels', areas: [] }),
+    /No parcel/,
+  );
 });
