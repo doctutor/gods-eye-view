@@ -209,6 +209,21 @@ The server answers queries once the import is done, with the planet's data
 (up to a week old) until the catch-up ends. Until the first areas pass ends,
 `is_in` (the app's administrative-area lookups) answers nothing.
 
+Two things in the image look like failures and are not, or are fixed here:
+
+- **`OVERPASS_SPACE` must be at least twice the areas rule's limit.** The
+  dispatcher refuses any query that asks for more than half of its space
+  with `Dispatcher_Client::request_read_and_idx::protocol_error`, and
+  `rules/areas.osm3s` asks for 4 GiB. With the image's default (or 4 GiB)
+  the areas loop fails after 36 s every 6 minutes and no area is ever
+  built. `docker-compose.yml` sets 8 GiB; it is a cap on what queries may
+  claim together, not memory that is reserved (measured 2026-10-23).
+- **`Context error: File /db/db//osm3s_osm_base present` right after a
+  start.** The updater runs the instant the container starts; when the
+  dispatcher is not up yet it decides to write the files directly, then
+  finds the dispatcher running. It retries an hour later through the
+  dispatcher and succeeds, with the same diff file. Nothing is lost.
+
 ## Commands
 
 All from `tools/overpass`, in Git Bash or PowerShell.

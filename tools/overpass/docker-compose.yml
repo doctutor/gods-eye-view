@@ -47,9 +47,13 @@ services:
       # Docker's NAT): allow a few at once, and the same query twice.
       OVERPASS_RATE_LIMIT: '8'
       OVERPASS_ALLOW_DUPLICATE_QUERIES: 'yes'
-      # Memory for all running queries together (4 GiB), and the longest
-      # a query may run (the app's proxy asks for 30 s at most).
-      OVERPASS_SPACE: '4294967296'
+      # Memory for all running queries together (8 GiB; a bookkeeping cap,
+      # not a reservation), and the longest a query may run (the app's
+      # proxy asks for 30 s at most). The dispatcher refuses any query that
+      # asks for more than half of this, with "protocol_error"; the areas
+      # pass (rules/areas.osm3s) asks for 4 GiB, so this must be at least
+      # 8 GiB or no area is ever built (measured 2026-10-23).
+      OVERPASS_SPACE: '8589934592'
       OVERPASS_MAX_TIMEOUT: 300s
     # Let a write in progress finish on `docker compose stop`.
     stop_grace_period: 2m
