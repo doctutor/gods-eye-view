@@ -2646,6 +2646,12 @@ both under 39.3699, −76.6131.
   app's depth-aware one (`pickWorldFromScreen`, as the annotation Draw tool
   uses), so a corner sits on Google's ground or roof, not on the ellipsoid
   under it.
+- A click is a press and a release on the map at most 12 px apart
+  (`CLICK_TOLERANCE_PX`); the corner goes where the button went down.
+  Cesium's own click allows only 5 px, so a click that wobbled on canopy
+  was lost; a left drag does nothing in draw mode, so the wider tolerance
+  costs nothing. A longer drag adds no corner and changes nothing in the
+  panel, and a press that began on the panel never counts.
 - The open outline is drawn live, with a dot at each corner; the first dot
   is larger.
 - **UNDO** or Backspace takes the last corner back.

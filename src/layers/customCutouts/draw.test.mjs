@@ -3,13 +3,16 @@
 // crossings refused, the cap), and the scene input against stubs: the
 // camera gives up the left drag while drawing, and the pointer, the stock
 // clicks, the key listener, the preview and the camera's lists all come
-// back on every way out.
+// back on every way out. A click is the press and the release on the map,
+// within CLICK_TOLERANCE_PX: still or wobbling it adds one corner, a drag
+// none.
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createDrawState } from './drawState.js';
 import {
   CAMERA_EVENT_PROPERTIES,
+  CLICK_TOLERANCE_PX,
   createCutoutDrawer,
   drawCameraEventTypes,
 } from './drawInput.js';
@@ -87,6 +90,8 @@ function fakeCesium() {
     handlers,
     CameraEventType: CAMERA,
     ScreenSpaceEventType: {
+      LEFT_DOWN: 'left-down',
+      LEFT_UP: 'left-up',
       LEFT_CLICK: 'left-click',
       LEFT_DOUBLE_CLICK: 'left-double-click',
       MOUSE_MOVE: 'mouse-move',
@@ -159,6 +164,40 @@ function fakeViewer() {
   };
 }
 
+/**
+ * The left button on a stub handler as Cesium's own handler fires it: down
+ * (only for a press on the canvas), up, then LEFT_CLICK when the two are
+ * within its 5 px, each with an event object it reuses.
+ */
+function leftButton(handler) {
+  const event = { position: { x: 0, y: 0 } };
+  const fire = (type, x, y) => {
+    event.position.x = x;
+    event.position.y = y;
+    handler().actions.get(type)?.(event);
+  };
+  let down = null;
+  return {
+    down(x, y) {
+      down = { x, y };
+      fire('left-down', x, y);
+    },
+    up(x, y) {
+      // Cesium fires nothing on release without its own press.
+      if (!down) return;
+      const moved = Math.hypot(x - down.x, y - down.y);
+      down = null;
+      fire('left-up', x, y);
+      if (moved <= 5) fire('left-click', x, y);
+    },
+    /** A press released `dx` px to the right. */
+    click(x, y, dx = 0) {
+      this.down(x, y);
+      this.up(x + dx, y);
+    },
+  };
+}
+
 /** A drawer on stubs, with helpers to click, move and press keys. */
 function fixture({ onFinish = () => {} } = {}) {
   const cesium = fakeCesium();
@@ -186,8 +225,8 @@ function fixture({ onFinish = () => {} } = {}) {
     },
   });
   const handler = () => cesium.handlers.at(-1);
-  const click = (x, y) =>
-    handler().actions.get('left-click')({ position: { x, y } });
+  const button = leftButton(handler);
+  const click = (x, y, dx = 0) => button.click(x, y, dx);
   const move = (x, y) =>
     handler().actions.get('mouse-move')({ endPosition: { x, y } });
   const press = (key, target = { tagName: 'CANVAS' }) => {
@@ -203,6 +242,7 @@ function fixture({ onFinish = () => {} } = {}) {
     finished,
     keyListeners,
     click,
+    button,
     move,
     press,
     handler,
@@ -414,6 +454,92 @@ test('a refused finish keeps drawing; a second start is a no-op; a held pointer 
   releasePointer(lease);
 });
 
+// ── The click: press and release on the map ──────────────────────────
+
+test('a click is the press and the release: 0 px and an 8 px wobble add a corner, once; a 20 px drag adds none and says nothing', () => {
+  const f = fixture();
+  let changes = 0;
+  const drawer = createCutoutDrawer({
+    viewer: f.viewer,
+    cesium: f.cesium,
+    doc: { addEventListener() {}, removeEventListener() {} },
+    pick: (target, nx, ny) => toPoint(nx * 1000, ny * 1000),
+    onChange: () => changes++,
+  });
+  drawer.start();
+  const handler = f.handler();
+  assert.equal(handler.actions.has('left-click'), false, 'no click of its own');
+  const button = leftButton(() => handler);
+
+  // 0 px: Cesium fires LEFT_UP and its LEFT_CLICK; one corner.
+  button.click(100, 100);
+  assert.equal(drawer.view().count, 1, 'a still click: one corner');
+  // 8 px: Cesium's LEFT_CLICK would drop it; the corner still comes.
+  button.click(300, 100, 8);
+  assert.equal(drawer.view().count, 2, 'an 8 px wobble: one corner');
+  const corners = drawer._state().state.view().corners;
+  assert.deepEqual(
+    [corners[1].lon, corners[1].lat],
+    [toPoint(300, 100).lon, toPoint(300, 100).lat].map(
+      (d) => Math.round(d * 1e6) / 1e6,
+    ),
+    'where the button went down',
+  );
+  // CLICK_TOLERANCE_PX is the edge: 12 px still counts.
+  button.click(300, 300, CLICK_TOLERANCE_PX);
+  assert.equal(drawer.view().count, 3);
+  drawer.undo();
+
+  // 20 px: a drag; nothing added, the status untouched.
+  const before = { ...drawer.view() };
+  const heard = changes;
+  button.click(300, 300, 20);
+  assert.deepEqual(drawer.view(), before, 'a drag adds nothing');
+  assert.equal(changes, heard, 'and says nothing');
+
+  // A press that began on the panel, released on the map: no LEFT_DOWN on
+  // the canvas, so nothing. Even a stray LEFT_UP alone adds nothing.
+  handler.actions.get('left-up')({ position: { x: 500, y: 500 } });
+  assert.deepEqual(drawer.view(), before, 'no press on the map, no corner');
+  drawer.stop();
+});
+
+test('the first-corner click finishes once; a stray LEFT_CLICK after it adds nothing', () => {
+  const f = fixture();
+  f.drawer.start();
+  const handler = f.handler();
+  f.click(0, 0);
+  f.click(100, 0, 4);
+  f.click(100, 100, 7);
+  assert.equal(f.drawer.view().count, 3);
+  // 3 px from the first corner, released 3 px off: Cesium fires LEFT_UP
+  // and then its own LEFT_CLICK; the ring closes on the first only.
+  f.button.down(3, 0);
+  f.button.up(3, 3);
+  assert.equal(f.finished.length, 1, 'finished once');
+  assert.equal(decodeDrawnRing(f.finished[0]).length, 3, 'no fourth corner');
+  assertRestored(f, 'first corner by press and release');
+  // Whatever Cesium still has queued reaches a handler that is gone.
+  handler.actions.get('left-click')?.({ position: { x: 3, y: 0 } });
+  handler.actions.get('left-up')?.({ position: { x: 3, y: 0 } });
+  assert.equal(f.finished.length, 1, 'never twice');
+  assert.ok(handler.destroyed);
+});
+
+test('a press held when the drawing ends is forgotten: no corner on the next start', () => {
+  const f = fixture();
+  f.drawer.start();
+  f.click(0, 0);
+  f.button.down(50, 50);
+  f.drawer.cancel();
+  assertRestored(f, 'cancel with the button down');
+  f.drawer.start();
+  // The release of the old press, on the new handler.
+  f.handler().actions.get('left-up')({ position: { x: 50, y: 50 } });
+  assert.equal(f.drawer.view().count, 0);
+  f.drawer.stop();
+});
+
 // ── In the layer ──────────────────────────────────────────────────────
 
 function layerFixture({ cutouts = [] } = {}) {
@@ -447,8 +573,8 @@ function layerFixture({ cutouts = [] } = {}) {
   layer.init(viewer);
   layer.enable(viewer);
   const handler = () => cesium.handlers.at(-1);
-  const click = (x, y) =>
-    handler().actions.get('left-click')({ position: { x, y } });
+  const button = leftButton(handler);
+  const click = (x, y) => button.click(x, y);
   const square = (x) => {
     click(x, 0);
     click(x + 100, 0);

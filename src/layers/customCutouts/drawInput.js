@@ -9,7 +9,12 @@
  *   right-drag pans, middle-drag tilts and the wheel zooms;
  * - a left click picks the surface point (the app's depth-aware pick, so a
  *   corner lands on Google's ground or roof) and adds a corner; Enter
- *   finishes, Escape cancels, Backspace undoes;
+ *   finishes, Escape cancels, Backspace undoes. The click is taken from
+ *   the press and the release on the map (LEFT_DOWN, LEFT_UP), not from
+ *   Cesium's LEFT_CLICK, which drops a click that moved more than 5 px: a
+ *   left drag does nothing here, so a press that wobbles up to
+ *   CLICK_TOLERANCE_PX still adds its corner, and a longer drag adds none;
+ *   a press that began off the map (on the panel) never counts;
  * - the open outline is drawn live, with a dot at each corner.
  *
  * Every way out (finish, cancel, the layer off or destroyed) runs one
@@ -24,6 +29,8 @@ import { createDrawState } from './drawState.js';
 export const CUTOUT_DRAW_POINTER_OWNER = 'cutouts-draw';
 /** A click this close (px) to the first corner closes the ring. */
 export const CLOSE_RADIUS_PX = 10;
+/** A press and release at most this far apart (px) is a click. */
+export const CLICK_TOLERANCE_PX = 12;
 /** The camera controller's input lists draw mode changes (and gives back). */
 export const CAMERA_EVENT_PROPERTIES = Object.freeze([
   'rotateEventTypes',
@@ -98,6 +105,8 @@ export function createCutoutDrawer({
   let lines = null;
   let dots = null;
   let cursor = null;
+  /** Where the left button went down on the map, until it comes up. */
+  let pressAt = null;
   /** The last refusal to start ('pointer', or the caller's). */
   let startReason = '';
 
@@ -178,14 +187,36 @@ export function createCutoutDrawer({
     changed();
   }
 
-  const onClick = (event) => {
-    if (!state || !event?.position) return;
-    const closing = nearFirst(event.position);
-    const point = closing ? null : pickAt(event.position);
+  const onClick = (position) => {
+    if (!state) return;
+    const closing = nearFirst(position);
+    const point = closing ? null : pickAt(position);
     const answer = state.click(point, { nearFirst: closing });
     if (answer.result === 'finished') return done(answer.key);
     drawPreview();
     changed();
+  };
+
+  // Cesium reuses its event objects: the press point is copied.
+  const onDown = (event) => {
+    pressAt =
+      state && event?.position
+        ? { x: event.position.x, y: event.position.y }
+        : null;
+  };
+
+  const onUp = (event) => {
+    const start = pressAt;
+    pressAt = null;
+    if (!state || !start || !event?.position) return;
+    const moved = Math.hypot(
+      event.position.x - start.x,
+      event.position.y - start.y,
+    );
+    // A drag: nothing added, nothing said.
+    if (moved > CLICK_TOLERANCE_PX) return;
+    // The corner goes where the button went down: where it was aimed.
+    onClick(start);
   };
 
   const onMove = (event) => {
@@ -242,7 +273,9 @@ export function createCutoutDrawer({
       stock.removeInputAction(type.LEFT_DOUBLE_CLICK);
     }
     handler = new cesium.ScreenSpaceEventHandler(sc.canvas);
-    handler.setInputAction(onClick, type.LEFT_CLICK);
+    // No LEFT_CLICK of its own: it would add the corner a second time.
+    handler.setInputAction(onDown, type.LEFT_DOWN);
+    handler.setInputAction(onUp, type.LEFT_UP);
     handler.setInputAction(onMove, type.MOUSE_MOVE);
     doc?.addEventListener?.('keydown', onKey, true);
     lines = new cesium.PolylineCollection();
@@ -294,6 +327,7 @@ export function createCutoutDrawer({
     lines = null;
     dots = null;
     cursor = null;
+    pressAt = null;
     release(lease);
     lease = null;
     state = null;
