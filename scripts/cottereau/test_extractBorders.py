@@ -3,13 +3,16 @@ Personal fork: tests of extractBorders.py on synthetic frames drawn here
 (no frame of the video): the regions between border lines and colour
 changes, label text painted out, an exclave joined to its polity, a region
 two labels share split, a colour with no label kept apart, the projection
-both ways and pixel areas. Run by src/tooling/cottereauBorders.test.mjs
+both ways and pixel areas; the split's nearest label in chunks (the dense
+answer, within a memory bound for a region holding many labels), and a
+frame without sea skipped. Run by src/tooling/cottereauBorders.test.mjs
 (or directly: python -I test_extractBorders.py).
 """
 
 import importlib.util
 import math
 import os
+import tracemalloc
 import unittest
 
 import cv2
@@ -150,6 +153,51 @@ class Borders(unittest.TestCase):
         measured = rows[y0i:y1i].sum() * (float(x1) - float(x0))
         exact = 6371.0 ** 2 * math.radians(10) * (math.sin(math.radians(50)) - math.sin(math.radians(40)))
         self.assertLess(abs(measured - exact) / exact, 0.01)
+
+
+class Bounds(unittest.TestCase):
+    def test_nearest_label_in_chunks_is_the_dense_answer(self):
+        rng = np.random.default_rng(7)
+        ys, xs = np.nonzero(np.ones((120, 90), bool))
+        points = rng.uniform(0, 120, (17, 2))
+        points[3] = points[5]  # a tie: the first wins, as argmin says
+        dense = np.argmin((xs[:, None] - points[None, :, 0]) ** 2 + (ys[:, None] - points[None, :, 1]) ** 2, axis=1)
+        saved = eb.SPLIT_CELLS
+        try:
+            eb.SPLIT_CELLS = 100  # many small chunks
+            np.testing.assert_array_equal(eb.nearest_label(xs, ys, points), dense)
+        finally:
+            eb.SPLIT_CELLS = saved
+
+    def test_a_region_holding_many_labels_splits_within_a_memory_bound(self):
+        # One region of 3 M px holding 200 labels: all at once that is a
+        # 3 M x 200 matrix of distances (4.8 GB); in chunks, tens of MB.
+        h, w = 1500, 2000
+        comp = np.zeros((h, w), np.int32)
+        comp[:, :] = 1
+        table = {1: {'px': h * w, 'bbox': (0, 0, w, h), 'white': False, 'colour': (90, 180, 90), 'centroid': (w / 2, h / 2)}}
+        labels = [{'text': f'L{k}', 'x': 10 + (k % 20) * 99, 'y': 10 + (k // 20) * 149, 'h': 20} for k in range(200)]
+        tracemalloc.start()
+        try:
+            assignment, joined, flags = eb.name_regions(comp, table, labels)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(sorted(assignment.values()), list(range(200)))
+        self.assertTrue(all('split' in flags[i] for i in range(200)))
+        self.assertLess(peak, 400 * 2 ** 20, f'peak {peak / 2 ** 20:.0f} MB')
+
+    def test_a_frame_without_sea_is_skipped(self):
+        frame = np.full((H, W, 3), 17, np.uint8)  # the fade to black at the end
+        sample = {'index': 1042, 't': 1043.5, 'year': 2025, 'boxes': [], 'labels': [{'text': 'Russia', 'x': 3000, 'y': 400, 'h': 40}]}
+        result = eb.extract(frame, sample, FRAMING)
+        self.assertEqual(result['skipped'], 'no-sea')
+        self.assertEqual(result['polygons'], [])
+        self.assertEqual(result['extractor'], eb.EXTRACTOR_VERSION)
+        # A map is not.
+        frame, boxes, labels = synthetic()
+        result = eb.extract(frame, {'index': 1, 't': 1.0, 'year': 1, 'boxes': boxes, 'labels': labels}, FRAMING)
+        self.assertNotIn('skipped', result)
 
 
 if __name__ == '__main__':

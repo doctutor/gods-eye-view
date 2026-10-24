@@ -5917,12 +5917,18 @@ fills, in the repository or the fork:
 ```bash
 node scripts/cottereau/borders.mjs extract [--workers 2]     # the whole video
 node scripts/cottereau/borders.mjs extract --samples 50,650,1000 --out <scratch>   # a trial
+node scripts/cottereau/borders.mjs extract --reuse <out>/builds/<old key>.partial   # after an extractor change
 node scripts/cottereau/borders.mjs status
 ```
 
 **Per sample** (one a video second, 1,043; `extractBorders.py`, Python with
 OpenCV, a frame decoded in memory):
 
+0. **No map, no sample.** A frame in which the sea is under 5% of it is
+   no map: the opening, the fade to black at the end, a cross-fade between
+   framings. A map shows 27% or more. Such a frame is written as skipped
+   and left out of the build's samples, so its year shows the last map
+   before it.
 1. **Sea.** The sea is masked with the framing fit's colour rule, and the
    year box counts as sea.
 2. **Label text is painted out.** Inside each OCR box, the strokes (black,
@@ -5965,8 +5971,18 @@ OpenCV, a frame decoded in memory):
 
 **A build** (`borders.mjs`, "Builds and restarts"):
 
-- It is keyed by its inputs: the extractor's code, the framings, the
-  matches, the labels file.
+- It is keyed by its inputs: the extractor's declared version
+  (`EXTRACTOR_VERSION` in `extractBorders.py`, bumped only when a change
+  can alter some sample's output), the framings, the matches, the labels
+  file. A change that leaves the output as it was (speed, memory) keeps the
+  samples written.
+- `--reuse` names an earlier build, finished or partial. Its samples carry
+  over where the newer version's change leaves them as they were
+  (`CARRY_OVER` in `borders.mjs`), and only when both builds were prepared
+  from the same samples. The rest are extracted again. From version 1 to 2
+  (frames without a sea skipped), only those frames are redone.
+- Two labels in one region split it by nearest label in chunks of pixels,
+  so a region holding many labels stays within a few hundred MB.
 - While it runs it is `builds/<key>.partial/`, holding `samples.json` (the
   labels per sample with their tracks), the matched Cliopatria polygons
   (`cliopatria.json` and `.f64`), and `samples/<index>.json.gz`, each

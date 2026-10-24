@@ -17,7 +17,16 @@ cliopatria.f64). Each sample is written as samples/<index>.json.gz, whole
 (a temporary file renamed), and a sample already there is skipped: a
 stopped run resumes.
 
+EXTRACTOR_VERSION names what this writes: bump it whenever a change can
+change any sample's output (here or in fitFraming.sea_mask), and only
+then. borders.mjs keys a build on it and the inputs, so a change that
+leaves the output as it was (speed, memory) keeps the samples written.
+
 Per frame:
+0. A frame in which the sea is not found (under MIN_SEA_SHARE of it: the
+   opening, the fade-out at the end, a cross-fade between framings) is no
+   map: it is written as skipped, with no polygons, and left out of the
+   build's samples.
 1. The sea: the map's one flat light blue (fitFraming.sea_mask).
 2. Separators: the thin grey border lines (a black-hat: thin and darker
    than both sides; wide dark fills are not lines) and every jump of colour
@@ -60,6 +69,11 @@ sea_mask = _fit.sea_mask
 
 R_KM = 6371.0
 FORMAT = 1
+# What this writes (see above). 1: the first full run. 2: frames without
+# a sea are skipped (they were one region the size of the frame).
+EXTRACTOR_VERSION = 2
+MIN_SEA_SHARE = 0.05  # a map shows at least this much sea (0.27 at the closest framing; a fade 0)
+SPLIT_CELLS = 4_000_000  # pixel x label distances held at once in a split (32 MB)
 LINE_BLACKHAT = 25  # a thin line's darkness over its surroundings
 COLOUR_EDGE = 24  # a jump in a channel between neighbours: two fills meeting
 TEXT_DIFF = 20  # a text pixel's distance from its box's background (strokes and rims)
@@ -177,11 +191,12 @@ def colour_edges(frame):
     return edges
 
 
-def segment(frame, boxes):
+def segment(frame, boxes, sea=None):
     """The frame's regions: (ids, table). ids: int32 per pixel, 0 for the sea,
-    else a region id; table: id -> {colour (B, G, R), px, bbox, white}."""
+    else a region id; table: id -> {colour (B, G, R), px, bbox, white}.
+    `sea` the frame's sea mask when it is known already."""
     height, width = frame.shape[:2]
-    sea = sea_mask(frame).astype(bool)
+    sea = (sea_mask(frame) if sea is None else sea).astype(bool)
     # The year box is no land: counted with the sea.
     x0, y0, x1, y1 = YEAR_BOX
     sea[y0:y1, x0:x1] = True
@@ -361,6 +376,23 @@ def beside_candidates(comp, table, label):
     return [cand for _, cand in first + rest]
 
 
+def nearest_label(xs, ys, points):
+    """For each pixel (xs, ys), the index of the nearest point (squared
+    distance; the first on a tie). In chunks of pixels, so a region holding
+    many labels never needs a pixels x labels matrix at once: at most
+    SPLIT_CELLS distances. The same arithmetic as all at once, so the same
+    answer."""
+    points = np.asarray(points, dtype=np.float64)
+    nearest = np.empty(len(xs), np.intp)
+    step = max(1, SPLIT_CELLS // max(1, len(points)))
+    for start in range(0, len(xs), step):
+        cx = xs[start:start + step]
+        cy = ys[start:start + step]
+        d = (cx[:, None] - points[None, :, 0]) ** 2 + (cy[:, None] - points[None, :, 1]) ** 2
+        nearest[start:start + step] = np.argmin(d, axis=1)
+    return nearest
+
+
 def name_regions(comp, table, labels, hint=None):
     """Each region's owner: labels inside a region first; then each label set
     beside its polity takes the best region near it that no label inside
@@ -407,8 +439,7 @@ def name_regions(comp, table, labels, hint=None):
         inside = window == cid
         ys, xs = np.nonzero(inside)
         points = np.array([[labels[i]['x'] - x0, labels[i]['y'] - y0] for i in idx])
-        d = (xs[:, None] - points[None, :, 0]) ** 2 + (ys[:, None] - points[None, :, 1]) ** 2
-        nearest = np.argmin(d, axis=1)
+        nearest = nearest_label(xs, ys, points)
         for k, i in enumerate(idx):
             sub = np.zeros(inside.shape, bool)
             sub[ys[nearest == k], xs[nearest == k]] = True
@@ -539,11 +570,34 @@ def colour_hex(colour):
     return f'#{r:02x}{g:02x}{b:02x}'
 
 
+def skipped(sample, framing, reason, sea_share):
+    """A sample that is no map: written so a resumed run passes it, but with
+    no polygons, and left out of the build's samples."""
+    return {
+        'format': FORMAT,
+        'extractor': EXTRACTOR_VERSION,
+        'index': sample['index'],
+        't': sample['t'],
+        'year': sample['year'],
+        'framing': framing['id'],
+        'skipped': reason,
+        'seaShare': round(sea_share, 4),
+        'polygons': [],
+        'unlabelled': [],
+        'stats': {'landPx': 0, 'labelledPx': 0, 'unclaimedPx': 0, 'unlabelledPx': 0, 'regions': 0,
+                  'labels': len(sample['labels']), 'labelsPlaced': 0, 'split': 0, 'joined': 0, 'beside': 0},
+    }
+
+
 def extract(frame, sample, framing, clio=None):
     """One sample's polygons and statistics (see the module's steps)."""
     height, width = frame.shape[:2]
     boxes = [b[:4] for b in sample.get('boxes', [])]
-    comp, table = segment(frame, boxes)
+    sea = sea_mask(frame)
+    sea_share = float(sea.mean())
+    if sea_share < MIN_SEA_SHARE:
+        return skipped(sample, framing, 'no-sea', sea_share)
+    comp, table = segment(frame, boxes, sea)
     labels = sample['labels']
     def hint(label):
         """Whether a pixel lies in the label's matched Cliopatria polity
@@ -632,6 +686,7 @@ def extract(frame, sample, framing, clio=None):
     land_px = int((comp > 0).sum())
     return {
         'format': FORMAT,
+        'extractor': EXTRACTOR_VERSION,
         'index': sample['index'],
         't': sample['t'],
         'year': sample['year'],
@@ -712,6 +767,13 @@ def main():
         result = extract(frame, sample, framings[sample['framing']], clio)
         result['seconds'] = round(time.time() - started, 2)
         write_atomic(target, result)
+        if result.get('skipped'):
+            print(
+                f"[borders] sample {sample['index']} ({sample['year']}): skipped, {result['skipped']} "
+                f"(sea {100 * result['seaShare']:.1f}% of the frame)",
+                flush=True,
+            )
+            continue
         s = result['stats']
         print(
             f"[borders] sample {sample['index']} ({sample['year']}): {len(result['polygons'])} polities, "

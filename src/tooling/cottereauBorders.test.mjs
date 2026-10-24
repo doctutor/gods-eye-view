@@ -13,8 +13,12 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import {
+  carriesOver,
+  extractorVersion,
   insideRepository,
+  manifestSamples,
   qualityReport,
+  reuseSamples,
   sampleForYear,
   withSpans,
 } from '../../scripts/cottereau/borders.mjs';
@@ -301,4 +305,96 @@ test('the extractor’s own tests on synthetic frames (Python, when its environm
     { encoding: 'utf8', timeout: 300_000 },
   );
   assert.equal(run.status, 0, run.stderr.slice(-2000));
+});
+
+test('the build is keyed on the declared extractor version; samples an older one wrote carry over where its change leaves them', () => {
+  assert.equal(extractorVersion('X = 1\nEXTRACTOR_VERSION = 7\n'), 7);
+  assert.throws(() => extractorVersion('nothing'), /EXTRACTOR_VERSION/);
+  assert.ok(extractorVersion() >= 2);
+  const map = { stats: { landPx: 4_200_000 } };
+  const fade = { stats: { landPx: 7_177_800 } };
+  // Version 1 (no field) to 2: maps carry over, a frame without sea does not.
+  assert.equal(carriesOver(map, 2), true);
+  assert.equal(carriesOver(fade, 2), false);
+  assert.equal(carriesOver({ ...fade, extractor: 2 }, 2), true, 'its own');
+  assert.equal(carriesOver({ ...map, extractor: 3 }, 2), false, 'a newer');
+  assert.equal(carriesOver(map, 99), false, 'no rule for a later change');
+});
+
+test('the manifest’s samples leave out the skipped (no map), so a year shows the last real map', () => {
+  const r = (index, year, skipped) => ({
+    index,
+    year,
+    t: index,
+    framing: 1,
+    polygons: [],
+    unlabelled: [],
+    ...(skipped ? { skipped: 'no-sea' } : {}),
+  });
+  const samples = manifestSamples([
+    r(0, -2500, true),
+    r(1, -2500),
+    r(2, -2496),
+    r(3, 2025),
+    r(4, 2025, true),
+  ]);
+  assert.deepEqual(
+    samples.map((s) => s.index),
+    [1, 2, 3],
+  );
+  assert.equal(sampleForYear(samples, 2025).index, 3);
+  assert.equal(sampleForYear(samples, -2500).index, 1);
+  assert.equal(samples.at(-1).untilYear, 2025);
+});
+
+test('--reuse: carries the samples that stand over from a build of the same samples, marked with the version; refuses other samples', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gev-reuse-'));
+  try {
+    const prepare = (dir, samples) => {
+      fs.mkdirSync(path.join(dir, 'samples'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, 'samples.json'),
+        JSON.stringify({ samples, framings: [{ id: 1 }] }),
+      );
+    };
+    const old = path.join(root, 'old.partial');
+    const next = path.join(root, 'new.partial');
+    const list = [0, 1, 2].map((index) => ({ index, year: index }));
+    prepare(old, list);
+    prepare(next, list);
+    const write = (index, landPx) =>
+      fs.writeFileSync(
+        path.join(old, 'samples', `${String(index).padStart(4, '0')}.json.gz`),
+        zlib.gzipSync(
+          JSON.stringify({ index, stats: { landPx }, polygons: [] }),
+        ),
+      );
+    write(0, 7_177_800); // a fade: extracted again
+    write(1, 4_000_000); // a map: carried
+    const carried = reuseSamples({
+      from: old,
+      partial: next,
+      indices: [0, 1, 2],
+      version: 2,
+    });
+    assert.deepEqual(carried, [1]);
+    const copy = JSON.parse(
+      zlib
+        .gunzipSync(fs.readFileSync(path.join(next, 'samples', '0001.json.gz')))
+        .toString('utf8'),
+    );
+    assert.equal(copy.extractor, 2);
+    assert.equal(
+      fs.existsSync(path.join(next, 'samples', '0000.json.gz')),
+      false,
+    );
+    prepare(next, [{ index: 0, year: 5 }]);
+    assert.throws(
+      () =>
+        reuseSamples({ from: old, partial: next, indices: [0], version: 2 }),
+      /other samples/,
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

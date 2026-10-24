@@ -4,7 +4,7 @@
  * beside Cliopatria (personal use only).
  *
  *   node scripts/cottereau/borders.mjs extract [--out DIR] [--samples 0,10,20 | --every N]
- *                                              [--workers N] [--force]
+ *                                              [--workers N] [--force] [--reuse BUILD_DIR]
  *   node scripts/cottereau/borders.mjs status  [--out DIR]
  *
  * PRIVACY: the geometry is extracted from Cottereau's copyrighted video. It
@@ -13,13 +13,25 @@
  * it is never committed, never published. Frames are decoded in memory by
  * extractBorders.py and never written.
  *
- * A build is keyed by its inputs (the extractor's code, the framings, the
- * matches, the labels file): builds/<key>.partial/ while it runs, each
+ * A build is keyed by its inputs (the extractor's declared version,
+ * EXTRACTOR_VERSION in extractBorders.py, bumped only when its output can
+ * change; the framings, the matches, the labels file), so a change that
+ * leaves the output as it was keeps the samples written:
+ * builds/<key>.partial/ while it runs, each
  * sample written whole as it is done, so a stopped run resumes where it
  * was; then the manifest (counts, per-framing pixel size, the quality
  * report), the partial directory renamed builds/<key>/, and current.json
  * switched to it in one rename ("Builds and restarts"). A subset of samples
  * (--samples, --every: a trial) is finalised as an incomplete build.
+ *
+ * --reuse BUILD_DIR: samples an earlier build (finished or partial) wrote
+ * with an older extractor are carried over where that version's change
+ * leaves them as they were (CARRY_OVER), when both builds were prepared
+ * from the same samples; the rest are extracted again.
+ *
+ * A sample that is no map (a fade, a cross-fade: no sea found) is written
+ * as skipped and left out of the build's samples, so a year shows the
+ * last real map at or before it.
  *
  * Personal fork tooling; not part of upstream God's Eye View.
  */
@@ -72,17 +84,52 @@ export function withSpans(samples, lastYear) {
 
 const sha = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
+/** extractBorders.py's declared EXTRACTOR_VERSION. */
+export function extractorVersion(
+  code = fs.readFileSync(
+    path.join(ROOT, 'scripts/cottereau/extractBorders.py'),
+    'utf8',
+  ),
+) {
+  const match = /^EXTRACTOR_VERSION = (\d+)\s*$/m.exec(code);
+  if (!match)
+    throw new Error('extractBorders.py declares no EXTRACTOR_VERSION');
+  return Number(match[1]);
+}
+
+/** The video's frame, px (a sample's land is at most this). */
+const FRAME_PX = 3840 * 1920;
+
+/**
+ * Which samples written by an older extractor carry over to the current
+ * one, by the version that wrote them (a sample without one is version 1):
+ * a version's change leaves those it names as they were.
+ * - 1 → 2: frames without a sea are skipped; every other sample is the
+ *   same (checked on real samples with splits). A frame without a sea was
+ *   one region the size of the frame, land everywhere.
+ */
+export const CARRY_OVER = Object.freeze({
+  1: (result) => !(result.stats?.landPx >= 0.95 * FRAME_PX),
+});
+
+/** Whether a sample written by an older extractor stands for `version`. */
+export function carriesOver(result, version) {
+  let from = result.extractor ?? 1;
+  if (from === version) return true;
+  if (from > version) return false;
+  for (; from < version; from++) {
+    const rule = CARRY_OVER[from];
+    if (!rule || !rule(result)) return false;
+  }
+  return true;
+}
+
 function buildKey({ labels, framingsText, matchesText }) {
   const stat = fs.statSync(labels);
-  const code = ['extractBorders.py', 'fitFraming.py']
-    .map((f) =>
-      fs.readFileSync(path.join(ROOT, 'scripts/cottereau', f), 'utf8'),
-    )
-    .join('\n');
   return sha(
     JSON.stringify({
       format: BORDERS_FORMAT,
-      code: sha(code),
+      extractor: extractorVersion(),
       framings: sha(framingsText),
       matches: sha(matchesText),
       labels: [stat.size, stat.mtimeMs],
@@ -335,6 +382,58 @@ function readSample(file) {
   return JSON.parse(zlib.gunzipSync(fs.readFileSync(file)).toString('utf8'));
 }
 
+const sampleName = (i) => `${String(i).padStart(4, '0')}.json.gz`;
+
+/**
+ * Carry samples over from an earlier build into `partial`: only when both
+ * were prepared from the same samples (samples.json's samples and
+ * framings), and only those CARRY_OVER keeps; each is rewritten marked
+ * with the current version. The indices carried.
+ */
+export function reuseSamples({ from, partial, indices, version }) {
+  const read = (dir) => {
+    const file = JSON.parse(
+      fs.readFileSync(path.join(dir, 'samples.json'), 'utf8'),
+    );
+    return JSON.stringify({ samples: file.samples, framings: file.framings });
+  };
+  if (read(from) !== read(partial))
+    throw new Error(
+      `--reuse ${from} was prepared from other samples: nothing carried over`,
+    );
+  const carried = [];
+  for (const i of indices) {
+    const source = path.join(from, 'samples', sampleName(i));
+    if (!fs.existsSync(source)) continue;
+    const result = readSample(source);
+    if (result.index !== i || !carriesOver(result, version)) continue;
+    writeAtomic(
+      path.join(partial, 'samples', sampleName(i)),
+      zlib.gzipSync(JSON.stringify({ ...result, extractor: version })),
+    );
+    carried.push(i);
+  }
+  return carried;
+}
+
+/** The manifest's samples: the maps (a skipped sample is none), each with its span. */
+export function manifestSamples(results) {
+  const maps = results.filter((r) => !r.skipped);
+  return withSpans(
+    maps.map((r) => ({
+      index: r.index,
+      t: r.t,
+      year: r.year,
+      framing: r.framing,
+      file: `samples/${sampleName(r.index)}`,
+      polities: r.polygons.length,
+      unlabelled: r.unlabelled.length,
+      seconds: r.seconds,
+    })),
+    maps.at(-1)?.year ?? null,
+  );
+}
+
 async function extract(options) {
   const out = path.resolve(options.out);
   if (insideRepository(out))
@@ -381,9 +480,18 @@ async function extract(options) {
     ? options.samples.filter((i) => i >= 0 && i < samples.length)
     : samples.map((s) => s.index);
   const done = (i) =>
-    fs.existsSync(
-      path.join(partial, 'samples', `${String(i).padStart(4, '0')}.json.gz`),
+    fs.existsSync(path.join(partial, 'samples', sampleName(i)));
+  if (options.reuse) {
+    const carried = reuseSamples({
+      from: path.resolve(options.reuse),
+      partial,
+      indices: wanted.filter((i) => !done(i)),
+      version: extractorVersion(),
+    });
+    console.log(
+      `[borders] ${carried.length} samples carried over from ${options.reuse}`,
     );
+  }
   const todo = wanted.filter((i) => !done(i));
   console.log(
     `[borders] build ${key}: ${wanted.length - todo.length} of ${wanted.length} samples done, ${todo.length} to go`,
@@ -424,15 +532,10 @@ async function extract(options) {
   }
   // The manifest from every sample written.
   const present = samples.filter((s) => done(s.index));
-  const results = present.map((s) =>
-    readSample(
-      path.join(
-        partial,
-        'samples',
-        `${String(s.index).padStart(4, '0')}.json.gz`,
-      ),
-    ),
+  const written = present.map((s) =>
+    readSample(path.join(partial, 'samples', sampleName(s.index))),
   );
+  const results = written.filter((r) => !r.skipped);
   const { framings } = JSON.parse(framingsText);
   const manifest = {
     format: BORDERS_FORMAT,
@@ -441,19 +544,8 @@ async function extract(options) {
     complete: present.length === samples.length,
     private:
       'Extracted from Cottereau\'s "History of the World: Every Year" for personal use only. Never commit or publish.',
-    samples: withSpans(
-      results.map((r) => ({
-        index: r.index,
-        t: r.t,
-        year: r.year,
-        framing: r.framing,
-        file: `samples/${String(r.index).padStart(4, '0')}.json.gz`,
-        polities: r.polygons.length,
-        unlabelled: r.unlabelled.length,
-        seconds: r.seconds,
-      })),
-      results.at(-1)?.year ?? null,
-    ),
+    extractor: extractorVersion(),
+    samples: manifestSamples(written),
     framings: framings.map((f) => ({
       id: f.id,
       fromYear: f.fromYear,
@@ -463,6 +555,15 @@ async function extract(options) {
     })),
     counts: {
       samples: results.length,
+      // Written but no map (no sea found): left out of the samples.
+      skipped: written
+        .filter((r) => r.skipped)
+        .map((r) => ({
+          index: r.index,
+          year: r.year,
+          reason: r.skipped,
+          seaShare: r.seaShare,
+        })),
       polities: results.reduce((s, r) => s + r.polygons.length, 0),
       unlabelled: results.reduce((s, r) => s + r.unlabelled.length, 0),
       secondsPerSample: median(results.map((r) => r.seconds)),
@@ -500,6 +601,11 @@ export function printReport(manifest, log = console.log) {
   log(
     `[borders] ${manifest.counts.samples} samples (${manifest.complete ? 'complete' : 'a trial'}), ${manifest.counts.polities} polity polygons, ${manifest.counts.unlabelled} unlabelled regions, ${manifest.counts.secondsPerSample} s a sample`,
   );
+  const skipped = manifest.counts.skipped || [];
+  if (skipped.length)
+    log(
+      `  skipped (no map: no sea found): ${skipped.map((s) => `${s.index} (${s.year})`).join(', ')}`,
+    );
   for (const c of q.perCentury)
     log(
       `  ${c.century < 0 ? `${-c.century} c. BC` : `${c.century} c.`}: ${c.samples} samples, labelled ${(100 * c.labelledOfClaimed).toFixed(1)}% of claimed land (${(100 * c.labelledOfLand).toFixed(1)}% of all land), IoU with Cliopatria median ${c.iou.median ?? '—'}, by area ${c.iouByArea ?? '—'} (${c.iou.n})`,
@@ -565,6 +671,7 @@ async function main(argv) {
     labels: flags.labels || DEFAULTS.labels,
     workers: Number(flags.workers) || 1,
     force: !!flags.force,
+    reuse: typeof flags.reuse === 'string' ? flags.reuse : null,
     samples: null,
   };
   if (flags.samples)
