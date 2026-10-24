@@ -3,6 +3,7 @@ import {
   createWorldHistoryLayer,
 } from '../../layers/worldHistory/index.js';
 import { createWorldHistorySource } from '../../layers/worldHistory/source.js';
+import { createCottereauBordersSource } from '../../layers/worldHistory/borders.js';
 import { worldHistoryStore } from '../../layers/worldHistory/store.js';
 import { registerDynamicCredit } from '../../data/dataCredits.js';
 import { hitTestWorldOverlay } from '../../overlays/worldOverlay.js';
@@ -15,7 +16,8 @@ export { WORLD_HISTORY_LAYER_ID };
 /**
  * Personal-fork World history layer (REFERENCE in the DATA LAYERS panel):
  * any year from 2500 BC to 2025 as Cottereau's video shows it, from
- * Cliopatria's polity shapes, and a list of polities to compare. Its
+ * Cliopatria's polity shapes, and a list of polities to compare (and,
+ * where its private route answers, Cottereau's own drawn borders). Its
  * right-rail panel (context.html, `#world-history-panel`) is bound the
  * first time the layer turns on.
  */
@@ -23,6 +25,8 @@ export function createApplicationWorldHistory() {
   const layer = createWorldHistoryLayer({
     store: worldHistoryStore(),
     source: createWorldHistorySource(),
+    // Private: offered only where /api/cottereau-borders answers.
+    borders: createCottereauBordersSource(),
     overlayHost,
     hitTest: hitTestWorldOverlay,
     requestRender: governorRequestRender,

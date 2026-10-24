@@ -6,12 +6,19 @@
  * rides in a hash parameter of its own, `wh` (read once, at creation, as
  * `cc` and `cs` are). Polygons are never in the URL: the list holds
  * Cliopatria names.
+ *
+ * The private Cottereau borders overlay's state is kept too, but written
+ * to `wh` only once its route is known to answer (`bordersAvailable`
+ * true). While that is unknown a state the hash brought rides on (so a
+ * share link survives the page's first writes); once the route is known
+ * absent, nothing of it is written.
  */
 import {
   WORLD_HISTORY_MODES,
   WORLD_HISTORY_PARAM,
   addListEntry,
   clampYear,
+  cleanBordersState,
   decodeWorldHistoryParam,
   defaultWorldHistoryState,
   encodeWorldHistoryParam,
@@ -38,11 +45,10 @@ function hashStateNow() {
  */
 export function createWorldHistoryStore({ initial = hashStateNow() } = {}) {
   let state = { ...defaultWorldHistoryState(), ...initial };
+  /** Whether the borders route answers: null until asked. */
+  let bordersAvailable = null;
   const listeners = new Set();
-  const set = (patch) => {
-    const next = { ...state, ...patch };
-    if (Object.keys(next).every((key) => next[key] === state[key])) return;
-    state = next;
+  const tell = () => {
     for (const listener of [...listeners]) {
       try {
         listener(state);
@@ -50,6 +56,12 @@ export function createWorldHistoryStore({ initial = hashStateNow() } = {}) {
         console.warn('[World history] listener failed:', error);
       }
     }
+  };
+  const set = (patch) => {
+    const next = { ...state, ...patch };
+    if (Object.keys(next).every((key) => next[key] === state[key])) return;
+    state = next;
+    tell();
   };
   return {
     get: () => state,
@@ -74,8 +86,24 @@ export function createWorldHistoryStore({ initial = hashStateNow() } = {}) {
     remove: (name) => set({ list: removeListEntry(state.list, name) }),
     /** The list emptied (the year, mode and toggle kept). */
     clear: () => state.list.length && set({ list: [] }),
+    /** The borders overlay changed: any of on, mode, labels, opacity. */
+    setBorders(patch) {
+      const next = cleanBordersState({ ...state.borders, ...patch });
+      const now = state.borders;
+      if (Object.keys(next).every((key) => next[key] === now[key])) return;
+      set({ borders: next });
+    },
+    bordersAvailable: () => bordersAvailable,
+    /** The route answered (true) or did not (false). */
+    setBordersAvailable(available) {
+      const next = available === true;
+      if (bordersAvailable === next) return;
+      bordersAvailable = next;
+      tell();
+    },
     /** The `wh` value for the share link ('' to leave it out). */
-    param: () => encodeWorldHistoryParam(state),
+    param: () =>
+      encodeWorldHistoryParam(state, { borders: bordersAvailable !== false }),
   };
 }
 

@@ -6036,7 +6036,42 @@ The WORLD HISTORY panel opens in the right rail:
   (Cottereau's label over Cliopatria's name when they differ), the years,
   the area, the Wikipedia title and the credit. A list entry on top wins,
   then the smallest polity under the click. The panel shows the same,
-  with the Wikipedia link and **COMPARE**.
+  with the Wikipedia link and **COMPARE**. A second click on the same spot
+  opens the card of what lies under it.
+
+**Cottereau borders (private).** Cottereau's own drawn borders, extracted
+from his video (see "Cottereau's borders (private)" above), laid over the
+year view for a side-by-side reading. They are for personal use only:
+
+- **Where.** The section is in the panel only where
+  `/api/cottereau-borders/status` answers, that is when the server was
+  started with `COTTEREAU_BORDERS_DIR`. Without it the section is absent,
+  not just disabled, and nothing of it is written to the share link.
+- **The switch.** **COTTEREAU BORDERS (PRIVATE)** draws the sample for the
+  slider's year: the latest at or before it. The note says "Sample year N"
+  when that is not the slider's year. Before the first sample nothing is
+  drawn, and the note says so.
+- **Modes:**
+  - **OUTLINES**: his regions in a light ink over a dark halo, so they
+    read over a dark plate and a light one.
+  - **FILLS**: each region in his own colour, translucent, outlined thinly.
+  - **DIFFERENCES**: for each Cliopatria polity he is matched to, where only
+    he has it (orange) and where only Cliopatria has it (blue), from the
+    same polygons on the client. Where both have it stays clear.
+- **His labels** are off by default, since the year view already names
+  the polities. **OPACITY** is the overlay's own.
+- **Order.** The overlay is a third imagery layer, above both the year's
+  fills and the list's, so it stands on its own.
+- **A click** on one of his regions opens its card: his label, the
+  Cliopatria polity it is matched to, their IoU in the sample's year, its
+  flags (split, joined, label beside it, unlabelled), the sample's year
+  and the area. A Cliopatria polity's card gives the IoU of each of his
+  polities matched to it while the overlay is on.
+- **The URL.** `wh` carries the overlay last, as `@` + on (`1`/`0`) + the
+  mode's initial (`o`, `f`, `d`) + labels (`1`/`0`) + `.` + the opacity,
+  e.g. `~@1f0.70`. It is written only once the route has answered, and
+  never at its defaults. While the page has not yet asked, a field the
+  link brought rides on; once the route is known to be absent, it goes.
 
 **Rendering.**
 
@@ -6196,7 +6231,14 @@ never in the URL.
   tiles painted in order, the layers on the host with the list above and
   its alpha the opacity, names thinned, a new year swapped in, the click's
   card, off);
-- the panel's words (`src/ui/worldHistoryPanel.test.mjs`).
+- the panel's words (`src/ui/worldHistoryPanel.test.mjs`);
+- the Cottereau borders overlay (`src/layers/worldHistory/borders.test.mjs`
+  on synthetic samples: the route present or absent, the sample for a
+  year, the `wh` field written only with the route, the shapes for each
+  mode, the differences cut on the tile, the cards' and the panel's words;
+  and in `layer.test.mjs`: no layer and no field without the route, the
+  overlay above the year and the list with its own opacity, his labels on
+  request, his card, the Cliopatria card's IoU, and a second click).
 
 The frame times above were measured in a scratch page, not in the app.
 The live app has not been checked in a browser here.

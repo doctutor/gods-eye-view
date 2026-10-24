@@ -10,6 +10,10 @@
  *   its own colour at its largest or as at the year, shown or hidden,
  *   deleted, or all cleared; one opacity for their fills.
  * - The polity clicked on the map, with its Wikipedia link.
+ * - COTTEREAU BORDERS (PRIVATE), only where its route answers (absent from
+ *   the panel otherwise): on or off, outlines, fills or differences, his
+ *   labels, its own opacity, and the sample's year when it is not the
+ *   slider's.
  *
  * Names come from the data, so everything is built as nodes with text,
  * never as HTML. The words for each state are pure functions, so tests
@@ -17,6 +21,7 @@
  */
 import { t, tn } from '../i18n/index.js';
 import {
+  BORDERS_MODES,
   CLIOPATRIA_LAST_YEAR,
   CLIOPATRIA_URL,
   LIST_PALETTE,
@@ -34,10 +39,15 @@ import {
 } from '../data/worldHistory.js';
 import {
   areaText,
+  matchLines,
   spanText,
   wikipediaUrl,
   yearText,
 } from '../layers/worldHistory/presentation.js';
+import {
+  CLIOPATRIA_ONLY,
+  COTTEREAU_ONLY,
+} from '../layers/worldHistory/borders.js';
 
 const PANEL_ID = 'world-history-panel';
 /** The picker shows at most this many names at once. */
@@ -81,6 +91,40 @@ export const yearNote = (view) =>
         year: view.year,
       })
     : '';
+
+/** The borders overlay's note: its state, or the sample's year when it is not the slider's. */
+export function bordersNote(borders, year) {
+  switch (borders.status) {
+    case 'not-built':
+      return t(
+        'No Cottereau borders build yet: run node scripts/cottereau/borders.mjs extract',
+      );
+    case 'loading':
+      return t('Loading Cottereau’s borders…');
+    case 'failed':
+      return t('Cottereau’s borders could not be loaded: {error}', {
+        error: borders.error,
+      });
+    case 'none':
+      return t('No Cottereau sample at or before {year}', {
+        year: yearText(year),
+      });
+    case 'ready':
+      return borders.sampleYear !== null && borders.sampleYear !== year
+        ? t('Sample year {year}', { year: yearText(borders.sampleYear) })
+        : '';
+    default:
+      return '';
+  }
+}
+
+/** The borders overlay's mode chips' words. */
+export const bordersModeText = (mode) =>
+  mode === 'fills'
+    ? t('FILLS')
+    : mode === 'differences'
+      ? t('DIFFERENCES')
+      : t('OUTLINES');
 
 /** A list row's tag: loading, failed, or absent in the year. */
 export function entryTag(entry, year) {
@@ -245,6 +289,81 @@ export function createWorldHistoryPanel(container, { layer }) {
   const clear = button('world-history-reset', t('CLEAR'), () => layer.clear());
   compare.append(query, picker, addChecked, opacityRow, list, clear);
 
+  // COTTEREAU BORDERS (private): in the panel only where its route answers.
+  const borders = el('div', 'world-history-borders');
+  const bordersLabel = el('label', 'world-history-check');
+  const bordersSwitch = el('input');
+  bordersSwitch.type = 'checkbox';
+  bordersSwitch.addEventListener('change', () =>
+    layer.setBorders({ on: bordersSwitch.checked }),
+  );
+  bordersLabel.append(
+    bordersSwitch,
+    document.createTextNode(` ${t('Cottereau borders (private)')}`),
+  );
+  const bordersModes = el('div', 'world-history-mode');
+  bordersModes.setAttribute('role', 'group');
+  bordersModes.setAttribute(
+    'aria-label',
+    t('How Cottereau’s borders are drawn'),
+  );
+  const bordersChips = {};
+  for (const mode of BORDERS_MODES) {
+    const chip = button('world-history-chip', bordersModeText(mode), () =>
+      layer.setBorders({ mode }),
+    );
+    bordersChips[mode] = chip;
+    bordersModes.append(chip);
+  }
+  const bordersLabelsLabel = el('label', 'world-history-check');
+  const bordersLabels = el('input');
+  bordersLabels.type = 'checkbox';
+  bordersLabels.addEventListener('change', () =>
+    layer.setBorders({ labels: bordersLabels.checked }),
+  );
+  bordersLabelsLabel.append(
+    bordersLabels,
+    document.createTextNode(` ${t('Cottereau’s labels')}`),
+  );
+  const bordersOpacityRow = el('div', 'world-history-row');
+  const bordersOpacity = el('input', 'world-history-slider');
+  bordersOpacity.type = 'range';
+  bordersOpacity.min = '0';
+  bordersOpacity.max = '100';
+  bordersOpacity.step = '1';
+  bordersOpacity.setAttribute(
+    'aria-label',
+    t('Opacity of Cottereau’s borders'),
+  );
+  bordersOpacity.addEventListener('input', () =>
+    layer.setBorders({ opacity: Number(bordersOpacity.value) / 100 }),
+  );
+  const bordersOpacityValue = el('span', 'world-history-value');
+  bordersOpacityRow.append(
+    el('span', 'world-history-label', t('OPACITY')),
+    bordersOpacity,
+    bordersOpacityValue,
+  );
+  const legend = el('div', 'world-history-row world-history-legend');
+  for (const [colour, words] of [
+    [COTTEREAU_ONLY, t('Cottereau only')],
+    [CLIOPATRIA_ONLY, t('Cliopatria only')],
+  ]) {
+    const swatch = el('span', 'world-history-swatch');
+    swatch.style.background = rgba(colour, 1);
+    legend.append(swatch, el('span', 'world-history-note', words));
+  }
+  const bordersStatus = el('div', 'world-history-note');
+  bordersStatus.setAttribute('aria-live', 'polite');
+  const bordersControls = el('div', 'world-history-borders-controls');
+  bordersControls.append(
+    bordersModes,
+    bordersLabelsLabel,
+    bordersOpacityRow,
+    legend,
+  );
+  borders.append(bordersLabel, bordersControls, bordersStatus);
+
   // The clicked polity
   const selection = el('div', 'world-history-selected');
 
@@ -382,10 +501,50 @@ export function createWorldHistoryPanel(container, { layer }) {
     clear.disabled = !view.list.length;
   }
 
+  function renderBorders(view) {
+    const b = view.borders;
+    // Absent, not just disabled, where the route does not answer.
+    if (!b?.available) {
+      borders.remove();
+      return;
+    }
+    if (!borders.isConnected) compare.after(borders);
+    bordersSwitch.checked = b.on;
+    bordersSwitch.disabled = b.status === 'not-built';
+    bordersControls.hidden = !b.on;
+    for (const [mode, chip] of Object.entries(bordersChips)) {
+      chip.classList.toggle('active', b.mode === mode);
+      chip.setAttribute('aria-pressed', String(b.mode === mode));
+    }
+    bordersLabels.checked = b.labels;
+    const percent = String(Math.round(b.opacity * 100));
+    if (bordersOpacity.value !== percent) bordersOpacity.value = percent;
+    bordersOpacityValue.textContent = `${percent}%`;
+    legend.hidden = b.mode !== 'differences';
+    bordersStatus.textContent = bordersNote(b, view.year);
+  }
+
   function renderSelection(view) {
     const chosen = view.selected;
     selection.hidden = !chosen;
     if (!chosen) return selection.replaceChildren();
+    if (chosen.kind === 'cottereau') {
+      const actions = el('div', 'world-history-row');
+      if (chosen.name)
+        actions.append(
+          button('world-history-chip', t('COMPARE'), () =>
+            layer.add(chosen.name),
+          ),
+        );
+      actions.append(
+        button('world-history-delete', '×', () => layer.closeCard()),
+      );
+      return selection.replaceChildren(
+        el('div', 'world-history-selected-title', chosen.title),
+        ...chosen.lines.map((line) => el('div', 'world-history-note', line)),
+        actions,
+      );
+    }
     const nodes = [
       el('div', 'world-history-selected-title', chosen.title),
       el('div', 'world-history-note', spanText(chosen.from, chosen.to)),
@@ -400,6 +559,8 @@ export function createWorldHistoryPanel(container, { layer }) {
       );
     if (chosen.area)
       nodes.push(el('div', 'world-history-note', areaText(chosen.area)));
+    for (const line of matchLines(chosen.matches || []))
+      nodes.push(el('div', 'world-history-note', line));
     const actions = el('div', 'world-history-row');
     if (chosen.wikipedia) {
       const link = el(
@@ -445,6 +606,7 @@ export function createWorldHistoryPanel(container, { layer }) {
     if (opacity.value !== percent) opacity.value = percent;
     opacityValue.textContent = `${percent}%`;
     renderList(view);
+    renderBorders(view);
     renderSelection(view);
     if (namesState !== 'idle') renderPicker();
     // First appearance opens it, unless a collapse choice was restored.

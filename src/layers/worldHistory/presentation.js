@@ -50,3 +50,54 @@ export const wikipediaUrl = (title) =>
   title
     ? `https://en.wikipedia.org/wiki/${encodeURIComponent(String(title).replace(/ /g, '_'))}`
     : '';
+
+// ── The private Cottereau borders overlay ───────────────────────────────
+
+/** A flag of an extracted region, in words. */
+export function flagText(flag) {
+  if (flag === 'split') return t('split from a shared fill');
+  if (flag === 'joined') return t('joined parts of one colour');
+  if (flag === 'beside') return t('label set beside it');
+  if (flag === 'unlabelled') return t('unlabelled');
+  return flag;
+}
+
+/** An IoU as the cards say it: two decimals. */
+export const iouText = (iou) => (Math.round(iou * 100) / 100).toFixed(2);
+
+/** A Cottereau region's card title: his label, or that it has none. */
+export const regionTitle = (region) => region.label || t('Unlabelled region');
+
+/**
+ * A clicked Cottereau region's card lines: the Cliopatria polity his label
+ * is matched to, their IoU in the sample's year, its flags, the sample's
+ * year, and that the overlay is private.
+ */
+export function bordersCardDetails(region, { sampleYear }) {
+  const lines = [];
+  if (!region.unlabelled)
+    lines.push(
+      region.cliopatria
+        ? t('Cliopatria: {name}', { name: region.cliopatria })
+        : t('No Cliopatria match'),
+    );
+  if (Number.isFinite(region.iou))
+    lines.push(t('IoU with Cliopatria: {iou}', { iou: iouText(region.iou) }));
+  if (region.flags?.length)
+    lines.push(
+      t('Flags: {flags}', { flags: region.flags.map(flagText).join(', ') }),
+    );
+  lines.push(t('Sample year {year}', { year: yearText(sampleYear) }));
+  if (region.areaKm2) lines.push(areaText(region.areaKm2));
+  lines.push(t('Cottereau borders (private)'));
+  return lines;
+}
+
+/** A Cliopatria card's lines for the Cottereau polities matched to it. */
+export const matchLines = (matches) =>
+  matches.map((m) =>
+    t('IoU with Cottereau’s {label}: {iou}', {
+      label: m.label,
+      iou: iouText(m.iou),
+    }),
+  );

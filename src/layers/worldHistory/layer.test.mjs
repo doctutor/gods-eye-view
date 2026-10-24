@@ -1,7 +1,9 @@
 // Personal fork: the World history layer against stubs: tiles painted from
 // the served polygons, the year's and the list's imagery layers on the host
 // (the list above, its alpha the opacity), names thinned by size, a click's
-// card, the store and its `wh` value, and everything off on disable.
+// card, the store and its `wh` value, and everything off on disable; the
+// private Cottereau borders overlay: absent without its route, drawn above
+// both, its cards, and a second click's card of what lies under.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -17,6 +19,7 @@ import {
   paintShapes,
 } from './painter.js';
 import { decodeRecord } from './source.js';
+import { decodeSample } from './borders.js';
 import { createWorldHistoryStore } from './store.js';
 import {
   LIST_PALETTE,
@@ -174,7 +177,7 @@ const POLITIES = {
   ]),
 };
 
-function fixture({ list = [] } = {}) {
+function fixture({ list = [], borders = null, initial = {} } = {}) {
   resetPointerOwnership();
   const cesium = fakeCesium();
   const viewer = fakeViewer();
@@ -206,11 +209,12 @@ function fixture({ list = [] } = {}) {
   };
   const timers = [];
   const store = createWorldHistoryStore({
-    initial: { ...decodeWorldHistoryParam(''), year: -500, list },
+    initial: { ...decodeWorldHistoryParam(''), year: -500, list, ...initial },
   });
   const layer = createWorldHistoryLayer({
     store,
     source,
+    borders,
     cesium,
     overlayHost,
     createCanvas: () => ({ getContext: () => recordingContext().context }),
@@ -478,4 +482,191 @@ test('the store: every change heard once, and its wh value round-trips', () => {
   store.clear();
   assert.deepEqual(store.get().list, []);
   assert.deepEqual(polityColor('x'), polityColor('x'));
+});
+
+// ── The private Cottereau borders overlay ───────────────────────────────
+
+/** A sample as the route serves it: Persia over Big's middle, matched to it. */
+const BORDERS_SAMPLE = {
+  index: 7,
+  year: -520,
+  polygons: [
+    {
+      track: 1,
+      label: 'Persia',
+      cliopatria: 'Big Empire',
+      colour: '#aa3300',
+      areaKm2: 1_000_000,
+      flags: ['joined'],
+      regions: 1,
+      iou: 0.72,
+      polygons: JSON.parse(encodePolygons([[square(11, 41, 5)]])),
+    },
+  ],
+  unlabelled: [],
+};
+
+/** A borders source as the route would answer, the year asked recorded. */
+function bordersSource({ available = true, built = true } = {}) {
+  const asked = [];
+  const sample = decodeSample(BORDERS_SAMPLE);
+  return {
+    asked,
+    status: async () => (available ? { available, built } : { available }),
+    year: async (year) => {
+      asked.push(year);
+      return year < -600 ? null : sample;
+    },
+  };
+}
+
+const BORDERS_ON = {
+  borders: { on: true, mode: 'outlines', labels: false, opacity: 0.85 },
+};
+
+test('borders: absent without the route (no layer, no field in wh), even when the hash asked for it', async () => {
+  const f = fixture({ initial: BORDERS_ON });
+  f.layer.enable(f.viewer);
+  await f.settle();
+  assert.equal(f.store.bordersAvailable(), false, 'no borders source');
+  assert.equal(f.layer.view().borders.available, false);
+  assert.equal(f.layer.view().borders.status, 'absent');
+  assert.equal(f.layer._state().bordersLayer, null);
+  assert.equal(f.viewer.imageryLayers.list.length, 1, 'the year only');
+  assert.doesNotMatch(f.store.param(), /@/);
+
+  const g = fixture({
+    initial: BORDERS_ON,
+    borders: bordersSource({ available: false }),
+  });
+  g.layer.enable(g.viewer);
+  await g.settle();
+  assert.equal(g.layer.view().borders.available, false);
+  assert.doesNotMatch(g.store.param(), /@/, 'the route did not answer');
+});
+
+test('borders: the sample at or before the year drawn above the year fills and the list; its own opacity', async () => {
+  const borders = bordersSource();
+  const f = fixture({ initial: BORDERS_ON, borders });
+  f.layer.enable(f.viewer);
+  await f.settle();
+  const layers = f.viewer.imageryLayers.list;
+  const { yearLayer, bordersLayer } = f.layer._state();
+  assert.deepEqual(layers, [yearLayer, bordersLayer]);
+  assert.equal(bordersLayer.alpha, 0.85);
+  assert.deepEqual(borders.asked, [-500]);
+  const view = f.layer.view();
+  assert.equal(view.borders.available, true);
+  assert.equal(view.borders.status, 'ready');
+  assert.equal(
+    view.borders.sampleYear,
+    -520,
+    'the sample before the slider year',
+  );
+  assert.match(f.store.param(), /~@1o0\.85$/);
+
+  // The list goes under the overlay; the overlay stays on top.
+  f.layer.add('Roman Empire');
+  await f.settle();
+  assert.deepEqual(layers, [
+    yearLayer,
+    f.layer._state().listLayer,
+    bordersLayer,
+  ]);
+  // A new year: its fills at the bottom; the same sample, the same layer.
+  f.layer.setYear(-510);
+  f.runTimers();
+  await f.settle();
+  assert.deepEqual(layers, [
+    f.layer._state().yearLayer,
+    f.layer._state().listLayer,
+    bordersLayer,
+  ]);
+  assert.notEqual(f.layer._state().yearLayer, yearLayer);
+  assert.deepEqual(borders.asked, [-500, -510]);
+  // Its opacity is its alpha; a new mode repaints it, still on top.
+  f.layer.setBorders({ opacity: 0.4 });
+  assert.equal(bordersLayer.alpha, 0.4);
+  assert.equal(f.layer._state().bordersLayer, bordersLayer);
+  f.layer.setBorders({ mode: 'fills' });
+  const filled = f.layer._state().bordersLayer;
+  assert.notEqual(filled, bordersLayer);
+  assert.equal(layers.at(-1), filled);
+  // Its tiles paint his region.
+  const tile = await filled.provider.requestImage(4, 1, 2);
+  assert.ok(tile);
+  // Before the first sample: none drawn, and said so.
+  f.layer.setYear(-700);
+  f.runTimers();
+  await f.settle();
+  assert.equal(f.layer._state().bordersLayer, null);
+  assert.equal(f.layer.view().borders.status, 'none');
+  // Off: gone, the switch remembered in wh.
+  f.layer.setYear(-500);
+  f.runTimers();
+  await f.settle();
+  f.layer.setBorders({ on: false });
+  assert.equal(f.layer._state().bordersLayer, null);
+  assert.equal(f.layer.view().borders.status, 'off');
+  assert.match(f.store.param(), /~@0f0\.40$/);
+});
+
+test('borders: his labels only on request; a click on his region gives its card, again the one under it', async () => {
+  const f = fixture({ initial: BORDERS_ON, borders: bordersSource() });
+  f.layer.enable(f.viewer);
+  await f.settle();
+  const his = () => f.drawn.at(-1).entries.filter((e) => e.id.startsWith('c:'));
+  assert.deepEqual(his(), [], 'labels off by default');
+  f.layer.setBorders({ labels: true });
+  assert.deepEqual(
+    his().map((e) => e.title),
+    ['Persia'],
+  );
+
+  // 12.5°E 42.5°N: in Persia, Big and Small.
+  f.layer._onClick({ x: 125, y: 425 });
+  let card = f.drawn.at(-1).entries.find((e) => e.id === 'card');
+  assert.equal(card.title, 'Persia');
+  assert.deepEqual(card.details, [
+    'Cliopatria: Big Empire',
+    'IoU with Cliopatria: 0.72',
+    'Flags: joined parts of one colour',
+    'Sample year 520 BC',
+    '1,000,000 km²',
+    'Cottereau borders (private)',
+  ]);
+  assert.equal(f.layer.view().selected.kind, 'cottereau');
+  assert.equal(f.layer.view().selected.name, 'Big Empire');
+  // The same spot again: what lies under it.
+  f.layer._onClick({ x: 125, y: 425 });
+  card = f.drawn.at(-1).entries.find((e) => e.id === 'card');
+  assert.equal(card.title, 'Small Kingdom');
+
+  // A Cliopatria polity he is matched to: its card gives his IoU.
+  f.layer._onClick({ x: 185, y: 475 });
+  card = f.drawn.at(-1).entries.find((e) => e.id === 'card');
+  assert.equal(card.title, 'Big');
+  assert.ok(card.details.includes('IoU with Cottereau’s Persia: 0.72'));
+  assert.match(card.details.at(-1), /CC BY 4\.0/, 'the credit stays last');
+  assert.deepEqual(f.layer.view().selected.matches, [
+    { label: 'Persia', iou: 0.72 },
+  ]);
+  // With the overlay off, no IoU line.
+  f.layer.setBorders({ on: false });
+  f.layer._onClick({ x: 500, y: 0 });
+  f.layer._onClick({ x: 185, y: 475 });
+  card = f.drawn.at(-1).entries.find((e) => e.id === 'card');
+  assert.ok(!card.details.some((line) => /IoU/.test(line)));
+});
+
+test('borders: not built yet, the switch is there but nothing draws', async () => {
+  const f = fixture({
+    initial: BORDERS_ON,
+    borders: bordersSource({ built: false }),
+  });
+  f.layer.enable(f.viewer);
+  await f.settle();
+  assert.equal(f.layer.view().borders.available, true);
+  assert.equal(f.layer.view().borders.status, 'not-built');
+  assert.equal(f.layer._state().bordersLayer, null);
 });

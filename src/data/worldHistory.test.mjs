@@ -229,6 +229,7 @@ test('the wh token round-trips: year, mode, opacity and a list with awkward name
     places: true,
     opacity: 0.35,
     list,
+    borders: defaultWorldHistoryState().borders,
   };
   const token = encodeWorldHistoryParam(state);
   assert.match(token, /^1\.-500\.cp\.35~/);

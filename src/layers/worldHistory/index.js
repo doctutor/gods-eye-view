@@ -12,7 +12,16 @@
  * - Names: 'label' entries on the world overlay (so the Titles toggle
  *   hides them), thinned by area against the camera's height.
  * - A click on a polity (or its name) opens a card; the panel shows its
- *   Wikipedia link.
+ *   Wikipedia link. A second click on the same spot opens the card of what
+ *   lies under it.
+ * - The PRIVATE Cottereau borders overlay (./borders.js), only where its
+ *   route answers: his drawn borders for the slider's year (the sample at
+ *   or before it) as light outlines, as fills in his colours, or where he
+ *   and Cliopatria disagree, in a third imagery layer above the other two
+ *   with its own opacity; his labels on request; a click on one of his
+ *   regions opens its card (his label, the matched Cliopatria polity, the
+ *   IoU, the flags, the sample's year), and a Cliopatria card gives the
+ *   IoU of his polities matched to it.
  *
  * The state lives in ./store.js (and the share link's `wh`); the answers
  * come from the app's routes (./source.js).
@@ -25,11 +34,29 @@ import {
   CLIOPATRIA_URL,
   LIST_PALETTE,
   cliopatriaYear,
+  clampYear,
   polityColor,
   polygonsContain,
 } from '../../data/worldHistory.js';
-import { createWorldHistoryImageryProvider } from './painter.js';
-import { cardDetails } from './presentation.js';
+import {
+  createWorldHistoryImageryProvider,
+  paintDifferences,
+} from './painter.js';
+import {
+  bordersCardDetails,
+  cardDetails,
+  matchLines,
+  regionTitle,
+} from './presentation.js';
+import {
+  CLIOPATRIA_ONLY,
+  COTTEREAU_ONLY,
+  DIFFERENCE_ALPHA,
+  bordersShapes,
+  differencePairs,
+  matchesFor,
+  regionAt,
+} from './borders.js';
 
 export const WORLD_HISTORY_LAYER_ID = 'world-history';
 /** The world overlay's source for the names and the card. */
@@ -54,14 +81,17 @@ const hex = ([r, g, b]) =>
   `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
 /**
- * @param {{store: object, source: object, cesium?: object,
+ * @param {{store: object, source: object, borders?: object, cesium?: object,
  *   overlayHost?: object, hitTest?: Function, requestRender?: Function,
  *   credits?: {register?: Function}, setTimeoutImpl?: Function,
  *   clearTimeoutImpl?: Function, createCanvas?: Function}} options
+ *   `borders` the Cottereau borders source (./borders.js); without it the
+ *   overlay is never offered.
  */
 export function createWorldHistoryLayer({
   store,
   source,
+  borders = null,
   cesium = Cesium,
   overlayHost = null,
   hitTest = null,
@@ -94,6 +124,13 @@ export function createWorldHistoryLayer({
   let selected = null;
   let settleTimer = null;
   let notBuilt = false;
+
+  /** The Cottereau borders overlay: its status, its sample, its layer. */
+  let bordersInfo = null;
+  let bordersProbing = false;
+  let bordersState = { year: null, state: 'idle', sample: null, error: '' };
+  let bordersLayer = null;
+  let bordersKey = '';
 
   const notify = () => {
     for (const listener of [...panelListeners]) {
@@ -137,13 +174,16 @@ export function createWorldHistoryLayer({
   }
 
   function unmount() {
+    removeLayer(bordersLayer);
     removeLayer(listLayer);
     removeLayer(yearLayer);
+    bordersLayer = null;
     listLayer = null;
     yearLayer = null;
     collection = null;
     yearKey = '';
     listKey = '';
+    bordersKey = '';
     requestRender('world-history-hide');
   }
 
@@ -269,6 +309,98 @@ export function createWorldHistoryLayer({
     }
   }
 
+  // ── The Cottereau borders overlay ────────────────────────────────────
+
+  /** Whether the overlay draws: its route answers, is built, and it is on. */
+  const bordersOn = () =>
+    enabled &&
+    store.bordersAvailable?.() === true &&
+    bordersInfo?.built === true &&
+    store.get().borders?.on === true;
+
+  /** Ask once whether the private route answers (none: never offered). */
+  function probeBorders(again = false) {
+    if (!borders) {
+      store.setBordersAvailable?.(false);
+      return;
+    }
+    if (bordersProbing || (bordersInfo && !again)) return;
+    bordersProbing = true;
+    Promise.resolve()
+      .then(() => borders.status())
+      .catch(() => ({ available: false }))
+      .then((info) => {
+        bordersProbing = false;
+        bordersInfo = info?.available ? info : { available: false };
+        store.setBordersAvailable?.(bordersInfo.available === true);
+        loadBorders();
+        mount();
+        notify();
+      });
+  }
+
+  /** The slider year's sample; the one drawn stays until the next is here. */
+  function loadBorders() {
+    if (!bordersOn()) return;
+    const year = store.get().year;
+    if (bordersState.year === year && bordersState.state !== 'failed') return;
+    bordersState = { ...bordersState, year, state: 'loading', error: '' };
+    notify();
+    borders
+      .year(year)
+      .then((sample) => {
+        if (bordersState.year !== year) return;
+        bordersState = {
+          year,
+          state: sample ? 'ready' : 'none',
+          sample,
+          error: '',
+        };
+        mount();
+        drawNames();
+        notify();
+      })
+      .catch((error) => {
+        if (bordersState.year !== year) return;
+        bordersState = {
+          year,
+          state: 'failed',
+          sample: null,
+          error: String(error?.message || error).slice(0, 200),
+        };
+        mount();
+        notify();
+      });
+  }
+
+  /** The sample drawn now, or null. */
+  const drawnSample = () => (bordersOn() ? bordersState.sample : null);
+
+  function bordersProvider(sample, mode) {
+    if (mode !== 'differences') {
+      const shapes = bordersShapes(sample, mode);
+      return createWorldHistoryImageryProvider({
+        shapes: () => shapes,
+        ...providerOptions(),
+      });
+    }
+    const year = clampYear(sample.year);
+    return createWorldHistoryImageryProvider({
+      shapes: (lod) =>
+        source
+          .year(year, { mode: 'all', places: false, lod })
+          .then((answer) => differencePairs(sample, answer.polities)),
+      paint: (context, pairs, rect, options) =>
+        paintDifferences(context, pairs, rect, {
+          ...options,
+          onlyA: COTTEREAU_ONLY,
+          onlyB: CLIOPATRIA_ONLY,
+          alpha: DIFFERENCE_ALPHA,
+        }),
+      ...providerOptions(),
+    });
+  }
+
   // ── On the scene ─────────────────────────────────────────────────────
 
   /** The imagery layers to match the state, the year's once it is loaded. */
@@ -299,8 +431,11 @@ export function createWorldHistoryLayer({
         }),
         { alpha: 1 },
       );
-      const below = listLayer ? collection.indexOf(listLayer) : -1;
-      if (below >= 0) collection.add(next, below);
+      // Under the list and the borders overlay, whichever is lower.
+      const above = [listLayer, bordersLayer]
+        .map((l) => (l ? collection.indexOf(l) : -1))
+        .filter((i) => i >= 0);
+      if (above.length) collection.add(next, Math.min(...above));
       else collection.add(next);
       removeLayer(yearLayer);
       yearLayer = next;
@@ -323,11 +458,31 @@ export function createWorldHistoryLayer({
           }),
           { alpha: state.opacity },
         );
-        collection.add(listLayer);
+        // Under the borders overlay: it stands on its own above both.
+        const over = bordersLayer ? collection.indexOf(bordersLayer) : -1;
+        if (over >= 0) collection.add(listLayer, over);
+        else collection.add(listLayer);
       }
       listKey = nextListKey;
     }
     if (listLayer) listLayer.alpha = state.opacity;
+    const sample = drawnSample();
+    const nextBordersKey = sample
+      ? `${sample.index}|${state.borders.mode}`
+      : '';
+    if (nextBordersKey !== bordersKey) {
+      removeLayer(bordersLayer);
+      bordersLayer = null;
+      if (sample) {
+        bordersLayer = new cesium.ImageryLayer(
+          bordersProvider(sample, state.borders.mode),
+          { alpha: state.borders.opacity },
+        );
+        collection.add(bordersLayer);
+      }
+      bordersKey = nextBordersKey;
+    }
+    if (bordersLayer) bordersLayer.alpha = state.borders.opacity;
     credits?.register?.(viewer, WORLD_HISTORY_CREDIT);
     requestRender('world-history');
   }
@@ -394,13 +549,42 @@ export function createWorldHistoryLayer({
         });
       }
     }
+    const sample = drawnSample();
+    if (sample && state.borders.labels) {
+      const height = cameraHeight();
+      const named = sample.polities
+        .filter(
+          (p) =>
+            p.at &&
+            Math.sqrt(p.areaKm2 || 0) * 1000 >= height * LABEL_SIZE_SHARE,
+        )
+        .sort((a, b) => (b.areaKm2 || 0) - (a.areaKm2 || 0))
+        .slice(0, MAX_YEAR_LABELS);
+      for (const p of named)
+        out.push({
+          id: `c:${sample.index}:${p.track ?? p.label}`,
+          variant: 'label',
+          position: at(p.at),
+          title: p.label,
+          details: [],
+          accent: INK.light,
+          priority: Math.round(Math.log10((p.areaKm2 || 0) + 1) * 40) + 1,
+          collisionGroup: 'world-history',
+          interactive: true,
+          accessibilityLabel: p.label,
+          horizonCull: true,
+          terrainOcclusion: false,
+          gapPx: 4,
+          placement: 'below',
+        });
+    }
     if (selected) {
       out.push({
         id: 'card',
         variant: 'card',
         position: at([selected.lon, selected.lat]),
         title: selected.title,
-        details: cardDetails(selected.record, { title: selected.title }),
+        details: selectedDetails(),
         accent,
         priority: 1000,
         protected: true,
@@ -421,26 +605,67 @@ export function createWorldHistoryLayer({
     requestRender('world-history-names');
   }
 
+  /** The selected card's lines: a Cottereau region's, or a polity's with his IoU. */
+  function selectedDetails() {
+    if (selected.kind === 'cottereau')
+      return bordersCardDetails(selected.record, {
+        sampleYear: selected.sampleYear,
+      });
+    const lines = cardDetails(selected.record, { title: selected.title });
+    const extra = matchLines(matchesFor(drawnSample(), selected.record.name));
+    // His IoU before the credit line.
+    lines.splice(lines.length - 1, 0, ...extra);
+    return lines;
+  }
+
   /** The best decoded answer drawn for the year: the finest level here. */
   const finestYear = () =>
     yearAnswers.get(2) || yearAnswers.get(1) || yearAnswers.get(0) || null;
 
-  /** What is under a point: a list entry (topmost first), else the smallest polity. */
-  function polityAt(lon, lat) {
+  /**
+   * What is under a point, topmost first: a Cottereau region (the overlay
+   * is on top), the list's entries (the last added on top), the smallest
+   * of the year's polities.
+   */
+  function hitsAt(lon, lat) {
+    const out = [];
+    const sample = drawnSample();
+    const region = sample ? regionAt(sample, lon, lat) : null;
+    if (region)
+      out.push({
+        record: region,
+        title: regionTitle(region),
+        kind: 'cottereau',
+        sampleYear: sample.year,
+      });
     const { list } = store.get();
     for (const entry of [...list].reverse()) {
       const record = entries.get(entry.name)?.record;
       if (entry.visible && record && polygonsContain(record.polygons, lon, lat))
-        return { record, title: entry.name, kind: 'list' };
+        out.push({ record, title: entry.name, kind: 'list' });
     }
     const answer = finestYear();
-    if (!answer) return null;
-    const hits = answer.polities
+    const smallest = (answer?.polities || [])
       .filter((p) => polygonsContain(p.polygons, lon, lat))
-      .sort((a, b) => (a.area || 0) - (b.area || 0));
-    return hits[0]
-      ? { record: hits[0], title: hits[0].title || hits[0].name, kind: 'year' }
-      : null;
+      .sort((a, b) => (a.area || 0) - (b.area || 0))[0];
+    if (smallest)
+      out.push({
+        record: smallest,
+        title: smallest.title || smallest.name,
+        kind: 'year',
+      });
+    return out;
+  }
+
+  const sameHit = (a, b) =>
+    !!a && !!b && a.kind === b.kind && a.record === b.record;
+
+  /** The topmost hit; the next one down when the topmost is open already. */
+  function polityAt(lon, lat) {
+    const hits = hitsAt(lon, lat);
+    if (!hits.length) return null;
+    const open = hits.findIndex((hit) => sameHit(hit, selected));
+    return open >= 0 ? hits[(open + 1) % hits.length] : hits[0];
   }
 
   function select(hit, lon, lat) {
@@ -523,9 +748,11 @@ export function createWorldHistoryLayer({
       if (settleTimer) clearTimeoutImpl(settleTimer);
       settleTimer = setTimeoutImpl(() => {
         settleTimer = null;
-        if (enabled) loadYear();
+        if (!enabled) return;
+        loadYear();
+        loadBorders();
       }, YEAR_SETTLE_MS);
-    }
+    } else loadBorders();
     loadEntries();
     mount();
     drawNames();
@@ -550,8 +777,10 @@ export function createWorldHistoryLayer({
       store.setEnabled(true);
       overlayHost?.setVisible?.(WORLD_HISTORY_OVERLAY, true);
       attachInput();
+      probeBorders();
       loadYear();
       loadEntries();
+      loadBorders();
       mount();
       drawNames();
       notify();
@@ -633,6 +862,8 @@ export function createWorldHistoryLayer({
 
     view() {
       const state = store.get();
+      const available = store.bordersAvailable?.() === true;
+      const sample = bordersState.sample;
       return {
         enabled,
         year: state.year,
@@ -653,16 +884,41 @@ export function createWorldHistoryLayer({
             to: known?.to,
           };
         }),
-        selected: selected
-          ? {
-              title: selected.title,
-              name: selected.record.name,
-              from: selected.record.from,
-              to: selected.record.to,
-              area: selected.record.area,
-              wikipedia: selected.record.wikipedia,
-            }
-          : null,
+        borders: {
+          available,
+          ...state.borders,
+          status: !available
+            ? 'absent'
+            : bordersInfo?.built !== true
+              ? 'not-built'
+              : !state.borders.on
+                ? 'off'
+                : bordersState.state,
+          error: bordersState.error,
+          sampleYear:
+            bordersState.state === 'ready' && sample ? sample.year : null,
+        },
+        selected: !selected
+          ? null
+          : selected.kind === 'cottereau'
+            ? {
+                kind: 'cottereau',
+                title: selected.title,
+                lines: bordersCardDetails(selected.record, {
+                  sampleYear: selected.sampleYear,
+                }),
+                name: selected.record.cliopatria || '',
+              }
+            : {
+                kind: selected.kind,
+                title: selected.title,
+                name: selected.record.name,
+                from: selected.record.from,
+                to: selected.record.to,
+                area: selected.record.area,
+                wikipedia: selected.record.wikipedia,
+                matches: matchesFor(drawnSample(), selected.record.name),
+              },
       };
     },
     onChange(listener) {
@@ -674,6 +930,7 @@ export function createWorldHistoryLayer({
     setMode: (mode) => store.setMode(mode),
     setPlaces: (places) => store.setPlaces(places),
     setOpacity: (opacity) => store.setOpacity(opacity),
+    setBorders: (patch) => store.setBorders(patch),
     add: (name) => store.add(name),
     setVisible: (name, visible) => store.update(name, { visible }),
     setExtent: (name, extent) => store.update(name, { extent }),
@@ -684,8 +941,12 @@ export function createWorldHistoryLayer({
       yearState = { ...yearState, key: '' };
       for (const [name, known] of entries)
         if (known.state === 'failed') entries.delete(name);
+      if (bordersState.state === 'failed')
+        bordersState = { ...bordersState, year: null };
+      if (bordersInfo && bordersInfo.built !== true) probeBorders(true);
       loadYear();
       loadEntries();
+      loadBorders();
     },
 
     /** For tests: what is mounted and loaded. */
@@ -693,6 +954,8 @@ export function createWorldHistoryLayer({
       enabled,
       yearLayer,
       listLayer,
+      bordersLayer,
+      bordersState,
       collection,
       yearKey,
       listKey,

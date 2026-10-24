@@ -209,3 +209,19 @@
 .world-history-credit a {
   color: #7fdcff;
 }
+
+/* The private Cottereau borders overlay: present only where its route answers. */
+.world-history-borders,
+.world-history-borders-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.world-history-borders {
+  padding-top: 6px;
+  border-top: 1px dashed rgba(98, 181, 255, 0.2);
+}
+.world-history-borders-controls[hidden],
+.world-history-legend[hidden] {
+  display: none;
+}

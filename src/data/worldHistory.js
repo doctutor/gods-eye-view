@@ -29,6 +29,17 @@ export const WORLD_HISTORY_PARAM = 'wh';
 export const CONFIDENCES = Object.freeze(['high', 'medium', 'low']);
 /** The list fills' opacity, by default. */
 export const DEFAULT_OPACITY = 0.6;
+/**
+ * The private Cottereau borders overlay (only where its route answers):
+ * his drawn borders as outlines, as fills in his colours, or where they and
+ * Cliopatria's disagree.
+ */
+export const BORDERS_MODES = Object.freeze([
+  'outlines',
+  'fills',
+  'differences',
+]);
+export const DEFAULT_BORDERS_OPACITY = 0.85;
 
 export const CLIOPATRIA_CREDIT_TEXT =
   'Cliopatria (Seshat Global History Databank), CC BY 4.0';
@@ -370,6 +381,14 @@ export const removeListEntry = (list, name) =>
 
 // ── The URL ─────────────────────────────────────────────────────────────
 
+/** The Cottereau borders overlay's state, at its defaults (labels off: the year view names). */
+export const defaultBordersState = () => ({
+  on: false,
+  mode: 'outlines',
+  labels: false,
+  opacity: DEFAULT_BORDERS_OPACITY,
+});
+
 /** The state the layer keeps, with every field at its default. */
 export const defaultWorldHistoryState = () => ({
   enabled: false,
@@ -378,7 +397,33 @@ export const defaultWorldHistoryState = () => ({
   places: false,
   opacity: DEFAULT_OPACITY,
   list: [],
+  borders: defaultBordersState(),
 });
+
+/** A borders state made whole and in range. */
+export function cleanBordersState(borders) {
+  const b = { ...defaultBordersState(), ...borders };
+  return {
+    on: b.on === true,
+    mode: BORDERS_MODES.includes(b.mode) ? b.mode : 'outlines',
+    labels: b.labels === true,
+    opacity:
+      Math.round(Math.min(1, Math.max(0, Number(b.opacity) || 0)) * 100) / 100,
+  };
+}
+
+const bordersToken = (borders) => {
+  const b = cleanBordersState(borders);
+  const d = defaultBordersState();
+  if (
+    b.on === d.on &&
+    b.mode === d.mode &&
+    b.labels === d.labels &&
+    b.opacity === d.opacity
+  )
+    return '';
+  return `@${b.on ? 1 : 0}${b.mode[0]}${b.labels ? 1 : 0}.${Math.round(b.opacity * 100)}`;
+};
 
 const escapeName = (text) =>
   encodeURIComponent(text || '').replace(
@@ -394,16 +439,24 @@ const escapeName = (text) =>
  * (Cottereau), `cp` (with place-only matches) or `a` (all). Names are
  * URI-encoded with `!'()*~.` escaped too, so they never hold a separator.
  * '' when off with nothing set.
+ *
+ * With `borders` (only where the private Cottereau borders route answers),
+ * the overlay's state rides last as `@` + on (`1`/`0`) + its mode's initial
+ * (`o`utlines, `f`ills, `d`ifferences) + labels (`1`/`0`) + `.` + its
+ * opacity, e.g. `@1f0.70`; left out at its defaults. Without `borders`
+ * nothing of it is written.
  */
-export function encodeWorldHistoryParam(state) {
+export function encodeWorldHistoryParam(state, { borders = false } = {}) {
   const s = { ...defaultWorldHistoryState(), ...state };
   const list = (s.list || []).slice(0, MAX_LIST_ENTRIES);
   const year = clampYear(s.year);
   const opacity = Math.round(Math.min(1, Math.max(0, s.opacity)) * 100);
   const mode = s.mode === 'all' ? 'a' : s.places ? 'cp' : 'c';
+  const overlay = borders ? bordersToken(s.borders) : '';
   if (
     !s.enabled &&
     !list.length &&
+    !overlay &&
     year === 1 &&
     mode === 'c' &&
     opacity === Math.round(DEFAULT_OPACITY * 100)
@@ -414,6 +467,7 @@ export function encodeWorldHistoryParam(state) {
     parts.push(
       `${entry.visible ? '*' : '!'}${entry.extent === 'year' ? 'y' : 'm'}${escapeName(entry.name)}`,
     );
+  if (overlay) parts.push(overlay);
   return parts.join('~');
 }
 
@@ -430,6 +484,16 @@ export function decodeWorldHistoryParam(token) {
     state.opacity = Math.min(100, Number(match[4])) / 100;
   }
   for (const part of entries) {
+    const overlay = /^@([01])([ofd])([01])\.(\d{1,3})$/.exec(part);
+    if (overlay) {
+      state.borders = cleanBordersState({
+        on: overlay[1] === '1',
+        mode: BORDERS_MODES.find((m) => m[0] === overlay[2]),
+        labels: overlay[3] === '1',
+        opacity: Math.min(100, Number(overlay[4])) / 100,
+      });
+      continue;
+    }
     const entry = /^([*!])([my])(.+)$/.exec(part);
     if (!entry) continue;
     let name = entry[3];
