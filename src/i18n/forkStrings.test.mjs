@@ -19,6 +19,8 @@ const FORK_FILES = [
   'src/ui/recordedVideoPanel.js',
   'src/ui/customCutoutsPanel.js',
   'src/layers/customCutouts/',
+  'src/ui/worldHistoryPanel.js',
+  'src/layers/worldHistory/',
   'src/layers/cctv/audio.js',
   'src/layers/baltimoreCameras/',
   'src/layers/recordedVideo/',

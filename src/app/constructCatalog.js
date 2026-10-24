@@ -41,6 +41,11 @@ import {
   CUSTOM_CUTOUTS_LAYER_ID,
   createApplicationCustomCutouts,
 } from './layers/customCutouts.js';
+// Personal fork: any year of world history on the globe (local-only).
+import {
+  WORLD_HISTORY_LAYER_ID,
+  createApplicationWorldHistory,
+} from './layers/worldHistory.js';
 // Personal fork: Earth Engine overlays (local-only, not upstream).
 import {
   EARTH_ENGINE_LAYER_IDS,
@@ -88,6 +93,7 @@ export const LOCAL_ONLY_LAYER_METADATA = Object.freeze([
   Object.freeze({ id: 'recorded-video', disposition: 'local-only' }),
   Object.freeze({ id: 'grid', disposition: 'local-only' }),
   Object.freeze({ id: CUSTOM_CUTOUTS_LAYER_ID, disposition: 'local-only' }),
+  Object.freeze({ id: WORLD_HISTORY_LAYER_ID, disposition: 'local-only' }),
   ...EARTH_ENGINE_LAYER_IDS.map((id) =>
     Object.freeze({ id, disposition: 'local-only' }),
   ),
@@ -197,6 +203,7 @@ export function createApplicationCatalog({
         ...createApplicationEarthEngineLayers(),
         createApplicationGrid(),
         createApplicationCustomCutouts(),
+        createApplicationWorldHistory(),
         createApplicationWikipediaCoverage(),
         createApplicationLocalities(),
         createApplicationStreetAssets(),

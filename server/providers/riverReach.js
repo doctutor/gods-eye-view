@@ -7,6 +7,7 @@ import { admitSameSite } from './common/same-site.js';
 import { defaultSourceRoot } from './common/source-root.js';
 // Personal fork: the river names sidecar names a clicked reach.
 import { createRiverNamesIndex, riverNamesDir } from './riverNames/index.js';
+import { createLiveRiverNames } from './riverNames/live.js';
 import {
   EE_API,
   createServiceAccountAuth,
@@ -768,6 +769,9 @@ export function createRiverReachService({
   // Personal fork: the river names sidecar (riverNames/index.js), whose
   // nearest named line names a clicked reach.
   names = null,
+  // Personal fork: the live name from the local Overpass when the sidecar
+  // has none (riverNames/live.js).
+  liveNames = null,
 } = {}) {
   const dir = path.join(sourceRoot, CACHE_DIR);
   const limiter = createLimiter({ ...limits, now });
@@ -894,6 +898,23 @@ export function createRiverReachService({
     });
   }
 
+  /**
+   * The reach's live OpenStreetMap name (riverNames/live.js), asked once
+   * and kept with the reach (<id>.osmname.json, CACHE_TTL_MS), a "none" too;
+   * a failed lookup is not kept and names nothing.
+   */
+  async function liveNameOf(reach) {
+    const stored = readCache(reach.id, 'osmname');
+    if (stored && 'osmName' in stored) return stored.osmName;
+    return once(`osmname:${reach.id}`, async () => {
+      const found = await liveNames.name(reach);
+      if (found.status === 'failed') return null;
+      const osmName = found.status === 'named' ? found.osmName : null;
+      writeCache(reach.id, 'osmname', { osmName });
+      return osmName;
+    });
+  }
+
   const links = (id) => ({
     self: `${RIVER_REACH_ROUTE}/${V1_SOURCE.id}/${id}`,
     upstream: `${RIVER_REACH_ROUTE}/${V1_SOURCE.id}/${id}/upstream`,
@@ -933,6 +954,15 @@ export function createRiverReachService({
         osmName = names.nearest({ lat: click.lat, lon: click.lon });
       } catch (error) {
         console.warn('[Rivers] name lookup failed:', error?.message);
+      }
+    // None from the sidecar: the named waterway that follows the reach, live
+    // from the local Overpass. Not for a reach BB_NAME names: that name is
+    // authoritative for the big rivers, and a live one would not be shown.
+    if (!osmName && liveNames && !traced.reach.properties?.BB_NAME)
+      try {
+        osmName = await liveNameOf(traced.reach);
+      } catch (error) {
+        console.warn('[Rivers] live name lookup failed:', error?.message);
       }
     return answer(200, {
       schema: RIVER_REACH_SCHEMA,
@@ -1114,6 +1144,7 @@ export function riverReachProxy({
     shared ||= createRiverReachService({
       sourceRoot,
       names: sharedRiverNames(sourceRoot),
+      liveNames: createLiveRiverNames(),
     });
     middlewares.use(
       RIVER_REACH_ROUTE,

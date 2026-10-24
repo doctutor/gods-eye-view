@@ -6,6 +6,11 @@ import {
 import { colourScales } from './maps/colourScaleStore.js';
 // Personal fork: the Custom cutouts layer's list and toggle (`cc`).
 import { CUTOUTS_PARAM, cutoutStore } from './layers/customCutouts/store.js';
+// Personal fork: the World history layer's year, mode and list (`wh`).
+import {
+  WORLD_HISTORY_PARAM,
+  worldHistoryStore,
+} from './layers/worldHistory/store.js';
 import * as Cesium from 'cesium';
 import { BLOOM_INTENSITY_DEFAULT, BLOOM_SCALE_VERSION } from './bloom.js';
 import {
@@ -163,6 +168,10 @@ export class ShareLinkManager {
     );
     // Personal fork: so is a changed cutout list.
     this._removeCutouts = cutoutStore().subscribe(() => this._scheduleUpdate());
+    // Personal fork: and a changed World history year or list.
+    this._removeWorldHistory = worldHistoryStore().subscribe(() =>
+      this._scheduleUpdate(),
+    );
   }
 
   /**
@@ -620,6 +629,10 @@ export class ShareLinkManager {
     const cutouts = cutoutStore().param();
     if (cutouts) params.set(CUTOUTS_PARAM, cutouts);
     else params.delete(CUTOUTS_PARAM);
+    // Personal fork: the World history layer (src/layers/worldHistory/store.js).
+    const history = worldHistoryStore().param();
+    if (history) params.set(WORLD_HISTORY_PARAM, history);
+    else params.delete(WORLD_HISTORY_PARAM);
     this._encodePanelStateParam(params, this._panelStateProvider?.());
     // Personal fork: the panel's Titles toggle, in the same `ui` param.
     if (this._titlesProvider) encodeTitlesParam(params, this._titlesProvider());
@@ -653,6 +666,8 @@ export class ShareLinkManager {
     this._removeColourScales = null;
     this._removeCutouts?.();
     this._removeCutouts = null;
+    this._removeWorldHistory?.();
+    this._removeWorldHistory = null;
     clearTimeout(this._debounceTimer);
     this._debounceTimer = null;
     this._removeCameraChanged?.();

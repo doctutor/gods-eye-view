@@ -69,6 +69,8 @@
     "overture:boundaries": "node scripts/overture/index.mjs boundaries",
     "property:build": "node scripts/property/index.mjs build",
     "property:status": "node scripts/property/index.mjs status",
+    "world-history:build": "node scripts/worldHistory/index.mjs build",
+    "world-history:status": "node scripts/worldHistory/index.mjs status",
     "overpass:status": "node scripts/overpass-status.mjs",
     "overpass:recover": "node scripts/overpass-status.mjs --recover",
     "msfs:deploy": "node tools/msfs-renderer/msfs.mjs deploy",

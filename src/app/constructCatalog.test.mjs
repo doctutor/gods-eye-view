@@ -47,8 +47,8 @@ test('catalogs construct distinct layers and classification from their supplied 
   // Census tracts and Inundation history since 2026-10-19), the Grid, the
   // Wikipedia layer (REFERENCE, moved, still one layer), Localities, Street
   // assets, Places, Roads and
-  // Property sales, and Custom cutouts.
-  assert.equal(first.layers.length, 59);
+  // Property sales, Custom cutouts and World history.
+  assert.equal(first.layers.length, 60);
   assert.ok(first.get('local-adsb'), 'Local ADS-B is registered');
   assert.deepEqual(
     first.metadata.find(({ id }) => id === 'local-adsb'),
@@ -171,8 +171,8 @@ test('Mapillary can be omitted or replaced without changing catalog membership',
   // Census tracts and Inundation history since 2026-10-19), the Grid, the
   // Wikipedia layer (REFERENCE, moved, still one layer), Localities, Street
   // assets, Places, Roads and
-  // Property sales, and Custom cutouts.
-  assert.equal(catalog.layers.length, 59);
+  // Property sales, Custom cutouts and World history.
+  assert.equal(catalog.layers.length, 60);
   assert.deepEqual(catalog.get('street-level').providerIds, []);
   assert.equal(
     catalogControlServices(catalog).streetLevelLayer,

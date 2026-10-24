@@ -98,6 +98,7 @@ export class PanelLayoutController {
     this._weatherPanel = document.getElementById('weather-panel');
     this._recentImageryPanel = document.getElementById('recent-imagery-panel');
     this._customCutoutsPanel = document.getElementById('custom-cutouts-panel');
+    this._worldHistoryPanel = document.getElementById('world-history-panel');
     this._streetLevelPanel = document.getElementById('street-level-panel');
     this._sliderPanel = document.getElementById('param-slider-panel');
     this._detectionBtn = document.getElementById('detection-toggle');
@@ -204,6 +205,7 @@ export class PanelLayoutController {
       this._weatherPanel,
       this._recentImageryPanel,
       this._customCutoutsPanel,
+      this._worldHistoryPanel,
       this._streetLevelPanel,
     ]) {
       if (!panel) continue;
@@ -237,6 +239,7 @@ export class PanelLayoutController {
         this._weatherPanel,
         this._recentImageryPanel,
         this._customCutoutsPanel,
+        this._worldHistoryPanel,
         this._streetLevelPanel,
         globalContextPanel,
         document.getElementById('radio-panel'),

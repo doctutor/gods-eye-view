@@ -74,12 +74,34 @@ export function osmNameTitle(osmName) {
   return english && english !== name ? `${name} (${english})` : name;
 }
 
-/** The river's name; an unnamed one is named after the first named river below it. */
+/** Whether an OpenStreetMap name and BB_NAME name the same river. */
+const sameRiver = (osmName, bbName) => {
+  const fold = (text) =>
+    String(text || '')
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\b(river|rio|fleuve|riviere|fluss)\b/g, '')
+      .replace(/[^a-z0-9\u0400-\u04ff]+/g, '');
+  const bb = fold(bbName);
+  return Boolean(
+    bb && [osmName?.name, osmName?.nameEn].some((n) => fold(n) === bb),
+  );
+};
+
+/**
+ * The river's name: the sidecar's OpenStreetMap name (direct, then carried
+ * down the main stem), then a live one from a nearby waterway unless
+ * BB_NAME names the river otherwise, then BB_NAME; an unnamed one is named
+ * after the first named river below it.
+ */
 export function reachTitle(answer) {
-  // Personal fork: OpenStreetMap's name at the click, when the sidecar has one.
-  const osm = osmNameTitle(answer?.osmName);
-  if (osm) return osm;
+  // Personal fork: OpenStreetMap's name, when there is one.
   const name = answer?.reach?.properties?.BB_NAME;
+  const osmName = answer?.osmName;
+  const live = osmName?.confidence === 'live';
+  const osm = osmNameTitle(osmName);
+  if (osm && (!live || !name || sameRiver(osmName, name))) return osm;
   if (name) return name;
   const below = (answer?.downstream?.segments || []).find((s) => s.name);
   if (below) return t('Tributary of {river}', { river: below.name });
@@ -91,8 +113,14 @@ export function reachTitle(answer) {
 }
 
 /** Where the card's name came from, when OpenStreetMap gave it. */
-export function osmNameSource(osmName) {
+export function osmNameSource(osmName, bbName = '') {
   if (!osmName?.name) return '';
+  if (osmName.confidence === 'live')
+    return bbName && !sameRiver(osmName, bbName)
+      ? ''
+      : t(
+          'Name from OpenStreetMap (nearby waterway), © OpenStreetMap contributors, ODbL',
+        );
   if (osmName.confidence === 'direct')
     return t('Name from OpenStreetMap (© OpenStreetMap contributors, ODbL)');
   if (osmName.confidence === 'inherited')
@@ -154,7 +182,7 @@ export function reachCardDetails(answer, { upstream = null } = {}) {
     );
   const distance = distanceText(answer?.downstream);
   if (distance) lines.push(distance);
-  const naming = osmNameSource(answer?.osmName);
+  const naming = osmNameSource(answer?.osmName, props.BB_NAME);
   if (naming) lines.push(naming);
   if (upstream === 'loading') lines.push(t('Tracing the rivers upstream…'));
   else if (upstream === 'failed')
