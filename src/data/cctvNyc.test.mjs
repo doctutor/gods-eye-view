@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -292,6 +295,18 @@ test('a reduced pack cap keeps cameras nearest the borough anchors', async (t) =
 });
 
 /**
+ * A source root of the test's own: an empty temp directory, removed after
+ * it. '/nonexistent' resolves to a real path (C:\nonexistent on Windows)
+ * where an older run left a linked-webcam cache, so a test's outcome hung on
+ * that cache's age.
+ */
+function emptySourceRoot(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gev-cctv-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  return root;
+}
+
+/**
  * Serve the NYC catalog to the NYC endpoint and an empty payload to every
  * other pack, so one catalog refresh exercises the registration without
  * reaching the network.
@@ -317,7 +332,14 @@ const runCatalogWithMockedUpstreams = async (t) => {
     }
     return Response.json([]);
   });
-  const sources = await createCctvCatalog({ sourceRoot: '/nonexistent' })();
+  // Personal fork: the linked-webcam pack refetches when it has no fresh
+  // cache, and its QLever fallback goes over node:https, not fetch, so this
+  // mock cannot answer it; keep it out (cctvLinked.test.mjs covers it with
+  // its transport injected).
+  process.env.CCTV_LINKED_ENABLED = '0';
+  const sources = await createCctvCatalog({
+    sourceRoot: emptySourceRoot(t),
+  })();
   return { requested, sources };
 };
 
