@@ -6,7 +6,8 @@ two labels share split, a colour with no label kept apart, the projection
 both ways and pixel areas; the split's nearest label in chunks (the dense
 answer, within a memory bound for a region holding many labels), a
 frame without sea skipped, and a small polity's label beside a giant
-bounded by its matched polity's area (beside and by joins). Run by src/tooling/cottereauBorders.test.mjs
+bounded by its matched polity's area (beside and by joins), and the
+labels whose own polity a region mostly is choosing first. Run by src/tooling/cottereauBorders.test.mjs
 (or directly: python -I test_extractBorders.py).
 """
 
@@ -253,6 +254,43 @@ class Claims(unittest.TestCase):
         self.assertLess(px, outer, 'the hole taken out')
         self.assertGreater(px, 0.9 * outer)
         self.assertIsNone(eb.cliopatria_px(clio, 'Sq', 9, FRAMING), 'not alive that year')
+
+
+class TwoPasses(unittest.TestCase):
+    """Two labels over the sea between a giant and an islet: the one whose
+    matched polity the giant mostly is takes it, whichever comes first."""
+
+    @staticmethod
+    def world():
+        comp = np.zeros((400, 600), np.int32)
+        comp[:, :200] = 1  # the Mamluks' Egypt
+        comp[190:210, 230:250] = 2  # an islet
+        def entry(cid):
+            ys, xs = np.nonzero(comp == cid)
+            return {'px': int(len(xs)), 'bbox': (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1),
+                    'white': False, 'colour': (40, 90, 200) if cid == 1 else (200, 90, 40), 'centroid': (float(xs.mean()), float(ys.mean()))}
+        table = {1: entry(1), 2: entry(2)}
+        labels = [
+            {'text': 'Banu Sulaym', 'x': 212, 'y': 195, 'h': 20, 'cliopatria': 'Hafsid Dynasty'},
+            {'text': 'Mamluks', 'x': 218, 'y': 205, 'h': 20, 'cliopatria': 'Mamluk Sultanate'},
+        ]
+        return comp, table, labels
+
+    def test_by_label_order_the_first_takes_the_giant(self):
+        comp, table, labels = self.world()
+        assignment = eb.name_regions(comp, table, labels)[0]
+        self.assertEqual(assignment, {1: 0, 2: 1})
+
+    def test_a_label_whose_polity_a_region_mostly_is_takes_it_first(self):
+        comp, table, labels = self.world()
+        def hint(label):
+            if label['cliopatria'] != 'Mamluk Sultanate':
+                return lambda cid: False  # the Hafsids are elsewhere
+            return lambda cid: cid == 1
+        assignment, joined, flags = eb.name_regions(comp, table, labels, hint)
+        self.assertEqual(assignment, {1: 1, 2: 0}, "Egypt the Mamluks', the islet Banu Sulaym's")
+        self.assertEqual(flags[0], {'beside'})
+        self.assertEqual(flags[1], {'beside'})
 
 
 if __name__ == '__main__':

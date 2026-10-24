@@ -5872,11 +5872,30 @@ to 4–17 km at the frame's corners.
    Cliopatria's bracketed twin of a polity (it with its dependencies,
    "(Kingdom of France)") gives way to the plain one.
 
+   Rules against pairings that were alike in name or place but not the
+   polity:
+   - **Directions agree.** A label and a name that each say a direction
+     (east, west, north, south, upper, lower, also run on, as in
+     "SouthKorea") and not the same one are no likeness. The tracker keeps
+     such labels apart as well: "West Francia" and "East Francia" were
+     one track, and so were "NorthKorea" and "SouthKorea".
+   - **A held polity breaks a near tie.** A like name holding the label
+     ranks 0.15 above one beside it. "Congo" in the Democratic Republic is
+     not the Republic across the river. A composite never gains this way.
+   - **By place alone, never a composite.** A bracketed record, a colonial
+     empire, or a "French Africa" is never a place-only match: a colony or
+     a people inside one is not the empire.
+   - **By place alone, never a giant.** A polity over 30 times the area
+     the label's size predicts is never a place-only match (a warlord's
+     label inside the Han). No match by name or abbreviation is that far
+     above the size model.
+   - **Single letters** ("B.", "G.") match by abbreviation or not at all.
+
 **Results** (the whole video):
 
-- 1,711 tracks, 1,505 of them seen three times or more.
-- 1,360 matched (90.4%): 450 high, 318 medium (51.0% by name or
-  abbreviation) and 592 low. Low is a guess by place alone, often a polity
+- 1,714 tracks, 1,508 of them seen three times or more.
+- 1,278 matched (84.7%): 451 high, 316 medium (50.9% by name or
+  abbreviation) and 511 low. Low is a guess by place alone, often a polity
   Cottereau shows inside one Cliopatria has.
 - `review.md` lists the 737 tracks with no match or a weak one, with their
   nearest candidates.
@@ -5954,8 +5973,13 @@ OpenCV, a frame decoded in memory):
    - A label set beside its polity (over the sea, or over unclaimed land)
      takes the nearest region within three line heights that no label
      inside has. Among those about as near it prefers the largest, and
-     those centred in its matched Cliopatria polity's polygons come first
-     (flag `beside`). It never takes a region over six times its matched
+     those mostly (half their pixels or more) inside its matched Cliopatria
+     polity come first (flag `beside`). Labels with such a region choose
+     before the others, so a label set beside its neighbour cannot take,
+     by coming first, the region another label's polity is. Banu Sulaym's
+     label took the Mamluks' Egypt and Levant for three centuries this way.
+     A centroid test failed there: the Mamluks' 1372 ring leaves out south
+     Sinai. It never takes a region over six times its matched
      polity's area that year (`MAX_CLAIM`): a small polity's label over the
      sea, beside a giant, is not the giant. Abkhazia beside the Ottomans'
      Black Sea coast was the case.
@@ -5989,6 +6013,8 @@ OpenCV, a frame decoded in memory):
   - From 2 to 3 (the six-times bound), a sample is redone when one of its
     beside or joined polities, traced, comes within 80% of the bound. On
     the first full build that is 378 of the 1,043 samples.
+  - From 3 to 4 (the beside labels' two passes), none carries over: it
+    reorders the beside labels of nearly every sample.
 - Two labels in one region split it by nearest label in chunks of pixels,
   so a region holding many labels stays within a few hundred MB.
 - While it runs it is `builds/<key>.partial/`, holding `samples.json` (the

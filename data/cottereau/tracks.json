@@ -9154,17 +9154,13 @@
     {
      "text": "West Francia",
      "n": 50
-    },
-    {
-     "text": "East Francia",
-     "n": 22
     }
    ],
    "firstYear": 845,
    "lastYear": 984,
    "firstT": 569.07,
    "lastT": 618.12,
-   "samples": 72,
+   "samples": 50,
    "lon": 1.897,
    "lat": 47.607,
    "size": 22.56,
@@ -9174,6 +9170,27 @@
   },
   {
    "id": 459,
+   "text": "East Francia",
+   "variants": [
+    {
+     "text": "East Francia",
+     "n": 22
+    }
+   ],
+   "firstYear": 845,
+   "lastYear": 906,
+   "firstT": 569.07,
+   "lastT": 590.09,
+   "samples": 22,
+   "lon": 9.134,
+   "lat": 49.392,
+   "size": 18.86,
+   "framings": [
+    3
+   ]
+  },
+  {
+   "id": 460,
    "text": "Middle Francia",
    "variants": [
     {
@@ -9194,7 +9211,7 @@
    ]
   },
   {
-   "id": 460,
+   "id": 461,
    "text": "Ser.",
    "variants": [
     {
@@ -9219,7 +9236,7 @@
    ]
   },
   {
-   "id": 461,
+   "id": 462,
    "text": "Moravia",
    "variants": [
     {
@@ -9240,7 +9257,7 @@
    ]
   },
   {
-   "id": 462,
+   "id": 463,
    "text": "La.",
    "variants": [
     {
@@ -9261,7 +9278,7 @@
    ]
   },
   {
-   "id": 463,
+   "id": 464,
    "text": "Hausa",
    "variants": [
     {
@@ -9284,7 +9301,7 @@
    ]
   },
   {
-   "id": 464,
+   "id": 465,
    "text": "Lamuri",
    "variants": [
     {
@@ -9305,7 +9322,7 @@
    ]
   },
   {
-   "id": 465,
+   "id": 466,
    "text": "Khmers",
    "variants": [
     {
@@ -9326,7 +9343,7 @@
    ]
   },
   {
-   "id": 466,
+   "id": 467,
    "text": "Mul.",
    "variants": [
     {
@@ -9347,7 +9364,7 @@
    ]
   },
   {
-   "id": 467,
+   "id": 468,
    "text": "Loth.",
    "variants": [
     {
@@ -9368,7 +9385,7 @@
    ]
   },
   {
-   "id": 468,
+   "id": 469,
    "text": "Bur.",
    "variants": [
     {
@@ -9397,7 +9414,7 @@
    ]
   },
   {
-   "id": 469,
+   "id": 470,
    "text": "Italy",
    "variants": [
     {
@@ -9418,7 +9435,7 @@
    ]
   },
   {
-   "id": 470,
+   "id": 471,
    "text": "Saffarids",
    "variants": [
     {
@@ -9439,7 +9456,7 @@
    ]
   },
   {
-   "id": 471,
+   "id": 472,
    "text": "Sindh",
    "variants": [
     {
@@ -9460,7 +9477,7 @@
    ]
   },
   {
-   "id": 472,
+   "id": 473,
    "text": "Aghlabids",
    "variants": [
     {
@@ -9481,7 +9498,7 @@
    ]
   },
   {
-   "id": 473,
+   "id": 474,
    "text": "Tulunids",
    "variants": [
     {
@@ -9502,7 +9519,7 @@
    ]
   },
   {
-   "id": 474,
+   "id": 475,
    "text": "Iceland",
    "variants": [
     {
@@ -9529,7 +9546,7 @@
    ]
   },
   {
-   "id": 475,
+   "id": 476,
    "text": "Norway",
    "variants": [
     {
@@ -9559,7 +9576,7 @@
    ]
   },
   {
-   "id": 476,
+   "id": 477,
    "text": "PS",
    "variants": [
     {
@@ -9580,7 +9597,7 @@
    ]
   },
   {
-   "id": 477,
+   "id": 478,
    "text": "Samanids",
    "variants": [
     {
@@ -9601,7 +9618,7 @@
    ]
   },
   {
-   "id": 479,
+   "id": 480,
    "text": "Abbasids",
    "variants": [
     {
@@ -9622,7 +9639,7 @@
    ]
   },
   {
-   "id": 480,
+   "id": 481,
    "text": "Kievan Rus'",
    "variants": [
     {
@@ -9651,7 +9668,7 @@
    ]
   },
   {
-   "id": 481,
+   "id": 482,
    "text": "Pr.",
    "variants": [
     {
@@ -9672,7 +9689,7 @@
    ]
   },
   {
-   "id": 483,
+   "id": 484,
    "text": "Sy.",
    "variants": [
     {
@@ -9693,7 +9710,7 @@
    ]
   },
   {
-   "id": 484,
+   "id": 485,
    "text": "Sajids",
    "variants": [
     {
@@ -9714,7 +9731,7 @@
    ]
   },
   {
-   "id": 485,
+   "id": 486,
    "text": "Ham.",
    "variants": [
     {
@@ -9739,7 +9756,7 @@
    ]
   },
   {
-   "id": 486,
+   "id": 487,
    "text": "Barghawata",
    "variants": [
     {
@@ -9760,7 +9777,7 @@
    ]
   },
   {
-   "id": 487,
+   "id": 488,
    "text": "Hungary",
    "variants": [
     {
@@ -9782,7 +9799,7 @@
    ]
   },
   {
-   "id": 488,
+   "id": 489,
    "text": "Cr.",
    "variants": [
     {
@@ -9803,7 +9820,7 @@
    ]
   },
   {
-   "id": 489,
+   "id": 490,
    "text": "Qar.",
    "variants": [
     {
@@ -9824,7 +9841,7 @@
    ]
   },
   {
-   "id": 490,
+   "id": 491,
    "text": "Tondo",
    "variants": [
     {
@@ -9854,7 +9871,7 @@
    ]
   },
   {
-   "id": 491,
+   "id": 492,
    "text": "Mait",
    "variants": [
     {
@@ -9891,7 +9908,7 @@
    ]
   },
   {
-   "id": 492,
+   "id": 493,
    "text": "Chola",
    "variants": [
     {
@@ -9912,7 +9929,7 @@
    ]
   },
   {
-   "id": 493,
+   "id": 494,
    "text": "Sallar.",
    "variants": [
     {
@@ -9933,7 +9950,7 @@
    ]
   },
   {
-   "id": 495,
+   "id": 496,
    "text": "Liao",
    "variants": [
     {
@@ -9954,7 +9971,7 @@
    ]
   },
   {
-   "id": 496,
+   "id": 497,
    "text": "Yan",
    "variants": [
     {
@@ -9975,7 +9992,7 @@
    ]
   },
   {
-   "id": 497,
+   "id": 498,
    "text": "Jin",
    "variants": [
     {
@@ -9996,7 +10013,7 @@
    ]
   },
   {
-   "id": 498,
+   "id": 499,
    "text": "Qi",
    "variants": [
     {
@@ -10017,7 +10034,7 @@
    ]
   },
   {
-   "id": 499,
+   "id": 500,
    "text": "Fatimids",
    "variants": [
     {
@@ -10038,7 +10055,7 @@
    ]
   },
   {
-   "id": 500,
+   "id": 501,
    "text": "Later Liang",
    "variants": [
     {
@@ -10063,7 +10080,7 @@
    ]
   },
   {
-   "id": 501,
+   "id": 502,
    "text": "Shu",
    "variants": [
     {
@@ -10084,7 +10101,7 @@
    ]
   },
   {
-   "id": 502,
+   "id": 503,
    "text": "Wu",
    "variants": [
     {
@@ -10105,7 +10122,7 @@
    ]
   },
   {
-   "id": 503,
+   "id": 504,
    "text": "Yue",
    "variants": [
     {
@@ -10126,7 +10143,7 @@
    ]
   },
   {
-   "id": 504,
+   "id": 505,
    "text": "Chu",
    "variants": [
     {
@@ -10147,7 +10164,7 @@
    ]
   },
   {
-   "id": 505,
+   "id": 506,
    "text": "Min",
    "variants": [
     {
@@ -10168,7 +10185,7 @@
    ]
   },
   {
-   "id": 506,
+   "id": 507,
    "text": "Southern Han",
    "variants": [
     {
@@ -10193,7 +10210,7 @@
    ]
   },
   {
-   "id": 507,
+   "id": 508,
    "text": "Annan",
    "variants": [
     {
@@ -10214,7 +10231,7 @@
    ]
   },
   {
-   "id": 508,
+   "id": 509,
    "text": "Bohemia",
    "variants": [
     {
@@ -10235,7 +10252,7 @@
    ]
   },
   {
-   "id": 509,
+   "id": 510,
    "text": "Germany",
    "variants": [
     {
@@ -10256,7 +10273,7 @@
    ]
   },
   {
-   "id": 511,
+   "id": 512,
    "text": "Galicia",
    "variants": [
     {
@@ -10277,7 +10294,7 @@
    ]
   },
   {
-   "id": 512,
+   "id": 513,
    "text": "Ar.",
    "variants": [
     {
@@ -10302,7 +10319,7 @@
    ]
   },
   {
-   "id": 513,
+   "id": 514,
    "text": "Wessex",
    "variants": [
     {
@@ -10323,7 +10340,7 @@
    ]
   },
   {
-   "id": 514,
+   "id": 515,
    "text": "Goryeo",
    "variants": [
     {
@@ -10344,7 +10361,7 @@
    ]
   },
   {
-   "id": 515,
+   "id": 516,
    "text": "Chavda",
    "variants": [
     {
@@ -10365,7 +10382,7 @@
    ]
   },
   {
-   "id": 516,
+   "id": 517,
    "text": "Croat.",
    "variants": [
     {
@@ -10386,7 +10403,7 @@
    ]
   },
   {
-   "id": 517,
+   "id": 518,
    "text": "Leon",
    "variants": [
     {
@@ -10415,7 +10432,7 @@
    ]
   },
   {
-   "id": 518,
+   "id": 519,
    "text": "Eng.",
    "variants": [
     {
@@ -10440,7 +10457,7 @@
    ]
   },
   {
-   "id": 519,
+   "id": 520,
    "text": "Ziyarids",
    "variants": [
     {
@@ -10461,7 +10478,7 @@
    ]
   },
   {
-   "id": 520,
+   "id": 521,
    "text": "Medang",
    "variants": [
     {
@@ -10482,7 +10499,7 @@
    ]
   },
   {
-   "id": 521,
+   "id": 522,
    "text": "B.",
    "variants": [
     {
@@ -10503,7 +10520,7 @@
    ]
   },
   {
-   "id": 522,
+   "id": 523,
    "text": "Later Jin",
    "variants": [
     {
@@ -10528,7 +10545,7 @@
    ]
   },
   {
-   "id": 523,
+   "id": 524,
    "text": "Buyids",
    "variants": [
     {
@@ -10549,7 +10566,7 @@
    ]
   },
   {
-   "id": 524,
+   "id": 525,
    "text": "Dali",
    "variants": [
     {
@@ -10570,7 +10587,7 @@
    ]
   },
   {
-   "id": 525,
+   "id": 526,
    "text": "Jeongan",
    "variants": [
     {
@@ -10591,7 +10608,7 @@
    ]
   },
   {
-   "id": 526,
+   "id": 527,
    "text": "Zagwe",
    "variants": [
     {
@@ -10612,7 +10629,7 @@
    ]
   },
   {
-   "id": 527,
+   "id": 528,
    "text": "K.",
    "variants": [
     {
@@ -10633,7 +10650,7 @@
    ]
   },
   {
-   "id": 528,
+   "id": 529,
    "text": "Solanki",
    "variants": [
     {
@@ -10654,7 +10671,7 @@
    ]
   },
   {
-   "id": 529,
+   "id": 530,
    "text": "Zi.",
    "variants": [
     {
@@ -10675,7 +10692,7 @@
    ]
   },
   {
-   "id": 531,
+   "id": 532,
    "text": "Hamdanids",
    "variants": [
     {
@@ -10696,7 +10713,7 @@
    ]
   },
   {
-   "id": 532,
+   "id": 533,
    "text": "Ikhshidids",
    "variants": [
     {
@@ -10717,7 +10734,7 @@
    ]
   },
   {
-   "id": 533,
+   "id": 534,
    "text": "Nri",
    "variants": [
     {
@@ -10738,7 +10755,7 @@
    ]
   },
   {
-   "id": 534,
+   "id": 535,
    "text": "Later Zhou",
    "variants": [
     {
@@ -10759,7 +10776,7 @@
    ]
   },
   {
-   "id": 535,
+   "id": 536,
    "text": "Sal.",
    "variants": [
     {
@@ -10780,7 +10797,7 @@
    ]
   },
   {
-   "id": 536,
+   "id": 537,
    "text": "Va.",
    "variants": [
     {
@@ -10801,7 +10818,7 @@
    ]
   },
   {
-   "id": 537,
+   "id": 538,
    "text": "Sy",
    "variants": [
     {
@@ -10822,7 +10839,7 @@
    ]
   },
   {
-   "id": 538,
+   "id": 539,
    "text": "Poland",
    "variants": [
     {
@@ -10844,7 +10861,7 @@
    ]
   },
   {
-   "id": 539,
+   "id": 540,
    "text": "Holy Roman Empire",
    "variants": [
     {
@@ -10865,7 +10882,7 @@
    ]
   },
   {
-   "id": 540,
+   "id": 541,
    "text": "B.",
    "variants": [
     {
@@ -10886,7 +10903,7 @@
    ]
   },
   {
-   "id": 541,
+   "id": 542,
    "text": "Song",
    "variants": [
     {
@@ -10907,7 +10924,7 @@
    ]
   },
   {
-   "id": 542,
+   "id": 543,
    "text": "Denmark",
    "variants": [
     {
@@ -10929,7 +10946,7 @@
    ]
   },
   {
-   "id": 543,
+   "id": 544,
    "text": "Sindh",
    "variants": [
     {
@@ -10950,7 +10967,7 @@
    ]
   },
   {
-   "id": 544,
+   "id": 545,
    "text": "Dai Viet",
    "variants": [
     {
@@ -10977,7 +10994,7 @@
    ]
   },
   {
-   "id": 545,
+   "id": 546,
    "text": "Sweden",
    "variants": [
     {
@@ -11000,7 +11017,7 @@
    ]
   },
   {
-   "id": 546,
+   "id": 547,
    "text": "Fatimids",
    "variants": [
     {
@@ -11021,7 +11038,7 @@
    ]
   },
   {
-   "id": 547,
+   "id": 548,
    "text": "Bulg.",
    "variants": [
     {
@@ -11046,7 +11063,7 @@
    ]
   },
   {
-   "id": 549,
+   "id": 550,
    "text": "Paramara",
    "variants": [
     {
@@ -11067,7 +11084,7 @@
    ]
   },
   {
-   "id": 550,
+   "id": 551,
    "text": "Western Chalukyas",
    "variants": [
     {
@@ -11088,7 +11105,7 @@
    ]
   },
   {
-   "id": 551,
+   "id": 552,
    "text": "Ga.",
    "variants": [
     {
@@ -11109,7 +11126,7 @@
    ]
   },
   {
-   "id": 552,
+   "id": 553,
    "text": "Zenatas",
    "variants": [
     {
@@ -11130,7 +11147,7 @@
    ]
   },
   {
-   "id": 553,
+   "id": 554,
    "text": "Bar",
    "variants": [
     {
@@ -11151,7 +11168,7 @@
    ]
   },
   {
-   "id": 554,
+   "id": 555,
    "text": "lawata",
    "variants": [
     {
@@ -11176,7 +11193,7 @@
    ]
   },
   {
-   "id": 555,
+   "id": 556,
    "text": "Cr",
    "variants": [
     {
@@ -11197,7 +11214,7 @@
    ]
   },
   {
-   "id": 556,
+   "id": 557,
    "text": "Raw.",
    "variants": [
     {
@@ -11218,7 +11235,7 @@
    ]
   },
   {
-   "id": 557,
+   "id": 558,
    "text": "Ghaznavids",
    "variants": [
     {
@@ -11239,7 +11256,7 @@
    ]
   },
   {
-   "id": 558,
+   "id": 559,
    "text": "Chan.",
    "variants": [
     {
@@ -11260,7 +11277,7 @@
    ]
   },
   {
-   "id": 559,
+   "id": 560,
    "text": "Xixia",
    "variants": [
     {
@@ -11281,7 +11298,7 @@
    ]
   },
   {
-   "id": 560,
+   "id": 561,
    "text": "G.",
    "variants": [
     {
@@ -11302,7 +11319,7 @@
    ]
   },
   {
-   "id": 561,
+   "id": 562,
    "text": "France",
    "variants": [
     {
@@ -11333,7 +11350,7 @@
    ]
   },
   {
-   "id": 562,
+   "id": 563,
    "text": "Sv.",
    "variants": [
     {
@@ -11354,7 +11371,7 @@
    ]
   },
   {
-   "id": 563,
+   "id": 564,
    "text": "Ma.",
    "variants": [
     {
@@ -11375,7 +11392,7 @@
    ]
   },
   {
-   "id": 564,
+   "id": 565,
    "text": "N.",
    "variants": [
     {
@@ -11396,7 +11413,7 @@
    ]
   },
   {
-   "id": 565,
+   "id": 566,
    "text": "Ziyad.",
    "variants": [
     {
@@ -11417,7 +11434,7 @@
    ]
   },
   {
-   "id": 566,
+   "id": 567,
    "text": "N.Uqaylids",
    "variants": [
     {
@@ -11438,7 +11455,7 @@
    ]
   },
   {
-   "id": 567,
+   "id": 568,
    "text": "Med.",
    "variants": [
     {
@@ -11459,7 +11476,7 @@
    ]
   },
   {
-   "id": 568,
+   "id": 569,
    "text": "V.",
    "variants": [
     {
@@ -11480,7 +11497,7 @@
    ]
   },
   {
-   "id": 569,
+   "id": 570,
    "text": "Butuan",
    "variants": [
     {
@@ -11502,7 +11519,7 @@
    ]
   },
   {
-   "id": 570,
+   "id": 571,
    "text": "Galicia",
    "variants": [
     {
@@ -11523,7 +11540,7 @@
    ]
   },
   {
-   "id": 571,
+   "id": 572,
    "text": "Georgia",
    "variants": [
     {
@@ -11545,7 +11562,7 @@
    ]
   },
   {
-   "id": 572,
+   "id": 573,
    "text": "Za.",
    "variants": [
     {
@@ -11566,7 +11583,7 @@
    ]
   },
   {
-   "id": 573,
+   "id": 574,
    "text": "To.",
    "variants": [
     {
@@ -11587,7 +11604,7 @@
    ]
   },
   {
-   "id": 575,
+   "id": 576,
    "text": "Ba.",
    "variants": [
     {
@@ -11608,7 +11625,7 @@
    ]
   },
   {
-   "id": 576,
+   "id": 577,
    "text": "Hammadids",
    "variants": [
     {
@@ -11629,7 +11646,7 @@
    ]
   },
   {
-   "id": 577,
+   "id": 578,
    "text": "Tom.",
    "variants": [
     {
@@ -11650,7 +11667,7 @@
    ]
   },
   {
-   "id": 578,
+   "id": 579,
    "text": "Chauhans",
    "variants": [
     {
@@ -11671,7 +11688,7 @@
    ]
   },
   {
-   "id": 579,
+   "id": 580,
    "text": "Cha.",
    "variants": [
     {
@@ -11696,7 +11713,7 @@
    ]
   },
   {
-   "id": 580,
+   "id": 581,
    "text": "Ka.",
    "variants": [
     {
@@ -11721,7 +11738,7 @@
    ]
   },
   {
-   "id": 581,
+   "id": 582,
    "text": "Blambangan",
    "variants": [
     {
@@ -11742,7 +11759,7 @@
    ]
   },
   {
-   "id": 582,
+   "id": 583,
    "text": "Gurjara",
    "variants": [
     {
@@ -11763,7 +11780,7 @@
    ]
   },
   {
-   "id": 583,
+   "id": 584,
    "text": "Za",
    "variants": [
     {
@@ -11784,7 +11801,7 @@
    ]
   },
   {
-   "id": 584,
+   "id": 585,
    "text": "Najah.",
    "variants": [
     {
@@ -11805,7 +11822,7 @@
    ]
   },
   {
-   "id": 585,
+   "id": 586,
    "text": "Kakuyids",
    "variants": [
     {
@@ -11826,7 +11843,7 @@
    ]
   },
   {
-   "id": 586,
+   "id": 587,
    "text": "Na.",
    "variants": [
     {
@@ -11847,7 +11864,7 @@
    ]
   },
   {
-   "id": 587,
+   "id": 588,
    "text": "Santu.",
    "variants": [
     {
@@ -11868,7 +11885,7 @@
    ]
   },
   {
-   "id": 588,
+   "id": 589,
    "text": "Ku.",
    "variants": [
     {
@@ -11889,7 +11906,7 @@
    ]
   },
   {
-   "id": 589,
+   "id": 590,
    "text": "Sunda",
    "variants": [
     {
@@ -11911,7 +11928,7 @@
    ]
   },
   {
-   "id": 590,
+   "id": 591,
    "text": "Castile",
    "variants": [
     {
@@ -11932,7 +11949,7 @@
    ]
   },
   {
-   "id": 591,
+   "id": 592,
    "text": "Seljuks",
    "variants": [
     {
@@ -11953,7 +11970,7 @@
    ]
   },
   {
-   "id": 592,
+   "id": 593,
    "text": "Chahamanas",
    "variants": [
     {
@@ -11974,7 +11991,7 @@
    ]
   },
   {
-   "id": 593,
+   "id": 594,
    "text": "Kala.",
    "variants": [
     {
@@ -11995,7 +12012,7 @@
    ]
   },
   {
-   "id": 594,
+   "id": 595,
    "text": "Kahuripan",
    "variants": [
     {
@@ -12016,7 +12033,7 @@
    ]
   },
   {
-   "id": 595,
+   "id": 596,
    "text": "Bana",
    "variants": [
     {
@@ -12037,7 +12054,7 @@
    ]
   },
   {
-   "id": 596,
+   "id": 597,
    "text": "Tidung",
    "variants": [
     {
@@ -12058,7 +12075,7 @@
    ]
   },
   {
-   "id": 597,
+   "id": 598,
    "text": "Janggala",
    "variants": [
     {
@@ -12079,7 +12096,7 @@
    ]
   },
   {
-   "id": 598,
+   "id": 599,
    "text": "Zirids",
    "variants": [
     {
@@ -12100,7 +12117,7 @@
    ]
   },
   {
-   "id": 599,
+   "id": 600,
    "text": "Seljuk Empire",
    "variants": [
     {
@@ -12121,7 +12138,7 @@
    ]
   },
   {
-   "id": 600,
+   "id": 601,
    "text": "Banu Jami",
    "variants": [
     {
@@ -12142,7 +12159,7 @@
    ]
   },
   {
-   "id": 601,
+   "id": 602,
    "text": "Banu Sulaym",
    "variants": [
     {
@@ -12168,7 +12185,7 @@
    ]
   },
   {
-   "id": 602,
+   "id": 603,
    "text": "P.S",
    "variants": [
     {
@@ -12189,7 +12206,7 @@
    ]
   },
   {
-   "id": 603,
+   "id": 604,
    "text": "Sy",
    "variants": [
     {
@@ -12210,7 +12227,7 @@
    ]
   },
   {
-   "id": 604,
+   "id": 605,
    "text": "Almoravids",
    "variants": [
     {
@@ -12231,7 +12248,7 @@
    ]
   },
   {
-   "id": 605,
+   "id": 606,
    "text": "Pagan",
    "variants": [
     {
@@ -12252,7 +12269,7 @@
    ]
   },
   {
-   "id": 606,
+   "id": 607,
    "text": "Ga.",
    "variants": [
     {
@@ -12273,7 +12290,7 @@
    ]
   },
   {
-   "id": 607,
+   "id": 608,
    "text": "Polonnaruwa",
    "variants": [
     {
@@ -12294,7 +12311,7 @@
    ]
   },
   {
-   "id": 608,
+   "id": 609,
    "text": "Toledo",
    "variants": [
     {
@@ -12315,7 +12332,7 @@
    ]
   },
   {
-   "id": 609,
+   "id": 610,
    "text": "Byzantine Empire",
    "variants": [
     {
@@ -12336,7 +12353,7 @@
    ]
   },
   {
-   "id": 610,
+   "id": 611,
    "text": "Uyunids",
    "variants": [
     {
@@ -12357,7 +12374,7 @@
    ]
   },
   {
-   "id": 611,
+   "id": 612,
    "text": "Banu Kanz",
    "variants": [
     {
@@ -12378,7 +12395,7 @@
    ]
   },
   {
-   "id": 612,
+   "id": 613,
    "text": "Ratn.",
    "variants": [
     {
@@ -12399,7 +12416,7 @@
    ]
   },
   {
-   "id": 614,
+   "id": 615,
    "text": "Cr",
    "variants": [
     {
@@ -12420,7 +12437,7 @@
    ]
   },
   {
-   "id": 615,
+   "id": 616,
    "text": "B.",
    "variants": [
     {
@@ -12441,7 +12458,7 @@
    ]
   },
   {
-   "id": 616,
+   "id": 617,
    "text": "Gaha.",
    "variants": [
     {
@@ -12462,7 +12479,7 @@
    ]
   },
   {
-   "id": 617,
+   "id": 618,
    "text": "Daya",
    "variants": [
     {
@@ -12483,7 +12500,7 @@
    ]
   },
   {
-   "id": 618,
+   "id": 619,
    "text": "San.",
    "variants": [
     {
@@ -12504,7 +12521,7 @@
    ]
   },
   {
-   "id": 619,
+   "id": 620,
    "text": "Dharmasraya",
    "variants": [
     {
@@ -12525,7 +12542,7 @@
    ]
   },
   {
-   "id": 620,
+   "id": 621,
    "text": "Hari",
    "variants": [
     {
@@ -12546,7 +12563,7 @@
    ]
   },
   {
-   "id": 621,
+   "id": 622,
    "text": "Crusaders",
    "variants": [
     {
@@ -12571,7 +12588,7 @@
    ]
   },
   {
-   "id": 622,
+   "id": 623,
    "text": "Pagan",
    "variants": [
     {
@@ -12596,7 +12613,7 @@
    ]
   },
   {
-   "id": 623,
+   "id": 624,
    "text": "Adal",
    "variants": [
     {
@@ -12617,7 +12634,7 @@
    ]
   },
   {
-   "id": 624,
+   "id": 625,
    "text": "Jenne",
    "variants": [
     {
@@ -12642,7 +12659,7 @@
    ]
   },
   {
-   "id": 625,
+   "id": 626,
    "text": "ri",
    "variants": [
     {
@@ -12663,7 +12680,7 @@
    ]
   },
   {
-   "id": 626,
+   "id": 627,
    "text": "Ar.",
    "variants": [
     {
@@ -12688,7 +12705,7 @@
    ]
   },
   {
-   "id": 627,
+   "id": 628,
    "text": "Kerala kingdoms",
    "variants": [
     {
@@ -12709,7 +12726,7 @@
    ]
   },
   {
-   "id": 628,
+   "id": 629,
    "text": "E.",
    "variants": [
     {
@@ -12734,7 +12751,7 @@
    ]
   },
   {
-   "id": 629,
+   "id": 630,
    "text": "Jin",
    "variants": [
     {
@@ -12755,7 +12772,7 @@
    ]
   },
   {
-   "id": 630,
+   "id": 631,
    "text": "Danish.",
    "variants": [
     {
@@ -12776,7 +12793,7 @@
    ]
   },
   {
-   "id": 631,
+   "id": 632,
    "text": "Rum",
    "variants": [
     {
@@ -12797,7 +12814,7 @@
    ]
   },
   {
-   "id": 632,
+   "id": 633,
    "text": "Qara Khitai",
    "variants": [
     {
@@ -12818,7 +12835,7 @@
    ]
   },
   {
-   "id": 634,
+   "id": 635,
    "text": "P.S.",
    "variants": [
     {
@@ -12844,7 +12861,7 @@
    ]
   },
   {
-   "id": 635,
+   "id": 636,
    "text": "Sicily",
    "variants": [
     {
@@ -12865,7 +12882,7 @@
    ]
   },
   {
-   "id": 636,
+   "id": 637,
    "text": "S.",
    "variants": [
     {
@@ -12886,7 +12903,7 @@
    ]
   },
   {
-   "id": 637,
+   "id": 638,
    "text": "Jin",
    "variants": [
     {
@@ -12907,7 +12924,7 @@
    ]
   },
   {
-   "id": 638,
+   "id": 639,
    "text": "Panjalu",
    "variants": [
     {
@@ -12928,7 +12945,7 @@
    ]
   },
   {
-   "id": 640,
+   "id": 641,
    "text": "Almoh.",
    "variants": [
     {
@@ -12949,7 +12966,7 @@
    ]
   },
   {
-   "id": 641,
+   "id": 642,
    "text": "Ethiopia",
    "variants": [
     {
@@ -12988,7 +13005,7 @@
    ]
   },
   {
-   "id": 642,
+   "id": 643,
    "text": "Qara Khitai",
    "variants": [
     {
@@ -13013,7 +13030,7 @@
    ]
   },
   {
-   "id": 643,
+   "id": 644,
    "text": "Portugal",
    "variants": [
     {
@@ -13036,7 +13053,7 @@
    ]
   },
   {
-   "id": 644,
+   "id": 645,
    "text": "B.",
    "variants": [
     {
@@ -13057,7 +13074,7 @@
    ]
   },
   {
-   "id": 645,
+   "id": 646,
    "text": "Almoravids",
    "variants": [
     {
@@ -13078,7 +13095,7 @@
    ]
   },
   {
-   "id": 646,
+   "id": 647,
    "text": "A.",
    "variants": [
     {
@@ -13103,7 +13120,7 @@
    ]
   },
   {
-   "id": 647,
+   "id": 648,
    "text": "Africa",
    "variants": [
     {
@@ -13124,7 +13141,7 @@
    ]
   },
   {
-   "id": 648,
+   "id": 649,
    "text": "Almohads",
    "variants": [
     {
@@ -13145,7 +13162,7 @@
    ]
   },
   {
-   "id": 649,
+   "id": 650,
    "text": "Sena",
    "variants": [
     {
@@ -13166,7 +13183,7 @@
    ]
   },
   {
-   "id": 650,
+   "id": 651,
    "text": "Kitara",
    "variants": [
     {
@@ -13187,7 +13204,7 @@
    ]
   },
   {
-   "id": 651,
+   "id": 652,
    "text": "Mu.",
    "variants": [
     {
@@ -13208,7 +13225,7 @@
    ]
   },
   {
-   "id": 652,
+   "id": 653,
    "text": "Oman",
    "variants": [
     {
@@ -13231,7 +13248,7 @@
    ]
   },
   {
-   "id": 653,
+   "id": 654,
    "text": "Leon",
    "variants": [
     {
@@ -13252,7 +13269,7 @@
    ]
   },
   {
-   "id": 654,
+   "id": 655,
    "text": "Ghur.",
    "variants": [
     {
@@ -13273,7 +13290,7 @@
    ]
   },
   {
-   "id": 655,
+   "id": 656,
    "text": "Kalyani",
    "variants": [
     {
@@ -13294,7 +13311,7 @@
    ]
   },
   {
-   "id": 656,
+   "id": 657,
    "text": "Western Chalukyas",
    "variants": [
     {
@@ -13315,7 +13332,7 @@
    ]
   },
   {
-   "id": 657,
+   "id": 658,
    "text": "England",
    "variants": [
     {
@@ -13336,7 +13353,7 @@
    ]
   },
   {
-   "id": 658,
+   "id": 659,
    "text": "Aragon",
    "variants": [
     {
@@ -13366,7 +13383,7 @@
    ]
   },
   {
-   "id": 659,
+   "id": 660,
    "text": "Kak.",
    "variants": [
     {
@@ -13391,7 +13408,7 @@
    ]
   },
   {
-   "id": 660,
+   "id": 661,
    "text": "Ayyubids,",
    "variants": [
     {
@@ -13424,7 +13441,7 @@
    ]
   },
   {
-   "id": 661,
+   "id": 662,
    "text": "Kanz",
    "variants": [
     {
@@ -13445,7 +13462,7 @@
    ]
   },
   {
-   "id": 662,
+   "id": 663,
    "text": "Hoysala",
    "variants": [
     {
@@ -13466,7 +13483,7 @@
    ]
   },
   {
-   "id": 663,
+   "id": 664,
    "text": "Ghazn.",
    "variants": [
     {
@@ -13487,7 +13504,7 @@
    ]
   },
   {
-   "id": 664,
+   "id": 665,
    "text": "Ghurids",
    "variants": [
     {
@@ -13508,7 +13525,7 @@
    ]
   },
   {
-   "id": 665,
+   "id": 666,
    "text": "Yadava",
    "variants": [
     {
@@ -13529,7 +13546,7 @@
    ]
   },
   {
-   "id": 666,
+   "id": 667,
    "text": "Kediri",
    "variants": [
     {
@@ -13550,7 +13567,7 @@
    ]
   },
   {
-   "id": 667,
+   "id": 668,
    "text": "Srivijaya",
    "variants": [
     {
@@ -13571,7 +13588,7 @@
    ]
   },
   {
-   "id": 669,
+   "id": 670,
    "text": "Cast.",
    "variants": [
     {
@@ -13592,7 +13609,7 @@
    ]
   },
   {
-   "id": 671,
+   "id": 672,
    "text": "Bo",
    "variants": [
     {
@@ -13613,7 +13630,7 @@
    ]
   },
   {
-   "id": 672,
+   "id": 673,
    "text": "Benin",
    "variants": [
     {
@@ -13635,7 +13652,7 @@
    ]
   },
   {
-   "id": 673,
+   "id": 674,
    "text": "Nri",
    "variants": [
     {
@@ -13657,7 +13674,7 @@
    ]
   },
   {
-   "id": 674,
+   "id": 675,
    "text": "Serbia",
    "variants": [
     {
@@ -13678,7 +13695,7 @@
    ]
   },
   {
-   "id": 677,
+   "id": 678,
    "text": "Santu.",
    "variants": [
     {
@@ -13699,7 +13716,7 @@
    ]
   },
   {
-   "id": 678,
+   "id": 679,
    "text": "Byzantine Empire",
    "variants": [
     {
@@ -13720,7 +13737,7 @@
    ]
   },
   {
-   "id": 679,
+   "id": 680,
    "text": "Dharmasraya",
    "variants": [
     {
@@ -13741,7 +13758,7 @@
    ]
   },
   {
-   "id": 680,
+   "id": 681,
    "text": "Seljuks",
    "variants": [
     {
@@ -13762,7 +13779,7 @@
    ]
   },
   {
-   "id": 681,
+   "id": 682,
    "text": "Khwarazm",
    "variants": [
     {
@@ -13783,7 +13800,7 @@
    ]
   },
   {
-   "id": 682,
+   "id": 683,
    "text": "Banu Ghaniya",
    "variants": [
     {
@@ -13804,7 +13821,7 @@
    ]
   },
   {
-   "id": 683,
+   "id": 684,
    "text": "Ser.",
    "variants": [
     {
@@ -13825,7 +13842,7 @@
    ]
   },
   {
-   "id": 684,
+   "id": 685,
    "text": "Sosso",
    "variants": [
     {
@@ -13846,7 +13863,7 @@
    ]
   },
   {
-   "id": 685,
+   "id": 686,
    "text": "Diafanu Ig.",
    "variants": [
     {
@@ -13867,7 +13884,7 @@
    ]
   },
   {
-   "id": 686,
+   "id": 687,
    "text": "Kakatiya",
    "variants": [
     {
@@ -13888,7 +13905,7 @@
    ]
   },
   {
-   "id": 687,
+   "id": 688,
    "text": "A.",
    "variants": [
     {
@@ -13909,7 +13926,7 @@
    ]
   },
   {
-   "id": 689,
+   "id": 690,
    "text": "Erm.",
    "variants": [
     {
@@ -13934,7 +13951,7 @@
    ]
   },
   {
-   "id": 690,
+   "id": 691,
    "text": "Ilden.",
    "variants": [
     {
@@ -13959,7 +13976,7 @@
    ]
   },
   {
-   "id": 691,
+   "id": 692,
    "text": "Ab.",
    "variants": [
     {
@@ -13980,7 +13997,7 @@
    ]
   },
   {
-   "id": 692,
+   "id": 693,
    "text": "Bulgaria",
    "variants": [
     {
@@ -14001,7 +14018,7 @@
    ]
   },
   {
-   "id": 693,
+   "id": 694,
    "text": "M.",
    "variants": [
     {
@@ -14023,7 +14040,7 @@
    ]
   },
   {
-   "id": 694,
+   "id": 695,
    "text": "Deva",
    "variants": [
     {
@@ -14044,7 +14061,7 @@
    ]
   },
   {
-   "id": 695,
+   "id": 696,
    "text": "Cutch",
    "variants": [
     {
@@ -14065,7 +14082,7 @@
    ]
   },
   {
-   "id": 696,
+   "id": 697,
    "text": "Daju",
    "variants": [
     {
@@ -14086,7 +14103,7 @@
    ]
   },
   {
-   "id": 697,
+   "id": 698,
    "text": "Alo.",
    "variants": [
     {
@@ -14107,7 +14124,7 @@
    ]
   },
   {
-   "id": 698,
+   "id": 699,
    "text": "Kilwa",
    "variants": [
     {
@@ -14129,7 +14146,7 @@
    ]
   },
   {
-   "id": 699,
+   "id": 700,
    "text": "Nicaea",
    "variants": [
     {
@@ -14154,7 +14171,7 @@
    ]
   },
   {
-   "id": 700,
+   "id": 701,
    "text": "Latin Empire",
    "variants": [
     {
@@ -14175,7 +14192,7 @@
    ]
   },
   {
-   "id": 701,
+   "id": 702,
    "text": "Mongol Empire",
    "variants": [
     {
@@ -14196,7 +14213,7 @@
    ]
   },
   {
-   "id": 702,
+   "id": 703,
    "text": "Dehli",
    "variants": [
     {
@@ -14218,7 +14235,7 @@
    ]
   },
   {
-   "id": 703,
+   "id": 704,
    "text": "Liv.",
    "variants": [
     {
@@ -14239,7 +14256,7 @@
    ]
   },
   {
-   "id": 704,
+   "id": 705,
    "text": "Ep.",
    "variants": [
     {
@@ -14260,7 +14277,7 @@
    ]
   },
   {
-   "id": 705,
+   "id": 706,
    "text": "Khalji",
    "variants": [
     {
@@ -14281,7 +14298,7 @@
    ]
   },
   {
-   "id": 706,
+   "id": 707,
    "text": "Eastern Xia",
    "variants": [
     {
@@ -14302,7 +14319,7 @@
    ]
   },
   {
-   "id": 707,
+   "id": 708,
    "text": "Jaffna",
    "variants": [
     {
@@ -14324,7 +14341,7 @@
    ]
   },
   {
-   "id": 708,
+   "id": 709,
    "text": "Ajuran",
    "variants": [
     {
@@ -14346,7 +14363,7 @@
    ]
   },
   {
-   "id": 709,
+   "id": 710,
    "text": "Ep",
    "variants": [
     {
@@ -14367,7 +14384,7 @@
    ]
   },
   {
-   "id": 710,
+   "id": 711,
    "text": "Warsangali",
    "variants": [
     {
@@ -14389,7 +14406,7 @@
    ]
   },
   {
-   "id": 711,
+   "id": 712,
    "text": "Pandya",
    "variants": [
     {
@@ -14410,7 +14427,7 @@
    ]
   },
   {
-   "id": 712,
+   "id": 713,
    "text": "Mongol Empire",
    "variants": [
     {
@@ -14431,7 +14448,7 @@
    ]
   },
   {
-   "id": 713,
+   "id": 714,
    "text": "Livon.",
    "variants": [
     {
@@ -14452,7 +14469,7 @@
    ]
   },
   {
-   "id": 714,
+   "id": 715,
    "text": "Teut.",
    "variants": [
     {
@@ -14473,7 +14490,7 @@
    ]
   },
   {
-   "id": 715,
+   "id": 716,
    "text": "Tumapel",
    "variants": [
     {
@@ -14494,7 +14511,7 @@
    ]
   },
   {
-   "id": 716,
+   "id": 717,
    "text": "Castile",
    "variants": [
     {
@@ -14516,7 +14533,7 @@
    ]
   },
   {
-   "id": 717,
+   "id": 718,
    "text": "[Hafsid",
    "variants": [
     {
@@ -14546,7 +14563,7 @@
    ]
   },
   {
-   "id": 718,
+   "id": 719,
    "text": "Rasulids",
    "variants": [
     {
@@ -14568,7 +14585,7 @@
    ]
   },
   {
-   "id": 719,
+   "id": 720,
    "text": "Mossi",
    "variants": [
     {
@@ -14589,7 +14606,7 @@
    ]
   },
   {
-   "id": 720,
+   "id": 721,
    "text": "Tlemcen",
    "variants": [
     {
@@ -14611,7 +14628,7 @@
    ]
   },
   {
-   "id": 721,
+   "id": 722,
    "text": "Mali",
    "variants": [
     {
@@ -14633,7 +14650,7 @@
    ]
   },
   {
-   "id": 722,
+   "id": 723,
    "text": "Gra.",
    "variants": [
     {
@@ -14654,7 +14671,7 @@
    ]
   },
   {
-   "id": 723,
+   "id": 724,
    "text": "Suk.",
    "variants": [
     {
@@ -14675,7 +14692,7 @@
    ]
   },
   {
-   "id": 724,
+   "id": 725,
    "text": "Lithuania",
    "variants": [
     {
@@ -14697,7 +14714,7 @@
    ]
   },
   {
-   "id": 725,
+   "id": 726,
    "text": "Mongol Empire",
    "variants": [
     {
@@ -14718,7 +14735,7 @@
    ]
   },
   {
-   "id": 726,
+   "id": 727,
    "text": "Vaghela",
    "variants": [
     {
@@ -14739,7 +14756,7 @@
    ]
   },
   {
-   "id": 728,
+   "id": 729,
    "text": "Maranids",
    "variants": [
     {
@@ -14761,7 +14778,7 @@
    ]
   },
   {
-   "id": 730,
+   "id": 731,
    "text": "Mamluks",
    "variants": [
     {
@@ -14783,7 +14800,7 @@
    ]
   },
   {
-   "id": 731,
+   "id": 732,
    "text": "Usfurids",
    "variants": [
     {
@@ -14805,7 +14822,7 @@
    ]
   },
   {
-   "id": 732,
+   "id": 733,
    "text": "Singhasari",
    "variants": [
     {
@@ -14826,7 +14843,7 @@
    ]
   },
   {
-   "id": 733,
+   "id": 734,
    "text": "Golden Horde",
    "variants": [
     {
@@ -14851,7 +14868,7 @@
    ]
   },
   {
-   "id": 734,
+   "id": 735,
    "text": "Chagatai",
    "variants": [
     {
@@ -14872,7 +14889,7 @@
    ]
   },
   {
-   "id": 735,
+   "id": 736,
    "text": "lkhanate",
    "variants": [
     {
@@ -14905,7 +14922,7 @@
    ]
   },
   {
-   "id": 736,
+   "id": 737,
    "text": "Mongol Empire",
    "variants": [
     {
@@ -14926,7 +14943,7 @@
    ]
   },
   {
-   "id": 737,
+   "id": 738,
    "text": "Byz.",
    "variants": [
     {
@@ -14948,7 +14965,7 @@
    ]
   },
   {
-   "id": 738,
+   "id": 739,
    "text": "Achaea",
    "variants": [
     {
@@ -14969,7 +14986,7 @@
    ]
   },
   {
-   "id": 739,
+   "id": 740,
    "text": "Gay",
    "variants": [
     {
@@ -14994,7 +15011,7 @@
    ]
   },
   {
-   "id": 740,
+   "id": 741,
    "text": "Yuan",
    "variants": [
     {
@@ -15015,7 +15032,7 @@
    ]
   },
   {
-   "id": 741,
+   "id": 742,
    "text": "Bengall",
    "variants": [
     {
@@ -15040,7 +15057,7 @@
    ]
   },
   {
-   "id": 742,
+   "id": 743,
    "text": "Bunyoro",
    "variants": [
     {
@@ -15062,7 +15079,7 @@
    ]
   },
   {
-   "id": 743,
+   "id": 744,
    "text": "England",
    "variants": [
     {
@@ -15084,7 +15101,7 @@
    ]
   },
   {
-   "id": 744,
+   "id": 745,
    "text": "Ifat",
    "variants": [
     {
@@ -15105,7 +15122,7 @@
    ]
   },
   {
-   "id": 745,
+   "id": 746,
    "text": "Pandya",
    "variants": [
     {
@@ -15126,7 +15143,7 @@
    ]
   },
   {
-   "id": 746,
+   "id": 747,
    "text": "Naples",
    "variants": [
     {
@@ -15148,7 +15165,7 @@
    ]
   },
   {
-   "id": 747,
+   "id": 748,
    "text": "Dharmasraya",
    "variants": [
     {
@@ -15169,7 +15186,7 @@
    ]
   },
   {
-   "id": 748,
+   "id": 749,
    "text": "Ge.",
    "variants": [
     {
@@ -15192,7 +15209,7 @@
    ]
   },
   {
-   "id": 749,
+   "id": 750,
    "text": "Pegu",
    "variants": [
     {
@@ -15214,7 +15231,7 @@
    ]
   },
   {
-   "id": 750,
+   "id": 751,
    "text": "Is.",
    "variants": [
     {
@@ -15235,7 +15252,7 @@
    ]
   },
   {
-   "id": 751,
+   "id": 752,
    "text": "Lanna",
    "variants": [
     {
@@ -15269,7 +15286,7 @@
    ]
   },
   {
-   "id": 752,
+   "id": 753,
    "text": "Bo",
    "variants": [
     {
@@ -15290,7 +15307,7 @@
    ]
   },
   {
-   "id": 753,
+   "id": 754,
    "text": "Muar",
    "variants": [
     {
@@ -15311,7 +15328,7 @@
    ]
   },
   {
-   "id": 754,
+   "id": 755,
    "text": "Palembang",
    "variants": [
     {
@@ -15332,7 +15349,7 @@
    ]
   },
   {
-   "id": 755,
+   "id": 756,
    "text": "Majapahit",
    "variants": [
     {
@@ -15354,7 +15371,7 @@
    ]
   },
   {
-   "id": 756,
+   "id": 757,
    "text": "Tampungan",
    "variants": [
     {
@@ -15375,7 +15392,7 @@
    ]
   },
   {
-   "id": 757,
+   "id": 758,
    "text": "Myisaing",
    "variants": [
     {
@@ -15396,7 +15413,7 @@
    ]
   },
   {
-   "id": 758,
+   "id": 759,
    "text": "P.",
    "variants": [
     {
@@ -15417,7 +15434,7 @@
    ]
   },
   {
-   "id": 759,
+   "id": 760,
    "text": "Beyliks",
    "variants": [
     {
@@ -15439,7 +15456,7 @@
    ]
   },
   {
-   "id": 760,
+   "id": 761,
    "text": "Melan.",
    "variants": [
     {
@@ -15460,7 +15477,7 @@
    ]
   },
   {
-   "id": 761,
+   "id": 762,
    "text": "Arus",
    "variants": [
     {
@@ -15489,7 +15506,7 @@
    ]
   },
   {
-   "id": 762,
+   "id": 763,
    "text": "H.",
    "variants": [
     {
@@ -15510,7 +15527,7 @@
    ]
   },
   {
-   "id": 763,
+   "id": 764,
    "text": "Ba.",
    "variants": [
     {
@@ -15533,7 +15550,7 @@
    ]
   },
   {
-   "id": 764,
+   "id": 765,
    "text": "Pinya",
    "variants": [
     {
@@ -15554,7 +15571,7 @@
    ]
   },
   {
-   "id": 765,
+   "id": 766,
    "text": "Sag.",
    "variants": [
     {
@@ -15575,7 +15592,7 @@
    ]
   },
   {
-   "id": 766,
+   "id": 767,
    "text": "Yapahuwa",
    "variants": [
     {
@@ -15596,7 +15613,7 @@
    ]
   },
   {
-   "id": 767,
+   "id": 768,
    "text": "Novgorod",
    "variants": [
     {
@@ -15618,7 +15635,7 @@
    ]
   },
   {
-   "id": 768,
+   "id": 769,
    "text": "Wal.",
    "variants": [
     {
@@ -15640,7 +15657,7 @@
    ]
   },
   {
-   "id": 770,
+   "id": 771,
    "text": "Kala.",
    "variants": [
     {
@@ -15662,7 +15679,7 @@
    ]
   },
   {
-   "id": 771,
+   "id": 772,
    "text": "Bo.",
    "variants": [
     {
@@ -15687,7 +15704,7 @@
    ]
   },
   {
-   "id": 772,
+   "id": 773,
    "text": "Serbia",
    "variants": [
     {
@@ -15708,7 +15725,7 @@
    ]
   },
   {
-   "id": 773,
+   "id": 774,
    "text": "Sh.",
    "variants": [
     {
@@ -15730,7 +15747,7 @@
    ]
   },
   {
-   "id": 774,
+   "id": 775,
    "text": "Anatolian Beyliks",
    "variants": [
     {
@@ -15751,7 +15768,7 @@
    ]
   },
   {
-   "id": 775,
+   "id": 776,
    "text": "Chob.",
    "variants": [
     {
@@ -15772,7 +15789,7 @@
    ]
   },
   {
-   "id": 776,
+   "id": 777,
    "text": "Jalayr.",
    "variants": [
     {
@@ -15797,7 +15814,7 @@
    ]
   },
   {
-   "id": 777,
+   "id": 778,
    "text": "Hazar.",
    "variants": [
     {
@@ -15818,7 +15835,7 @@
    ]
   },
   {
-   "id": 778,
+   "id": 779,
    "text": "Muzzafarids",
    "variants": [
     {
@@ -15839,7 +15856,7 @@
    ]
   },
   {
-   "id": 779,
+   "id": 780,
    "text": "Sarbadars",
    "variants": [
     {
@@ -15860,7 +15877,7 @@
    ]
   },
   {
-   "id": 780,
+   "id": 781,
    "text": "Musunuri",
    "variants": [
     {
@@ -15881,7 +15898,7 @@
    ]
   },
   {
-   "id": 781,
+   "id": 782,
    "text": "Bengal",
    "variants": [
     {
@@ -15903,7 +15920,7 @@
    ]
   },
   {
-   "id": 782,
+   "id": 783,
    "text": "Vijayanagara",
    "variants": [
     {
@@ -15925,7 +15942,7 @@
    ]
   },
   {
-   "id": 783,
+   "id": 784,
    "text": "Raigama",
    "variants": [
     {
@@ -15946,7 +15963,7 @@
    ]
   },
   {
-   "id": 784,
+   "id": 785,
    "text": "State",
    "variants": [
     {
@@ -15967,7 +15984,7 @@
    ]
   },
   {
-   "id": 785,
+   "id": 786,
    "text": "Mol.",
    "variants": [
     {
@@ -15989,7 +16006,7 @@
    ]
   },
   {
-   "id": 787,
+   "id": 788,
    "text": "Kartids",
    "variants": [
     {
@@ -16010,7 +16027,7 @@
    ]
   },
   {
-   "id": 788,
+   "id": 789,
    "text": "Mirabanids",
    "variants": [
     {
@@ -16031,7 +16048,7 @@
    ]
   },
   {
-   "id": 789,
+   "id": 790,
    "text": "Illkhanate",
    "variants": [
     {
@@ -16052,7 +16069,7 @@
    ]
   },
   {
-   "id": 790,
+   "id": 791,
    "text": "Bahmani",
    "variants": [
     {
@@ -16078,7 +16095,7 @@
    ]
   },
   {
-   "id": 791,
+   "id": 792,
    "text": "Pagaruyung",
    "variants": [
     {
@@ -16099,7 +16116,7 @@
    ]
   },
   {
-   "id": 792,
+   "id": 793,
    "text": "P.",
    "variants": [
     {
@@ -16120,7 +16137,7 @@
    ]
   },
   {
-   "id": 793,
+   "id": 794,
    "text": "Jolof",
    "variants": [
     {
@@ -16146,7 +16163,7 @@
    ]
   },
   {
-   "id": 794,
+   "id": 795,
    "text": "Ay.",
    "variants": [
     {
@@ -16167,7 +16184,7 @@
    ]
   },
   {
-   "id": 795,
+   "id": 796,
    "text": "Ku",
    "variants": [
     {
@@ -16188,7 +16205,7 @@
    ]
   },
   {
-   "id": 796,
+   "id": 797,
    "text": "Sarbadars",
    "variants": [
     {
@@ -16209,7 +16226,7 @@
    ]
   },
   {
-   "id": 797,
+   "id": 798,
    "text": "Moghulistan",
    "variants": [
     {
@@ -16231,7 +16248,7 @@
    ]
   },
   {
-   "id": 798,
+   "id": 799,
    "text": "Western Chagatai",
    "variants": [
     {
@@ -16252,7 +16269,7 @@
    ]
   },
   {
-   "id": 799,
+   "id": 800,
    "text": "Ot.",
    "variants": [
     {
@@ -16273,7 +16290,7 @@
    ]
   },
   {
-   "id": 800,
+   "id": 801,
    "text": "Goryeo",
    "variants": [
     {
@@ -16294,7 +16311,7 @@
    ]
   },
   {
-   "id": 801,
+   "id": 802,
    "text": "Phagmodrupa",
    "variants": [
     {
@@ -16316,7 +16333,7 @@
    ]
   },
   {
-   "id": 803,
+   "id": 804,
    "text": "Lan Xang",
    "variants": [
     {
@@ -16342,7 +16359,7 @@
    ]
   },
   {
-   "id": 804,
+   "id": 805,
    "text": "Ava",
    "variants": [
     {
@@ -16368,7 +16385,7 @@
    ]
   },
   {
-   "id": 805,
+   "id": 806,
    "text": "Bul.",
    "variants": [
     {
@@ -16393,7 +16410,7 @@
    ]
   },
   {
-   "id": 806,
+   "id": 807,
    "text": "Ming",
    "variants": [
     {
@@ -16415,7 +16432,7 @@
    ]
   },
   {
-   "id": 807,
+   "id": 808,
    "text": "Houaras",
    "variants": [
     {
@@ -16442,7 +16459,7 @@
    ]
   },
   {
-   "id": 808,
+   "id": 809,
    "text": "Sh.",
    "variants": [
     {
@@ -16464,7 +16481,7 @@
    ]
   },
   {
-   "id": 809,
+   "id": 810,
    "text": "Northern Yuan",
    "variants": [
     {
@@ -16486,7 +16503,7 @@
    ]
   },
   {
-   "id": 810,
+   "id": 811,
    "text": "Timurids",
    "variants": [
     {
@@ -16507,7 +16524,7 @@
    ]
   },
   {
-   "id": 811,
+   "id": 812,
    "text": "Se.",
    "variants": [
     {
@@ -16528,7 +16545,7 @@
    ]
   },
   {
-   "id": 812,
+   "id": 813,
    "text": "Ottoman",
    "variants": [
     {
@@ -16553,7 +16570,7 @@
    ]
   },
   {
-   "id": 813,
+   "id": 814,
    "text": "Buganda",
    "variants": [
     {
@@ -16575,7 +16592,7 @@
    ]
   },
   {
-   "id": 814,
+   "id": 815,
    "text": "Kongo",
    "variants": [
     {
@@ -16602,7 +16619,7 @@
    ]
   },
   {
-   "id": 815,
+   "id": 816,
    "text": "Mwene",
    "variants": [
     {
@@ -16623,7 +16640,7 @@
    ]
   },
   {
-   "id": 816,
+   "id": 817,
    "text": "Kwa.",
    "variants": [
     {
@@ -16649,7 +16666,7 @@
    ]
   },
   {
-   "id": 817,
+   "id": 818,
    "text": "Berau",
    "variants": [
     {
@@ -16671,7 +16688,7 @@
    ]
   },
   {
-   "id": 818,
+   "id": 819,
    "text": "Kh.",
    "variants": [
     {
@@ -16693,7 +16710,7 @@
    ]
   },
   {
-   "id": 819,
+   "id": 820,
    "text": "Timurids",
    "variants": [
     {
@@ -16715,7 +16732,7 @@
    ]
   },
   {
-   "id": 820,
+   "id": 821,
    "text": "Bornu",
    "variants": [
     {
@@ -16738,7 +16755,7 @@
    ]
   },
   {
-   "id": 821,
+   "id": 822,
    "text": "Teut. State",
    "variants": [
     {
@@ -16760,7 +16777,7 @@
    ]
   },
   {
-   "id": 822,
+   "id": 823,
    "text": "Ayutt.",
    "variants": [
     {
@@ -16786,7 +16803,7 @@
    ]
   },
   {
-   "id": 823,
+   "id": 824,
    "text": "Igala",
    "variants": [
     {
@@ -16808,7 +16825,7 @@
    ]
   },
   {
-   "id": 824,
+   "id": 825,
    "text": "Joseon",
    "variants": [
     {
@@ -16831,7 +16848,7 @@
    ]
   },
   {
-   "id": 825,
+   "id": 826,
    "text": "Chandela",
    "variants": [
     {
@@ -16861,7 +16878,7 @@
    ]
   },
   {
-   "id": 826,
+   "id": 827,
    "text": "Malwa",
    "variants": [
     {
@@ -16883,7 +16900,7 @@
    ]
   },
   {
-   "id": 827,
+   "id": 828,
    "text": "G.",
    "variants": [
     {
@@ -16905,7 +16922,7 @@
    ]
   },
   {
-   "id": 828,
+   "id": 829,
    "text": "Jaunpur",
    "variants": [
     {
@@ -16927,7 +16944,7 @@
    ]
   },
   {
-   "id": 829,
+   "id": 830,
    "text": "Bamum",
    "variants": [
     {
@@ -16949,7 +16966,7 @@
    ]
   },
   {
-   "id": 830,
+   "id": 831,
    "text": "Kalmar Union",
    "variants": [
     {
@@ -16971,7 +16988,7 @@
    ]
   },
   {
-   "id": 831,
+   "id": 832,
    "text": "Four Oirats",
    "variants": [
     {
@@ -16993,7 +17010,7 @@
    ]
   },
   {
-   "id": 832,
+   "id": 833,
    "text": "Dai",
    "variants": [
     {
@@ -17014,7 +17031,7 @@
    ]
   },
   {
-   "id": 833,
+   "id": 834,
    "text": "Ngu",
    "variants": [
     {
@@ -17035,7 +17052,7 @@
    ]
   },
   {
-   "id": 834,
+   "id": 835,
    "text": "(Tunjurs Alo.",
    "variants": [
     {
@@ -17069,7 +17086,7 @@
    ]
   },
   {
-   "id": 835,
+   "id": 836,
    "text": "Oyo",
    "variants": [
     {
@@ -17091,7 +17108,7 @@
    ]
   },
   {
-   "id": 836,
+   "id": 837,
    "text": "Sahabe",
    "variants": [
     {
@@ -17113,7 +17130,7 @@
    ]
   },
   {
-   "id": 837,
+   "id": 838,
    "text": "Canaries",
    "variants": [
     {
@@ -17136,7 +17153,7 @@
    ]
   },
   {
-   "id": 839,
+   "id": 840,
    "text": "Qara Qoyunlu",
    "variants": [
     {
@@ -17162,7 +17179,7 @@
    ]
   },
   {
-   "id": 840,
+   "id": 841,
    "text": "Aq Q.",
    "variants": [
     {
@@ -17188,7 +17205,7 @@
    ]
   },
   {
-   "id": 841,
+   "id": 842,
    "text": "Maynila2",
    "variants": [
     {
@@ -17222,7 +17239,7 @@
    ]
   },
   {
-   "id": 842,
+   "id": 843,
    "text": "Oya",
    "variants": [
     {
@@ -17244,7 +17261,7 @@
    ]
   },
   {
-   "id": 843,
+   "id": 844,
    "text": "Pasau",
    "variants": [
     {
@@ -17266,7 +17283,7 @@
    ]
   },
   {
-   "id": 844,
+   "id": 845,
    "text": "Empire",
    "variants": [
     {
@@ -17287,7 +17304,7 @@
    ]
   },
   {
-   "id": 846,
+   "id": 847,
    "text": "Gujar.",
    "variants": [
     {
@@ -17309,7 +17326,7 @@
    ]
   },
   {
-   "id": 847,
+   "id": 848,
    "text": "Cutch",
    "variants": [
     {
@@ -17331,7 +17348,7 @@
    ]
   },
   {
-   "id": 848,
+   "id": 849,
    "text": "Chudasama",
    "variants": [
     {
@@ -17353,7 +17370,7 @@
    ]
   },
   {
-   "id": 849,
+   "id": 850,
    "text": "Pag.",
    "variants": [
     {
@@ -17379,7 +17396,7 @@
    ]
   },
   {
-   "id": 850,
+   "id": 851,
    "text": "Kotte",
    "variants": [
     {
@@ -17401,7 +17418,7 @@
    ]
   },
   {
-   "id": 851,
+   "id": 852,
    "text": "Marwar",
    "variants": [
     {
@@ -17423,7 +17440,7 @@
    ]
   },
   {
-   "id": 852,
+   "id": 853,
    "text": "Sindh",
    "variants": [
     {
@@ -17445,7 +17462,7 @@
    ]
   },
   {
-   "id": 853,
+   "id": 854,
    "text": "Tuaregs",
    "variants": [
     {
@@ -17467,7 +17484,7 @@
    ]
   },
   {
-   "id": 854,
+   "id": 855,
    "text": "Adal",
    "variants": [
     {
@@ -17489,7 +17506,7 @@
    ]
   },
   {
-   "id": 855,
+   "id": 856,
    "text": "Malacca",
    "variants": [
     {
@@ -17515,7 +17532,7 @@
    ]
   },
   {
-   "id": 856,
+   "id": 857,
    "text": "Azores",
    "variants": [
     {
@@ -17538,7 +17555,7 @@
    ]
   },
   {
-   "id": 857,
+   "id": 858,
    "text": "Madeira",
    "variants": [
     {
@@ -17561,7 +17578,7 @@
    ]
   },
   {
-   "id": 858,
+   "id": 859,
    "text": "Sibir",
    "variants": [
     {
@@ -17583,7 +17600,7 @@
    ]
   },
   {
-   "id": 859,
+   "id": 860,
    "text": "Uzbeks",
    "variants": [
     {
@@ -17605,7 +17622,7 @@
    ]
   },
   {
-   "id": 860,
+   "id": 861,
    "text": "Golden Horde",
    "variants": [
     {
@@ -17627,7 +17644,7 @@
    ]
   },
   {
-   "id": 861,
+   "id": 862,
    "text": "Songhai",
    "variants": [
     {
@@ -17649,7 +17666,7 @@
    ]
   },
   {
-   "id": 862,
+   "id": 863,
    "text": "Zafu.",
    "variants": [
     {
@@ -17671,7 +17688,7 @@
    ]
   },
   {
-   "id": 863,
+   "id": 864,
    "text": "Cambodia",
    "variants": [
     {
@@ -17693,7 +17710,7 @@
    ]
   },
   {
-   "id": 866,
+   "id": 867,
    "text": "Aus.",
    "variants": [
     {
@@ -17724,7 +17741,7 @@
    ]
   },
   {
-   "id": 867,
+   "id": 868,
    "text": "Rinpungpa",
    "variants": [
     {
@@ -17746,7 +17763,7 @@
    ]
   },
   {
-   "id": 868,
+   "id": 869,
    "text": "K.",
    "variants": [
     {
@@ -17767,7 +17784,7 @@
    ]
   },
   {
-   "id": 869,
+   "id": 870,
    "text": "Kazan",
    "variants": [
     {
@@ -17789,7 +17806,7 @@
    ]
   },
   {
-   "id": 870,
+   "id": 871,
    "text": "Golden",
    "variants": [
     {
@@ -17810,7 +17827,7 @@
    ]
   },
   {
-   "id": 871,
+   "id": 872,
    "text": "Horde",
    "variants": [
     {
@@ -17831,7 +17848,7 @@
    ]
   },
   {
-   "id": 872,
+   "id": 873,
    "text": "Bohemia",
    "variants": [
     {
@@ -17853,7 +17870,7 @@
    ]
   },
   {
-   "id": 873,
+   "id": 874,
    "text": "Waga.",
    "variants": [
     {
@@ -17875,7 +17892,7 @@
    ]
   },
   {
-   "id": 874,
+   "id": 875,
    "text": "Nogais",
    "variants": [
     {
@@ -17897,7 +17914,7 @@
    ]
   },
   {
-   "id": 875,
+   "id": 876,
    "text": "Ryuku",
    "variants": [
     {
@@ -17919,7 +17936,7 @@
    ]
   },
   {
-   "id": 876,
+   "id": 877,
    "text": "HRE",
    "variants": [
     {
@@ -17941,7 +17958,7 @@
    ]
   },
   {
-   "id": 877,
+   "id": 878,
    "text": "Ottomans",
    "variants": [
     {
@@ -17963,7 +17980,7 @@
    ]
   },
   {
-   "id": 878,
+   "id": 879,
    "text": "Jaunpur (Chandela",
    "variants": [
     {
@@ -17984,7 +18001,7 @@
    ]
   },
   {
-   "id": 879,
+   "id": 880,
    "text": "Aztecs",
    "variants": [
     {
@@ -18009,7 +18026,7 @@
    ]
   },
   {
-   "id": 880,
+   "id": 881,
    "text": "Mayas",
    "variants": [
     {
@@ -18034,7 +18051,7 @@
    ]
   },
   {
-   "id": 881,
+   "id": 882,
    "text": "Mexican",
    "variants": [
     {
@@ -18055,7 +18072,7 @@
    ]
   },
   {
-   "id": 882,
+   "id": 883,
    "text": "City States",
    "variants": [
     {
@@ -18076,7 +18093,7 @@
    ]
   },
   {
-   "id": 883,
+   "id": 884,
    "text": "Muiscas",
    "variants": [
     {
@@ -18101,7 +18118,7 @@
    ]
   },
   {
-   "id": 884,
+   "id": 885,
    "text": "Chimor",
    "variants": [
     {
@@ -18122,7 +18139,7 @@
    ]
   },
   {
-   "id": 885,
+   "id": 886,
    "text": "Mbailundu",
    "variants": [
     {
@@ -18143,7 +18160,7 @@
    ]
   },
   {
-   "id": 886,
+   "id": 887,
    "text": "Incas",
    "variants": [
     {
@@ -18164,7 +18181,7 @@
    ]
   },
   {
-   "id": 887,
+   "id": 888,
    "text": "Mutapa",
    "variants": [
     {
@@ -18185,7 +18202,7 @@
    ]
   },
   {
-   "id": 888,
+   "id": 889,
    "text": "Lupaca",
    "variants": [
     {
@@ -18206,7 +18223,7 @@
    ]
   },
   {
-   "id": 890,
+   "id": 891,
    "text": "Tahirids",
    "variants": [
     {
@@ -18227,7 +18244,7 @@
    ]
   },
   {
-   "id": 891,
+   "id": 892,
    "text": "Cape Verde",
    "variants": [
     {
@@ -18252,7 +18269,7 @@
    ]
   },
   {
-   "id": 892,
+   "id": 893,
    "text": "Jodhpur",
    "variants": [
     {
@@ -18273,7 +18290,7 @@
    ]
   },
   {
-   "id": 893,
+   "id": 894,
    "text": "Turpan",
    "variants": [
     {
@@ -18294,7 +18311,7 @@
    ]
   },
   {
-   "id": 894,
+   "id": 895,
    "text": "Yarkent",
    "variants": [
     {
@@ -18315,7 +18332,7 @@
    ]
   },
   {
-   "id": 895,
+   "id": 896,
    "text": "Ladakh",
    "variants": [
     {
@@ -18340,7 +18357,7 @@
    ]
   },
   {
-   "id": 896,
+   "id": 897,
    "text": "Kazakhs",
    "variants": [
     {
@@ -18361,7 +18378,7 @@
    ]
   },
   {
-   "id": 897,
+   "id": 898,
    "text": "Morocco",
    "variants": [
     {
@@ -18382,7 +18399,7 @@
    ]
   },
   {
-   "id": 898,
+   "id": 899,
    "text": "Astrakhan",
    "variants": [
     {
@@ -18403,7 +18420,7 @@
    ]
   },
   {
-   "id": 899,
+   "id": 900,
    "text": "Ottomans Beyliks",
    "variants": [
     {
@@ -18424,7 +18441,7 @@
    ]
   },
   {
-   "id": 900,
+   "id": 901,
    "text": "Ternate",
    "variants": [
     {
@@ -18445,7 +18462,7 @@
    ]
   },
   {
-   "id": 901,
+   "id": 902,
    "text": "Song.",
    "variants": [
     {
@@ -18466,7 +18483,7 @@
    ]
   },
   {
-   "id": 902,
+   "id": 903,
    "text": "Jaffna Kandy",
    "variants": [
     {
@@ -18487,7 +18504,7 @@
    ]
   },
   {
-   "id": 903,
+   "id": 904,
    "text": "Kotte",
    "variants": [
     {
@@ -18508,7 +18525,7 @@
    ]
   },
   {
-   "id": 904,
+   "id": 905,
    "text": "Novg.",
    "variants": [
     {
@@ -18529,7 +18546,7 @@
    ]
   },
   {
-   "id": 905,
+   "id": 906,
    "text": "Wattasids",
    "variants": [
     {
@@ -18550,7 +18567,7 @@
    ]
   },
   {
-   "id": 906,
+   "id": 907,
    "text": "Marrak.",
    "variants": [
     {
@@ -18571,7 +18588,7 @@
    ]
   },
   {
-   "id": 907,
+   "id": 908,
    "text": "Camb.",
    "variants": [
     {
@@ -18592,7 +18609,7 @@
    ]
   },
   {
-   "id": 908,
+   "id": 909,
    "text": "Golden Horde",
    "variants": [
     {
@@ -18617,7 +18634,7 @@
    ]
   },
   {
-   "id": 909,
+   "id": 910,
    "text": "Abkhazia",
    "variants": [
     {
@@ -18639,7 +18656,7 @@
    ]
   },
   {
-   "id": 910,
+   "id": 911,
    "text": "Cape Verde ...",
    "variants": [
     {
@@ -18672,7 +18689,7 @@
    ]
   },
   {
-   "id": 911,
+   "id": 912,
    "text": "Ku.",
    "variants": [
     {
@@ -18693,7 +18710,7 @@
    ]
   },
   {
-   "id": 912,
+   "id": 913,
    "text": "Incas",
    "variants": [
     {
@@ -18714,7 +18731,7 @@
    ]
   },
   {
-   "id": 913,
+   "id": 914,
    "text": "Muscovy",
    "variants": [
     {
@@ -18735,7 +18752,7 @@
    ]
   },
   {
-   "id": 914,
+   "id": 915,
    "text": "Gujarat",
    "variants": [
     {
@@ -18756,7 +18773,7 @@
    ]
   },
   {
-   "id": 915,
+   "id": 916,
    "text": "Cape",
    "variants": [
     {
@@ -18777,7 +18794,7 @@
    ]
   },
   {
-   "id": 916,
+   "id": 917,
    "text": "Verde .*.",
    "variants": [
     {
@@ -18806,7 +18823,7 @@
    ]
   },
   {
-   "id": 917,
+   "id": 918,
    "text": "Maravi",
    "variants": [
     {
@@ -18827,7 +18844,7 @@
    ]
   },
   {
-   "id": 918,
+   "id": 919,
    "text": "Pr.",
    "variants": [
     {
@@ -18848,7 +18865,7 @@
    ]
   },
   {
-   "id": 919,
+   "id": 920,
    "text": "Gold Coast",
    "variants": [
     {
@@ -18874,7 +18891,7 @@
    ]
   },
   {
-   "id": 920,
+   "id": 921,
    "text": "Pajajaran",
    "variants": [
     {
@@ -18895,7 +18912,7 @@
    ]
   },
   {
-   "id": 921,
+   "id": 922,
    "text": "Ber.",
    "variants": [
     {
@@ -18916,7 +18933,7 @@
    ]
   },
   {
-   "id": 922,
+   "id": 923,
    "text": "Ahm.",
    "variants": [
     {
@@ -18937,7 +18954,7 @@
    ]
   },
   {
-   "id": 923,
+   "id": 924,
    "text": "B.ani",
    "variants": [
     {
@@ -18958,7 +18975,7 @@
    ]
   },
   {
-   "id": 924,
+   "id": 925,
    "text": "Santo Domingo",
    "variants": [
     {
@@ -18979,7 +18996,7 @@
    ]
   },
   {
-   "id": 925,
+   "id": 926,
    "text": "Bijapur",
    "variants": [
     {
@@ -19000,7 +19017,7 @@
    ]
   },
   {
-   "id": 926,
+   "id": 927,
    "text": "Fulo",
    "variants": [
     {
@@ -19021,7 +19038,7 @@
    ]
   },
   {
-   "id": 927,
+   "id": 928,
    "text": "Wehali",
    "variants": [
     {
@@ -19042,7 +19059,7 @@
    ]
   },
   {
-   "id": 928,
+   "id": 929,
    "text": "Bahmani",
    "variants": [
     {
@@ -19063,7 +19080,7 @@
    ]
   },
   {
-   "id": 929,
+   "id": 930,
    "text": "Mandara",
    "variants": [
     {
@@ -19085,7 +19102,7 @@
    ]
   },
   {
-   "id": 930,
+   "id": 931,
    "text": "Tidore",
    "variants": [
     {
@@ -19106,7 +19123,7 @@
    ]
   },
   {
-   "id": 932,
+   "id": 933,
    "text": "Terra de Santa Cruz",
    "variants": [
     {
@@ -19135,7 +19152,7 @@
    ]
   },
   {
-   "id": 934,
+   "id": 935,
    "text": "Sennar",
    "variants": [
     {
@@ -19157,7 +19174,7 @@
    ]
   },
   {
-   "id": 935,
+   "id": 936,
    "text": "Mozambique",
    "variants": [
     {
@@ -19179,7 +19196,7 @@
    ]
   },
   {
-   "id": 936,
+   "id": 937,
    "text": "Safavids",
    "variants": [
     {
@@ -19200,7 +19217,7 @@
    ]
   },
   {
-   "id": 939,
+   "id": 940,
    "text": "Akan",
    "variants": [
     {
@@ -19225,7 +19242,7 @@
    ]
   },
   {
-   "id": 940,
+   "id": 941,
    "text": "Santa .",
    "variants": [
     {
@@ -19246,7 +19263,7 @@
    ]
   },
   {
-   "id": 941,
+   "id": 942,
    "text": "Apolonia",
    "variants": [
     {
@@ -19267,7 +19284,7 @@
    ]
   },
   {
-   "id": 942,
+   "id": 943,
    "text": "Beni Hafsid",
    "variants": [
     {
@@ -19292,7 +19309,7 @@
    ]
   },
   {
-   "id": 943,
+   "id": 944,
    "text": "Tlem.",
    "variants": [
     {
@@ -19313,7 +19330,7 @@
    ]
   },
   {
-   "id": 944,
+   "id": 945,
    "text": "Saadis",
    "variants": [
     {
@@ -19334,7 +19351,7 @@
    ]
   },
   {
-   "id": 945,
+   "id": 946,
    "text": "Puerto Rico",
    "variants": [
     {
@@ -19360,7 +19377,7 @@
    ]
   },
   {
-   "id": 946,
+   "id": 947,
    "text": "Burundi",
    "variants": [
     {
@@ -19390,7 +19407,7 @@
    ]
   },
   {
-   "id": 947,
+   "id": 948,
    "text": "Khiva",
    "variants": [
     {
@@ -19412,7 +19429,7 @@
    ]
   },
   {
-   "id": 948,
+   "id": 949,
    "text": "Bukhara",
    "variants": [
     {
@@ -19433,7 +19450,7 @@
    ]
   },
   {
-   "id": 949,
+   "id": 950,
    "text": "JolofFulo",
    "variants": [
     {
@@ -19454,7 +19471,7 @@
    ]
   },
   {
-   "id": 950,
+   "id": 951,
    "text": "Aceh",
    "variants": [
     {
@@ -19476,7 +19493,7 @@
    ]
   },
   {
-   "id": 951,
+   "id": 952,
    "text": "Demak",
    "variants": [
     {
@@ -19497,7 +19514,7 @@
    ]
   },
   {
-   "id": 952,
+   "id": 953,
    "text": "Ternate",
    "variants": [
     {
@@ -19518,7 +19535,7 @@
    ]
   },
   {
-   "id": 953,
+   "id": 954,
    "text": "Kazakhs",
    "variants": [
     {
@@ -19540,7 +19557,7 @@
    ]
   },
   {
-   "id": 954,
+   "id": 955,
    "text": "Cuba",
    "variants": [
     {
@@ -19562,7 +19579,7 @@
    ]
   },
   {
-   "id": 955,
+   "id": 956,
    "text": "TierraFirme",
    "variants": [
     {
@@ -19587,7 +19604,7 @@
    ]
   },
   {
-   "id": 956,
+   "id": 957,
    "text": "Swahilis",
    "variants": [
     {
@@ -19608,7 +19625,7 @@
    ]
   },
   {
-   "id": 957,
+   "id": 958,
    "text": "K.K",
    "variants": [
     {
@@ -19629,7 +19646,7 @@
    ]
   },
   {
-   "id": 958,
+   "id": 959,
    "text": "Spain",
    "variants": [
     {
@@ -19651,7 +19668,7 @@
    ]
   },
   {
-   "id": 959,
+   "id": 960,
    "text": "Yemen",
    "variants": [
     {
@@ -19672,7 +19689,7 @@
    ]
   },
   {
-   "id": 960,
+   "id": 961,
    "text": "Bag.",
    "variants": [
     {
@@ -19694,7 +19711,7 @@
    ]
   },
   {
-   "id": 961,
+   "id": 962,
    "text": "Timor",
    "variants": [
     {
@@ -19716,7 +19733,7 @@
    ]
   },
   {
-   "id": 962,
+   "id": 963,
    "text": "Golkonda",
    "variants": [
     {
@@ -19737,7 +19754,7 @@
    ]
   },
   {
-   "id": 963,
+   "id": 964,
    "text": "New Spain",
    "variants": [
     {
@@ -19758,7 +19775,7 @@
    ]
   },
   {
-   "id": 964,
+   "id": 965,
    "text": "Bohemia",
    "variants": [
     {
@@ -19780,7 +19797,7 @@
    ]
   },
   {
-   "id": 965,
+   "id": 966,
    "text": "Mughals",
    "variants": [
     {
@@ -19801,7 +19818,7 @@
    ]
   },
   {
-   "id": 966,
+   "id": 967,
    "text": "Mac",
    "variants": [
     {
@@ -19822,7 +19839,7 @@
    ]
   },
   {
-   "id": 967,
+   "id": 968,
    "text": "Demak",
    "variants": [
     {
@@ -19843,7 +19860,7 @@
    ]
   },
   {
-   "id": 968,
+   "id": 969,
    "text": "LittleVenice",
    "variants": [
     {
@@ -19868,7 +19885,7 @@
    ]
   },
   {
-   "id": 969,
+   "id": 970,
    "text": "Johor",
    "variants": [
     {
@@ -19890,7 +19907,7 @@
    ]
   },
   {
-   "id": 970,
+   "id": 971,
    "text": "Rimpulaeng",
    "variants": [
     {
@@ -19911,7 +19928,7 @@
    ]
   },
   {
-   "id": 971,
+   "id": 972,
    "text": "Nueva Castila",
    "variants": [
     {
@@ -19936,7 +19953,7 @@
    ]
   },
   {
-   "id": 972,
+   "id": 973,
    "text": "Nueva Toledo",
    "variants": [
     {
@@ -19957,7 +19974,7 @@
    ]
   },
   {
-   "id": 973,
+   "id": 974,
    "text": "Nueva Andalucia",
    "variants": [
     {
@@ -19978,7 +19995,7 @@
    ]
   },
   {
-   "id": 974,
+   "id": 975,
    "text": "Denmark-Norway",
    "variants": [
     {
@@ -20004,7 +20021,7 @@
    ]
   },
   {
-   "id": 975,
+   "id": 976,
    "text": "Kaabu",
    "variants": [
     {
@@ -20033,7 +20050,7 @@
    ]
   },
   {
-   "id": 976,
+   "id": 977,
    "text": "Nupe Igala Benin",
    "variants": [
     {
@@ -20054,7 +20071,7 @@
    ]
   },
   {
-   "id": 977,
+   "id": 978,
    "text": "Brazil",
    "variants": [
     {
@@ -20075,7 +20092,7 @@
    ]
   },
   {
-   "id": 978,
+   "id": 979,
    "text": "Neo-Incas",
    "variants": [
     {
@@ -20100,7 +20117,7 @@
    ]
   },
   {
-   "id": 979,
+   "id": 980,
    "text": "Suri",
    "variants": [
     {
@@ -20121,7 +20138,7 @@
    ]
   },
   {
-   "id": 980,
+   "id": 981,
    "text": "Ire.",
    "variants": [
     {
@@ -20146,7 +20163,7 @@
    ]
   },
   {
-   "id": 981,
+   "id": 982,
    "text": "Hun.",
    "variants": [
     {
@@ -20167,7 +20184,7 @@
    ]
   },
   {
-   "id": 982,
+   "id": 983,
    "text": "Tou.",
    "variants": [
     {
@@ -20192,7 +20209,7 @@
    ]
   },
   {
-   "id": 983,
+   "id": 984,
    "text": "Ma.2",
    "variants": [
     {
@@ -20213,7 +20230,7 @@
    ]
   },
   {
-   "id": 984,
+   "id": 985,
    "text": "Peru",
    "variants": [
     {
@@ -20234,7 +20251,7 @@
    ]
   },
   {
-   "id": 985,
+   "id": 986,
    "text": "Merina",
    "variants": [
     {
@@ -20255,7 +20272,7 @@
    ]
   },
   {
-   "id": 986,
+   "id": 987,
    "text": "Santa Apolonia",
    "variants": [
     {
@@ -20276,7 +20293,7 @@
    ]
   },
   {
-   "id": 987,
+   "id": 988,
    "text": "Russia",
    "variants": [
     {
@@ -20297,7 +20314,7 @@
    ]
   },
   {
-   "id": 988,
+   "id": 989,
    "text": "New Spain",
    "variants": [
     {
@@ -20322,7 +20339,7 @@
    ]
   },
   {
-   "id": 989,
+   "id": 990,
    "text": "Banjar",
    "variants": [
     {
@@ -20352,7 +20369,7 @@
    ]
   },
   {
-   "id": 990,
+   "id": 991,
    "text": "Loa.",
    "variants": [
     {
@@ -20377,7 +20394,7 @@
    ]
   },
   {
-   "id": 991,
+   "id": 992,
    "text": "Palembang",
    "variants": [
     {
@@ -20398,7 +20415,7 @@
    ]
   },
   {
-   "id": 992,
+   "id": 993,
    "text": "Banten",
    "variants": [
     {
@@ -20419,7 +20436,7 @@
    ]
   },
   {
-   "id": 993,
+   "id": 994,
    "text": "Pajang",
    "variants": [
     {
@@ -20440,7 +20457,7 @@
    ]
   },
   {
-   "id": 994,
+   "id": 995,
    "text": "Ahom",
    "variants": [
     {
@@ -20466,7 +20483,7 @@
    ]
   },
   {
-   "id": 995,
+   "id": 996,
    "text": "M.",
    "variants": [
     {
@@ -20487,7 +20504,7 @@
    ]
   },
   {
-   "id": 996,
+   "id": 997,
    "text": "Toungoo",
    "variants": [
     {
@@ -20508,7 +20525,7 @@
    ]
   },
   {
-   "id": 997,
+   "id": 998,
    "text": "France antarctique",
    "variants": [
     {
@@ -20529,7 +20546,7 @@
    ]
   },
   {
-   "id": 998,
+   "id": 999,
    "text": "Ge",
    "variants": [
     {
@@ -20550,7 +20567,7 @@
    ]
   },
   {
-   "id": 999,
+   "id": 1000,
    "text": "Kala. B.",
    "variants": [
     {
@@ -20575,7 +20592,7 @@
    ]
   },
   {
-   "id": 1000,
+   "id": 1001,
    "text": "Makassar",
    "variants": [
     {
@@ -20596,7 +20613,7 @@
    ]
   },
   {
-   "id": 1001,
+   "id": 1002,
    "text": "Tsangpa",
    "variants": [
     {
@@ -20617,7 +20634,7 @@
    ]
   },
   {
-   "id": 1002,
+   "id": 1003,
    "text": "Keladi",
    "variants": [
     {
@@ -20638,7 +20655,7 @@
    ]
   },
   {
-   "id": 1003,
+   "id": 1004,
    "text": "Gingee",
    "variants": [
     {
@@ -20659,7 +20676,7 @@
    ]
   },
   {
-   "id": 1004,
+   "id": 1005,
    "text": "Calicut",
    "variants": [
     {
@@ -20684,7 +20701,7 @@
    ]
   },
   {
-   "id": 1005,
+   "id": 1006,
    "text": "Sm.",
    "variants": [
     {
@@ -20705,7 +20722,7 @@
    ]
   },
   {
-   "id": 1006,
+   "id": 1007,
    "text": "Phil.",
    "variants": [
     {
@@ -20726,7 +20743,7 @@
    ]
   },
   {
-   "id": 1007,
+   "id": 1008,
    "text": "Venad",
    "variants": [
     {
@@ -20747,7 +20764,7 @@
    ]
   },
   {
-   "id": 1008,
+   "id": 1009,
    "text": "Mughals",
    "variants": [
     {
@@ -20768,7 +20785,7 @@
    ]
   },
   {
-   "id": 1009,
+   "id": 1010,
    "text": "Poland-Lithuania",
    "variants": [
     {
@@ -20790,7 +20807,7 @@
    ]
   },
   {
-   "id": 1010,
+   "id": 1011,
    "text": "M.J",
    "variants": [
     {
@@ -20811,7 +20828,7 @@
    ]
   },
   {
-   "id": 1011,
+   "id": 1012,
    "text": "Kalaha.",
    "variants": [
     {
@@ -20832,7 +20849,7 @@
    ]
   },
   {
-   "id": 1012,
+   "id": 1013,
    "text": "Philippines",
    "variants": [
     {
@@ -20854,7 +20871,7 @@
    ]
   },
   {
-   "id": 1013,
+   "id": 1014,
    "text": "Ahmed.",
    "variants": [
     {
@@ -20875,7 +20892,7 @@
    ]
   },
   {
-   "id": 1014,
+   "id": 1015,
    "text": "Bahia",
    "variants": [
     {
@@ -20896,7 +20913,7 @@
    ]
   },
   {
-   "id": 1015,
+   "id": 1016,
    "text": "Rio de Janeiro",
    "variants": [
     {
@@ -20917,7 +20934,7 @@
    ]
   },
   {
-   "id": 1016,
+   "id": 1017,
    "text": "M.",
    "variants": [
     {
@@ -20938,7 +20955,7 @@
    ]
   },
   {
-   "id": 1017,
+   "id": 1018,
    "text": "Angola",
    "variants": [
     {
@@ -20964,7 +20981,7 @@
    ]
   },
   {
-   "id": 1018,
+   "id": 1019,
    "text": "Sulu",
    "variants": [
     {
@@ -20986,7 +21003,7 @@
    ]
   },
   {
-   "id": 1020,
+   "id": 1021,
    "text": "Koshuts",
    "variants": [
     {
@@ -21007,7 +21024,7 @@
    ]
   },
   {
-   "id": 1021,
+   "id": 1022,
    "text": "Jaffna",
    "variants": [
     {
@@ -21028,7 +21045,7 @@
    ]
   },
   {
-   "id": 1022,
+   "id": 1023,
    "text": "Sitawaka",
    "variants": [
     {
@@ -21049,7 +21066,7 @@
    ]
   },
   {
-   "id": 1023,
+   "id": 1024,
    "text": "re",
    "variants": [
     {
@@ -21070,7 +21087,7 @@
    ]
   },
   {
-   "id": 1024,
+   "id": 1025,
    "text": "Nupe Igala",
    "variants": [
     {
@@ -21091,7 +21108,7 @@
    ]
   },
   {
-   "id": 1025,
+   "id": 1026,
    "text": "Mataram",
    "variants": [
     {
@@ -21112,7 +21129,7 @@
    ]
   },
   {
-   "id": 1026,
+   "id": 1027,
    "text": "Pow.",
    "variants": [
     {
@@ -21137,7 +21154,7 @@
    ]
   },
   {
-   "id": 1027,
+   "id": 1028,
    "text": "Dendi",
    "variants": [
     {
@@ -21159,7 +21176,7 @@
    ]
   },
   {
-   "id": 1028,
+   "id": 1029,
    "text": "Hausa Nupe Igala",
    "variants": [
     {
@@ -21180,7 +21197,7 @@
    ]
   },
   {
-   "id": 1029,
+   "id": 1030,
    "text": "New Spain",
    "variants": [
     {
@@ -21201,7 +21218,7 @@
    ]
   },
   {
-   "id": 1030,
+   "id": 1031,
    "text": "Mol.",
    "variants": [
     {
@@ -21222,7 +21239,7 @@
    ]
   },
   {
-   "id": 1031,
+   "id": 1032,
    "text": "Tra.",
    "variants": [
     {
@@ -21243,7 +21260,7 @@
    ]
   },
   {
-   "id": 1032,
+   "id": 1033,
    "text": "Wal.",
    "variants": [
     {
@@ -21264,7 +21281,7 @@
    ]
   },
   {
-   "id": 1033,
+   "id": 1034,
    "text": "Fulo",
    "variants": [
     {
@@ -21285,7 +21302,7 @@
    ]
   },
   {
-   "id": 1034,
+   "id": 1035,
    "text": "Jolof",
    "variants": [
     {
@@ -21318,7 +21335,7 @@
    ]
   },
   {
-   "id": 1035,
+   "id": 1036,
    "text": "Kandy",
    "variants": [
     {
@@ -21340,7 +21357,7 @@
    ]
   },
   {
-   "id": 1036,
+   "id": 1037,
    "text": "Ayutthaya",
    "variants": [
     {
@@ -21361,7 +21378,7 @@
    ]
   },
   {
-   "id": 1037,
+   "id": 1038,
    "text": "Ceylon",
    "variants": [
     {
@@ -21382,7 +21399,7 @@
    ]
   },
   {
-   "id": 1038,
+   "id": 1039,
    "text": "Guge",
    "variants": [
     {
@@ -21403,7 +21420,7 @@
    ]
   },
   {
-   "id": 1039,
+   "id": 1040,
    "text": "Dagpo",
    "variants": [
     {
@@ -21424,7 +21441,7 @@
    ]
   },
   {
-   "id": 1040,
+   "id": 1041,
    "text": "Wars.",
    "variants": [
     {
@@ -21450,7 +21467,7 @@
    ]
   },
   {
-   "id": 1041,
+   "id": 1042,
    "text": "Nupe",
    "variants": [
     {
@@ -21471,7 +21488,7 @@
    ]
   },
   {
-   "id": 1042,
+   "id": 1043,
    "text": "Majerteen",
    "variants": [
     {
@@ -21493,7 +21510,7 @@
    ]
   },
   {
-   "id": 1043,
+   "id": 1044,
    "text": "Luba",
    "variants": [
     {
@@ -21515,7 +21532,7 @@
    ]
   },
   {
-   "id": 1044,
+   "id": 1045,
    "text": "Ma.",
    "variants": [
     {
@@ -21536,7 +21553,7 @@
    ]
   },
   {
-   "id": 1045,
+   "id": 1046,
    "text": "Lozi",
    "variants": [
     {
@@ -21558,7 +21575,7 @@
    ]
   },
   {
-   "id": 1046,
+   "id": 1047,
    "text": "cot",
    "variants": [
     {
@@ -21579,7 +21596,7 @@
    ]
   },
   {
-   "id": 1047,
+   "id": 1048,
    "text": "Acadia",
    "variants": [
     {
@@ -21604,7 +21621,7 @@
    ]
   },
   {
-   "id": 1048,
+   "id": 1049,
    "text": "Darfur",
    "variants": [
     {
@@ -21626,7 +21643,7 @@
    ]
   },
   {
-   "id": 1049,
+   "id": 1050,
    "text": "Wabanaki",
    "variants": [
     {
@@ -21647,7 +21664,7 @@
    ]
   },
   {
-   "id": 1050,
+   "id": 1051,
    "text": "Virginia",
    "variants": [
     {
@@ -21668,7 +21685,7 @@
    ]
   },
   {
-   "id": 1051,
+   "id": 1052,
    "text": "Russia",
    "variants": [
     {
@@ -21689,7 +21706,7 @@
    ]
   },
   {
-   "id": 1052,
+   "id": 1053,
    "text": "Canada",
    "variants": [
     {
@@ -21711,7 +21728,7 @@
    ]
   },
   {
-   "id": 1053,
+   "id": 1054,
    "text": "Newfoundland",
    "variants": [
     {
@@ -21733,7 +21750,7 @@
    ]
   },
   {
-   "id": 1054,
+   "id": 1055,
    "text": "Jolof Great Fulo",
    "variants": [
     {
@@ -21762,7 +21779,7 @@
    ]
   },
   {
-   "id": 1055,
+   "id": 1056,
    "text": "Kangaba",
    "variants": [
     {
@@ -21787,7 +21804,7 @@
    ]
   },
   {
-   "id": 1056,
+   "id": 1057,
    "text": "Sig.",
    "variants": [
     {
@@ -21808,7 +21825,7 @@
    ]
   },
   {
-   "id": 1057,
+   "id": 1058,
    "text": "NewNetherlands",
    "variants": [
     {
@@ -21829,7 +21846,7 @@
    ]
   },
   {
-   "id": 1058,
+   "id": 1059,
    "text": "Later Jin",
    "variants": [
     {
@@ -21850,7 +21867,7 @@
    ]
   },
   {
-   "id": 1059,
+   "id": 1060,
    "text": "Essequibo",
    "variants": [
     {
@@ -21872,7 +21889,7 @@
    ]
   },
   {
-   "id": 1060,
+   "id": 1061,
    "text": "Pal.",
    "variants": [
     {
@@ -21893,7 +21910,7 @@
    ]
   },
   {
-   "id": 1061,
+   "id": 1062,
    "text": "Br.",
    "variants": [
     {
@@ -21918,7 +21935,7 @@
    ]
   },
   {
-   "id": 1062,
+   "id": 1063,
    "text": "Tsangpa",
    "variants": [
     {
@@ -21939,7 +21956,7 @@
    ]
   },
   {
-   "id": 1063,
+   "id": 1064,
    "text": "Boh.",
    "variants": [
     {
@@ -21960,7 +21977,7 @@
    ]
   },
   {
-   "id": 1064,
+   "id": 1065,
    "text": "Plymouth",
    "variants": [
     {
@@ -21981,7 +21998,7 @@
    ]
   },
   {
-   "id": 1065,
+   "id": 1066,
    "text": "Maranhao",
    "variants": [
     {
@@ -22002,7 +22019,7 @@
    ]
   },
   {
-   "id": 1066,
+   "id": 1067,
    "text": "Brazil",
    "variants": [
     {
@@ -22023,7 +22040,7 @@
    ]
   },
   {
-   "id": 1067,
+   "id": 1068,
    "text": "Aceh",
    "variants": [
     {
@@ -22044,7 +22061,7 @@
    ]
   },
   {
-   "id": 1068,
+   "id": 1069,
    "text": "Barbados",
    "variants": [
     {
@@ -22073,7 +22090,7 @@
    ]
   },
   {
-   "id": 1069,
+   "id": 1070,
    "text": "Mane",
    "variants": [
     {
@@ -22095,7 +22112,7 @@
    ]
   },
   {
-   "id": 1071,
+   "id": 1072,
    "text": "Massachusetts",
    "variants": [
     {
@@ -22116,7 +22133,7 @@
    ]
   },
   {
-   "id": 1072,
+   "id": 1073,
    "text": "Segu",
    "variants": [
     {
@@ -22137,7 +22154,7 @@
    ]
   },
   {
-   "id": 1073,
+   "id": 1074,
    "text": "Maryland",
    "variants": [
     {
@@ -22158,7 +22175,7 @@
    ]
   },
   {
-   "id": 1074,
+   "id": 1075,
    "text": "Guyane",
    "variants": [
     {
@@ -22180,7 +22197,7 @@
    ]
   },
   {
-   "id": 1075,
+   "id": 1076,
    "text": "Dutch Brazil",
    "variants": [
     {
@@ -22205,7 +22222,7 @@
    ]
   },
   {
-   "id": 1076,
+   "id": 1077,
    "text": "Ka.",
    "variants": [
     {
@@ -22226,7 +22243,7 @@
    ]
   },
   {
-   "id": 1077,
+   "id": 1078,
    "text": "Mongols",
    "variants": [
     {
@@ -22247,7 +22264,7 @@
    ]
   },
   {
-   "id": 1079,
+   "id": 1080,
    "text": "Qing",
    "variants": [
     {
@@ -22268,7 +22285,7 @@
    ]
   },
   {
-   "id": 1080,
+   "id": 1081,
    "text": "Guadeloupe",
    "variants": [
     {
@@ -22289,7 +22306,7 @@
    ]
   },
   {
-   "id": 1081,
+   "id": 1082,
    "text": "Wadai",
    "variants": [
     {
@@ -22311,7 +22328,7 @@
    ]
   },
   {
-   "id": 1082,
+   "id": 1083,
    "text": "Yem.",
    "variants": [
     {
@@ -22333,7 +22350,7 @@
    ]
   },
   {
-   "id": 1083,
+   "id": 1084,
    "text": "Martinique Barbados",
    "variants": [
     {
@@ -22358,7 +22375,7 @@
    ]
   },
   {
-   "id": 1084,
+   "id": 1085,
    "text": "Russia",
    "variants": [
     {
@@ -22379,7 +22396,7 @@
    ]
   },
   {
-   "id": 1085,
+   "id": 1086,
    "text": "Dutch Brazil",
    "variants": [
     {
@@ -22400,7 +22417,7 @@
    ]
   },
   {
-   "id": 1086,
+   "id": 1087,
    "text": "Rhode Island NewNetherlands NewSweden Maryland",
    "variants": [
     {
@@ -22425,7 +22442,7 @@
    ]
   },
   {
-   "id": 1087,
+   "id": 1088,
    "text": "Dila",
    "variants": [
     {
@@ -22446,7 +22463,7 @@
    ]
   },
   {
-   "id": 1088,
+   "id": 1089,
    "text": "Br. Honduras",
    "variants": [
     {
@@ -22471,7 +22488,7 @@
    ]
   },
   {
-   "id": 1089,
+   "id": 1090,
    "text": "Mosquito Coast",
    "variants": [
     {
@@ -22493,7 +22510,7 @@
    ]
   },
   {
-   "id": 1091,
+   "id": 1092,
    "text": "Mauritius",
    "variants": [
     {
@@ -22515,7 +22532,7 @@
    ]
   },
   {
-   "id": 1092,
+   "id": 1093,
    "text": "Makassar",
    "variants": [
     {
@@ -22536,7 +22553,7 @@
    ]
   },
   {
-   "id": 1093,
+   "id": 1094,
    "text": "Great Fulo",
    "variants": [
     {
@@ -22557,7 +22574,7 @@
    ]
   },
   {
-   "id": 1094,
+   "id": 1095,
    "text": "Sin.",
    "variants": [
     {
@@ -22578,7 +22595,7 @@
    ]
   },
   {
-   "id": 1095,
+   "id": 1096,
    "text": "Dzungars",
    "variants": [
     {
@@ -22599,7 +22616,7 @@
    ]
   },
   {
-   "id": 1096,
+   "id": 1097,
    "text": "Massachusetts Plymouth Rhode Island NewNetherlands NewSweden Maryland",
    "variants": [
     {
@@ -22620,7 +22637,7 @@
    ]
   },
   {
-   "id": 1097,
+   "id": 1098,
    "text": "Bourbon",
    "variants": [
     {
@@ -22642,7 +22659,7 @@
    ]
   },
   {
-   "id": 1098,
+   "id": 1099,
    "text": "Koshuts",
    "variants": [
     {
@@ -22663,7 +22680,7 @@
    ]
   },
   {
-   "id": 1099,
+   "id": 1100,
    "text": "B.",
    "variants": [
     {
@@ -22684,7 +22701,7 @@
    ]
   },
   {
-   "id": 1100,
+   "id": 1101,
    "text": "Southern Ming",
    "variants": [
     {
@@ -22705,7 +22722,7 @@
    ]
   },
   {
-   "id": 1101,
+   "id": 1102,
    "text": "Bamana",
    "variants": [
     {
@@ -22727,7 +22744,7 @@
    ]
   },
   {
-   "id": 1102,
+   "id": 1103,
    "text": "My.",
    "variants": [
     {
@@ -22748,7 +22765,7 @@
    ]
   },
   {
-   "id": 1103,
+   "id": 1104,
    "text": "Russia",
    "variants": [
     {
@@ -22770,7 +22787,7 @@
    ]
   },
   {
-   "id": 1104,
+   "id": 1105,
    "text": "Qing",
    "variants": [
     {
@@ -22791,7 +22808,7 @@
    ]
   },
   {
-   "id": 1105,
+   "id": 1106,
    "text": "Cossacks",
    "variants": [
     {
@@ -22812,7 +22829,7 @@
    ]
   },
   {
-   "id": 1106,
+   "id": 1107,
    "text": "Swi.",
    "variants": [
     {
@@ -22838,7 +22855,7 @@
    ]
   },
   {
-   "id": 1107,
+   "id": 1108,
    "text": "Wab.",
    "variants": [
     {
@@ -22859,7 +22876,7 @@
    ]
   },
   {
-   "id": 1108,
+   "id": 1109,
    "text": "Muscat",
    "variants": [
     {
@@ -22880,7 +22897,7 @@
    ]
   },
   {
-   "id": 1109,
+   "id": 1110,
    "text": "Mahri",
    "variants": [
     {
@@ -22902,7 +22919,7 @@
    ]
   },
   {
-   "id": 1110,
+   "id": 1111,
    "text": "Kathiri",
    "variants": [
     {
@@ -22924,7 +22941,7 @@
    ]
   },
   {
-   "id": 1111,
+   "id": 1112,
    "text": "Suriname",
    "variants": [
     {
@@ -22946,7 +22963,7 @@
    ]
   },
   {
-   "id": 1112,
+   "id": 1113,
    "text": "Poland",
    "variants": [
     {
@@ -22967,7 +22984,7 @@
    ]
   },
   {
-   "id": 1113,
+   "id": 1114,
    "text": "Rhode Island",
    "variants": [
     {
@@ -22988,7 +23005,7 @@
    ]
   },
   {
-   "id": 1114,
+   "id": 1115,
    "text": "Iroquois",
    "variants": [
     {
@@ -23017,7 +23034,7 @@
    ]
   },
   {
-   "id": 1115,
+   "id": 1116,
    "text": "Guadel",
    "variants": [
     {
@@ -23050,7 +23067,7 @@
    ]
   },
   {
-   "id": 1116,
+   "id": 1117,
    "text": "oupe",
    "variants": [
     {
@@ -23071,7 +23088,7 @@
    ]
   },
   {
-   "id": 1117,
+   "id": 1118,
    "text": "Grenada",
    "variants": [
     {
@@ -23101,7 +23118,7 @@
    ]
   },
   {
-   "id": 1118,
+   "id": 1119,
    "text": "Morocco",
    "variants": [
     {
@@ -23122,7 +23139,7 @@
    ]
   },
   {
-   "id": 1119,
+   "id": 1120,
    "text": "Marathas",
    "variants": [
     {
@@ -23143,7 +23160,7 @@
    ]
   },
   {
-   "id": 1120,
+   "id": 1121,
    "text": "Cayenne",
    "variants": [
     {
@@ -23164,7 +23181,7 @@
    ]
   },
   {
-   "id": 1121,
+   "id": 1122,
    "text": "Cape Verde . *.",
    "variants": [
     {
@@ -23217,7 +23234,7 @@
    ]
   },
   {
-   "id": 1122,
+   "id": 1123,
    "text": "Virginia Carolina",
    "variants": [
     {
@@ -23238,7 +23255,7 @@
    ]
   },
   {
-   "id": 1123,
+   "id": 1124,
    "text": "Tungning",
    "variants": [
     {
@@ -23259,7 +23276,7 @@
    ]
   },
   {
-   "id": 1125,
+   "id": 1126,
    "text": "Ja.",
    "variants": [
     {
@@ -23281,7 +23298,7 @@
    ]
   },
   {
-   "id": 1126,
+   "id": 1127,
    "text": "Lunda",
    "variants": [
     {
@@ -23303,7 +23320,7 @@
    ]
   },
   {
-   "id": 1127,
+   "id": 1128,
    "text": "Massachusetts Plymouth",
    "variants": [
     {
@@ -23324,7 +23341,7 @@
    ]
   },
   {
-   "id": 1128,
+   "id": 1129,
    "text": "New York",
    "variants": [
     {
@@ -23349,7 +23366,7 @@
    ]
   },
   {
-   "id": 1129,
+   "id": 1130,
    "text": "Jersey",
    "variants": [
     {
@@ -23370,7 +23387,7 @@
    ]
   },
   {
-   "id": 1130,
+   "id": 1131,
    "text": "Delaware Maryland",
    "variants": [
     {
@@ -23391,7 +23408,7 @@
    ]
   },
   {
-   "id": 1131,
+   "id": 1132,
    "text": "Calicut  M.",
    "variants": [
     {
@@ -23420,7 +23437,7 @@
    ]
   },
   {
-   "id": 1132,
+   "id": 1133,
    "text": "Berau",
    "variants": [
     {
@@ -23441,7 +23458,7 @@
    ]
   },
   {
-   "id": 1133,
+   "id": 1134,
    "text": "Ku.",
    "variants": [
     {
@@ -23462,7 +23479,7 @@
    ]
   },
   {
-   "id": 1134,
+   "id": 1135,
    "text": "Rupert's Land",
    "variants": [
     {
@@ -23483,7 +23500,7 @@
    ]
   },
   {
-   "id": 1135,
+   "id": 1136,
    "text": "Carolina",
    "variants": [
     {
@@ -23504,7 +23521,7 @@
    ]
   },
   {
-   "id": 1136,
+   "id": 1137,
    "text": "Al-Hasa",
    "variants": [
     {
@@ -23526,7 +23543,7 @@
    ]
   },
   {
-   "id": 1137,
+   "id": 1138,
    "text": "Morocco",
    "variants": [
     {
@@ -23552,7 +23569,7 @@
    ]
   },
   {
-   "id": 1139,
+   "id": 1140,
    "text": "Bulungan",
    "variants": [
     {
@@ -23574,7 +23591,7 @@
    ]
   },
   {
-   "id": 1140,
+   "id": 1141,
    "text": "Geledi",
    "variants": [
     {
@@ -23596,7 +23613,7 @@
    ]
   },
   {
-   "id": 1141,
+   "id": 1142,
    "text": "Trunojoyo",
    "variants": [
     {
@@ -23617,7 +23634,7 @@
    ]
   },
   {
-   "id": 1142,
+   "id": 1143,
    "text": "Ba",
    "variants": [
     {
@@ -23638,7 +23655,7 @@
    ]
   },
   {
-   "id": 1143,
+   "id": 1144,
    "text": "Dutch East Indies",
    "variants": [
     {
@@ -23659,7 +23676,7 @@
    ]
   },
   {
-   "id": 1144,
+   "id": 1145,
    "text": "Ruanda",
    "variants": [
     {
@@ -23684,7 +23701,7 @@
    ]
   },
   {
-   "id": 1146,
+   "id": 1147,
    "text": "Pakubuwono",
    "variants": [
     {
@@ -23705,7 +23722,7 @@
    ]
   },
   {
-   "id": 1147,
+   "id": 1148,
    "text": "Buganda",
    "variants": [
     {
@@ -23731,7 +23748,7 @@
    ]
   },
   {
-   "id": 1148,
+   "id": 1149,
    "text": "Louisiana",
    "variants": [
     {
@@ -23752,7 +23769,7 @@
    ]
   },
   {
-   "id": 1149,
+   "id": 1150,
    "text": "New Spain",
    "variants": [
     {
@@ -23774,7 +23791,7 @@
    ]
   },
   {
-   "id": 1150,
+   "id": 1151,
    "text": "Hungary",
    "variants": [
     {
@@ -23796,7 +23813,7 @@
    ]
   },
   {
-   "id": 1152,
+   "id": 1153,
    "text": "Mer.",
    "variants": [
     {
@@ -23817,7 +23834,7 @@
    ]
   },
   {
-   "id": 1153,
+   "id": 1154,
    "text": "Jo.",
    "variants": [
     {
@@ -23838,7 +23855,7 @@
    ]
   },
   {
-   "id": 1154,
+   "id": 1155,
    "text": "Pal.",
    "variants": [
     {
@@ -23864,7 +23881,7 @@
    ]
   },
   {
-   "id": 1155,
+   "id": 1156,
    "text": "St-Do.3",
    "variants": [
     {
@@ -23886,7 +23903,7 @@
    ]
   },
   {
-   "id": 1156,
+   "id": 1157,
    "text": "St-Do.",
    "variants": [
     {
@@ -23908,7 +23925,7 @@
    ]
   },
   {
-   "id": 1157,
+   "id": 1158,
    "text": "Jamaica",
    "variants": [
     {
@@ -23930,7 +23947,7 @@
    ]
   },
   {
-   "id": 1158,
+   "id": 1159,
    "text": "Oman",
    "variants": [
     {
@@ -23956,7 +23973,7 @@
    ]
   },
   {
-   "id": 1159,
+   "id": 1160,
    "text": "Brazil",
    "variants": [
     {
@@ -23977,7 +23994,7 @@
    ]
   },
   {
-   "id": 1160,
+   "id": 1161,
    "text": "Prussia",
    "variants": [
     {
@@ -23999,7 +24016,7 @@
    ]
   },
   {
-   "id": 1161,
+   "id": 1162,
    "text": "Ash.",
    "variants": [
     {
@@ -24029,7 +24046,7 @@
    ]
   },
   {
-   "id": 1162,
+   "id": 1163,
    "text": "Mbun.",
    "variants": [
     {
@@ -24051,7 +24068,7 @@
    ]
   },
   {
-   "id": 1163,
+   "id": 1164,
    "text": "Massachusetts Connecticut",
    "variants": [
     {
@@ -24072,7 +24089,7 @@
    ]
   },
   {
-   "id": 1164,
+   "id": 1165,
    "text": "NewJersey",
    "variants": [
     {
@@ -24097,7 +24114,7 @@
    ]
   },
   {
-   "id": 1166,
+   "id": 1167,
    "text": "Dzungars",
    "variants": [
     {
@@ -24118,7 +24135,7 @@
    ]
   },
   {
-   "id": 1167,
+   "id": 1168,
    "text": "GB",
    "variants": [
     {
@@ -24140,7 +24157,7 @@
    ]
   },
   {
-   "id": 1168,
+   "id": 1169,
    "text": "Kokand",
    "variants": [
     {
@@ -24166,7 +24183,7 @@
    ]
   },
   {
-   "id": 1169,
+   "id": 1170,
    "text": "Bukh.",
    "variants": [
     {
@@ -24192,7 +24209,7 @@
    ]
   },
   {
-   "id": 1170,
+   "id": 1171,
    "text": "Hotaks",
    "variants": [
     {
@@ -24213,7 +24230,7 @@
    ]
   },
   {
-   "id": 1171,
+   "id": 1172,
    "text": "Rajput States",
    "variants": [
     {
@@ -24234,7 +24251,7 @@
    ]
   },
   {
-   "id": 1172,
+   "id": 1173,
    "text": "M.J",
    "variants": [
     {
@@ -24255,7 +24272,7 @@
    ]
   },
   {
-   "id": 1173,
+   "id": 1174,
    "text": "Lua.",
    "variants": [
     {
@@ -24284,7 +24301,7 @@
    ]
   },
   {
-   "id": 1174,
+   "id": 1175,
    "text": "Vient.",
    "variants": [
     {
@@ -24310,7 +24327,7 @@
    ]
   },
   {
-   "id": 1175,
+   "id": 1176,
    "text": "Carnatic",
    "variants": [
     {
@@ -24332,7 +24349,7 @@
    ]
   },
   {
-   "id": 1177,
+   "id": 1178,
    "text": "Nova Scotia",
    "variants": [
     {
@@ -24358,20 +24375,12 @@
    ]
   },
   {
-   "id": 1178,
+   "id": 1179,
    "text": "North Carolina",
    "variants": [
     {
      "text": "North Carolina",
      "n": 22
-    },
-    {
-     "text": "South Carolina",
-     "n": 16
-    },
-    {
-     "text": "SouthCarolina",
-     "n": 9
     },
     {
      "text": "NorthCarolina",
@@ -24382,16 +24391,41 @@
    "lastYear": 1773,
    "firstT": 896.4,
    "lastT": 920.42,
-   "samples": 50,
-   "lon": -73.401,
-   "lat": 33.72,
+   "samples": 25,
+   "lon": -71.766,
+   "lat": 34.575,
    "size": 24.81,
    "framings": [
     4
    ]
   },
   {
-   "id": 1179,
+   "id": 1180,
+   "text": "South Carolina",
+   "variants": [
+    {
+     "text": "South Carolina",
+     "n": 16
+    },
+    {
+     "text": "SouthCarolina",
+     "n": 9
+    }
+   ],
+   "firstYear": 1713,
+   "lastYear": 1773,
+   "firstT": 896.4,
+   "lastT": 920.42,
+   "samples": 25,
+   "lon": -74.964,
+   "lat": 32.866,
+   "size": 24.81,
+   "framings": [
+    4
+   ]
+  },
+  {
+   "id": 1181,
    "text": "Cha..",
    "variants": [
     {
@@ -24416,7 +24450,7 @@
    ]
   },
   {
-   "id": 1180,
+   "id": 1182,
    "text": "Guadeloupe",
    "variants": [
     {
@@ -24458,7 +24492,7 @@
    ]
   },
   {
-   "id": 1181,
+   "id": 1183,
    "text": ":Dominica Martinique Barbados",
    "variants": [
     {
@@ -24528,7 +24562,7 @@
    ]
   },
   {
-   "id": 1182,
+   "id": 1184,
    "text": "Bengal",
    "variants": [
     {
@@ -24549,7 +24583,7 @@
    ]
   },
   {
-   "id": 1183,
+   "id": 1185,
    "text": "Bahamas",
    "variants": [
     {
@@ -24571,7 +24605,7 @@
    ]
   },
   {
-   "id": 1184,
+   "id": 1186,
    "text": "New Granada",
    "variants": [
     {
@@ -24593,7 +24627,7 @@
    ]
   },
   {
-   "id": 1186,
+   "id": 1188,
    "text": "Peru",
    "variants": [
     {
@@ -24615,7 +24649,7 @@
    ]
   },
   {
-   "id": 1187,
+   "id": 1189,
    "text": "Greenland",
    "variants": [
     {
@@ -24636,7 +24670,7 @@
    ]
   },
   {
-   "id": 1188,
+   "id": 1190,
    "text": "Qing",
    "variants": [
     {
@@ -24657,7 +24691,7 @@
    ]
   },
   {
-   "id": 1189,
+   "id": 1191,
    "text": "Marathas",
    "variants": [
     {
@@ -24682,7 +24716,7 @@
    ]
   },
   {
-   "id": 1190,
+   "id": 1192,
    "text": "Awadh",
    "variants": [
     {
@@ -24708,7 +24742,7 @@
    ]
   },
   {
-   "id": 1191,
+   "id": 1193,
    "text": "Sindh",
    "variants": [
     {
@@ -24730,7 +24764,7 @@
    ]
   },
   {
-   "id": 1192,
+   "id": 1194,
    "text": "Cutch",
    "variants": [
     {
@@ -24760,7 +24794,7 @@
    ]
   },
   {
-   "id": 1193,
+   "id": 1195,
    "text": "3 Hyderab.",
    "variants": [
     {
@@ -24793,7 +24827,7 @@
    ]
   },
   {
-   "id": 1194,
+   "id": 1196,
    "text": "Sm.",
    "variants": [
     {
@@ -24814,7 +24848,7 @@
    ]
   },
   {
-   "id": 1195,
+   "id": 1197,
    "text": "Si.",
    "variants": [
     {
@@ -24836,7 +24870,7 @@
    ]
   },
   {
-   "id": 1196,
+   "id": 1198,
    "text": "Cir.",
    "variants": [
     {
@@ -24857,7 +24891,7 @@
    ]
   },
   {
-   "id": 1197,
+   "id": 1199,
    "text": "Kong",
    "variants": [
     {
@@ -24879,7 +24913,7 @@
    ]
   },
   {
-   "id": 1198,
+   "id": 1200,
    "text": "Travancore",
    "variants": [
     {
@@ -24901,7 +24935,7 @@
    ]
   },
   {
-   "id": 1199,
+   "id": 1201,
    "text": "Georgia",
    "variants": [
     {
@@ -24922,7 +24956,7 @@
    ]
   },
   {
-   "id": 1200,
+   "id": 1202,
    "text": "P.S.",
    "variants": [
     {
@@ -24948,7 +24982,7 @@
    ]
   },
   {
-   "id": 1201,
+   "id": 1203,
    "text": "Naples",
    "variants": [
     {
@@ -24970,7 +25004,7 @@
    ]
   },
   {
-   "id": 1202,
+   "id": 1204,
    "text": "Sicily",
    "variants": [
     {
@@ -24992,7 +25026,7 @@
    ]
   },
   {
-   "id": 1203,
+   "id": 1205,
    "text": "Afsharids",
    "variants": [
     {
@@ -25014,7 +25048,7 @@
    ]
   },
   {
-   "id": 1205,
+   "id": 1207,
    "text": "Jalon",
    "variants": [
     {
@@ -25036,7 +25070,7 @@
    ]
   },
   {
-   "id": 1206,
+   "id": 1208,
    "text": "Mughals",
    "variants": [
     {
@@ -25057,7 +25091,7 @@
    ]
   },
   {
-   "id": 1207,
+   "id": 1209,
    "text": "Marathas",
    "variants": [
     {
@@ -25079,7 +25113,7 @@
    ]
   },
   {
-   "id": 1208,
+   "id": 1210,
    "text": "oa.",
    "variants": [
     {
@@ -25104,7 +25138,7 @@
    ]
   },
   {
-   "id": 1209,
+   "id": 1211,
    "text": "Ka.",
    "variants": [
     {
@@ -25126,7 +25160,7 @@
    ]
   },
   {
-   "id": 1211,
+   "id": 1213,
    "text": "Kun.",
    "variants": [
     {
@@ -25148,7 +25182,7 @@
    ]
   },
   {
-   "id": 1212,
+   "id": 1214,
    "text": "Afghanistan",
    "variants": [
     {
@@ -25170,7 +25204,7 @@
    ]
   },
   {
-   "id": 1213,
+   "id": 1215,
    "text": "Zands",
    "variants": [
     {
@@ -25192,7 +25226,7 @@
    ]
   },
   {
-   "id": 1214,
+   "id": 1216,
    "text": "Kh.",
    "variants": [
     {
@@ -25214,7 +25248,7 @@
    ]
   },
   {
-   "id": 1215,
+   "id": 1217,
    "text": "Kal.",
    "variants": [
     {
@@ -25248,7 +25282,7 @@
    ]
   },
   {
-   "id": 1216,
+   "id": 1218,
    "text": "Muscat Makran",
    "variants": [
     {
@@ -25274,7 +25308,7 @@
    ]
   },
   {
-   "id": 1217,
+   "id": 1219,
    "text": "Oyo",
    "variants": [
     {
@@ -25296,7 +25330,7 @@
    ]
   },
   {
-   "id": 1218,
+   "id": 1220,
    "text": "Penn.",
    "variants": [
     {
@@ -25317,7 +25351,7 @@
    ]
   },
   {
-   "id": 1219,
+   "id": 1221,
    "text": "Hyderab..",
    "variants": [
     {
@@ -25338,7 +25372,7 @@
    ]
   },
   {
-   "id": 1221,
+   "id": 1223,
    "text": "Konbaung",
    "variants": [
     {
@@ -25364,7 +25398,7 @@
    ]
   },
   {
-   "id": 1222,
+   "id": 1224,
    "text": "Qing",
    "variants": [
     {
@@ -25386,7 +25420,7 @@
    ]
   },
   {
-   "id": 1223,
+   "id": 1225,
    "text": "Rozvi",
    "variants": [
     {
@@ -25412,7 +25446,7 @@
    ]
   },
   {
-   "id": 1225,
+   "id": 1227,
    "text": "New Spain",
    "variants": [
     {
@@ -25434,7 +25468,7 @@
    ]
   },
   {
-   "id": 1226,
+   "id": 1228,
    "text": "Quebec",
    "variants": [
     {
@@ -25456,7 +25490,7 @@
    ]
   },
   {
-   "id": 1227,
+   "id": 1229,
    "text": "N.B.",
    "variants": [
     {
@@ -25478,7 +25512,7 @@
    ]
   },
   {
-   "id": 1228,
+   "id": 1230,
    "text": "Indian Reserve",
    "variants": [
     {
@@ -25500,7 +25534,7 @@
    ]
   },
   {
-   "id": 1229,
+   "id": 1231,
    "text": "Afghanistan ka.",
    "variants": [
     {
@@ -25521,7 +25555,7 @@
    ]
   },
   {
-   "id": 1230,
+   "id": 1232,
    "text": "W. Florida",
    "variants": [
     {
@@ -25547,7 +25581,7 @@
    ]
   },
   {
-   "id": 1231,
+   "id": 1233,
    "text": "East Florida",
    "variants": [
     {
@@ -25569,7 +25603,7 @@
    ]
   },
   {
-   "id": 1232,
+   "id": 1234,
    "text": "JolofToro",
    "variants": [
     {
@@ -25595,7 +25629,7 @@
    ]
   },
   {
-   "id": 1233,
+   "id": 1235,
    "text": "Fulo",
    "variants": [
     {
@@ -25616,7 +25650,7 @@
    ]
   },
   {
-   "id": 1234,
+   "id": 1236,
    "text": "Mysore",
    "variants": [
     {
@@ -25638,7 +25672,7 @@
    ]
   },
   {
-   "id": 1235,
+   "id": 1237,
    "text": "Rupert's Land",
    "variants": [
     {
@@ -25660,7 +25694,7 @@
    ]
   },
   {
-   "id": 1236,
+   "id": 1238,
    "text": "M.",
    "variants": [
     {
@@ -25681,7 +25715,7 @@
    ]
   },
   {
-   "id": 1237,
+   "id": 1239,
    "text": "Hyder.",
    "variants": [
     {
@@ -25703,7 +25737,7 @@
    ]
   },
   {
-   "id": 1238,
+   "id": 1240,
    "text": "G.",
    "variants": [
     {
@@ -25724,7 +25758,7 @@
    ]
   },
   {
-   "id": 1239,
+   "id": 1241,
    "text": "Thon.",
    "variants": [
     {
@@ -25745,7 +25779,7 @@
    ]
   },
   {
-   "id": 1240,
+   "id": 1242,
    "text": "Siak",
    "variants": [
     {
@@ -25766,7 +25800,7 @@
    ]
   },
   {
-   "id": 1241,
+   "id": 1243,
    "text": "Lua. 2",
    "variants": [
     {
@@ -25791,7 +25825,7 @@
    ]
   },
   {
-   "id": 1242,
+   "id": 1244,
    "text": "Galicia",
    "variants": [
     {
@@ -25813,7 +25847,7 @@
    ]
   },
   {
-   "id": 1243,
+   "id": 1245,
    "text": "Company Raj",
    "variants": [
     {
@@ -25835,7 +25869,7 @@
    ]
   },
   {
-   "id": 1244,
+   "id": 1246,
    "text": "Tay Son",
    "variants": [
     {
@@ -25857,7 +25891,7 @@
    ]
   },
   {
-   "id": 1247,
+   "id": 1249,
    "text": "fUnited States",
    "variants": [
     {
@@ -25883,7 +25917,7 @@
    ]
   },
   {
-   "id": 1248,
+   "id": 1250,
    "text": "Kaarta",
    "variants": [
     {
@@ -25905,7 +25939,7 @@
    ]
   },
   {
-   "id": 1249,
+   "id": 1251,
    "text": "Jolof",
    "variants": [
     {
@@ -25926,7 +25960,7 @@
    ]
   },
   {
-   "id": 1250,
+   "id": 1252,
    "text": "Toro",
    "variants": [
     {
@@ -25947,7 +25981,7 @@
    ]
   },
   {
-   "id": 1251,
+   "id": 1253,
    "text": "Rio de la Plata",
    "variants": [
     {
@@ -25973,7 +26007,7 @@
    ]
   },
   {
-   "id": 1252,
+   "id": 1254,
    "text": "Greenland",
    "variants": [
     {
@@ -25995,7 +26029,7 @@
    ]
   },
   {
-   "id": 1253,
+   "id": 1255,
    "text": "Brazil",
    "variants": [
     {
@@ -26017,7 +26051,7 @@
    ]
   },
   {
-   "id": 1254,
+   "id": 1256,
    "text": "Peru",
    "variants": [
     {
@@ -26039,7 +26073,7 @@
    ]
   },
   {
-   "id": 1255,
+   "id": 1257,
    "text": "Peru",
    "variants": [
     {
@@ -26061,7 +26095,7 @@
    ]
   },
   {
-   "id": 1256,
+   "id": 1258,
    "text": "Ta.",
    "variants": [
     {
@@ -26083,7 +26117,7 @@
    ]
   },
   {
-   "id": 1257,
+   "id": 1259,
    "text": "Siam",
    "variants": [
     {
@@ -26105,7 +26139,7 @@
    ]
   },
   {
-   "id": 1258,
+   "id": 1260,
    "text": "Kaabu Cacheu",
    "variants": [
     {
@@ -26131,7 +26165,7 @@
    ]
   },
   {
-   "id": 1259,
+   "id": 1261,
    "text": "Benin",
    "variants": [
     {
@@ -26153,7 +26187,7 @@
    ]
   },
   {
-   "id": 1260,
+   "id": 1262,
    "text": "Guinea",
    "variants": [
     {
@@ -26175,7 +26209,7 @@
    ]
   },
   {
-   "id": 1261,
+   "id": 1263,
    "text": "Ire.",
    "variants": [
     {
@@ -26196,7 +26230,7 @@
    ]
   },
   {
-   "id": 1262,
+   "id": 1264,
    "text": "Diriyah",
    "variants": [
     {
@@ -26217,7 +26251,7 @@
    ]
   },
   {
-   "id": 1263,
+   "id": 1265,
    "text": "Cape\".",
    "variants": [
     {
@@ -26238,7 +26272,7 @@
    ]
   },
   {
-   "id": 1264,
+   "id": 1266,
    "text": "Verde ·**",
    "variants": [
     {
@@ -26259,7 +26293,7 @@
    ]
   },
   {
-   "id": 1265,
+   "id": 1267,
    "text": "Ankele Ruanda",
    "variants": [
     {
@@ -26280,7 +26314,7 @@
    ]
   },
   {
-   "id": 1266,
+   "id": 1268,
    "text": "Loa.",
    "variants": [
     {
@@ -26301,7 +26335,7 @@
    ]
   },
   {
-   "id": 1267,
+   "id": 1269,
    "text": "Me.",
    "variants": [
     {
@@ -26326,7 +26360,7 @@
    ]
   },
   {
-   "id": 1268,
+   "id": 1270,
    "text": "Fiji",
    "variants": [
     {
@@ -26347,7 +26381,7 @@
    ]
   },
   {
-   "id": 1269,
+   "id": 1271,
    "text": "Bam.",
    "variants": [
     {
@@ -26368,7 +26402,7 @@
    ]
   },
   {
-   "id": 1270,
+   "id": 1272,
    "text": "Mpondoland",
    "variants": [
     {
@@ -26389,7 +26423,7 @@
    ]
   },
   {
-   "id": 1271,
+   "id": 1273,
    "text": "Xhosa",
    "variants": [
     {
@@ -26410,7 +26444,7 @@
    ]
   },
   {
-   "id": 1272,
+   "id": 1274,
    "text": "Kerguelen",
    "variants": [
     {
@@ -26431,7 +26465,7 @@
    ]
   },
   {
-   "id": 1273,
+   "id": 1275,
    "text": "Malvinas",
    "variants": [
     {
@@ -26452,7 +26486,7 @@
    ]
   },
   {
-   "id": 1274,
+   "id": 1276,
    "text": "South Georgia",
    "variants": [
     {
@@ -26477,7 +26511,7 @@
    ]
   },
   {
-   "id": 1275,
+   "id": 1277,
    "text": "Ka.",
    "variants": [
     {
@@ -26498,7 +26532,7 @@
    ]
   },
   {
-   "id": 1276,
+   "id": 1278,
    "text": "Bunyoro",
    "variants": [
     {
@@ -26519,7 +26553,7 @@
    ]
   },
   {
-   "id": 1277,
+   "id": 1279,
    "text": "Dutch East Indies",
    "variants": [
     {
@@ -26540,7 +26574,7 @@
    ]
   },
   {
-   "id": 1278,
+   "id": 1280,
    "text": "North Greenland",
    "variants": [
     {
@@ -26565,7 +26599,7 @@
    ]
   },
   {
-   "id": 1279,
+   "id": 1281,
    "text": "South Greenland",
    "variants": [
     {
@@ -26586,7 +26620,7 @@
    ]
   },
   {
-   "id": 1280,
+   "id": 1282,
    "text": "Dominica",
    "variants": [
     {
@@ -26607,7 +26641,7 @@
    ]
   },
   {
-   "id": 1281,
+   "id": 1283,
    "text": "Martinique Barbados",
    "variants": [
     {
@@ -26640,7 +26674,7 @@
    ]
   },
   {
-   "id": 1282,
+   "id": 1284,
    "text": "Russian America",
    "variants": [
     {
@@ -26665,7 +26699,7 @@
    ]
   },
   {
-   "id": 1283,
+   "id": 1285,
    "text": "United States",
    "variants": [
     {
@@ -26686,7 +26720,7 @@
    ]
   },
   {
-   "id": 1284,
+   "id": 1286,
    "text": "Qajars",
    "variants": [
     {
@@ -26707,7 +26741,7 @@
    ]
   },
   {
-   "id": 1285,
+   "id": 1287,
    "text": "Gor.",
    "variants": [
     {
@@ -26728,7 +26762,7 @@
    ]
   },
   {
-   "id": 1286,
+   "id": 1288,
    "text": "Cape\"-Verde ·",
    "variants": [
     {
@@ -26781,7 +26815,7 @@
    ]
   },
   {
-   "id": 1287,
+   "id": 1289,
    "text": "Province of Freedom",
    "variants": [
     {
@@ -26802,7 +26836,7 @@
    ]
   },
   {
-   "id": 1288,
+   "id": 1290,
    "text": "Ban.",
    "variants": [
     {
@@ -26823,7 +26857,7 @@
    ]
   },
   {
-   "id": 1289,
+   "id": 1291,
    "text": "Cape Colony",
    "variants": [
     {
@@ -26844,7 +26878,7 @@
    ]
   },
   {
-   "id": 1290,
+   "id": 1292,
    "text": "Khan.",
    "variants": [
     {
@@ -26865,7 +26899,7 @@
    ]
   },
   {
-   "id": 1291,
+   "id": 1293,
    "text": "New South Wales",
    "variants": [
     {
@@ -26894,7 +26928,7 @@
    ]
   },
   {
-   "id": 1292,
+   "id": 1294,
    "text": "Dai Viet",
    "variants": [
     {
@@ -26915,7 +26949,7 @@
    ]
   },
   {
-   "id": 1293,
+   "id": 1295,
    "text": "Lower Canada",
    "variants": [
     {
@@ -26940,7 +26974,7 @@
    ]
   },
   {
-   "id": 1296,
+   "id": 1298,
    "text": "Hawaii",
    "variants": [
     {
@@ -26961,7 +26995,7 @@
    ]
   },
   {
-   "id": 1297,
+   "id": 1299,
    "text": "3St-Do",
    "variants": [
     {
@@ -26982,7 +27016,7 @@
    ]
   },
   {
-   "id": 1298,
+   "id": 1300,
    "text": "Sikhs",
    "variants": [
     {
@@ -27003,7 +27037,7 @@
    ]
   },
   {
-   "id": 1299,
+   "id": 1301,
    "text": "Trinidad",
    "variants": [
     {
@@ -27024,7 +27058,7 @@
    ]
   },
   {
-   "id": 1300,
+   "id": 1302,
    "text": "British",
    "variants": [
     {
@@ -27049,7 +27083,7 @@
    ]
   },
   {
-   "id": 1301,
+   "id": 1303,
    "text": "Arctic",
    "variants": [
     {
@@ -27070,7 +27104,7 @@
    ]
   },
   {
-   "id": 1302,
+   "id": 1304,
    "text": "Territory",
    "variants": [
     {
@@ -27091,7 +27125,7 @@
    ]
   },
   {
-   "id": 1303,
+   "id": 1305,
    "text": "UK",
    "variants": [
     {
@@ -27112,7 +27146,7 @@
    ]
   },
   {
-   "id": 1304,
+   "id": 1306,
    "text": "Merina",
    "variants": [
     {
@@ -27133,7 +27167,7 @@
    ]
   },
   {
-   "id": 1305,
+   "id": 1307,
    "text": "Bonaparte",
    "variants": [
     {
@@ -27154,7 +27188,7 @@
    ]
   },
   {
-   "id": 1306,
+   "id": 1308,
    "text": "Afghanistan sikhs",
    "variants": [
     {
@@ -27175,7 +27209,7 @@
    ]
   },
   {
-   "id": 1307,
+   "id": 1309,
    "text": "Viet Nam",
    "variants": [
     {
@@ -27196,7 +27230,7 @@
    ]
   },
   {
-   "id": 1308,
+   "id": 1310,
    "text": "Austrian Empire",
    "variants": [
     {
@@ -27217,7 +27251,7 @@
    ]
   },
   {
-   "id": 1309,
+   "id": 1311,
    "text": "Haiti",
    "variants": [
     {
@@ -27238,7 +27272,7 @@
    ]
   },
   {
-   "id": 1311,
+   "id": 1313,
    "text": "Rhine",
    "variants": [
     {
@@ -27259,7 +27293,7 @@
    ]
   },
   {
-   "id": 1312,
+   "id": 1314,
    "text": "\"H.S.",
    "variants": [
     {
@@ -27288,7 +27322,7 @@
    ]
   },
   {
-   "id": 1313,
+   "id": 1315,
    "text": "H.R.",
    "variants": [
     {
@@ -27309,7 +27343,7 @@
    ]
   },
   {
-   "id": 1314,
+   "id": 1316,
    "text": "Kan.",
    "variants": [
     {
@@ -27330,7 +27364,7 @@
    ]
   },
   {
-   "id": 1315,
+   "id": 1317,
    "text": "Bo.",
    "variants": [
     {
@@ -27351,7 +27385,7 @@
    ]
   },
   {
-   "id": 1316,
+   "id": 1318,
    "text": "Sokoto",
    "variants": [
     {
@@ -27376,7 +27410,7 @@
    ]
   },
   {
-   "id": 1317,
+   "id": 1319,
    "text": "Sierra Leone",
    "variants": [
     {
@@ -27397,7 +27431,7 @@
    ]
   },
   {
-   "id": 1318,
+   "id": 1320,
    "text": "Warsaw",
    "variants": [
     {
@@ -27418,7 +27452,7 @@
    ]
   },
   {
-   "id": 1319,
+   "id": 1321,
    "text": "Canada Lower Canada",
    "variants": [
     {
@@ -27443,7 +27477,7 @@
    ]
   },
   {
-   "id": 1320,
+   "id": 1322,
    "text": "Bo.Kan.",
    "variants": [
     {
@@ -27464,7 +27498,7 @@
    ]
   },
   {
-   "id": 1321,
+   "id": 1323,
    "text": "Newfoundland",
    "variants": [
     {
@@ -27485,7 +27519,7 @@
    ]
   },
   {
-   "id": 1322,
+   "id": 1324,
    "text": "Rio de la Plata",
    "variants": [
     {
@@ -27506,7 +27540,7 @@
    ]
   },
   {
-   "id": 1323,
+   "id": 1325,
    "text": "H.R.\"S",
    "variants": [
     {
@@ -27531,7 +27565,7 @@
    ]
   },
   {
-   "id": 1324,
+   "id": 1326,
    "text": "British East Indies",
    "variants": [
     {
@@ -27552,7 +27586,7 @@
    ]
   },
   {
-   "id": 1325,
+   "id": 1327,
    "text": "Paraguay",
    "variants": [
     {
@@ -27573,7 +27607,7 @@
    ]
   },
   {
-   "id": 1326,
+   "id": 1328,
    "text": "New Granada",
    "variants": [
     {
@@ -27594,7 +27628,7 @@
    ]
   },
   {
-   "id": 1327,
+   "id": 1329,
    "text": "Norway",
    "variants": [
     {
@@ -27615,7 +27649,7 @@
    ]
   },
   {
-   "id": 1328,
+   "id": 1330,
    "text": "Denmark",
    "variants": [
     {
@@ -27636,7 +27670,7 @@
    ]
   },
   {
-   "id": 1329,
+   "id": 1331,
    "text": "Two-Sicilies",
    "variants": [
     {
@@ -27657,7 +27691,7 @@
    ]
   },
   {
-   "id": 1331,
+   "id": 1333,
    "text": "wadai Darfur",
    "variants": [
     {
@@ -27686,7 +27720,7 @@
    ]
   },
   {
-   "id": 1333,
+   "id": 1335,
    "text": "Zulus",
    "variants": [
     {
@@ -27707,7 +27741,7 @@
    ]
   },
   {
-   "id": 1334,
+   "id": 1336,
    "text": "Liga Federal",
    "variants": [
     {
@@ -27728,7 +27762,7 @@
    ]
   },
   {
-   "id": 1336,
+   "id": 1338,
    "text": "Mossi",
    "variants": [
     {
@@ -27753,7 +27787,7 @@
    ]
   },
   {
-   "id": 1337,
+   "id": 1339,
    "text": "Venezuela",
    "variants": [
     {
@@ -27774,7 +27808,7 @@
    ]
   },
   {
-   "id": 1338,
+   "id": 1340,
    "text": "Oyo Benin",
    "variants": [
     {
@@ -27799,7 +27833,7 @@
    ]
   },
   {
-   "id": 1339,
+   "id": 1341,
    "text": "snnz",
    "variants": [
     {
@@ -27820,7 +27854,7 @@
    ]
   },
   {
-   "id": 1340,
+   "id": 1342,
    "text": "Chile",
    "variants": [
     {
@@ -27841,7 +27875,7 @@
    ]
   },
   {
-   "id": 1341,
+   "id": 1343,
    "text": "Company Raj",
    "variants": [
     {
@@ -27862,7 +27896,7 @@
    ]
   },
   {
-   "id": 1342,
+   "id": 1344,
    "text": "Oregon",
    "variants": [
     {
@@ -27883,7 +27917,7 @@
    ]
   },
   {
-   "id": 1343,
+   "id": 1345,
    "text": "Herat",
    "variants": [
     {
@@ -27908,7 +27942,7 @@
    ]
   },
   {
-   "id": 1344,
+   "id": 1346,
    "text": "T.S.",
    "variants": [
     {
@@ -27929,7 +27963,7 @@
    ]
   },
   {
-   "id": 1346,
+   "id": 1348,
    "text": "Gran Colombia",
    "variants": [
     {
@@ -27950,7 +27984,7 @@
    ]
   },
   {
-   "id": 1348,
+   "id": 1350,
    "text": "Mexico",
    "variants": [
     {
@@ -27971,7 +28005,7 @@
    ]
   },
   {
-   "id": 1349,
+   "id": 1351,
    "text": "Ethiop.",
    "variants": [
     {
@@ -28004,7 +28038,7 @@
    ]
   },
   {
-   "id": 1350,
+   "id": 1352,
    "text": "Mane Sierra Leone",
    "variants": [
     {
@@ -28025,7 +28059,7 @@
    ]
   },
   {
-   "id": 1351,
+   "id": 1353,
    "text": "Liberia",
    "variants": [
     {
@@ -28046,7 +28080,7 @@
    ]
   },
   {
-   "id": 1352,
+   "id": 1354,
    "text": "Ha'il",
    "variants": [
     {
@@ -28071,7 +28105,7 @@
    ]
   },
   {
-   "id": 1353,
+   "id": 1355,
    "text": "Central America",
    "variants": [
     {
@@ -28092,7 +28126,7 @@
    ]
   },
   {
-   "id": 1354,
+   "id": 1356,
    "text": "Ash. Da.",
    "variants": [
     {
@@ -28113,7 +28147,7 @@
    ]
   },
   {
-   "id": 1355,
+   "id": 1357,
    "text": "Russian",
    "variants": [
     {
@@ -28134,7 +28168,7 @@
    ]
   },
   {
-   "id": 1356,
+   "id": 1358,
    "text": "America",
    "variants": [
     {
@@ -28155,7 +28189,7 @@
    ]
   },
   {
-   "id": 1357,
+   "id": 1359,
    "text": "North-Western Territory",
    "variants": [
     {
@@ -28176,7 +28210,7 @@
    ]
   },
   {
-   "id": 1358,
+   "id": 1360,
    "text": "Bolivia",
    "variants": [
     {
@@ -28197,7 +28231,7 @@
    ]
   },
   {
-   "id": 1359,
+   "id": 1361,
    "text": "Van Diemen's",
    "variants": [
     {
@@ -28218,7 +28252,7 @@
    ]
   },
   {
-   "id": 1360,
+   "id": 1362,
    "text": "Land",
    "variants": [
     {
@@ -28239,7 +28273,7 @@
    ]
   },
   {
-   "id": 1361,
+   "id": 1363,
    "text": "West Australia",
    "variants": [
     {
@@ -28260,7 +28294,7 @@
    ]
   },
   {
-   "id": 1362,
+   "id": 1364,
    "text": "Uruguay",
    "variants": [
     {
@@ -28281,7 +28315,7 @@
    ]
   },
   {
-   "id": 1363,
+   "id": 1365,
    "text": "Algeria",
    "variants": [
     {
@@ -28302,7 +28336,7 @@
    ]
   },
   {
-   "id": 1364,
+   "id": 1366,
    "text": "Greece",
    "variants": [
     {
@@ -28323,7 +28357,7 @@
    ]
   },
   {
-   "id": 1365,
+   "id": 1367,
    "text": ":Dominica Martinique",
    "variants": [
     {
@@ -28344,7 +28378,7 @@
    ]
   },
   {
-   "id": 1366,
+   "id": 1368,
    "text": "*Windward Islands Trinidad",
    "variants": [
     {
@@ -28377,7 +28411,7 @@
    ]
   },
   {
-   "id": 1367,
+   "id": 1369,
    "text": "Guiana",
    "variants": [
     {
@@ -28402,7 +28436,7 @@
    ]
   },
   {
-   "id": 1368,
+   "id": 1370,
    "text": "Da.",
    "variants": [
     {
@@ -28427,7 +28461,7 @@
    ]
   },
   {
-   "id": 1369,
+   "id": 1371,
    "text": "Colombia",
    "variants": [
     {
@@ -28456,7 +28490,7 @@
    ]
   },
   {
-   "id": 1370,
+   "id": 1372,
    "text": "Ecuador",
    "variants": [
     {
@@ -28477,7 +28511,7 @@
    ]
   },
   {
-   "id": 1371,
+   "id": 1373,
    "text": "Argentine Confederation",
    "variants": [
     {
@@ -28498,7 +28532,7 @@
    ]
   },
   {
-   "id": 1372,
+   "id": 1374,
    "text": "Guadeloupe :Dominica Martinique",
    "variants": [
     {
@@ -28527,7 +28561,7 @@
    ]
   },
   {
-   "id": 1373,
+   "id": 1375,
    "text": "Falklands",
    "variants": [
     {
@@ -28548,7 +28582,7 @@
    ]
   },
   {
-   "id": 1374,
+   "id": 1376,
    "text": "Ch.",
    "variants": [
     {
@@ -28573,7 +28607,7 @@
    ]
   },
   {
-   "id": 1375,
+   "id": 1377,
    "text": "Lad.",
    "variants": [
     {
@@ -28594,7 +28628,7 @@
    ]
   },
   {
-   "id": 1377,
+   "id": 1379,
    "text": "Mahri Yemeni States",
    "variants": [
     {
@@ -28619,7 +28653,7 @@
    ]
   },
   {
-   "id": 1378,
+   "id": 1380,
    "text": "G.C.",
    "variants": [
     {
@@ -28648,7 +28682,7 @@
    ]
   },
   {
-   "id": 1379,
+   "id": 1381,
    "text": "Liberia Maryland",
    "variants": [
     {
@@ -28669,7 +28703,7 @@
    ]
   },
   {
-   "id": 1380,
+   "id": 1382,
    "text": "Bassam",
    "variants": [
     {
@@ -28690,7 +28724,7 @@
    ]
   },
   {
-   "id": 1381,
+   "id": 1383,
    "text": "Ku.",
    "variants": [
     {
@@ -28711,7 +28745,7 @@
    ]
   },
   {
-   "id": 1382,
+   "id": 1384,
    "text": "Texas",
    "variants": [
     {
@@ -28732,7 +28766,7 @@
    ]
   },
   {
-   "id": 1383,
+   "id": 1385,
    "text": "Kaabu Guinea",
    "variants": [
     {
@@ -28753,7 +28787,7 @@
    ]
   },
   {
-   "id": 1386,
+   "id": 1388,
    "text": "Pot.",
    "variants": [
     {
@@ -28774,7 +28808,7 @@
    ]
   },
   {
-   "id": 1387,
+   "id": 1389,
    "text": "South Australia",
    "variants": [
     {
@@ -28795,7 +28829,7 @@
    ]
   },
   {
-   "id": 1388,
+   "id": 1390,
    "text": "Rio Grande",
    "variants": [
     {
@@ -28816,7 +28850,7 @@
    ]
   },
   {
-   "id": 1389,
+   "id": 1391,
    "text": "Mexico",
    "variants": [
     {
@@ -28837,7 +28871,7 @@
    ]
   },
   {
-   "id": 1390,
+   "id": 1392,
    "text": "New South Wales",
    "variants": [
     {
@@ -28858,7 +28892,7 @@
    ]
   },
   {
-   "id": 1391,
+   "id": 1393,
    "text": "Muscat",
    "variants": [
     {
@@ -28879,7 +28913,7 @@
    ]
   },
   {
-   "id": 1392,
+   "id": 1394,
    "text": "Guat,",
    "variants": [
     {
@@ -28908,7 +28942,7 @@
    ]
   },
   {
-   "id": 1393,
+   "id": 1395,
    "text": "Hond.",
    "variants": [
     {
@@ -28929,7 +28963,7 @@
    ]
   },
   {
-   "id": 1394,
+   "id": 1396,
    "text": "Dai Nam",
    "variants": [
     {
@@ -28950,7 +28984,7 @@
    ]
   },
   {
-   "id": 1395,
+   "id": 1397,
    "text": "EI Salvador",
    "variants": [
     {
@@ -28979,7 +29013,7 @@
    ]
   },
   {
-   "id": 1396,
+   "id": 1398,
    "text": "Nic.",
    "variants": [
     {
@@ -29000,7 +29034,7 @@
    ]
   },
   {
-   "id": 1397,
+   "id": 1399,
    "text": "Costa Rica",
    "variants": [
     {
@@ -29021,7 +29055,7 @@
    ]
   },
   {
-   "id": 1398,
+   "id": 1400,
    "text": "Guinea Gabon",
    "variants": [
     {
@@ -29042,7 +29076,7 @@
    ]
   },
   {
-   "id": 1399,
+   "id": 1401,
    "text": "Mt.",
    "variants": [
     {
@@ -29063,7 +29097,7 @@
    ]
   },
   {
-   "id": 1400,
+   "id": 1402,
    "text": "Natal",
    "variants": [
     {
@@ -29084,7 +29118,7 @@
    ]
   },
   {
-   "id": 1401,
+   "id": 1403,
    "text": "Ladakh",
    "variants": [
     {
@@ -29105,7 +29139,7 @@
    ]
   },
   {
-   "id": 1402,
+   "id": 1404,
    "text": "Yuc.",
    "variants": [
     {
@@ -29126,7 +29160,7 @@
    ]
   },
   {
-   "id": 1403,
+   "id": 1405,
    "text": "New Zealand",
    "variants": [
     {
@@ -29151,7 +29185,7 @@
    ]
   },
   {
-   "id": 1404,
+   "id": 1406,
    "text": "Guat Hond.",
    "variants": [
     {
@@ -29184,7 +29218,7 @@
    ]
   },
   {
-   "id": 1405,
+   "id": 1407,
    "text": "Gabon",
    "variants": [
     {
@@ -29205,7 +29239,7 @@
    ]
   },
   {
-   "id": 1406,
+   "id": 1408,
    "text": "French Polynesia",
    "variants": [
     {
@@ -29230,7 +29264,7 @@
    ]
   },
   {
-   "id": 1407,
+   "id": 1409,
    "text": "D.R.",
    "variants": [
     {
@@ -29251,7 +29285,7 @@
    ]
   },
   {
-   "id": 1408,
+   "id": 1410,
    "text": "Cape\".",
    "variants": [
     {
@@ -29276,7 +29310,7 @@
    ]
   },
   {
-   "id": 1409,
+   "id": 1411,
    "text": "Verde ·",
    "variants": [
     {
@@ -29321,7 +29355,7 @@
    ]
   },
   {
-   "id": 1410,
+   "id": 1412,
    "text": "United States",
    "variants": [
     {
@@ -29342,7 +29376,7 @@
    ]
   },
   {
-   "id": 1411,
+   "id": 1413,
    "text": "Afghan.",
    "variants": [
     {
@@ -29363,7 +29397,7 @@
    ]
   },
   {
-   "id": 1412,
+   "id": 1414,
    "text": "Reunion",
    "variants": [
     {
@@ -29384,7 +29418,7 @@
    ]
   },
   {
-   "id": 1413,
+   "id": 1415,
    "text": "Mozambique",
    "variants": [
     {
@@ -29405,7 +29439,7 @@
    ]
   },
   {
-   "id": 1414,
+   "id": 1416,
    "text": "Tra.",
    "variants": [
     {
@@ -29426,7 +29460,7 @@
    ]
   },
   {
-   "id": 1415,
+   "id": 1417,
    "text": "Victoria",
    "variants": [
     {
@@ -29447,7 +29481,7 @@
    ]
   },
   {
-   "id": 1416,
+   "id": 1418,
    "text": "Aires",
    "variants": [
     {
@@ -29468,7 +29502,7 @@
    ]
   },
   {
-   "id": 1418,
+   "id": 1420,
    "text": "Toro",
    "variants": [
     {
@@ -29489,7 +29523,7 @@
    ]
   },
   {
-   "id": 1419,
+   "id": 1421,
    "text": "New Caledonia",
    "variants": [
     {
@@ -29514,7 +29548,7 @@
    ]
   },
   {
-   "id": 1420,
+   "id": 1422,
    "text": "Natal Mpondoland",
    "variants": [
     {
@@ -29535,7 +29569,7 @@
    ]
   },
   {
-   "id": 1421,
+   "id": 1423,
    "text": "Turkmens",
    "variants": [
     {
@@ -29556,7 +29590,7 @@
    ]
   },
   {
-   "id": 1422,
+   "id": 1424,
    "text": "Muscat &Oman",
    "variants": [
     {
@@ -29581,7 +29615,7 @@
    ]
   },
   {
-   "id": 1423,
+   "id": 1425,
    "text": "Senegal",
    "variants": [
     {
@@ -29602,7 +29636,7 @@
    ]
   },
   {
-   "id": 1424,
+   "id": 1426,
    "text": "Zanzibar",
    "variants": [
     {
@@ -29631,7 +29665,7 @@
    ]
   },
   {
-   "id": 1425,
+   "id": 1427,
    "text": "Yeke",
    "variants": [
     {
@@ -29652,7 +29686,7 @@
    ]
   },
   {
-   "id": 1426,
+   "id": 1428,
    "text": "British Colombia",
    "variants": [
     {
@@ -29677,7 +29711,7 @@
    ]
   },
   {
-   "id": 1427,
+   "id": 1429,
    "text": "British Raj",
    "variants": [
     {
@@ -29698,7 +29732,7 @@
    ]
   },
   {
-   "id": 1428,
+   "id": 1430,
    "text": "Granadine Confederation",
    "variants": [
     {
@@ -29719,7 +29753,7 @@
    ]
   },
   {
-   "id": 1429,
+   "id": 1431,
    "text": "Buenos Aires",
    "variants": [
     {
@@ -29740,7 +29774,7 @@
    ]
   },
   {
-   "id": 1430,
+   "id": 1432,
    "text": "Tasmania",
    "variants": [
     {
@@ -29761,7 +29795,7 @@
    ]
   },
   {
-   "id": 1433,
+   "id": 1435,
    "text": "Verde .",
    "variants": [
     {
@@ -29786,7 +29820,7 @@
    ]
   },
   {
-   "id": 1434,
+   "id": 1436,
    "text": "Transvaal",
    "variants": [
     {
@@ -29811,7 +29845,7 @@
    ]
   },
   {
-   "id": 1435,
+   "id": 1437,
    "text": "Queensland",
    "variants": [
     {
@@ -29832,7 +29866,7 @@
    ]
   },
   {
-   "id": 1436,
+   "id": 1438,
    "text": "Italy",
    "variants": [
     {
@@ -29861,7 +29895,7 @@
    ]
   },
   {
-   "id": 1437,
+   "id": 1439,
    "text": "Confederate States",
    "variants": [
     {
@@ -29882,7 +29916,7 @@
    ]
   },
   {
-   "id": 1438,
+   "id": 1440,
    "text": "Do.",
    "variants": [
     {
@@ -29903,7 +29937,7 @@
    ]
   },
   {
-   "id": 1439,
+   "id": 1441,
    "text": "Tukulor",
    "variants": [
     {
@@ -29924,7 +29958,7 @@
    ]
   },
   {
-   "id": 1440,
+   "id": 1442,
    "text": "Cochinchina",
    "variants": [
     {
@@ -29945,7 +29979,7 @@
    ]
   },
   {
-   "id": 1441,
+   "id": 1443,
    "text": "Sar.",
    "variants": [
     {
@@ -29966,7 +30000,7 @@
    ]
   },
   {
-   "id": 1443,
+   "id": 1445,
    "text": "Argentina",
    "variants": [
     {
@@ -29991,7 +30025,7 @@
    ]
   },
   {
-   "id": 1444,
+   "id": 1446,
    "text": "Mexican Empire",
    "variants": [
     {
@@ -30012,7 +30046,7 @@
    ]
   },
   {
-   "id": 1445,
+   "id": 1447,
    "text": "Ca.",
    "variants": [
     {
@@ -30033,7 +30067,7 @@
    ]
   },
   {
-   "id": 1446,
+   "id": 1448,
    "text": "Mtwakazi",
    "variants": [
     {
@@ -30054,7 +30088,7 @@
    ]
   },
   {
-   "id": 1448,
+   "id": 1450,
    "text": "Austria-Hungary",
    "variants": [
     {
@@ -30079,7 +30113,7 @@
    ]
   },
   {
-   "id": 1449,
+   "id": 1451,
    "text": "I Da.",
    "variants": [
     {
@@ -30100,7 +30134,7 @@
    ]
   },
   {
-   "id": 1450,
+   "id": 1452,
    "text": "Par.",
    "variants": [
     {
@@ -30121,7 +30155,7 @@
    ]
   },
   {
-   "id": 1451,
+   "id": 1453,
    "text": "Germany",
    "variants": [
     {
@@ -30142,7 +30176,7 @@
    ]
   },
   {
-   "id": 1452,
+   "id": 1454,
    "text": "TCLMtwakazi",
    "variants": [
     {
@@ -30167,7 +30201,7 @@
    ]
   },
   {
-   "id": 1453,
+   "id": 1455,
    "text": "Canada",
    "variants": [
     {
@@ -30188,7 +30222,7 @@
    ]
   },
   {
-   "id": 1455,
+   "id": 1457,
    "text": "Romania",
    "variants": [
     {
@@ -30209,7 +30243,7 @@
    ]
   },
   {
-   "id": 1456,
+   "id": 1458,
    "text": "Ser.",
    "variants": [
     {
@@ -30230,7 +30264,7 @@
    ]
   },
   {
-   "id": 1457,
+   "id": 1459,
    "text": "Was.",
    "variants": [
     {
@@ -30251,7 +30285,7 @@
    ]
   },
   {
-   "id": 1458,
+   "id": 1460,
    "text": "Hobyo",
    "variants": [
     {
@@ -30272,7 +30306,7 @@
    ]
   },
   {
-   "id": 1459,
+   "id": 1461,
    "text": "Tip",
    "variants": [
     {
@@ -30293,7 +30327,7 @@
    ]
   },
   {
-   "id": 1460,
+   "id": 1462,
    "text": "Tun.",
    "variants": [
     {
@@ -30322,7 +30356,7 @@
    ]
   },
   {
-   "id": 1461,
+   "id": 1463,
    "text": "Baro.",
    "variants": [
     {
@@ -30343,7 +30377,7 @@
    ]
   },
   {
-   "id": 1462,
+   "id": 1464,
    "text": "Tripolitania",
    "variants": [
     {
@@ -30364,7 +30398,7 @@
    ]
   },
   {
-   "id": 1463,
+   "id": 1465,
    "text": "Egypt",
    "variants": [
     {
@@ -30385,7 +30419,7 @@
    ]
   },
   {
-   "id": 1464,
+   "id": 1466,
    "text": "S. Rivers",
    "variants": [
     {
@@ -30410,7 +30444,7 @@
    ]
   },
   {
-   "id": 1465,
+   "id": 1467,
    "text": "Annam",
    "variants": [
     {
@@ -30431,7 +30465,7 @@
    ]
   },
   {
-   "id": 1466,
+   "id": 1468,
    "text": "Mahdists",
    "variants": [
     {
@@ -30452,7 +30486,7 @@
    ]
   },
   {
-   "id": 1467,
+   "id": 1469,
    "text": "Mane",
    "variants": [
     {
@@ -30473,7 +30507,7 @@
    ]
   },
   {
-   "id": 1468,
+   "id": 1470,
    "text": "Sierra Leone",
    "variants": [
     {
@@ -30494,7 +30528,7 @@
    ]
   },
   {
-   "id": 1470,
+   "id": 1472,
    "text": "Guinea",
    "variants": [
     {
@@ -30515,7 +30549,7 @@
    ]
   },
   {
-   "id": 1471,
+   "id": 1473,
    "text": "Oro River",
    "variants": [
     {
@@ -30536,7 +30570,7 @@
    ]
   },
   {
-   "id": 1473,
+   "id": 1475,
    "text": "Tonkin",
    "variants": [
     {
@@ -30557,7 +30591,7 @@
    ]
   },
   {
-   "id": 1474,
+   "id": 1476,
    "text": "Guadeloupe :Dominica Martinique ·Barbados *Windward Islands Trinidad",
    "variants": [
     {
@@ -30582,7 +30616,7 @@
    ]
   },
   {
-   "id": 1475,
+   "id": 1477,
    "text": "Togo",
    "variants": [
     {
@@ -30603,7 +30637,7 @@
    ]
   },
   {
-   "id": 1476,
+   "id": 1478,
    "text": "Cameroun",
    "variants": [
     {
@@ -30628,7 +30662,7 @@
    ]
   },
   {
-   "id": 1477,
+   "id": 1479,
    "text": "Congo",
    "variants": [
     {
@@ -30649,7 +30683,7 @@
    ]
   },
   {
-   "id": 1478,
+   "id": 1480,
    "text": "Kaiser-Wilhelmsland",
    "variants": [
     {
@@ -30670,7 +30704,7 @@
    ]
   },
   {
-   "id": 1480,
+   "id": 1482,
    "text": "Papua",
    "variants": [
     {
@@ -30691,7 +30725,7 @@
    ]
   },
   {
-   "id": 1481,
+   "id": 1483,
    "text": "Batwana",
    "variants": [
     {
@@ -30712,7 +30746,7 @@
    ]
   },
   {
-   "id": 1482,
+   "id": 1484,
    "text": "Bechuanaland",
    "variants": [
     {
@@ -30737,7 +30771,7 @@
    ]
   },
   {
-   "id": 1484,
+   "id": 1486,
    "text": "Bech.",
    "variants": [
     {
@@ -30758,7 +30792,7 @@
    ]
   },
   {
-   "id": 1485,
+   "id": 1487,
    "text": "Oro",
    "variants": [
     {
@@ -30779,7 +30813,7 @@
    ]
   },
   {
-   "id": 1486,
+   "id": 1488,
    "text": "River",
    "variants": [
     {
@@ -30800,7 +30834,7 @@
    ]
   },
   {
-   "id": 1487,
+   "id": 1489,
    "text": "Somalia",
    "variants": [
     {
@@ -30825,7 +30859,7 @@
    ]
   },
   {
-   "id": 1488,
+   "id": 1490,
    "text": "East Africa",
    "variants": [
     {
@@ -30846,7 +30880,7 @@
    ]
   },
   {
-   "id": 1489,
+   "id": 1491,
    "text": "Chokwe",
    "variants": [
     {
@@ -30867,7 +30901,7 @@
    ]
   },
   {
-   "id": 1490,
+   "id": 1492,
    "text": "Neutral Territory",
    "variants": [
     {
@@ -30888,7 +30922,7 @@
    ]
   },
   {
-   "id": 1491,
+   "id": 1493,
    "text": "Congo",
    "variants": [
     {
@@ -30909,7 +30943,7 @@
    ]
   },
   {
-   "id": 1492,
+   "id": 1494,
    "text": "South West Africa",
    "variants": [
     {
@@ -30934,7 +30968,7 @@
    ]
   },
   {
-   "id": 1493,
+   "id": 1495,
    "text": "Aden",
    "variants": [
     {
@@ -30955,7 +30989,7 @@
    ]
   },
   {
-   "id": 1494,
+   "id": 1496,
    "text": "Gambia",
    "variants": [
     {
@@ -30976,7 +31010,7 @@
    ]
   },
   {
-   "id": 1495,
+   "id": 1497,
    "text": "Sarawak",
    "variants": [
     {
@@ -30997,7 +31031,7 @@
    ]
   },
   {
-   "id": 1496,
+   "id": 1498,
    "text": "Somaliland",
    "variants": [
     {
@@ -31018,7 +31052,7 @@
    ]
   },
   {
-   "id": 1498,
+   "id": 1500,
    "text": "Congo",
    "variants": [
     {
@@ -31039,7 +31073,7 @@
    ]
   },
   {
-   "id": 1499,
+   "id": 1501,
    "text": "East Africa Protectorate",
    "variants": [
     {
@@ -31060,7 +31094,7 @@
    ]
   },
   {
-   "id": 1500,
+   "id": 1502,
    "text": "East Africa",
    "variants": [
     {
@@ -31081,7 +31115,7 @@
    ]
   },
   {
-   "id": 1501,
+   "id": 1503,
    "text": "Laos",
    "variants": [
     {
@@ -31102,7 +31136,7 @@
    ]
   },
   {
-   "id": 1502,
+   "id": 1504,
    "text": "Soudan",
    "variants": [
     {
@@ -31123,7 +31157,7 @@
    ]
   },
   {
-   "id": 1503,
+   "id": 1505,
    "text": "Ivory Coast",
    "variants": [
     {
@@ -31144,7 +31178,7 @@
    ]
   },
   {
-   "id": 1504,
+   "id": 1506,
    "text": "N.C.P.",
    "variants": [
     {
@@ -31165,7 +31199,7 @@
    ]
   },
   {
-   "id": 1505,
+   "id": 1507,
    "text": "Bengui",
    "variants": [
     {
@@ -31186,7 +31220,7 @@
    ]
   },
   {
-   "id": 1506,
+   "id": 1508,
    "text": "Solomons",
    "variants": [
     {
@@ -31207,7 +31241,7 @@
    ]
   },
   {
-   "id": 1507,
+   "id": 1509,
    "text": "Katanga",
    "variants": [
     {
@@ -31228,7 +31262,7 @@
    ]
   },
   {
-   "id": 1508,
+   "id": 1510,
    "text": "Rhodesia",
    "variants": [
     {
@@ -31249,7 +31283,7 @@
    ]
   },
   {
-   "id": 1509,
+   "id": 1511,
    "text": "Guinea",
    "variants": [
     {
@@ -31270,7 +31304,7 @@
    ]
   },
   {
-   "id": 1510,
+   "id": 1512,
    "text": "Ery.",
    "variants": [
     {
@@ -31291,7 +31325,7 @@
    ]
   },
   {
-   "id": 1511,
+   "id": 1513,
    "text": "Ethiopia",
    "variants": [
     {
@@ -31312,7 +31346,7 @@
    ]
   },
   {
-   "id": 1512,
+   "id": 1514,
    "text": "Korea",
    "variants": [
     {
@@ -31333,7 +31367,7 @@
    ]
   },
   {
-   "id": 1513,
+   "id": 1515,
    "text": "Madag.",
    "variants": [
     {
@@ -31354,7 +31388,7 @@
    ]
   },
   {
-   "id": 1514,
+   "id": 1516,
    "text": "Chad",
    "variants": [
     {
@@ -31375,7 +31409,7 @@
    ]
   },
   {
-   "id": 1515,
+   "id": 1517,
    "text": "Sudan",
    "variants": [
     {
@@ -31396,7 +31430,7 @@
    ]
   },
   {
-   "id": 1516,
+   "id": 1518,
    "text": "Nigeria",
    "variants": [
     {
@@ -31417,7 +31451,7 @@
    ]
   },
   {
-   "id": 1517,
+   "id": 1519,
    "text": "GermanNewGuinea",
    "variants": [
     {
@@ -31446,7 +31480,7 @@
    ]
   },
   {
-   "id": 1518,
+   "id": 1520,
    "text": "NE Rhodesia",
    "variants": [
     {
@@ -31467,7 +31501,7 @@
    ]
   },
   {
-   "id": 1519,
+   "id": 1521,
    "text": "NW Rhodesia",
    "variants": [
     {
@@ -31488,7 +31522,7 @@
    ]
   },
   {
-   "id": 1520,
+   "id": 1522,
    "text": "Southern Rhodesia",
    "variants": [
     {
@@ -31513,7 +31547,7 @@
    ]
   },
   {
-   "id": 1521,
+   "id": 1523,
    "text": "Nejd",
    "variants": [
     {
@@ -31534,7 +31568,7 @@
    ]
   },
   {
-   "id": 1522,
+   "id": 1524,
    "text": "Western Africa",
    "variants": [
     {
@@ -31555,7 +31589,7 @@
    ]
   },
   {
-   "id": 1523,
+   "id": 1525,
    "text": "Australia",
    "variants": [
     {
@@ -31576,7 +31610,7 @@
    ]
   },
   {
-   "id": 1524,
+   "id": 1526,
    "text": "Red Canal",
    "variants": [
     {
@@ -31597,7 +31631,7 @@
    ]
   },
   {
-   "id": 1525,
+   "id": 1527,
    "text": "North Nigeria",
    "variants": [
     {
@@ -31618,7 +31652,7 @@
    ]
   },
   {
-   "id": 1526,
+   "id": 1528,
    "text": "Panama",
    "variants": [
     {
@@ -31639,7 +31673,7 @@
    ]
   },
   {
-   "id": 1527,
+   "id": 1529,
    "text": "Da Nigeria",
    "variants": [
     {
@@ -31668,7 +31702,7 @@
    ]
   },
   {
-   "id": 1528,
+   "id": 1530,
    "text": "Ubangi-Shari",
    "variants": [
     {
@@ -31689,7 +31723,7 @@
    ]
   },
   {
-   "id": 1529,
+   "id": 1531,
    "text": "Dominica",
    "variants": [
     {
@@ -31710,7 +31744,7 @@
    ]
   },
   {
-   "id": 1530,
+   "id": 1532,
    "text": "Martinique ·Barbados *Windward Islands Trinidad",
    "variants": [
     {
@@ -31731,7 +31765,7 @@
    ]
   },
   {
-   "id": 1531,
+   "id": 1533,
    "text": "New Hebrides",
    "variants": [
     {
@@ -31756,7 +31790,7 @@
    ]
   },
   {
-   "id": 1532,
+   "id": 1534,
    "text": "Bulgaria",
    "variants": [
     {
@@ -31785,7 +31819,7 @@
    ]
   },
   {
-   "id": 1533,
+   "id": 1535,
    "text": "Camb.",
    "variants": [
     {
@@ -31810,7 +31844,7 @@
    ]
   },
   {
-   "id": 1534,
+   "id": 1536,
    "text": "Mayotte",
    "variants": [
     {
@@ -31831,7 +31865,7 @@
    ]
   },
   {
-   "id": 1535,
+   "id": 1537,
    "text": "Equatorial Africa",
    "variants": [
     {
@@ -31856,7 +31890,7 @@
    ]
   },
   {
-   "id": 1536,
+   "id": 1538,
    "text": "South Africa",
    "variants": [
     {
@@ -31877,7 +31911,7 @@
    ]
   },
   {
-   "id": 1537,
+   "id": 1539,
    "text": "Mongolia",
    "variants": [
     {
@@ -31898,7 +31932,7 @@
    ]
   },
   {
-   "id": 1538,
+   "id": 1540,
    "text": "China",
    "variants": [
     {
@@ -31919,7 +31953,7 @@
    ]
   },
   {
-   "id": 1539,
+   "id": 1541,
    "text": "Tibet",
    "variants": [
     {
@@ -31940,7 +31974,7 @@
    ]
   },
   {
-   "id": 1540,
+   "id": 1542,
    "text": "Cyren.",
    "variants": [
     {
@@ -31961,7 +31995,7 @@
    ]
   },
   {
-   "id": 1541,
+   "id": 1543,
    "text": "Nep.",
    "variants": [
     {
@@ -31982,7 +32016,7 @@
    ]
   },
   {
-   "id": 1542,
+   "id": 1544,
    "text": "Fezzan",
    "variants": [
     {
@@ -32003,7 +32037,7 @@
    ]
   },
   {
-   "id": 1543,
+   "id": 1545,
    "text": "Asir",
    "variants": [
     {
@@ -32024,7 +32058,7 @@
    ]
   },
   {
-   "id": 1544,
+   "id": 1546,
    "text": "Northern Rhodesia",
    "variants": [
     {
@@ -32045,7 +32079,7 @@
    ]
   },
   {
-   "id": 1545,
+   "id": 1547,
    "text": "Yunnan",
    "variants": [
     {
@@ -32066,7 +32100,7 @@
    ]
   },
   {
-   "id": 1546,
+   "id": 1548,
    "text": "Finland",
    "variants": [
     {
@@ -32087,7 +32121,7 @@
    ]
   },
   {
-   "id": 1547,
+   "id": 1549,
    "text": "Poland",
    "variants": [
     {
@@ -32108,7 +32142,7 @@
    ]
   },
   {
-   "id": 1548,
+   "id": 1550,
    "text": "Sichuan",
    "variants": [
     {
@@ -32129,7 +32163,7 @@
    ]
   },
   {
-   "id": 1549,
+   "id": 1551,
    "text": "Hunan",
    "variants": [
     {
@@ -32150,7 +32184,7 @@
    ]
   },
   {
-   "id": 1550,
+   "id": 1552,
    "text": "Guiz.",
    "variants": [
     {
@@ -32171,7 +32205,7 @@
    ]
   },
   {
-   "id": 1551,
+   "id": 1553,
    "text": "Hejaz Ha'il",
    "variants": [
     {
@@ -32192,7 +32226,7 @@
    ]
   },
   {
-   "id": 1552,
+   "id": 1554,
    "text": "Gua.",
    "variants": [
     {
@@ -32213,7 +32247,7 @@
    ]
   },
   {
-   "id": 1553,
+   "id": 1555,
    "text": "Guangdxi",
    "variants": [
     {
@@ -32238,7 +32272,7 @@
    ]
   },
   {
-   "id": 1554,
+   "id": 1556,
    "text": "Yem.",
    "variants": [
     {
@@ -32259,7 +32293,7 @@
    ]
   },
   {
-   "id": 1555,
+   "id": 1557,
    "text": "Est.",
    "variants": [
     {
@@ -32280,7 +32314,7 @@
    ]
   },
   {
-   "id": 1556,
+   "id": 1558,
    "text": "Latvia",
    "variants": [
     {
@@ -32301,7 +32335,7 @@
    ]
   },
   {
-   "id": 1557,
+   "id": 1559,
    "text": "Lith.",
    "variants": [
     {
@@ -32322,7 +32356,7 @@
    ]
   },
   {
-   "id": 1558,
+   "id": 1560,
    "text": "Czechos.",
    "variants": [
     {
@@ -32343,7 +32377,7 @@
    ]
   },
   {
-   "id": 1559,
+   "id": 1561,
    "text": "Aus.",
    "variants": [
     {
@@ -32364,7 +32398,7 @@
    ]
   },
   {
-   "id": 1560,
+   "id": 1562,
    "text": "Hungary",
    "variants": [
     {
@@ -32385,7 +32419,7 @@
    ]
   },
   {
-   "id": 1561,
+   "id": 1563,
    "text": "Yugoslavia",
    "variants": [
     {
@@ -32410,7 +32444,7 @@
    ]
   },
   {
-   "id": 1564,
+   "id": 1566,
    "text": "Syria",
    "variants": [
     {
@@ -32431,7 +32465,7 @@
    ]
   },
   {
-   "id": 1565,
+   "id": 1567,
    "text": "Tuva",
    "variants": [
     {
@@ -32452,7 +32486,7 @@
    ]
   },
   {
-   "id": 1566,
+   "id": 1568,
    "text": "Shan.",
    "variants": [
     {
@@ -32473,7 +32507,7 @@
    ]
   },
   {
-   "id": 1567,
+   "id": 1569,
    "text": "Anhui",
    "variants": [
     {
@@ -32494,7 +32528,7 @@
    ]
   },
   {
-   "id": 1568,
+   "id": 1570,
    "text": "Iraq",
    "variants": [
     {
@@ -32519,7 +32553,7 @@
    ]
   },
   {
-   "id": 1569,
+   "id": 1571,
    "text": "Lebanon Palestine",
    "variants": [
     {
@@ -32540,7 +32574,7 @@
    ]
   },
   {
-   "id": 1570,
+   "id": 1572,
    "text": "B.",
    "variants": [
     {
@@ -32561,7 +32595,7 @@
    ]
   },
   {
-   "id": 1571,
+   "id": 1573,
    "text": "Anhui",
    "variants": [
     {
@@ -32582,7 +32616,7 @@
    ]
   },
   {
-   "id": 1572,
+   "id": 1574,
    "text": "Hejaz",
    "variants": [
     {
@@ -32603,7 +32637,7 @@
    ]
   },
   {
-   "id": 1573,
+   "id": 1575,
    "text": "Kuomintang",
    "variants": [
     {
@@ -32624,7 +32658,7 @@
    ]
   },
   {
-   "id": 1575,
+   "id": 1577,
    "text": "Kenya",
    "variants": [
     {
@@ -32645,7 +32679,7 @@
    ]
   },
   {
-   "id": 1576,
+   "id": 1578,
    "text": "Equatorial Africa",
    "variants": [
     {
@@ -32666,7 +32700,7 @@
    ]
   },
   {
-   "id": 1577,
+   "id": 1579,
    "text": "Somaliland",
    "variants": [
     {
@@ -32687,7 +32721,7 @@
    ]
   },
   {
-   "id": 1578,
+   "id": 1580,
    "text": "Equatorial Africa",
    "variants": [
     {
@@ -32708,7 +32742,7 @@
    ]
   },
   {
-   "id": 1579,
+   "id": 1581,
    "text": "USSR",
    "variants": [
     {
@@ -32729,7 +32763,7 @@
    ]
   },
   {
-   "id": 1580,
+   "id": 1582,
    "text": "Ireland",
    "variants": [
     {
@@ -32754,7 +32788,7 @@
    ]
   },
   {
-   "id": 1582,
+   "id": 1584,
    "text": "Turkey",
    "variants": [
     {
@@ -32775,7 +32809,7 @@
    ]
   },
   {
-   "id": 1583,
+   "id": 1585,
    "text": "T.S",
    "variants": [
     {
@@ -32800,7 +32834,7 @@
    ]
   },
   {
-   "id": 1584,
+   "id": 1586,
    "text": "Najr.",
    "variants": [
     {
@@ -32821,7 +32855,7 @@
    ]
   },
   {
-   "id": 1587,
+   "id": 1589,
    "text": "Tr.",
    "variants": [
     {
@@ -32842,7 +32876,7 @@
    ]
   },
   {
-   "id": 1591,
+   "id": 1593,
    "text": "Xinjiang",
    "variants": [
     {
@@ -32863,7 +32897,7 @@
    ]
   },
   {
-   "id": 1592,
+   "id": 1594,
    "text": "Cyrenaica",
    "variants": [
     {
@@ -32884,7 +32918,7 @@
    ]
   },
   {
-   "id": 1593,
+   "id": 1595,
    "text": "Hejaz & Nejd",
    "variants": [
     {
@@ -32905,7 +32939,7 @@
    ]
   },
   {
-   "id": 1595,
+   "id": 1597,
    "text": "Manchuria",
    "variants": [
     {
@@ -32926,7 +32960,7 @@
    ]
   },
   {
-   "id": 1596,
+   "id": 1598,
    "text": "Libya",
    "variants": [
     {
@@ -32947,7 +32981,7 @@
    ]
   },
   {
-   "id": 1597,
+   "id": 1599,
    "text": "Saudi Arabia",
    "variants": [
     {
@@ -32968,7 +33002,7 @@
    ]
   },
   {
-   "id": 1598,
+   "id": 1600,
    "text": "Thailand",
    "variants": [
     {
@@ -32989,7 +33023,7 @@
    ]
   },
   {
-   "id": 1599,
+   "id": 1601,
    "text": "B.",
    "variants": [
     {
@@ -33010,7 +33044,7 @@
    ]
   },
   {
-   "id": 1600,
+   "id": 1602,
    "text": "Iran",
    "variants": [
     {
@@ -33031,7 +33065,7 @@
    ]
   },
   {
-   "id": 1601,
+   "id": 1603,
    "text": "East Africa",
    "variants": [
     {
@@ -33052,7 +33086,7 @@
    ]
   },
   {
-   "id": 1602,
+   "id": 1604,
    "text": "Paraguay",
    "variants": [
     {
@@ -33073,7 +33107,7 @@
    ]
   },
   {
-   "id": 1604,
+   "id": 1606,
    "text": "Boh.",
    "variants": [
     {
@@ -33094,7 +33128,7 @@
    ]
   },
   {
-   "id": 1609,
+   "id": 1611,
    "text": "Ukraine",
    "variants": [
     {
@@ -33115,7 +33149,7 @@
    ]
   },
   {
-   "id": 1610,
+   "id": 1612,
    "text": "Cro.",
    "variants": [
     {
@@ -33136,7 +33170,7 @@
    ]
   },
   {
-   "id": 1612,
+   "id": 1614,
    "text": "Czechia.",
    "variants": [
     {
@@ -33161,7 +33195,7 @@
    ]
   },
   {
-   "id": 1613,
+   "id": 1615,
    "text": "Communist Party",
    "variants": [
     {
@@ -33182,7 +33216,7 @@
    ]
   },
   {
-   "id": 1614,
+   "id": 1616,
    "text": "Jo.",
    "variants": [
     {
@@ -33203,7 +33237,7 @@
    ]
   },
   {
-   "id": 1615,
+   "id": 1617,
    "text": "Malaya",
    "variants": [
     {
@@ -33228,7 +33262,7 @@
    ]
   },
   {
-   "id": 1616,
+   "id": 1618,
    "text": "Dutch East indies",
    "variants": [
     {
@@ -33249,7 +33283,7 @@
    ]
   },
   {
-   "id": 1617,
+   "id": 1619,
    "text": "Indonesia",
    "variants": [
     {
@@ -33270,7 +33304,7 @@
    ]
   },
   {
-   "id": 1618,
+   "id": 1620,
    "text": "Comores",
    "variants": [
     {
@@ -33291,7 +33325,7 @@
    ]
   },
   {
-   "id": 1619,
+   "id": 1621,
    "text": "China",
    "variants": [
     {
@@ -33312,20 +33346,12 @@
    ]
   },
   {
-   "id": 1620,
+   "id": 1622,
    "text": "NorthKorea",
    "variants": [
     {
      "text": "NorthKorea",
      "n": 40
-    },
-    {
-     "text": "SouthKorea",
-     "n": 30
-    },
-    {
-     "text": "South Korea",
-     "n": 11
     },
     {
      "text": "North Korea",
@@ -33336,16 +33362,41 @@
    "lastYear": 2025,
    "firstT": 1003.5,
    "lastT": 1043.54,
-   "samples": 82,
+   "samples": 41,
    "lon": 133.394,
-   "lat": 39.337,
+   "lat": 41.228,
    "size": 27.41,
    "framings": [
     5
    ]
   },
   {
-   "id": 1621,
+   "id": 1623,
+   "text": "SouthKorea",
+   "variants": [
+    {
+     "text": "SouthKorea",
+     "n": 30
+    },
+    {
+     "text": "South Korea",
+     "n": 11
+    }
+   ],
+   "firstYear": 1949,
+   "lastYear": 2025,
+   "firstT": 1003.5,
+   "lastT": 1043.54,
+   "samples": 41,
+   "lon": 133.394,
+   "lat": 37.446,
+   "size": 27.41,
+   "framings": [
+    5
+   ]
+  },
+  {
+   "id": 1624,
    "text": "Lebanon Israel",
    "variants": [
     {
@@ -33370,7 +33421,7 @@
    ]
   },
   {
-   "id": 1622,
+   "id": 1625,
    "text": "Pakistan",
    "variants": [
     {
@@ -33391,7 +33442,7 @@
    ]
   },
   {
-   "id": 1623,
+   "id": 1626,
    "text": "India",
    "variants": [
     {
@@ -33412,7 +33463,7 @@
    ]
   },
   {
-   "id": 1624,
+   "id": 1627,
    "text": "Burma",
    "variants": [
     {
@@ -33433,7 +33484,7 @@
    ]
   },
   {
-   "id": 1625,
+   "id": 1628,
    "text": "Pakistan",
    "variants": [
     {
@@ -33454,7 +33505,7 @@
    ]
   },
   {
-   "id": 1627,
+   "id": 1630,
    "text": "Ceylon",
    "variants": [
     {
@@ -33475,7 +33526,7 @@
    ]
   },
   {
-   "id": 1628,
+   "id": 1631,
    "text": "Greenland",
    "variants": [
     {
@@ -33496,7 +33547,7 @@
    ]
   },
   {
-   "id": 1629,
+   "id": 1632,
    "text": "East Ger.",
    "variants": [
     {
@@ -33517,7 +33568,7 @@
    ]
   },
   {
-   "id": 1630,
+   "id": 1633,
    "text": "West Ger.",
    "variants": [
     {
@@ -33538,7 +33589,7 @@
    ]
   },
   {
-   "id": 1631,
+   "id": 1634,
    "text": "Taiwan",
    "variants": [
     {
@@ -33559,7 +33610,7 @@
    ]
   },
   {
-   "id": 1632,
+   "id": 1635,
    "text": "Vietnam",
    "variants": [
     {
@@ -33580,7 +33631,7 @@
    ]
   },
   {
-   "id": 1633,
+   "id": 1636,
    "text": "New Guinea",
    "variants": [
     {
@@ -33601,7 +33652,7 @@
    ]
   },
   {
-   "id": 1634,
+   "id": 1637,
    "text": "South Maluku",
    "variants": [
     {
@@ -33626,7 +33677,7 @@
    ]
   },
   {
-   "id": 1635,
+   "id": 1638,
    "text": "Darul Islam",
    "variants": [
     {
@@ -33651,7 +33702,7 @@
    ]
   },
   {
-   "id": 1636,
+   "id": 1639,
    "text": "Indonesia",
    "variants": [
     {
@@ -33676,7 +33727,7 @@
    ]
   },
   {
-   "id": 1637,
+   "id": 1640,
    "text": "N.Viet.",
    "variants": [
     {
@@ -33701,7 +33752,7 @@
    ]
   },
   {
-   "id": 1638,
+   "id": 1641,
    "text": "SouthVietnam",
    "variants": [
     {
@@ -33722,7 +33773,7 @@
    ]
   },
   {
-   "id": 1639,
+   "id": 1642,
    "text": "Rhodesia& Nyasaland",
    "variants": [
     {
@@ -33743,7 +33794,7 @@
    ]
   },
   {
-   "id": 1641,
+   "id": 1644,
    "text": "Permesta",
    "variants": [
     {
@@ -33764,7 +33815,7 @@
    ]
   },
   {
-   "id": 1644,
+   "id": 1647,
    "text": "Mauritania",
    "variants": [
     {
@@ -33785,7 +33836,7 @@
    ]
   },
   {
-   "id": 1645,
+   "id": 1648,
    "text": "Mali",
    "variants": [
     {
@@ -33810,7 +33861,7 @@
    ]
   },
   {
-   "id": 1646,
+   "id": 1649,
    "text": "Niger",
    "variants": [
     {
@@ -33831,7 +33882,7 @@
    ]
   },
   {
-   "id": 1647,
+   "id": 1650,
    "text": "Martinique",
    "variants": [
     {
@@ -33852,7 +33903,7 @@
    ]
   },
   {
-   "id": 1648,
+   "id": 1651,
    "text": "Upper Volta",
    "variants": [
     {
@@ -33877,7 +33928,7 @@
    ]
   },
   {
-   "id": 1649,
+   "id": 1652,
    "text": "* Windward Islands",
    "variants": [
     {
@@ -33898,7 +33949,7 @@
    ]
   },
   {
-   "id": 1651,
+   "id": 1654,
    "text": "Ivory",
    "variants": [
     {
@@ -33919,7 +33970,7 @@
    ]
   },
   {
-   "id": 1652,
+   "id": 1655,
    "text": "Coast Ghana",
    "variants": [
     {
@@ -33940,7 +33991,7 @@
    ]
   },
   {
-   "id": 1653,
+   "id": 1656,
    "text": "Central Africa",
    "variants": [
     {
@@ -33961,7 +34012,7 @@
    ]
   },
   {
-   "id": 1654,
+   "id": 1657,
    "text": "Cyprus",
    "variants": [
     {
@@ -33982,7 +34033,7 @@
    ]
   },
   {
-   "id": 1655,
+   "id": 1658,
    "text": "Cape\" Verde +",
    "variants": [
     {
@@ -34019,7 +34070,7 @@
    ]
   },
   {
-   "id": 1656,
+   "id": 1659,
    "text": "Senegal",
    "variants": [
     {
@@ -34040,7 +34091,7 @@
    ]
   },
   {
-   "id": 1657,
+   "id": 1660,
    "text": "Guadeloupe :Dominica Martinique \"Barbados",
    "variants": [
     {
@@ -34065,7 +34116,7 @@
    ]
   },
   {
-   "id": 1658,
+   "id": 1661,
    "text": "Grenada",
    "variants": [
     {
@@ -34090,7 +34141,7 @@
    ]
   },
   {
-   "id": 1659,
+   "id": 1662,
    "text": "Trinidad",
    "variants": [
     {
@@ -34111,7 +34162,7 @@
    ]
   },
   {
-   "id": 1660,
+   "id": 1663,
    "text": "Brunei",
    "variants": [
     {
@@ -34132,7 +34183,7 @@
    ]
   },
   {
-   "id": 1661,
+   "id": 1664,
    "text": "Malaysia",
    "variants": [
     {
@@ -34153,7 +34204,7 @@
    ]
   },
   {
-   "id": 1663,
+   "id": 1666,
    "text": "Tanzania",
    "variants": [
     {
@@ -34174,7 +34225,7 @@
    ]
   },
   {
-   "id": 1664,
+   "id": 1667,
    "text": "Zambia",
    "variants": [
     {
@@ -34195,7 +34246,7 @@
    ]
   },
   {
-   "id": 1665,
+   "id": 1668,
    "text": "Rhodesia",
    "variants": [
     {
@@ -34216,7 +34267,7 @@
    ]
   },
   {
-   "id": 1666,
+   "id": 1669,
    "text": "South Yemen",
    "variants": [
     {
@@ -34237,7 +34288,7 @@
    ]
   },
   {
-   "id": 1667,
+   "id": 1670,
    "text": "N.Y.",
    "variants": [
     {
@@ -34258,7 +34309,7 @@
    ]
   },
   {
-   "id": 1668,
+   "id": 1671,
    "text": "Botswana",
    "variants": [
     {
@@ -34279,7 +34330,7 @@
    ]
   },
   {
-   "id": 1669,
+   "id": 1672,
    "text": "Sahara",
    "variants": [
     {
@@ -34300,7 +34351,7 @@
    ]
   },
   {
-   "id": 1670,
+   "id": 1673,
    "text": "Equatorial Guinea",
    "variants": [
     {
@@ -34321,7 +34372,7 @@
    ]
   },
   {
-   "id": 1671,
+   "id": 1674,
    "text": "Qatar",
    "variants": [
     {
@@ -34342,7 +34393,7 @@
    ]
   },
   {
-   "id": 1672,
+   "id": 1675,
    "text": "UAE",
    "variants": [
     {
@@ -34363,7 +34414,7 @@
    ]
   },
   {
-   "id": 1673,
+   "id": 1676,
    "text": "Oman",
    "variants": [
     {
@@ -34384,7 +34435,7 @@
    ]
   },
   {
-   "id": 1674,
+   "id": 1677,
    "text": "Bangladesh",
    "variants": [
     {
@@ -34405,7 +34456,7 @@
    ]
   },
   {
-   "id": 1675,
+   "id": 1678,
    "text": "Sri Lanka",
    "variants": [
     {
@@ -34426,7 +34477,7 @@
    ]
   },
   {
-   "id": 1676,
+   "id": 1679,
    "text": "Zaire",
    "variants": [
     {
@@ -34447,7 +34498,7 @@
    ]
   },
   {
-   "id": 1678,
+   "id": 1681,
    "text": "Western Sahara",
    "variants": [
     {
@@ -34468,7 +34519,7 @@
    ]
   },
   {
-   "id": 1679,
+   "id": 1682,
    "text": "Martinique Barbados",
    "variants": [
     {
@@ -34493,7 +34544,7 @@
    ]
   },
   {
-   "id": 1680,
+   "id": 1683,
    "text": "Guinea-Bissau",
    "variants": [
     {
@@ -34518,7 +34569,7 @@
    ]
   },
   {
-   "id": 1681,
+   "id": 1684,
    "text": "Be.",
    "variants": [
     {
@@ -34543,7 +34594,7 @@
    ]
   },
   {
-   "id": 1682,
+   "id": 1685,
    "text": "Papua New Guinea",
    "variants": [
     {
@@ -34564,7 +34615,7 @@
    ]
   },
   {
-   "id": 1683,
+   "id": 1686,
    "text": "Belize",
    "variants": [
     {
@@ -34585,7 +34636,7 @@
    ]
   },
   {
-   "id": 1684,
+   "id": 1687,
    "text": "Vanuatu",
    "variants": [
     {
@@ -34606,7 +34657,7 @@
    ]
   },
   {
-   "id": 1685,
+   "id": 1688,
    "text": "Zimbabwe",
    "variants": [
     {
@@ -34627,7 +34678,7 @@
    ]
   },
   {
-   "id": 1686,
+   "id": 1689,
    "text": "Burkina Faso",
    "variants": [
     {
@@ -34648,7 +34699,7 @@
    ]
   },
   {
-   "id": 1687,
+   "id": 1690,
    "text": "Myanmar",
    "variants": [
     {
@@ -34669,7 +34720,7 @@
    ]
   },
   {
-   "id": 1688,
+   "id": 1691,
    "text": "Russia",
    "variants": [
     {
@@ -34690,7 +34741,7 @@
    ]
   },
   {
-   "id": 1689,
+   "id": 1692,
    "text": "Belarus",
    "variants": [
     {
@@ -34711,7 +34762,7 @@
    ]
   },
   {
-   "id": 1690,
+   "id": 1693,
    "text": "Kazakhstan",
    "variants": [
     {
@@ -34732,7 +34783,7 @@
    ]
   },
   {
-   "id": 1691,
+   "id": 1694,
    "text": "M.",
    "variants": [
     {
@@ -34753,7 +34804,7 @@
    ]
   },
   {
-   "id": 1693,
+   "id": 1696,
    "text": "Georgia",
    "variants": [
     {
@@ -34774,7 +34825,7 @@
    ]
   },
   {
-   "id": 1694,
+   "id": 1697,
    "text": "Uzbekistan",
    "variants": [
     {
@@ -34795,7 +34846,7 @@
    ]
   },
   {
-   "id": 1695,
+   "id": 1698,
    "text": "Kyrgyzstan",
    "variants": [
     {
@@ -34820,7 +34871,7 @@
    ]
   },
   {
-   "id": 1696,
+   "id": 1699,
    "text": "Azer.",
    "variants": [
     {
@@ -34841,7 +34892,7 @@
    ]
   },
   {
-   "id": 1697,
+   "id": 1700,
    "text": "Turkmenistan",
    "variants": [
     {
@@ -34862,7 +34913,7 @@
    ]
   },
   {
-   "id": 1698,
+   "id": 1701,
    "text": "Tajikistan",
    "variants": [
     {
@@ -34883,7 +34934,7 @@
    ]
   },
   {
-   "id": 1699,
+   "id": 1702,
    "text": "Yemen",
    "variants": [
     {
@@ -34904,7 +34955,7 @@
    ]
   },
   {
-   "id": 1700,
+   "id": 1703,
    "text": "Namibia",
    "variants": [
     {
@@ -34925,7 +34976,7 @@
    ]
   },
   {
-   "id": 1701,
+   "id": 1704,
    "text": "Slo.",
    "variants": [
     {
@@ -34946,7 +34997,7 @@
    ]
   },
   {
-   "id": 1702,
+   "id": 1705,
    "text": "Bo.",
    "variants": [
     {
@@ -34967,7 +35018,7 @@
    ]
   },
   {
-   "id": 1703,
+   "id": 1706,
    "text": "Yug.",
    "variants": [
     {
@@ -34988,7 +35039,7 @@
    ]
   },
   {
-   "id": 1704,
+   "id": 1707,
    "text": "Ery.",
    "variants": [
     {
@@ -35009,7 +35060,7 @@
    ]
   },
   {
-   "id": 1705,
+   "id": 1708,
    "text": "Timor-Leste",
    "variants": [
     {
@@ -35034,7 +35085,7 @@
    ]
   },
   {
-   "id": 1706,
+   "id": 1709,
    "text": "South Sudan",
    "variants": [
     {
@@ -35055,7 +35106,7 @@
    ]
   },
   {
-   "id": 1707,
+   "id": 1710,
    "text": "Uganda Kenya",
    "variants": [
     {

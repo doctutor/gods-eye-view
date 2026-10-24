@@ -50,6 +50,40 @@ export function textSimilarity(a, b) {
   return 1 - levenshtein(x, y) / Math.max(x.length, y.length);
 }
 
+// A direction a name may say: the same polity's halves are other polities.
+const DIRECTIONS = new Map([
+  ['north', 'north'],
+  ['northern', 'north'],
+  ['south', 'south'],
+  ['southern', 'south'],
+  ['east', 'east'],
+  ['eastern', 'east'],
+  ['west', 'west'],
+  ['western', 'west'],
+  ['upper', 'upper'],
+  ['lower', 'lower'],
+]);
+
+/** The directions a folded name says, as words or run into one ("southkorea"). */
+export function directionsOf(folded) {
+  const out = new Set();
+  for (const word of folded.split(/[\s-]+/)) {
+    if (DIRECTIONS.has(word)) out.add(DIRECTIONS.get(word));
+    else
+      for (const [prefix, direction] of DIRECTIONS)
+        if (word.length >= prefix.length + 4 && word.startsWith(prefix))
+          out.add(direction);
+  }
+  return out;
+}
+
+/** Whether two texts each say a direction, and not the same one ("East Francia", "West Francia"). */
+export function directionsDiffer(a, b) {
+  const da = directionsOf(foldName(a));
+  const db = directionsOf(foldName(b));
+  return da.size > 0 && db.size > 0 && ![...da].some((d) => db.has(d));
+}
+
 const median = (values) => {
   const s = [...values].sort((a, b) => a - b);
   if (!s.length) return NaN;
@@ -96,7 +130,9 @@ export function trackLabels(samples, { maxKm = 450, maxGap = 4 } = {}) {
           track.lastText === label.text
             ? 1
             : textSimilarity(track.lastText, label.text);
-        if (similar < SAME_TEXT) continue;
+        // East is not West: a label of the other direction is another label.
+        if (similar < SAME_TEXT || directionsDiffer(track.lastText, label.text))
+          continue;
         const score = similar - km / (10 * maxKm);
         if (score > bestScore) {
           bestScore = score;
@@ -164,6 +200,7 @@ export function mergeTracks(
         track.firstT >= o.firstT &&
         track.firstYear - o.lastYear <= maxYears &&
         textSimilarity(o.text, track.text) >= similar &&
+        !directionsDiffer(o.text, track.text) &&
         haversineKm(o.lon, o.lat, track.lon, track.lat) <= maxKm,
     );
     if (into) {

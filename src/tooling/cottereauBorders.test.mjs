@@ -322,6 +322,11 @@ test('the build is keyed on the declared extractor version; samples an older one
   assert.equal(carriesOver({ ...fade, extractor: 2 }, 2), true, 'its own');
   assert.equal(carriesOver({ ...map, extractor: 3 }, 2), false, 'a newer');
   assert.equal(carriesOver(map, 99), false, 'no rule for a later change');
+  assert.equal(
+    carriesOver({ ...map, extractor: 3 }, 4),
+    false,
+    '3 → 4 reorders every sample’s beside labels: none carries over',
+  );
 });
 
 test('the manifest’s samples leave out the skipped (no map), so a year shows the last real map', () => {

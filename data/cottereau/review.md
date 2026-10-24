@@ -4,11 +4,11 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 
 ## Summary
 
-- Tracks seen in three samples or more: 1,505 (of 1,581 seen twice or more).
-- Matched: 1,360 (90.4%): 450 high, 318 medium, 592 low confidence. Matched by name or abbreviation (high and medium): 768 (51.0%); low is a guess by place alone, often a polity Cottereau shows inside one Cliopatria has.
-- By reason: place+time+size 529, name+place 653, place+time+name 51, abbreviation+place 127.
+- Tracks seen in three samples or more: 1,508 (of 1,584 seen twice or more).
+- Matched: 1,278 (84.7%): 451 high, 316 medium, 511 low confidence. Matched by name or abbreviation (high and medium): 767 (50.9%); low is a guess by place alone, often a polity Cottereau shows inside one Cliopatria has.
+- By reason: place+time+size 454, name+place 654, place+time+name 45, abbreviation+place 125.
 
-## Tracks with no match or a weak one (737)
+## Tracks with no match or a weak one (741)
 
 | Label | Years | Samples | Lon, lat | Match | Why | Nearest candidates |
 | --- | --- | ---: | --- | --- | --- | --- |
@@ -36,15 +36,15 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Janapadas | 1092 BC–604 BC | 57 | 81.0, 26.5 | — | no polity alive near it |  |
 | D'mt | 996 BC–300 BC | 94 | 37.0, 14.4 | — | nothing near enough | Kingdom of Kush (267 km) |
 | Sy. | 819 BC–739 BC | 11 | 37.2, 35.6 | Neo-Assyrian Empire | place+time+size | Neo-Hittite states (58 km); Phoenicia (70 km); (Phoenician Empire) (70 km) |
-| Phoenicia Israel | 819 BC–739 BC | 11 | 32.7, 33.1 | (Phoenician Empire) | place+time+name | Phoenicia (190 km); Kingdom of Israel (210 km); Greek City-States (161 km) |
+| Phoenicia Israel | 819 BC–739 BC | 11 | 32.7, 33.1 | Phoenicia | place+time+name | (Phoenician Empire) (190 km); Kingdom of Israel (210 km); Greek City-States (161 km) |
 | Babylon | 762 BC–709 BC | 7 | 43.3, 29.7 | Neo-Assyrian Empire | place+time+size | Elam (445 km) |
-| M. | 747 BC–499 BC | 33 | 22.3, 41.5 | (Macedonian Empire) | abbreviation+place | Macedonian Empire (6 km); Greek City-States (119 km); Achaemenid Empire (369 km) |
+| M. | 747 BC–499 BC | 33 | 22.3, 41.5 | Macedonian Empire | abbreviation+place | (Macedonian Empire) (6 km); Greek City-States (119 km); Achaemenid Empire (369 km) |
 | Rome | 747 BC–30 BC | 136 | 11.9, 40.7 | Roman Republic | place+time+name | Roman Empire (107 km); Roman Kingdom (125 km); Carthage (168 km) |
 | Ba | 672 BC–323 BC | 49 | 107.2, 30.7 | Chu | place+time+size | (Warring States China) (216 km); (Spring and Autumn States) (216 km); Han (557 km) |
 | Anshan | 672 BC–619 BC | 8 | 53.0, 28.9 | — | nothing near enough | Elam (297 km); Assyrian Egypt (297 km); Neo-Assyrian Empire (403 km) |
 | Medes | 627 BC–552 BC | 11 | 51.7, 33.9 | Median Kingdom | place+time+size | Elam (231 km); Assyrian Egypt (225 km); Neo-Assyrian Empire (361 km) |
 | Cilicia | 604 BC–589 BC | 3 | 36.1, 38.0 | Neo-Babylonian Empire | place+time+size | Lydia (222 km); Phoenicia (267 km); (Phoenician Empire) (267 km) |
-| Pandyas | 597 BC–293 | 197 | 77.6, 13.1 | Maurya Empire | place+time+size | Early Pandyas (319 km); Late Pallava Empire (158 km); Satavahana Dynasty (126 km) |
+| Pandyas | 597 BC–293 | 197 | 77.6, 13.1 | Satavahana Dynasty | place+time+size | Early Pandyas (319 km); Maurya Empire (0 km); Late Pallava Empire (158 km) |
 | Shu | 499 BC–323 BC | 28 | 102.0, 30.8 | — | no polity alive near it |  |
 | A. | 331 BC–108 BC | 58 | 39.2, 40.5 | Achaemenid Empire | abbreviation+place | Kingdom of Armenia (58 km); Ptolemaic Kingdom (74 km); Greek City-States (34 km) |
 | B. | 331 BC–108 BC | 40 | 30.5, 40.4 | Kingdom of Bithynia | abbreviation+place | Roman Republic (21 km); (Allegiance of Seleucid Empire to Roman Republic) (21 km); Ptolemaic Kingdom (0 km) |
@@ -72,7 +72,7 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Empire | 26 BC–394 | 108 | 19.0, 35.0 | — | nothing near enough | Roman Empire (299 km); Greek City-States (556 km) |
 | Samatata | 26 BC–317 | 87 | 87.9, 24.6 | — | nothing near enough | Kushan Empire (357 km); Eastern Kushans (362 km); Vakataka Kingdom (403 km) |
 | Gong. | 189–233 | 12 | 124.2, 40.3 | Cao Cao | place+time+size | Dongye (256 km); Han Dynasty (0 km); Goguryeo (96 km) |
-| Liu Biao | 193–209 | 5 | 111.8, 26.7 | Han Dynasty | place+time+size | Cao Cao (570 km); Eastern Wu (213 km) |
+| Liu Biao | 193–209 | 5 | 111.8, 26.7 | Eastern Wu | place+time+size | Han Dynasty (0 km); Cao Cao (570 km) |
 | Abhira | 193–349 | 40 | 72.5, 26.7 | Western Satraps | place+time+size | Yaudheya Republic (111 km); (Alliance between Gupta Empire and Vakataka Kingdom) (0 km); Gupta Empire (0 km) |
 | Ahich. | 193–317 | 32 | 83.6, 26.6 | Eastern Kushans | place+time+size | Kushan Empire (0 km); Satavahana Dynasty (404 km); Vakataka Kingdom (388 km) |
 | Sindh, | 193–237 | 12 | 68.6, 26.4 | Kushan Empire | place+time+size | Parthian Empire (123 km); Western Satraps (276 km); Indo-Scythians (448 km) |
@@ -109,18 +109,18 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Mauro-Romans | 477–574 | 33 | 2.9, 32.5 | — | nothing near enough | Vandal Kingdom (418 km); (Allegiance of Ostrogothic Kingdom to Eastern Roman Empire) (419 km); Eastern Roman Empire (419 km) |
 | Nezak | 487–563 | 26 | 66.6, 34.1 | Turk Shahis | place+time+size | White Huns (0 km); (Alliance between White Huns and Sasanian Empire) (0 km); Sasanian Empire (35 km) |
 | Alkhon | 487–539 | 18 | 74.2, 30.6 | Gupta Empire | place+time+size | White Huns (0 km); (Alliance between Gupta Empire and Vakataka Kingdom) (0 km); (Alliance between White Huns and Sasanian Empire) (372 km) |
-| Sindh | 494–711 | 74 | 68.5, 26.4 | White Huns | place+time+size | Sasanian Empire (209 km); (Alliance between Sasanian Empire and Byzantine Empire) (209 km); Rashidun Caliphate (209 km) |
+| Sindh | 494–711 | 74 | 68.5, 26.4 | — | nothing near enough | White Huns (0 km); Sasanian Empire (209 km); (Alliance between Sasanian Empire and Byzantine Empire) (209 km) |
 | Assa. | 501–554 | 19 | 76.6, 18.5 | Kadamba Empire | place+time+size | Vakataka Kingdom (0 km); (Alliance between Gupta Empire and Vakataka Kingdom) (0 km); Late Pallava Empire (359 km) |
 | Vish. | 501–554 | 19 | 80.1, 17.6 | Vakataka Kingdom | place+time+size | (Alliance between Gupta Empire and Vakataka Kingdom) (0 km); Late Pallava Empire (208 km); Kadamba Empire (286 km) |
 | Nala | 510–649 | 48 | 83.3, 21.1 | Chalukya Dynasty | place+time+size | Vakataka Kingdom (9 km); Gupta Empire (0 km); (Alliance between Gupta Empire and Vakataka Kingdom) (0 km) |
-| S. | 513–554 | 15 | 3.7, 50.6 | (Anglo-Saxon England) | abbreviation+place | (Kingdom of the Franks) (0 km); Kingdom of the Franks (0 km); (Merovingian Empire) (0 km) |
-| P. | 513–521 | 4 | 2.2, 49.7 | (Kingdom of the Franks) | place+time+size | (Merovingian Empire) (0 km); Kingdom of the Franks (0 km); (Anglo-Saxon England) (168 km) |
-| Austrasia | 513–679 | 48 | 7.5, 49.7 | (Kingdom of the Franks) | place+time+size | Frisia Kingdom (54 km); (Merovingian Empire) (0 km); Kingdom of the Franks (0 km) |
+| S. | 513–554 | 15 | 3.7, 50.6 | — | single letters, no abbreviation near |  |
+| P. | 513–521 | 4 | 2.2, 49.7 | — | single letters, no abbreviation near |  |
+| Austrasia | 513–679 | 48 | 7.5, 49.7 | Kingdom of the Franks | place+time+size | Frisia Kingdom (54 km); (Kingdom of the Franks) (0 km); (Merovingian Empire) (0 km) |
 | Malwa | 516–542 | 10 | 75.6, 25.4 | Gupta Empire | place+time+size | (Alliance between Gupta Empire and Vakataka Kingdom) (0 km); Vakataka Kingdom (88 km); Maitraka Dynasty (254 km) |
-| Paris | 524–554 | 11 | 1.0, 48.3 | (Kingdom of the Franks) | place+time+size | Kingdom of the Franks (0 km); (Merovingian Empire) (0 km); Burgundian Kingdom (171 km) |
-| S. | 530–554 | 15 | 0.8, 44.5 | (Kingdom of the Franks) | place+time+size | Kingdom of the Franks (0 km); (Merovingian Empire) (0 km); Visigothic Kingdom (165 km) |
+| Paris | 524–554 | 11 | 1.0, 48.3 | Kingdom of the Franks | place+time+size | (Kingdom of the Franks) (0 km); (Merovingian Empire) (0 km); Burgundian Kingdom (171 km) |
+| S. | 530–554 | 15 | 0.8, 44.5 | — | single letters, no abbreviation near |  |
 | Gaels | 539–897 | 124 | -8.1, 53.7 | Dál Riata | place+time+size | Viking settlements (87 km); Danelaw (365 km); Kingdom of Gwynedd (223 km) |
-| K. | 545–616 | 25 | 74.5, 34.2 | White Huns | place+time+size | Western Göktürks (83 km); Turk Shahis (282 km); Göktürk Khaganate (338 km) |
+| K. | 545–616 | 25 | 74.5, 34.2 | — | single letters, no abbreviation near |  |
 | Ta. | 545–563 | 7 | 72.3, 33.5 | White Huns | place+time+size | Turk Shahis (136 km); Gupta Empire (494 km); (Alliance between Gupta Empire and Vakataka Kingdom) (494 km) |
 | Vardh. | 545–551 | 3 | 76.1, 30.8 | Gupta Empire | place+time+size | (Alliance between Gupta Empire and Vakataka Kingdom) (36 km); White Huns (311 km) |
 | Kalachuri | 545–616 | 25 | 76.1, 23.6 | Vakataka Kingdom | place+time+size | Harsha's Empire (0 km); (Alliance between Gupta Empire and Vakataka Kingdom) (0 km); Gupta Empire (90 km) |
@@ -131,9 +131,9 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Vishnuk. | 557–613 | 20 | 78.0, 20.4 | Harsha's Empire | place+time+size | Maitraka Dynasty (413 km); Chalukya Dynasty (423 km); Late Pallava Empire (505 km) |
 | As. | 557–566 | 4 | 76.1, 18.6 | Chalukya Dynasty | place+time+size | Late Pallava Empire (403 km); Maitraka Dynasty (395 km) |
 | Hephthalites | 557–563 | 3 | 67.7, 38.4 | White Huns | place+time+size | Göktürk Khaganate (0 km); Turk Shahis (277 km); Sasanian Empire (264 km) |
-| Neu. | 563–613 | 18 | 1.1, 48.2 | (Kingdom of the Franks) | place+time+size | Kingdom of the Franks (0 km); (Merovingian Empire) (0 km); Burgundian Kingdom (0 km) |
+| Neu. | 563–613 | 18 | 1.1, 48.2 | Kingdom of the Franks | place+time+size | (Kingdom of the Franks) (0 km); (Merovingian Empire) (0 km); Burgundian Kingdom (0 km) |
 | Burgundy | 568–610 | 15 | 3.2, 46.1 | Burgundian Kingdom | place+time+name | (Kingdom of the Franks) (0 km); Kingdom of the Franks (0 km); (Merovingian Empire) (0 km) |
-| Altava | 577–694 | 40 | -1.1, 34.4 | Umayyad Caliphate | place+time+size | (Alliance between Sasanian Empire and Byzantine Empire) (258 km); Eastern Roman Empire (258 km); Byzantine Empire (258 km) |
+| Altava | 577–694 | 40 | -1.1, 34.4 | — | nothing near enough | Umayyad Caliphate (0 km); Eastern Roman Empire (258 km); Byzantine Empire (258 km) |
 | Vanga | 589–610 | 8 | 88.1, 25.9 | Maukhari Dynasty | place+time+size | Gauda Kingdom (166 km); Kamarupa Kingdom (182 km) |
 | Lata | 589–616 | 10 | 71.2, 19.9 | Maitraka Dynasty | place+time+size | Harsha's Empire (318 km); Chalukya Dynasty (347 km) |
 | Chera | 589–1018 | 150 | 74.2, 10.2 | Chola Empire | place+time+name | Chalukya Dynasty (201 km); Rashtrakuta Dynasty (201 km); Kalabhra Dynasty (207 km) |
@@ -145,7 +145,7 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Koying | 601–644 | 15 | 99.5, -4.0 | — | no polity alive near it |  |
 | Muslims | 621–627 | 3 | 40.4, 25.6 | — | nothing near enough | Sasanian Empire (398 km); Eastern Roman Empire (486 km) |
 | Caliphate | 635–641 | 3 | 43.9, 24.5 | Rashidun Caliphate | place+time+name |  |
-| Neustria | 641–679 | 14 | 1.9, 48.5 | (Kingdom of the Franks) | place+time+size | Aquitaine (0 km); (Merovingian Empire) (0 km); Kingdom of the Franks (0 km) |
+| Neustria | 641–679 | 14 | 1.9, 48.5 | Kingdom of the Franks | place+time+size | Aquitaine (0 km); (Merovingian Empire) (0 km); (Kingdom of the Franks) (0 km) |
 | ani | 646–670 | 7 | 115.0, -2.8 | — | no polity alive near it |  |
 | Jambi | 646–670 | 9 | 103.8, -3.0 | — | nothing near enough | Tarumanagara (395 km) |
 | Malwa | 649–755 | 37 | 76.1, 24.0 | Maitraka Dynasty | place+time+size | Chalukya Dynasty (178 km); Gurjara-Pratihara Dynasty (0 km); Kannauj-Varman Dynasty (231 km) |
@@ -163,14 +163,14 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | L. Chenla | 708–943 | 133 | 104.5, 15.6 | Land Chenla | abbreviation+place | Chenla (0 km); (Chenla) (0 km); Water Chenla (228 km) |
 | Zabul | 723–868 | 50 | 68.3, 33.4 | Turk Shahis | place+time+size | Saffarid Dynasty (18 km); (Allegiance of Ziyadid dynasty to Abbasid Caliphate) (247 km); Pala Empire (283 km) |
 | W. | 732–770 | 14 | -1.5, 51.2 | Kingdom of Wessex | abbreviation+place | Kingdom of Gwent (94 km); Kingdom of Powys (143 km); Kingdom of Mercia (0 km) |
-| Barghawata | 747–755 | 4 | -3.5, 31.1 | Umayyad Caliphate | place+time+size | Emirate of Nekor (412 km) |
-| Oman | 749–1051 | 108 | 58.1, 22.3 | Abbasid Caliphate | place+time+size | Umayyad Caliphate (0 km); (Allegiance of Ziyadid dynasty to Abbasid Caliphate) (0 km); (Alliance between Samanid Empire and Ziyadid dynasty) (357 km) |
+| Barghawata | 747–755 | 4 | -3.5, 31.1 | — | nothing near enough | Umayyad Caliphate (0 km); Emirate of Nekor (412 km) |
+| Oman | 749–1051 | 108 | 58.1, 22.3 | Buyid Dynasty | place+time+size | Umayyad Caliphate (0 km); Abbasid Caliphate (0 km); (Allegiance of Ziyadid dynasty to Abbasid Caliphate) (0 km) |
 | Lombar. | 752–773 | 8 | 9.7, 45.1 | Kingdom of Italy | place+time+size | (Carolingian Empire) (129 km); Papal States (122 km); (Allegiance of Papal States to Byzantine Empire) (122 km) |
 | Th. | 752–1199 | 144 | 85.8, 27.4 | Gahadavala Dynasty | place+time+size | Tibetan Empire (60 km); Tibetans (60 km); Kannauj-Varman Dynasty (49 km) |
 | P.S | 758–951 | 34 | 11.4, 41.3 | Papal States | place+time+size | Duchy of Naples (224 km); Kingdom of the Franks (103 km); (Kingdom of the Franks) (103 km) |
 | Sijilmasa | 758–926 | 60 | 0.6, 29.2 | — | nothing near enough | Rustamid dynasty (394 km); Idrisids (501 km); Fatimid Caliphate (501 km) |
 | Soma. | 761–1040 | 100 | 84.4, 22.1 | Pala Empire | place+time+size | Rashtrakuta Dynasty (223 km); Chola Empire (453 km); Gurjara-Pratihara Dynasty (148 km) |
-| B. | 761–940 | 58 | 84.8, 20.3 | Pala Empire | place+time+size | Rashtrakuta Dynasty (78 km); Gurjara-Pratihara Dynasty (344 km); Kannauj-Varman Dynasty (430 km) |
+| B. | 761–940 | 58 | 84.8, 20.3 | — | single letters, no abbreviation near |  |
 | Akbhazia | 788–1007 | 79 | 38.7, 42.4 | Khazaria | place+time+name | Abbasid Caliphate (234 km); Georgia (155 km); (Alliance between Byzantine Empire and Khazaria) (138 km) |
 | Norwegian States | 800–871 | 26 | 9.0, 60.8 | Old Kingdom of Norway | place+time+name | Scandinavian minor kingdoms (0 km); Viking settlements (535 km) |
 | Swedish States | 800–968 | 60 | 14.8, 58.8 | Scandinavian minor kingdoms | place+time+size | (Kingdom of Denmark) (179 km); Kingdom of Denmark (179 km); Old Kingdom of Norway (152 km) |
@@ -180,7 +180,7 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | ghawata | 828–973 | 50 | -12.3, 31.5 | Barghawata Conference | place+time+size | Idrisids (402 km); Fatimid Caliphate (402 km) |
 | Gansu | 843–1035 | 54 | 96.8, 40.9 | Ganzhou Kingdom | place+time+name | Uyghur Khaganate (17 km); Tibetan Empire (0 km); Qocho Kingdom (6 km) |
 | Yutian | 843–1004 | 58 | 81.6, 38.5 | Kingdom of Khotan | place+time+size | Tibetan Empire (0 km); Kara-Khanids (0 km); Tibetans (191 km) |
-| .uwu | 843–1398 | 191 | 124.2, -2.7 | Majapahit | place+time+size |  |
+| .uwu | 843–1398 | 191 | 124.2, -2.7 | — | nothing near enough | Majapahit (77 km) |
 | Hausa | 851–1807 | 362 | 6.9, 12.0 | Sokoto Caliphate | place+time+size | Bornu Empire (438 km); Oyo Empire (422 km) |
 | Lamuri | 851–943 | 33 | 93.9, 3.7 | — | no polity alive near it |  |
 | Mul. | 854–1010 | 52 | 72.2, 29.9 | Sind-Habbari Dynasty | place+time+size | Chauhan Dynasty (85 km); (Alliance between Samanid Empire and Ziyadid dynasty) (152 km); Samanid Empire (152 km) |
@@ -193,9 +193,9 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Chavda | 920–940 | 8 | 68.6, 20.5 | Gurjara-Pratihara Dynasty | place+time+size | Sind-Habbari Dynasty (344 km); Rashtrakuta Dynasty (418 km); Samanid Empire (526 km) |
 | Medang | 931–1015 | 31 | 111.8, -9.4 | Mataram Kingdom | place+time+size | Galuh Kingdom (246 km); Early Balinese Kingdoms (296 km); Sunda Kingdom (533 km) |
 | Jeongan | 940–957 | 7 | 132.4, 41.3 | Liao Dynasty | place+time+size | Heian Japan (562 km); Goryeo (434 km) |
-| K. | 943–1049 | 53 | 84.7, 20.3 | — | nothing near enough | Chola Empire (296 km); Pala Empire (357 km); Rashtrakuta Dynasty (379 km) |
+| K. | 943–1049 | 53 | 84.7, 20.3 | — | single letters, no abbreviation near |  |
 | Solanki | 943–1241 | 109 | 67.8, 20.8 | Chaulukya Dynasty | place+time+size | Samanid Empire (460 km); (Alliance between Samanid Empire and Ziyadid dynasty) (460 km); (Delhi Sultanate) (322 km) |
-| Ikhshidids | 945–968 | 9 | 29.6, 30.2 | Abbasid Caliphate | place+time+size | (Allegiance of Ziyadid dynasty to Abbasid Caliphate) (0 km); Fatimid Caliphate (450 km); Cyprus Condominium (573 km) |
+| Ikhshidids | 945–968 | 9 | 29.6, 30.2 | — | nothing near enough | Abbasid Caliphate (0 km); (Allegiance of Ziyadid dynasty to Abbasid Caliphate) (0 km); Fatimid Caliphate (450 km) |
 | Nri | 948–1099 | 55 | 9.7, 5.4 | — | no polity alive near it |  |
 | Sal. | 957–976 | 8 | 47.9, 38.5 | Hamdanid Emirates | place+time+size | Shirvan (124 km); Abbasid Caliphate/Buyid Dynasty (143 km); Kingdom of Vaspurakan (226 km) |
 | Sy | 959–971 | 5 | 46.1, 39.9 | Bagratid Armenia | place+time+size | Shirvan (38 km); Hamdanid Emirates (32 km); Kingdom of Vaspurakan (109 km) |
@@ -207,10 +207,10 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Cr | 979–996 | 5 | 16.1, 44.9 | Kingdom of Croatia | place+time+size | Byzantine Empire (54 km); (Holy Roman Empire) (92 km); Holy Roman Empire (92 km) |
 | Raw. | 979–1051 | 27 | 47.0, 38.1 | Hamdanid Emirates | place+time+size | Great Seljuk Empire (0 km); Shirvan (165 km); Bagratid Armenia (102 km) |
 | Xixia | 984–1207 | 81 | 104.0, 39.9 | Western Xia | place+time+size | (Vassalage of Western Xia to Great Jin) (0 km); Liao Dynasty (81 km); Ganzhou Kingdom (0 km) |
-| G. | 984–1307 | 110 | 80.2, 22.3 | Western Chalukya Empire | place+time+size | Yadava Dynasty (0 km); (Allegiance of Delhi Sultanate to Abbasid Caliphate) (103 km); Chandela Kingdom (139 km) |
+| G. | 984–1307 | 110 | 80.2, 22.3 | — | single letters, no abbreviation near |  |
 | Sv. | 990–996 | 3 | 43.7, 38.2 | Kingdom of Vaspurakan | place+time+size | Hamdanid Emirates (54 km); Shirvan (301 km); Byzantine Empire (109 km) |
 | Ma. | 990–1063 | 27 | 40.5, 37.9 | Hamdanid Emirates | place+time+size | Byzantine Empire (0 km); Kingdom of Vaspurakan (164 km); Bagratid Armenia (247 km) |
-| N. | 990–996 | 3 | 38.9, 36.5 | Hamdanid Emirates | place+time+size | Byzantine Empire (62 km); Fatimid Caliphate (221 km); Kingdom of Vaspurakan (359 km) |
+| N. | 990–996 | 3 | 38.9, 36.5 | — | single letters, no abbreviation near |  |
 | N.Uqaylids | 998–1068 | 26 | 41.5, 36.3 | Hamdanid Emirates | place+time+size | Buyid Dynasty (279 km); Byzantine Empire (120 km); Great Seljuk Empire (105 km) |
 | Med. | 998–1015 | 7 | 103.1, -6.4 | Srivijaya | place+time+size | Sunda Kingdom (254 km); Galuh Kingdom (415 km) |
 | V. | 1001–1021 | 6 | 43.9, 38.4 | Kingdom of Vaspurakan | abbreviation+place | Hamdanid Emirates (48 km); Bagratid Armenia (86 km); Byzantine Empire (119 km) |
@@ -266,9 +266,10 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Deva | 1202–1294 | 36 | 90.5, 24.6 | Sena Dynasty | place+time+size | (Allegiance of Delhi Sultanate to Abbasid Caliphate) (52 km); (Delhi Sultanate) (52 km); Mamluk Dynasty (52 km) |
 | Cutch | 1202–1301 | 39 | 66.8, 22.9 | Chaulukya Dynasty | place+time+size | Ghurid Dynasty (127 km); Mamluk Dynasty (127 km); (Delhi Sultanate) (127 km) |
 | Daju | 1202–1398 | 76 | 30.6, 16.6 | Alodia | place+time+size | Mamluk Sultanate (197 km); Makuria (197 km) |
-| Kilwa | 1202–1512 | 120 | 41.5, -6.8 | (Portuguese Empire) | place+time+size | Portuguese Africa (205 km) |
-| Dehli | 1207–1524 | 123 | 74.1, 28.5 | (Delhi Sultanate) | place+time+name | (Allegiance of Delhi Sultanate to Abbasid Caliphate) (0 km); Khalji Dynasty (0 km); Tughlaq Dynasty (0 km) |
+| Kilwa | 1202–1512 | 120 | 41.5, -6.8 | — | nothing near enough | Portuguese Africa (205 km); (Portuguese Empire) (205 km) |
+| Dehli | 1207–1524 | 123 | 74.1, 28.5 | Lodi Dynasty | place+time+size | (Delhi Sultanate) (0 km); (Allegiance of Delhi Sultanate to Abbasid Caliphate) (0 km); Khalji Dynasty (0 km) |
 | Khalji | 1213–1223 | 5 | 86.3, 24.9 | Sena Dynasty | place+time+size | (Delhi Sultanate) (257 km); (Allegiance of Delhi Sultanate to Abbasid Caliphate) (257 km); Kathmandu (308 km) |
+| Eastern Xia | 1215–1231 | 7 | 133.0, 45.6 | Great Jin | place+time+size | (Allegiance of Goryeo to Great Jin) (0 km); (Allegiance of Southern Song to Great Jin) (0 km); Mongol Empire (0 km) |
 | Ajuran | 1215–1676 | 181 | 44.9, 3.7 | — | nothing near enough | Ethiopian Empire (460 km); Adal Sultanate (460 km) |
 | Ep | 1218–1223 | 3 | 21.4, 39.7 | Despotate of Epirus | place+time+size | Republic of Venice (122 km); Duchy of Athens (132 km); Latin Empire (154 km) |
 | Warsangali | 1218–1599 | 149 | 47.5, 9.5 | — | nothing near enough | Ottoman Empire (278 km); Adal Sultanate (280 km); Sultanate of Harar (280 km) |
@@ -278,24 +279,24 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Vaghela | 1244–1301 | 23 | 67.8, 20.8 | Chaulukya Dynasty | place+time+size | Mamluk Dynasty (309 km); (Delhi Sultanate) (309 km); (Allegiance of Delhi Sultanate to Abbasid Caliphate) (309 km) |
 | Usfurids | 1254–1549 | 115 | 49.2, 23.6 | Bahrani Dynasty | place+time+size | (Portuguese Empire) (185 km); Hamdanid Emirates (185 km); Timurid Empire (526 km) |
 | Gay | 1267–1348 | 32 | 94.3, 3.9 | Samudera Pasai Sultanate | place+time+size |  |
-| Bengall | 1273–1280 | 4 | 86.2, 24.9 | (Delhi Sultanate) | place+time+size | Mongol Empire (342 km); Mamluk Dynasty (0 km); Eastern Ganga Kingdom (238 km) |
+| Bengall | 1273–1280 | 4 | 86.2, 24.9 | Mamluk Dynasty | place+time+size | (Delhi Sultanate) (0 km); Mongol Empire (342 km); Eastern Ganga Kingdom (238 km) |
 | Bunyoro | 1275–1778 | 199 | 28.5, 2.0 | — | no polity alive near it |  |
 | Pegu | 1288–1549 | 102 | 95.5, 14.9 | Hanthawaddy Kingdom | place+time+size | Pagan Kingdom (87 km); First Toungoo Empire (87 km); Prome Kingdom (303 km) |
-| Is. | 1294–1299 | 3 | 33.4, 41.1 | Ilkhanate | place+time+size | (Allegiance of Ilkhanate to Yuan Dynasty) (0 km); Byzantine Empire (52 km); Empire of Trebizond (270 km) |
+| Is. | 1294–1299 | 3 | 33.4, 41.1 | Byzantine Empire | place+time+size | Ilkhanate (0 km); (Allegiance of Ilkhanate to Yuan Dynasty) (0 km); Empire of Trebizond (270 km) |
 | Bo | 1294–1322 | 4 | -1.7, 8.3 | — | no polity alive near it |  |
 | Muar | 1294–1353 | 24 | 105.9, 1.9 | Malaya | place+time+size | Majapahit (174 km); Kingdom of Singapura (229 km) |
 | Palembang | 1294–1377 | 19 | 99.2, -4.3 | — | nothing near enough | Majapahit (266 km) |
 | Tampungan | 1296–1398 | 40 | 129.5, 5.4 | — | no polity alive near it |  |
-| P. | 1299–1353 | 21 | 102.7, 4.3 | Malaya | place+time+size | Majapahit (0 km); Kingdom of Singapura (337 km); Sultanate of Kedah (230 km) |
+| P. | 1299–1353 | 21 | 102.7, 4.3 | — | single letters, no abbreviation near |  |
 | Melan. | 1301–1348 | 19 | 111.0, 3.8 | — | no polity alive near it |  |
 | Arus | 1301–1340 | 16 | 101.5, 1.3 | Majapahit | place+time+size | Kingdom of Singapura (226 km); Malaya (111 km); Sultanate of Kedah (432 km) |
-| H. | 1301–1340 | 16 | 99.6, -0.5 | Majapahit | place+time+size | Malaya (402 km); Kingdom of Singapura (490 km) |
+| H. | 1301–1340 | 16 | 99.6, -0.5 | — | single letters, no abbreviation near |  |
 | Ba. | 1304–1784 | 185 | 82.6, 28.6 | Gorkha Kingdom | place+time+size | Yuan Dynasty (100 km); Tibet (108 km); Nawab of Awadh (96 km) |
 | Yapahuwa | 1317–1340 | 10 | 85.0, 6.9 | — | nothing near enough | Ceylon (346 km); Jaffna kingdom (451 km) |
 | Kala. | 1325–1559 | 92 | 84.5, 22.1 | Sultanate of Bengal | place+time+size | Khalji Dynasty (79 km); Tughlaq Dynasty (77 km); Yadava Dynasty (141 km) |
 | Anatolian Beyliks | 1335–1390 | 22 | 35.9, 39.0 | Ottoman Empire | place+time+size | (Allegiance of Ilkhanate to Yuan Dynasty) (0 km); Armenian Kingdom of Cilicia (127 km); Beylik of Karaman (91 km) |
 | Hazar. | 1335–1390 | 22 | 47.7, 33.4 | Jalayirid Sultanate | place+time+size | (Allegiance of Ilkhanate to Yuan Dynasty) (0 km); Ilkhanate (0 km); (Allegiance of Jalayirid Sultanate to Timurid Empire) (0 km) |
-| Musunuri | 1338–1367 | 12 | 83.0, 15.1 | (Delhi Sultanate) | place+time+size | Bahmani Sultanate (296 km); Tughlaq Dynasty (207 km); Eastern Ganga Kingdom (280 km) |
+| Musunuri | 1338–1367 | 12 | 83.0, 15.1 | — | nothing near enough | (Delhi Sultanate) (207 km); Tughlaq Dynasty (207 km); Eastern Ganga Kingdom (280 km) |
 | Raigama | 1343–1411 | 27 | 84.7, 6.9 | — | nothing near enough | Ceylon (310 km); Jaffna kingdom (420 km); (Vassalage of Jaffna kingdom to Vijayanagara Empire) (422 km) |
 | State | 1346–1387 | 17 | 26.0, 57.2 | Teutonic Order | place+time+size | (Allegiance of Swiss Confederation to Holy Roman Empire) (28 km); (Allegiance of Teutonic Order to Holy Roman Empire) (28 km); (Holy Roman Empire) (28 km) |
 | Mirabanids | 1346–1382 | 15 | 63.9, 30.0 | — | nothing near enough | Kartids (302 km); Muzaffarids (360 km); Sind-Samma Dynasty (460 km) |
@@ -314,9 +315,9 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Berau | 1380–1524 | 44 | 119.6, 3.2 | Sultanate of Brunei | place+time+size | Majapahit (305 km); Sultanate of Sulu (433 km); Sultanate of Maguindanao (484 km) |
 | Kh. | 1382–1599 | 86 | 76.7, 21.5 | Ahmadnagar Sultanate | place+time+size | Mughal Empire (8 km); Bahmani Sultanate (35 km); Berar Sultanate (0 km) |
 | Igala | 1390–1534 | 57 | 8.2, 9.6 | — | nothing near enough | Bornu Empire (452 km) |
-| Chandela | 1393–1567 | 63 | 81.1, 24.8 | (Delhi Sultanate) | place+time+size | Mughal Empire (0 km); Lodi Dynasty (19 km); Jaunpur Sultanate (104 km) |
+| Chandela | 1393–1567 | 63 | 81.1, 24.8 | Lodi Dynasty | place+time+size | Mughal Empire (0 km); (Delhi Sultanate) (19 km); Jaunpur Sultanate (104 km) |
 | Malwa | 1393–1564 | 68 | 76.4, 24.6 | Mughal Empire | place+time+size | Sur Empire (13 km); (Delhi Sultanate) (202 km); Sayyid Dynasty (221 km) |
-| G. | 1393–1564 | 94 | 80.3, 22.2 | Bahmani Sultanate | place+time+size | Mughal Empire (0 km); Sur Empire (151 km); Berar Sultanate (198 km) |
+| G. | 1393–1564 | 94 | 80.3, 22.2 | — | single letters, no abbreviation near |  |
 | Bamum | 1395–1584 | 75 | 12.5, 7.2 | — | nothing near enough | Bornu Empire (270 km); Kingdom of Portugal (550 km); (Portuguese Empire) (550 km) |
 | Dai | 1400–1406 | 3 | 107.6, 20.0 | Ngô Dynasty | place+time+size | Ming Dynasty (138 km); (Allegiance of Joseon to Ming Dynasty) (138 km); Lan Xang (273 km) |
 | Ngu | 1400–1406 | 3 | 107.5, 18.4 | Ngô Dynasty | place+time+name | Ming Dynasty (121 km); Lan Xang (183 km); (Allegiance of Joseon to Ming Dynasty) (121 km) |
@@ -333,7 +334,7 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Chudasama | 1408–1478 | 28 | 66.8, 20.8 | — | nothing near enough | Sind-Samma Dynasty (352 km); Timurid Empire (518 km); (Vassalage of Qara Qoyunlu to Timurid Empire) (518 km) |
 | Pag. | 1411–1456 | 19 | 101.2, 0.1 | Majapahit | place+time+size | Sultanate of Kedah (551 km) |
 | Kotte | 1413–1467 | 22 | 83.8, 7.3 | Ceylon | place+time+size | (Vassalage of Jaffna kingdom to Vijayanagara Empire) (311 km); Jaffna kingdom (311 km); Vijayanagara Empire (539 km) |
-| Marwar | 1416–1456 | 17 | 72.8, 26.6 | (Delhi Sultanate) | place+time+size | Sind-Samma Dynasty (249 km); Sayyid Dynasty (255 km); Timurid Empire (333 km) |
+| Marwar | 1416–1456 | 17 | 72.8, 26.6 | Sind-Samma Dynasty | place+time+size | Sayyid Dynasty (255 km); Timurid Empire (333 km); Lodi Dynasty (204 km) |
 | Tuaregs | 1416–1467 | 21 | -1.4, 19.7 | Mali Empire | place+time+size | Songhai Empire (193 km) |
 | Azores | 1421–2025 | 264 | -28.2, 37.4 | Portugal | place+time+size | (Portuguese Empire) (109 km); Portuguese Republic (109 km); (Alliance between Papal States and Spanish Empire) (109 km) |
 | Madeira | 1421–2025 | 264 | -17.0, 33.5 | Portugal | place+time+size | (Spanish Empire) (74 km); Estado Novo (74 km); (Portuguese Empire) (74 km) |
@@ -341,7 +342,7 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Zafu. | 1432–1494 | 25 | -11.4, 16.5 | Mali Empire | place+time+size | Songhai Empire (0 km) |
 | Cambodia | 1432–1470 | 16 | 105.7, 13.0 | Khmer Empire | place+time+size | Chámpa (163 km); Lan Xang (103 km); Ayutthaya Kingdom (281 km) |
 | Rinpungpa | 1437–1564 | 51 | 87.9, 29.4 | Tibet | place+time+size | Sultanate of Bengal (328 km); Jaunpur Sultanate (360 km); Hussain Shahi Dynasty (329 km) |
-| K. | 1437–1447 | 5 | 90.4, 27.4 | Sultanate of Bengal | place+time+size | Tibet (109 km); Kathmandu (483 km); Jaunpur Sultanate (402 km) |
+| K. | 1437–1447 | 5 | 90.4, 27.4 | — | single letters, no abbreviation near |  |
 | Waga. | 1442–1494 | 21 | -1.8, 14.7 | Mali Empire | place+time+size | Songhai Empire (147 km) |
 | HRE | 1451–1805 | 144 | 9.5, 50.5 | Holy Roman Empire Minor States | place+time+size | Kingdom of France (42 km); (Kingdom of France) (42 km); Swedish Empire (0 km) |
 | Jaunpur (Chandela | 1451–1478 | 6 | 81.5, 25.9 | Jaunpur Sultanate | place+time+name | Sultanate of Bengal (324 km); Sayyid Dynasty (344 km); Kathmandu (425 km) |
@@ -358,15 +359,15 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Ladakh | 1462–1681 | 88 | 79.8, 33.5 | Tibet | place+time+size | Kashmiri Sultanate (54 km); Lodi Dynasty (245 km); Chagatai Khanate (220 km) |
 | Morocco | 1464–1470 | 3 | -6.5, 31.7 | Marinid Sultanate | place+time+size | Wattasid dynasty (0 km); Kingdom of Portugal (460 km); Crown of Castile (487 km) |
 | Ternate | 1467–1494 | 11 | 131.0, 1.4 | — | nothing near enough | Majapahit (491 km) |
-| Jaffna Kandy | 1470–1579 | 44 | 83.5, 8.2 | (Portuguese Empire) | place+time+size | Jaffna kingdom (253 km); (Vassalage of Jaffna kingdom to Vijayanagara Empire) (253 km); Ceylon (199 km) |
+| Jaffna Kandy | 1470–1579 | 44 | 83.5, 8.2 | Portuguese Ceylon | place+time+size | Jaffna kingdom (253 km); (Vassalage of Jaffna kingdom to Vijayanagara Empire) (253 km); Ceylon (199 km) |
 | Kotte | 1470–1594 | 50 | 78.1, 7.2 | Vijayanagara Empire | place+time+size | (Portuguese Empire) (175 km); Portuguese Empire (175 km); Portuguese Colonies (175 km) |
 | Marrak. | 1473–1507 | 14 | -7.1, 30.4 | Wattasid dynasty | place+time+size | Kingdom of Portugal (263 km); Portuguese Africa (263 km); (Portuguese Empire) (263 km) |
-| Cape Verde ... | 1478–1579 | 17 | -26.1, 15.5 | (Portuguese Empire) | place+time+size | Portuguese Empire (176 km); Portuguese Africa (176 km); Kingdom of Portugal (176 km) |
+| Cape Verde ... | 1478–1579 | 17 | -26.1, 15.5 | Kingdom of Portugal | place+time+size | (Portuguese Empire) (176 km); Portuguese Empire (176 km); Portuguese Africa (176 km) |
 | Ku. | 1478–1524 | 19 | 116.5, -0.1 | — | nothing near enough | Sultanate of Brunei (458 km) |
 | Muscovy | 1481–1544 | 26 | 40.7, 59.9 | Grand Principality of Moscow | place+time+name | Principality of Vladimir-Suzdal (225 km); Novgorod Republic (261 km); Tver (292 km) |
 | Gujarat | 1481–1572 | 37 | 70.2, 20.0 | Portuguese Empire | place+time+size | Mughal Empire (88 km); Bahmani Sultanate (258 km); (Portuguese Empire) (141 km) |
 | Cape | 1481–1532 | 5 | -26.6, 16.3 | Kingdom of Portugal | place+time+size | (Portuguese Empire) (161 km); Portuguese Empire (161 km); Portuguese Africa (161 km) |
-| Verde .*. | 1481–1532 | 5 | -25.5, 14.8 | (Portuguese Empire) | place+time+size | Portuguese Empire (117 km); Kingdom of Portugal (117 km); Portuguese Africa (117 km) |
+| Verde .*. | 1481–1532 | 5 | -25.5, 14.8 | Kingdom of Portugal | place+time+size | (Portuguese Empire) (117 km); Portuguese Empire (117 km); Portuguese Africa (117 km) |
 | Maravi | 1481–1718 | 96 | 35.8, -14.8 | — | nothing near enough | Portuguese Africa (323 km); (Portuguese Empire) (323 km); Spanish Empire (323 km) |
 | Pajajaran | 1483–1524 | 17 | 107.1, -8.5 | Sunda Kingdom | place+time+size | Majapahit (286 km); Sultanate of Cirebon (190 km); Demak Sultanate (286 km) |
 | B.ani | 1491–1497 | 3 | 78.4, 17.6 | Bahmani Sultanate | place+time+name | (Vassalage of Jaffna kingdom to Vijayanagara Empire) (0 km); Bijapur Sultanate (54 km); Bidar Sultanate (0 km) |
@@ -377,7 +378,7 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Tidore | 1497–1778 | 114 | 131.4, 1.0 | — | nothing near enough | Dutch Republic (315 km); (Dutch Republic) (315 km) |
 | Terra de Santa Cruz | 1499–1534 | 15 | -38.9, -1.4 | — | nothing near enough | (Portuguese Empire) (505 km); Portuguese Empire (505 km) |
 | Sennar | 1504–1820 | 131 | 30.7, 15.1 | Funj Sultanate | place+time+size | Alodia (125 km); Sultanate of Darfur (338 km); Makuria Kingdom (264 km) |
-| Akan | 1507–1698 | 78 | -1.3, 6.4 | English Colonial Empire | place+time+size | (Alliance between Papal States and Spanish Empire) (127 km); (Kingdom of England) (116 km); Spanish Empire (127 km) |
+| Akan | 1507–1698 | 78 | -1.3, 6.4 | Dutch Republic | place+time+size | (Alliance between Papal States and Spanish Empire) (127 km); (Kingdom of England) (116 km); Spanish Empire (127 km) |
 | Santa . | 1507–1641 | 51 | 53.8, -20.8 | — | nothing near enough | (Dutch Republic) (351 km); Dutch Republic (351 km) |
 | Apolonia | 1507–1641 | 51 | 54.1, -22.3 | — | nothing near enough | (Dutch Republic) (374 km); Dutch Republic (374 km) |
 | Beni Hafsid | 1509–1532 | 10 | 7.8, 35.4 | Hafsid Dynasty | place+time+name | Zayyanid dynasty (287 km); Spanish Empire (296 km); (Spanish Empire) (296 km) |
@@ -392,7 +393,7 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | K.K | 1517–1554 | 5 | 45.3, 41.5 | Kingdom of Kakheti | place+time+size | Kingdom of Georgia (10 km); Shirvan (90 km); Safavid Dynasty (90 km) |
 | Yemen | 1517–1537 | 9 | 45.9, 15.1 | Ottoman Empire | place+time+size | Mamluk Sultanate (0 km); (Portuguese Empire) (226 km); Kingdom of Portugal (226 km) |
 | Bag. | 1517–1868 | 149 | 15.7, 12.1 | Bornu Empire | place+time+size | Wadai Empire (99 km); Sokoto Caliphate (202 km) |
-| Timor | 1517–1975 | 199 | 127.2, -10.3 | Portuguese Colonies | place+time+size | (British Empire) (232 km); British Colonial Empire (232 km); Estado Novo (166 km) |
+| Timor | 1517–1975 | 199 | 127.2, -10.3 | Dutch Republic | place+time+size | (British Empire) (232 km); British Colonial Empire (232 km); Estado Novo (166 km) |
 | New Spain | 1522–1589 | 28 | -97.8, 14.3 | Spanish Empire | place+time+size | (Alliance between Papal States and Spanish Empire) (181 km); (Spanish Empire) (181 km); (Personal union of Spanish Empire with Habsburg Monarchy) (181 km) |
 | LittleVenice | 1529–1544 | 7 | -67.5, 9.3 | — | nothing near enough | Spanish Empire (290 km); (Personal union of Spanish Empire with Habsburg Monarchy) (290 km); (Spanish Empire) (290 km) |
 | Rimpulaeng | 1532–1559 | 12 | 129.1, 5.2 | — | nothing near enough | Sultanate of Brunei (345 km); Sultanate of Maguindanao (345 km) |
@@ -403,7 +404,7 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Nupe Igala Benin | 1537–1584 | 20 | 5.7, 8.6 | — | no polity alive near it |  |
 | Brazil | 1537–1619 | 29 | -39.1, -7.5 | Spanish Empire | place+time+size | (Spanish Empire) (65 km); (Alliance between Papal States and Spanish Empire) (299 km); Portuguese Empire (298 km) |
 | Neo-Incas | 1537–1564 | 12 | -67.9, -10.2 | — | nothing near enough | Inca Empire (341 km); (Spanish Empire) (341 km); (Personal union of Spanish Empire with Habsburg Monarchy) (341 km) |
-| Ire. | 1542–1601 | 18 | -7.4, 52.7 | (Kingdom of England) | place+time+size | Kingdom of England (0 km); Denmark-Norway (65 km); Kingdom of Scotland (184 km) |
+| Ire. | 1542–1601 | 18 | -7.4, 52.7 | Kingdom of England | place+time+size | (Kingdom of England) (0 km); Denmark-Norway (65 km); Kingdom of Scotland (184 km) |
 | Peru | 1542–1716 | 71 | -76.8, -4.6 | Spanish Empire | place+time+size | (Spanish Empire) (115 km); (Alliance between Papal States and Spanish Empire) (115 km); (Personal union of Spanish Empire with Habsburg Monarchy) (115 km) |
 | Merina | 1542–1683 | 58 | 46.9, -19.7 | — | nothing near enough | (Kingdom of France) (301 km); French India (301 km); New France (570 km) |
 | Santa Apolonia | 1542–1574 | 4 | 54.0, -21.4 | — | no polity alive near it |  |
@@ -417,9 +418,9 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Tsangpa | 1567–1616 | 21 | 87.9, 29.0 | Tibet | place+time+size | Gorkha Kingdom (127 km); Kathmandu (266 km); Mughal Empire (284 km) |
 | Keladi | 1567–1761 | 79 | 72.7, 13.0 | Kingdom of Mysore | place+time+size | Bijapur Sultanate (215 km); Portuguese Colonies (211 km); Mughal Empire (211 km) |
 | Gingee | 1567–1681 | 39 | 82.3, 11.7 | Dutch Republic | place+time+size | Portuguese Empire (251 km); Portuguese Colonies (251 km); (Portuguese Empire) (251 km) |
-| Calicut | 1567–1776 | 72 | 73.9, 10.9 | Portuguese Colonies | place+time+size | (Alliance between Papal States and Spanish Empire) (192 km); French India (193 km); Spanish Empire (192 km) |
+| Calicut | 1567–1776 | 72 | 73.9, 10.9 | Kingdom of Mysore | place+time+size | (Alliance between Papal States and Spanish Empire) (192 km); French India (193 km); Spanish Empire (192 km) |
 | Sm. | 1567–1579 | 6 | 77.6, 10.9 | Nayaks of Madurai | place+time+size | Kingdom of Mysore (93 km); Vijayanagara Empire (5 km); Portuguese Empire (157 km) |
-| Venad | 1567–1726 | 64 | 74.3, 8.9 | Portuguese Colonies | place+time+size | Vijayanagara Empire (228 km); (Alliance between Papal States and Spanish Empire) (222 km); Spanish Empire (222 km) |
+| Venad | 1567–1726 | 64 | 74.3, 8.9 | Dutch Republic | place+time+size | Vijayanagara Empire (228 km); (Alliance between Papal States and Spanish Empire) (222 km); Spanish Empire (222 km) |
 | Poland-Lithuania | 1569–1790 | 89 | 24.5, 52.1 | Polish-Lithuanian Commonwealth | place+time+size | House of Jagiellon (0 km); Pro-Swedish Poland (0 km); Tsardom of Russia (85 km) |
 | M.J | 1569–1614 | 9 | 92.5, 23.5 | First Toungoo Empire | place+time+size | Kingdom of Mrauk U (77 km); Mughal Empire (119 km); Sur Empire (185 km) |
 | Kalaha. | 1569–1599 | 13 | 83.5, 20.9 | Sur Empire | place+time+size | Mughal Empire (155 km); Ahmadnagar Sultanate (322 km); Berar Sultanate (322 km) |
@@ -430,7 +431,7 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Koshuts | 1581–1641 | 25 | 87.5, 45.3 | Dzungar Khanate | place+time+size | Khoshut Khanate (335 km); Oirat Confederation (0 km); Golden Horde (0 km) |
 | Sitawaka | 1581–1591 | 5 | 84.7, 7.2 | — | nothing near enough | Portuguese Ceylon (304 km); (Portuguese Empire) (304 km); Jaffna kingdom (405 km) |
 | re | 1584–1759 | 21 | -7.6, 53.3 | Irish Catholic Confederation | place+time+size | Kingdom of Great Britain (0 km); (British Empire) (0 km); (Kingdom of England) (0 km) |
-| Pow. | 1591–1644 | 22 | -78.4, 36.8 | English Colonial Empire | place+time+size | (Kingdom of England) (106 km); New Sweden (389 km); New Netherland (447 km) |
+| Pow. | 1591–1644 | 22 | -78.4, 36.8 | — | nothing near enough | (Kingdom of England) (106 km); English Colonial Empire (106 km); New Sweden (389 km) |
 | Dendi | 1591–1899 | 134 | 2.2, 14.5 | Sokoto Caliphate | place+time+size | Songhai Empire (63 km); Saadi Sultanate (253 km); (French Third Republic) (244 km) |
 | Hausa Nupe Igala | 1591–1599 | 4 | 6.6, 10.7 | — | nothing near enough | Bornu Empire (533 km) |
 | New Spain | 1591–1681 | 37 | -102.9, 25.4 | Spanish Empire | place+time+size | (Alliance between Papal States and Spanish Empire) (0 km); (Spanish Empire) (0 km) |
@@ -447,17 +448,17 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Lozi | 1601–1878 | 120 | 23.6, -16.0 | — | no polity alive near it |  |
 | cot | 1604–1706 | 38 | -3.6, 57.0 | Kingdom of England | place+time+size | Kingdom of Scotland (0 km); Commonwealth of England (0 km); (Kingdom of England) (0 km) |
 | Acadia | 1604–1761 | 62 | -62.3, 43.7 | New France | place+time+size | British Colonial Empire (116 km); (British Empire) (116 km); (Kingdom of France) (181 km) |
-| Wabanaki | 1606–1649 | 18 | -70.0, 45.5 | (Kingdom of England) | place+time+size | (Kingdom of France) (168 km); New France (168 km); English Colonial Empire (134 km) |
-| Virginia | 1606–1773 | 47 | -73.4, 36.7 | English Colonial Empire | place+time+size | (British Empire) (214 km); British Colonial Empire (214 km); (Kingdom of England) (214 km) |
-| Canada | 1609–1868 | 85 | -77.0, 46.9 | British Colonial Empire | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (51 km); (Kingdom of France) (161 km); (British Empire) (0 km) |
-| Newfoundland | 1611–1807 | 79 | -54.4, 46.0 | English Colonial Empire | place+time+size | (Kingdom of England) (83 km); New France (130 km); French Louisiana (180 km) |
+| Wabanaki | 1606–1649 | 18 | -70.0, 45.5 | New France | place+time+size | (Kingdom of France) (168 km); English Colonial Empire (134 km); (Kingdom of England) (134 km) |
+| Virginia | 1606–1773 | 47 | -73.4, 36.7 | — | nothing near enough | (Kingdom of England) (214 km); English Colonial Empire (214 km); (British Empire) (214 km) |
+| Canada | 1609–1868 | 85 | -77.0, 46.9 | New France | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (51 km); British Colonial Empire (0 km); (Kingdom of France) (161 km) |
+| Newfoundland | 1611–1807 | 79 | -54.4, 46.0 | New France | place+time+size | (Kingdom of England) (83 km); French Louisiana (180 km); (Kingdom of France) (130 km) |
 | Jolof Great Fulo | 1611–1761 | 49 | -14.1, 15.5 | New France | place+time+size | (Kingdom of France) (224 km); (Dutch Republic) (293 km); Dutch Republic (293 km) |
 | Kangaba | 1611–1644 | 14 | -6.2, 13.0 | Mali Empire | place+time+size |  |
 | Sig. | 1611–1733 | 50 | -11.0, 12.4 | Mali Empire | place+time+size | Spanish Empire (535 km); (Spanish Empire) (535 km); Portuguese Empire (498 km) |
-| NewNetherlands | 1614–1663 | 14 | -69.2, 39.8 | English Colonial Empire | place+time+size | New Netherland (312 km); (Kingdom of England) (206 km); New Sweden (506 km) |
+| NewNetherlands | 1614–1663 | 14 | -69.2, 39.8 | — | nothing near enough | (Kingdom of England) (206 km); English Colonial Empire (206 km); New Netherland (312 km) |
 | Essequibo | 1616–1828 | 90 | -55.5, 7.6 | New Netherland | place+time+size | British Colonial Empire (180 km); (British Empire) (180 km); English Colonial Empire (180 km) |
 | Tsangpa | 1619–1641 | 10 | 93.1, 33.2 | Tibet | place+time+size | Eastern Moghulistan (404 km); Tümed (348 km); Kingdom of Bhutan (585 km) |
-| Plymouth | 1621–1666 | 17 | -67.4, 41.7 | English Colonial Empire | place+time+size | (Kingdom of England) (202 km); (Kingdom of France) (355 km); New Netherland (406 km) |
+| Plymouth | 1621–1666 | 17 | -67.4, 41.7 | — | nothing near enough | (Kingdom of England) (202 km); English Colonial Empire (202 km); (Kingdom of France) (355 km) |
 | Maranhao | 1621–1771 | 61 | -53.6, -2.7 | Portuguese Empire | place+time+size | (Spanish Empire) (128 km); Spanish Empire (128 km); (Portuguese Empire) (0 km) |
 | Brazil | 1621–1696 | 31 | -41.4, -15.7 | Portuguese Empire | place+time+size | (Spanish Empire) (129 km); Spanish Empire (129 km); (Portuguese Empire) (129 km) |
 | Barbados | 1626–1634 | 4 | -56.6, 13.0 | — | nothing near enough | (Kingdom of England) (296 km); English Colonial Empire (296 km); New Netherland (463 km) |
@@ -471,99 +472,100 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Mongols | 1634–1688 | 23 | 104.4, 45.6 | Golden Horde | place+time+size | Mongol Khanate (560 km); Dzungar Khanate (0 km); Qing Dynasty (408 km) |
 | Qing | 1636–1644 | 4 | 127.3, 45.1 | Later Jin Dynasty | place+time+size | Joseon (312 km) |
 | Guadeloupe | 1636–1654 | 8 | -57.5, 16.5 | — | nothing near enough | New France (395 km); (Kingdom of France) (395 km); (Kingdom of England) (416 km) |
-| Martinique Barbados | 1636–1713 | 32 | -57.2, 13.6 | English Colonial Empire | place+time+size | (British Empire) (239 km); British Colonial Empire (239 km); (Kingdom of England) (239 km) |
+| Martinique Barbados | 1636–1713 | 32 | -57.2, 13.6 | — | nothing near enough | (Kingdom of England) (239 km); English Colonial Empire (239 km); (British Empire) (239 km) |
 | Dutch Brazil | 1636–1641 | 3 | -39.7, -6.4 | Portuguese Empire | place+time+size | Spanish Empire (72 km); (Spanish Empire) (72 km); (Portuguese Empire) (72 km) |
-| Rhode Island NewNetherlands NewSweden Maryland | 1639–1654 | 5 | -70.0, 39.3 | English Colonial Empire | place+time+size | New Netherland (303 km); (Kingdom of England) (230 km); New Sweden (440 km) |
+| Rhode Island NewNetherlands NewSweden Maryland | 1639–1654 | 5 | -70.0, 39.3 | — | nothing near enough | (Kingdom of England) (230 km); English Colonial Empire (230 km); New Netherland (303 km) |
 | Dila | 1639–1656 | 8 | -7.9, 34.6 | Saadi Sultanate | place+time+size | Spanish Empire (177 km); (Spanish Empire) (177 km); Kingdom of Spain (242 km) |
-| Br. Honduras | 1639–1746 | 44 | -84.5, 17.2 | British Colonial Empire | place+time+size | (British Empire) (132 km); Spanish Empire (132 km); (Spanish Empire) (132 km) |
+| Br. Honduras | 1639–1746 | 44 | -84.5, 17.2 | — | nothing near enough | Spanish Empire (132 km); (Spanish Empire) (132 km); (British Empire) (132 km) |
 | Mosquito Coast | 1639–1784 | 60 | -80.7, 13.9 | — | nothing near enough | (British Empire) (259 km); British Colonial Empire (259 km); Spanish Empire (315 km) |
 | Makassar | 1639–1666 | 12 | 121.0, 2.2 | — | nothing near enough | Sultanate of Sulu (345 km); Sultanate of Brunei (363 km); (Dutch Republic) (409 km) |
 | Great Fulo | 1641–1668 | 12 | -12.0, 15.5 | — | nothing near enough | New France (450 km); (Kingdom of France) (450 km); (Dutch Republic) (507 km) |
 | Sin. | 1641–1659 | 8 | 112.0, 0.4 | Sultanate of Brunei | place+time+size | Sultanate of Sukadana (251 km); Sultanate of Sambas (281 km); Sultanate of Mempawah (290 km) |
-| Bourbon | 1644–1847 | 81 | 54.5, -22.0 | French India | place+time+size | British Colonial Empire (102 km); (British Empire) (102 km); (French Directory) (102 km) |
+| Bourbon | 1644–1847 | 81 | 54.5, -22.0 | New France | place+time+size | British Colonial Empire (102 km); (British Empire) (102 km); (French Directory) (102 km) |
 | Koshuts | 1644–1716 | 30 | 92.9, 33.2 | Tibet | place+time+size | Eastern Moghulistan (392 km); Dzungar Khanate (392 km); Qing Dynasty (348 km) |
 | B. | 1646–1771 | 14 | 90.6, 27.4 | Kingdom of Bhutan | abbreviation+place | Tibet (71 km); (British Empire) (110 km); British Empire (110 km) |
 | Cossacks | 1649–1654 | 3 | 32.1, 49.5 | Polish-Lithuanian Commonwealth | place+time+size | Tsardom of Russia (141 km); Principality of Moldavia (293 km); Crimean Khanate (268 km) |
-| Wab. | 1651–1666 | 7 | -69.4, 45.6 | English Colonial Empire | place+time+size | New France (165 km); (Kingdom of France) (165 km); (Kingdom of England) (148 km) |
+| Wab. | 1651–1666 | 7 | -69.4, 45.6 | New France | place+time+size | (Kingdom of France) (165 km); (Kingdom of England) (148 km); English Colonial Empire (148 km) |
 | Muscat | 1651–1743 | 38 | 59.5, 24.4 | Yarubid dynasty | place+time+size | Hotaki Dynasty (111 km); Afsharid Iran (109 km); Safavid Dynasty (111 km) |
 | Mahri | 1651–1832 | 78 | 54.0, 15.8 | Sultanate of Oman | place+time+size | Qasimids (184 km); Emirate of Diriyah (372 km); Emirate of Nejd (467 km) |
 | Kathiri | 1651–1832 | 78 | 51.5, 14.0 | Qasimids | place+time+size | Emirate of Diriyah (544 km); Sultanate of Oman (411 km) |
-| Rhode Island | 1656–1663 | 4 | -68.0, 40.7 | English Colonial Empire | place+time+size | (Kingdom of England) (193 km); New Netherland (380 km); (Kingdom of France) (472 km) |
+| Rhode Island | 1656–1663 | 4 | -68.0, 40.7 | — | nothing near enough | (Kingdom of England) (193 km); English Colonial Empire (193 km); New Netherland (380 km) |
 | Guadel | 1656–1713 | 24 | -58.7, 16.5 | — | nothing near enough | New France (267 km); (Kingdom of France) (267 km); (Kingdom of England) (315 km) |
 | oupe | 1656–1711 | 21 | -55.5, 16.5 | — | nothing near enough | (Kingdom of England) (549 km); English Colonial Empire (549 km); (British Empire) (549 km) |
 | Grenada | 1656–1828 | 74 | -59.0, 11.8 | New France | place+time+size | French Louisiana (172 km); (Kingdom of France) (172 km); Kingdom of France (172 km) |
 | Morocco | 1659–1668 | 5 | -5.9, 26.2 | — | nothing near enough | Saadi Sultanate (310 km) |
 | Marathas | 1659–1721 | 26 | 69.5, 17.7 | — | nothing near enough | Mughal Empire (355 km); Maratha Empire (373 km); Bijapur Sultanate (375 km) |
 | Cayenne | 1659–1666 | 4 | -49.7, 5.1 | — | nothing near enough | Portuguese Empire (362 km); (Portuguese Empire) (362 km); (Kingdom of England) (488 km) |
-| Cape Verde . *. | 1661–1778 | 43 | -26.0, 15.5 | Portuguese Empire | place+time+size | (Portuguese Empire) (175 km) |
-| Virginia Carolina | 1663–1711 | 20 | -73.3, 36.1 | English Colonial Empire | place+time+size | British Colonial Empire (227 km); (British Empire) (227 km); (Kingdom of England) (227 km) |
+| Cape Verde . *. | 1661–1778 | 43 | -26.0, 15.5 | — | nothing near enough | Portuguese Empire (175 km); (Portuguese Empire) (175 km) |
+| Virginia Carolina | 1663–1711 | 20 | -73.3, 36.1 | — | nothing near enough | English Colonial Empire (227 km); (Kingdom of England) (227 km); (British Empire) (227 km) |
 | Tungning | 1663–1681 | 8 | 120.6, 21.3 | Southern Ming | place+time+size | Qing Dynasty (416 km); Spanish Empire (301 km); (Spanish Empire) (301 km) |
 | Lunda | 1666–1885 | 97 | 22.7, -9.6 | Kingdom of Portugal | place+time+size | (Portuguese Empire) (87 km) |
-| Massachusetts Plymouth | 1668–1688 | 8 | -66.9, 42.1 | English Colonial Empire | place+time+size | (Kingdom of England) (249 km); New France (288 km); (Kingdom of France) (288 km) |
-| New York | 1668–1773 | 42 | -68.8, 40.7 | English Colonial Empire | place+time+size | New Netherland (315 km); (British Empire) (141 km); British Colonial Empire (141 km) |
-| Jersey | 1668–1701 | 13 | -72.2, 39.7 | English Colonial Empire | place+time+size | Haudenosaunee (230 km); New Netherland (149 km); (Kingdom of England) (120 km) |
-| Delaware Maryland | 1668–1773 | 43 | -72.0, 38.3 | English Colonial Empire | place+time+size | New Netherland (289 km); (Kingdom of England) (238 km); (British Empire) (238 km) |
+| Massachusetts Plymouth | 1668–1688 | 8 | -66.9, 42.1 | — | nothing near enough | English Colonial Empire (249 km); (Kingdom of England) (249 km); (Kingdom of France) (288 km) |
+| New York | 1668–1773 | 42 | -68.8, 40.7 | — | nothing near enough | (British Empire) (141 km); British Colonial Empire (141 km); English Colonial Empire (144 km) |
+| Jersey | 1668–1701 | 13 | -72.2, 39.7 | Haudenosaunee | place+time+size | English Colonial Empire (120 km); New Netherland (149 km); (Kingdom of England) (120 km) |
+| Delaware Maryland | 1668–1773 | 43 | -72.0, 38.3 | — | nothing near enough | English Colonial Empire (238 km); (Kingdom of England) (238 km); (British Empire) (238 km) |
 | Calicut  M. | 1668–1721 | 12 | 75.5, 10.9 | Dutch Republic | place+time+size | (Dutch Republic) (28 km); Portuguese Colonies (28 km); (Portuguese Empire) (28 km) |
 | Berau | 1668–1673 | 3 | 119.5, 3.1 | Sultanate of Brunei | place+time+size | Sultanate of Sulu (172 km); Kutai Kingdom (446 km); Spanish Empire (500 km) |
 | Rupert's Land | 1671–1761 | 37 | -85.5, 58.4 | — | nothing near enough | British Colonial Empire (259 km); (British Empire) (259 km); English Colonial Empire (421 km) |
-| Carolina | 1671–1711 | 17 | -77.0, 32.6 | English Colonial Empire | place+time+size | (Kingdom of England) (170 km); (British Empire) (170 km); British Colonial Empire (170 km) |
+| Carolina | 1671–1711 | 17 | -77.0, 32.6 | — | nothing near enough | English Colonial Empire (170 km); (Kingdom of England) (170 km); (British Empire) (170 km) |
 | Al-Hasa | 1671–1792 | 51 | 49.3, 24.0 | Emirate of Diriyah | place+time+size | Afsharid Iran (242 km); House of Khalifa (242 km); Safavid Dynasty (242 km) |
-| Geledi | 1676–1908 | 104 | 45.0, 3.6 | Italian Africa | place+time+size | Omani Slave Coast (108 km); Ethiopian Empire (139 km); Sultanate of Hobyo (137 km) |
+| Geledi | 1676–1908 | 104 | 45.0, 3.6 | Omani Slave Coast | place+time+size | Italian Africa (0 km); Ethiopian Empire (139 km); Sultanate of Hobyo (137 km) |
 | Ba | 1678–1703 | 6 | 82.5, 28.6 | Gorkha Kingdom | place+time+size | Tibet (112 km); Mughal Empire (94 km); Kathmandu (283 km) |
 | Dutch East Indies | 1678–1778 | 41 | 112.9, -5.2 | Sultanate of Malacca | place+time+size | (Dutch Republic) (184 km); Dutch Republic (184 km); Sultanate of Banjar (197 km) |
 | Ruanda | 1681–1778 | 40 | 27.3, -1.6 | — | no polity alive near it |  |
 | Pakubuwono | 1681–1706 | 11 | 110.0, -8.9 | Sultanate of Malacca | place+time+size | Mataram Sultanate (96 km); (Dutch Republic) (200 km); Dutch Republic (200 km) |
-| Louisiana | 1683–1759 | 31 | -96.4, 40.2 | (Kingdom of France) | place+time+size | New France (149 km) |
+| Louisiana | 1683–1759 | 31 | -96.4, 40.2 | New France | place+time+size | (Kingdom of France) (149 km) |
 | New Spain | 1683–1820 | 40 | -103.8, 31.2 | Spanish Empire | place+time+size | (Spanish Empire) (121 km) |
-| Mer. | 1686–1711 | 11 | 47.8, -19.6 | French India | place+time+size | (Kingdom of France) (221 km) |
+| Mer. | 1686–1711 | 11 | 47.8, -19.6 | — | nothing near enough | French India (221 km); (Kingdom of France) (221 km) |
 | St-Do.3 | 1698–1784 | 35 | -74.7, 19.2 | New France | place+time+size | Spanish Empire (81 km); (Spanish Empire) (81 km); (Kingdom of France) (72 km) |
 | St-Do. | 1698–1820 | 46 | -69.3, 17.4 | French Louisiana | place+time+size | Spanish Empire (110 km); (Spanish Empire) (110 km); Portuguese Empire (110 km) |
 | Brazil | 1698–1773 | 31 | -47.7, -17.3 | Portuguese Empire | place+time+size | (Portuguese Empire) (0 km) |
 | Mbun. | 1701–1912 | 96 | 19.9, -15.5 | Kingdom of Portugal | place+time+size | Portuguese Republic (222 km); British Africa (208 km); (Portuguese Empire) (222 km) |
-| Massachusetts Connecticut | 1703–1773 | 29 | -66.5, 42.2 | British Colonial Empire | place+time+size | (British Empire) (171 km); English Colonial Empire (278 km); New France (276 km) |
-| NewJersey | 1703–1773 | 29 | -70.7, 39.7 | English Colonial Empire | place+time+size | (Kingdom of England) (180 km); (British Empire) (180 km); British Colonial Empire (180 km) |
+| Massachusetts Connecticut | 1703–1773 | 29 | -66.5, 42.2 | — | nothing near enough | (British Empire) (171 km); British Colonial Empire (171 km); (Kingdom of France) (276 km) |
+| NewJersey | 1703–1773 | 29 | -70.7, 39.7 | — | nothing near enough | English Colonial Empire (180 km); (Kingdom of England) (180 km); (British Empire) (180 km) |
 | GB | 1708–1799 | 39 | -1.3, 52.5 | Kingdom of Great Britain | place+time+size | Kingdom of England (0 km); (Kingdom of England) (0 km); (British Empire) (0 km) |
 | Rajput States | 1708–1721 | 6 | 74.5, 26.8 | Mughal Empire | place+time+size | Sikhs (317 km) |
-| M.J | 1708–1716 | 3 | 92.5, 23.4 | Mughal Empire | place+time+size | Kingdom of Mrauk U (152 km); First Toungoo Empire (82 km); Kingdom of Bhutan (378 km) |
+| M.J | 1708–1716 | 3 | 92.5, 23.4 | First Toungoo Empire | place+time+size | Mughal Empire (12 km); Kingdom of Mrauk U (152 km); Kingdom of Bhutan (378 km) |
 | Nova Scotia | 1711–1866 | 70 | -61.0, 43.7 | New France | place+time+size | British Colonial Empire (166 km); (Allegiance of Kingdom of Hawaï'i to British Empire) (166 km); (Kingdom of France) (209 km) |
-| North Carolina | 1713–1773 | 50 | -73.4, 33.7 | — | nothing near enough | British Colonial Empire (250 km); (British Empire) (250 km) |
+| North Carolina | 1713–1773 | 25 | -71.8, 34.6 | — | nothing near enough | British Colonial Empire (340 km); (British Empire) (340 km) |
+| South Carolina | 1713–1773 | 25 | -75.0, 32.9 | — | nothing near enough | British Colonial Empire (247 km); (British Empire) (247 km); Spanish Empire (600 km) |
 | Guadeloupe | 1716–2025 | 89 | -57.5, 16.6 | — | nothing near enough | British Colonial Empire (396 km); New France (396 km); (British Empire) (396 km) |
-| :Dominica Martinique Barbados | 1716–1824 | 37 | -57.6, 14.3 | British Colonial Empire | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (221 km); (British Empire) (221 km); French Louisiana (338 km) |
+| :Dominica Martinique Barbados | 1716–1824 | 37 | -57.6, 14.3 | — | nothing near enough | British Colonial Empire (221 km); (British Empire) (221 km); (Allegiance of Kingdom of Hawaï'i to British Empire) (221 km) |
 | Marathas | 1723–1736 | 6 | 73.4, 26.8 | Mughal Empire | place+time+size |  |
 | Sindh | 1723–1841 | 53 | 69.3, 24.9 | Mughal Empire | place+time+size | (British Empire) (0 km); British Empire (0 km); Sikh Empire (323 km) |
 | Cutch | 1723–1818 | 42 | 68.6, 20.7 | Maratha Empire | place+time+size | Mughal Empire (139 km); (British Empire) (341 km); British Empire (341 km) |
 | Sm. | 1723–1733 | 5 | 77.6, 10.9 | Kingdom of Mysore | place+time+size | Nayaks of Madurai (0 km); Carnatic Sultanate (43 km); Thanjavur Maratha Kingdom (105 km) |
 | Si. | 1723–1855 | 56 | 102.2, -0.1 | Sultanate of Johor | place+time+size | Sultanate of Jambi (90 km); Riau-Lingga Sultanate (0 km); British Colonial Empire (193 km) |
 | Cir. | 1726–1771 | 12 | 40.3, 44.8 | Crimean Khanate | place+time+size | Small Horde (0 km); Principality of Abkhazia (130 km); Principality of Mingrelia (245 km) |
-| Kong | 1726–1895 | 78 | -5.3, 9.9 | French Africa | place+time+size | (French Third Republic) (0 km); Ashanti Empire (227 km); Bamana Empire (343 km) |
+| Kong | 1726–1895 | 78 | -5.3, 9.9 | Ashanti Empire | place+time+size | (French Third Republic) (0 km); French Africa (0 km); Bamana Empire (343 km) |
 | Travancore | 1728–1790 | 27 | 73.2, 8.6 | — | nothing near enough | Dutch Republic (343 km); (Dutch Republic) (343 km); French India (405 km) |
-| Georgia | 1733–1773 | 17 | -78.7, 31.1 | British Colonial Empire | place+time+size; refused far: Kingdom of Georgia 11,640 km | (British Empire) (203 km); Spanish Empire (242 km); (Spanish Empire) (242 km) |
+| Georgia | 1733–1773 | 17 | -78.7, 31.1 | — | nothing near enough; refused far: Kingdom of Georgia 11,640 km | (British Empire) (203 km); British Colonial Empire (203 km); Spanish Empire (242 km) |
 | P.S. | 1736–1868 | 58 | 11.5, 41.3 | Papal States | place+time+size | (Spanish Empire) (132 km); Kingdom of Spain (132 km); Grand Duchy of Tuscany (124 km) |
 | Sicily | 1736–1813 | 35 | 16.9, 37.0 | Kingdom of Spain | place+time+size | (Spanish Empire) (139 km); (British Empire) (240 km); Kingdom of Naples (Napoleonic) (139 km) |
-| Jalon | 1736–1895 | 74 | -10.6, 12.4 | French Africa | place+time+size | British Cape Colony (269 km); (French Third Republic) (0 km); (Second French Empire) (220 km) |
+| Jalon | 1736–1895 | 74 | -10.6, 12.4 | — | nothing near enough | French Africa (0 km); (French Third Republic) (0 km); (Second French Empire) (220 km) |
 | oa. | 1741–1753 | 5 | 14.4, -3.4 | Kingdom of Lunda | place+time+size | Portuguese Empire (573 km); (Portuguese Empire) (573 km) |
 | Ka. | 1741–1891 | 69 | 28.5, -10.4 | — | nothing near enough | Kingdom of Portugal (500 km); (Portuguese Empire) (500 km); Belgian Congo (510 km) |
 | Kun. | 1748–1881 | 62 | 67.7, 36.2 | Khanate of Bukhara | place+time+size | Durrani Empire (0 km); Durrani Dynasty (0 km); Russian Empire (95 km) |
 | Kh. | 1748–1822 | 28 | 64.9, 27.8 | Durrani Empire | place+time+size | Talpur Dynasty (0 km); Sikh Empire (519 km); Mughal Empire (215 km) |
 | Kal. | 1748–1837 | 41 | 66.8, 26.1 | Durrani Empire | place+time+size | Talpur Dynasty (0 km); Mughal Empire (261 km); Zand Dynasty (357 km) |
 | Muscat Makran | 1748–1837 | 41 | 61.9, 24.4 | Durrani Empire | place+time+size | Qajar Dynasty (90 km); Talpur Dynasty (74 km); Sultanate of Oman (287 km) |
-| Penn. | 1750–1773 | 10 | -77.0, 40.9 | British Colonial Empire | place+time+size | Haudenosaunee (113 km); (British Empire) (0 km); New France (213 km) |
+| Penn. | 1750–1773 | 10 | -77.0, 40.9 | Haudenosaunee | place+time+size | (British Empire) (0 km); British Colonial Empire (0 km); New France (213 km) |
 | Rozvi | 1761–1864 | 49 | 29.6, -19.4 | — | nothing near enough | South African Republic (304 km); (Portuguese Empire) (489 km); Portuguese Empire (489 km) |
 | New Spain | 1761–1801 | 19 | -105.9, 37.4 | Spanish Empire | place+time+size | (Spanish Empire) (107 km) |
-| Quebec | 1764–1788 | 12 | -77.2, 46.9 | British Colonial Empire | place+time+size | United States of America (189 km); Haudenosaunee (263 km); (British Empire) (189 km) |
-| N.B. | 1764–1866 | 49 | -66.2, 46.4 | British Colonial Empire | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (0 km); United States of America (122 km); (British Empire) (0 km) |
+| Quebec | 1764–1788 | 12 | -77.2, 46.9 | United States of America | place+time+size | Haudenosaunee (263 km); (British Empire) (189 km); British Colonial Empire (189 km) |
+| N.B. | 1764–1866 | 49 | -66.2, 46.4 | United States of America | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (0 km); British Colonial Empire (0 km); (British Empire) (0 km) |
 | Indian Reserve | 1764–1782 | 9 | -86.5, 35.9 | United States of America | place+time+size | British Colonial Empire (230 km); (British Empire) (230 km); (Kingdom of France) (398 km) |
 | Afghanistan ka. | 1764–1778 | 7 | 69.5, 32.1 | Durrani Empire | place+time+size | Sikh Confederacy (223 km); Mughal Empire (436 km); Khanate of Bukhara (553 km) |
-| W. Florida | 1764–1780 | 8 | -88.2, 31.5 | British Colonial Empire | place+time+size | (British Empire) (0 km); New France (194 km); (Kingdom of France) (194 km) |
-| East Florida | 1764–1782 | 9 | -76.8, 28.2 | British Colonial Empire | place+time+size | (British Empire) (155 km); United States of America (516 km) |
+| W. Florida | 1764–1780 | 8 | -88.2, 31.5 | New France | place+time+size | British Colonial Empire (0 km); (British Empire) (0 km); (Kingdom of France) (194 km) |
+| East Florida | 1764–1782 | 9 | -76.8, 28.2 | — | nothing near enough | (British Empire) (155 km); British Colonial Empire (155 km); United States of America (516 km) |
 | JolofToro | 1764–1851 | 40 | -16.3, 15.3 | Bourbon Kingdom of France | place+time+size | (French Directory) (45 km); French Directory (45 km); (Kingdom of France) (45 km) |
 | Fulo | 1764–1773 | 5 | -10.6, 15.5 | — | nothing near enough | Bamana Empire (503 km) |
-| Rupert's Land | 1764–1868 | 50 | -99.3, 53.2 | British Colonial Empire | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (111 km); (British Empire) (107 km); British Empire (115 km) |
+| Rupert's Land | 1764–1868 | 50 | -99.3, 53.2 | British Empire | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (111 km); British Colonial Empire (107 km); (British Empire) (107 km) |
 | G. | 1768–1778 | 5 | 86.5, 27.2 | Gorkha Kingdom | abbreviation+place | Nepal (0 km); (British Empire) (61 km); British Empire (61 km) |
 | Siak | 1768–1776 | 4 | 104.0, -2.1 | Sultanate of Palembang | place+time+size | Sultanate of Jambi (38 km); Sultanate of Johor (170 km); Sultanate of Banten (219 km) |
-| Galicia | 1773–1803 | 14 | 23.3, 49.8 | (Habsburg Monarchy) | place+time+size | Principality of Moldavia (238 km); Habsburg Monarchy (0 km); Principality of Wallachia (481 km) |
+| Galicia | 1773–1803 | 14 | 23.3, 49.8 | Habsburg Monarchy | place+time+size | Principality of Moldavia (238 km); (Habsburg Monarchy) (0 km); Principality of Wallachia (481 km) |
 | Company Raj | 1773–1816 | 21 | 87.6, 24.3 | British Empire | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (0 km); Maratha Empire (191 km); (British Empire) (0 km) |
-| Kaarta | 1776–1860 | 41 | -10.4, 15.5 | French Africa | place+time+size | (Second French Empire) (149 km); Bamana Empire (466 km); Massina Empire (466 km) |
+| Kaarta | 1776–1860 | 41 | -10.4, 15.5 | — | nothing near enough | French Africa (149 km); (Second French Empire) (149 km); Bamana Empire (466 km) |
 | Peru | 1776–1811 | 18 | -74.5, -32.0 | — | nothing near enough | Spanish Empire (257 km); (Spanish Empire) (257 km); Río de la Plata (359 km) |
 | Ta. | 1778–1784 | 4 | 52.8, 35.8 | Zand Dynasty | place+time+size | Khanate of Khiva (454 km); Durrani Empire (448 km); Ottoman Empire (593 km) |
 | Siam | 1778–1931 | 74 | 102.8, 15.9 | Rattanakosin Kingdom | place+time+size | Vientiane (25 km); Thonburi Kingdom (0 km); Kingdom of Champasak (277 km) |
@@ -571,63 +573,63 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Benin | 1778–1889 | 52 | 6.4, 7.3 | British Gold Coast | place+time+size | (British Empire) (15 km); Oyo Empire (177 km); Sokoto Caliphate (79 km) |
 | Guinea | 1778–1968 | 89 | 7.8, 2.5 | Francoist Spain | place+time+size; refused far: Guinea 1,847 km | Portuguese Empire (105 km); (Portuguese Empire) (105 km); Portuguese Republic (105 km) |
 | Ire. | 1780–1799 | 10 | -7.4, 53.4 | Kingdom of Great Britain | place+time+size | (British Empire) (0 km); Kingdom of France (536 km); (Kingdom of France) (536 km) |
-| Cape". | 1780–1784 | 3 | -25.9, 16.2 | Portuguese Empire | place+time+size | (Portuguese Empire) (98 km) |
-| Verde ·** | 1780–1784 | 3 | -25.5, 14.8 | Portuguese Empire | place+time+size | (Portuguese Empire) (120 km) |
+| Cape". | 1780–1784 | 3 | -25.9, 16.2 | — | nothing near enough | Portuguese Empire (98 km); (Portuguese Empire) (98 km) |
+| Verde ·** | 1780–1784 | 3 | -25.5, 14.8 | — | nothing near enough | Portuguese Empire (120 km); (Portuguese Empire) (120 km) |
 | Ankele Ruanda | 1780–1883 | 50 | 27.4, -1.2 | — | nothing near enough | Khedivate of Egypt (511 km) |
 | Loa. | 1780–1881 | 49 | 14.2, -3.5 | Kingdom of Lunda | place+time+size | French Africa (105 km); (French Third Republic) (105 km); Kingdom of Portugal (476 km) |
 | Bam. | 1780–1883 | 50 | 26.7, -22.1 | South African Republic | place+time+size | (British Empire) (155 km); British Cape Colony (155 km); Free Orange State (524 km) |
 | Mpondoland | 1780–1851 | 35 | 33.4, -32.4 | — | nothing near enough | Natalia Republic (338 km); British Cape Colony (365 km); (British Empire) (365 km) |
 | Xhosa | 1780–1792 | 7 | 29.7, -33.9 | Dutch Cape Colony | place+time+size | (Dutch Republic) (232 km) |
-| Kerguelen | 1780–2025 | 121 | 69.1, -48.1 | French Indochina | place+time+size | (French Third Republic) (71 km); French Fifth Republic (71 km); (French Fourth Republic) (71 km) |
-| Malvinas | 1780–1830 | 25 | -58.6, -50.4 | British Colonial Empire | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (160 km); Spanish Empire (113 km); (Spanish Empire) (113 km) |
-| South Georgia | 1780–2025 | 121 | -37.2, -53.3 | (Commonwealth of Nations) | place+time+size | British Colonial Empire (86 km); (British Empire) (86 km); British Overseas Territories (86 km) |
+| Kerguelen | 1780–2025 | 121 | 69.1, -48.1 | — | nothing near enough | French Indochina (71 km); (French Third Republic) (71 km); (Vichy France) (71 km) |
+| Malvinas | 1780–1830 | 25 | -58.6, -50.4 | — | nothing near enough | Spanish Empire (113 km); (Spanish Empire) (113 km); (British Empire) (160 km) |
+| South Georgia | 1780–2025 | 121 | -37.2, -53.3 | British Overseas Territories | place+time+size | British Colonial Empire (86 km); (Commonwealth of Nations) (86 km); (British Empire) (86 km) |
 | Ka. | 1780–1795 | 8 | 75.2, 31.9 | Sikh Confederacy | place+time+size | Durrani Empire (48 km); Mughal Empire (76 km); Maratha Empire (279 km) |
 | Bunyoro | 1780–1883 | 50 | 35.5, 2.0 | — | nothing near enough | Khedivate of Egypt (396 km) |
 | North Greenland | 1782–1949 | 80 | -42.7, 78.2 | Greenland | place+time+name | Denmark (0 km); United States of America (0 km); Kingdom of Norway (561 km) |
 | Dominica | 1782–1828 | 13 | -58.4, 15.3 | — | nothing near enough | British Colonial Empire (251 km); (British Empire) (251 km); (Allegiance of Kingdom of Hawaï'i to British Empire) (251 km) |
-| Martinique Barbados | 1782–1828 | 13 | -57.2, 13.5 | British Colonial Empire | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (240 km); (British Empire) (240 km); New France (403 km) |
+| Martinique Barbados | 1782–1828 | 13 | -57.2, 13.5 | — | nothing near enough | British Colonial Empire (240 km); (British Empire) (240 km); (Allegiance of Kingdom of Hawaï'i to British Empire) (240 km) |
 | Russian America | 1784–1824 | 20 | -149.3, 54.8 | — | nothing near enough | Russian Empire (345 km) |
 | Cape"-Verde · | 1786–1883 | 45 | -25.8, 15.6 | Kingdom of Portugal | place+time+size | Portuguese Empire (150 km); (Portuguese Empire) (150 km) |
 | Province of Freedom | 1786–1805 | 10 | -17.8, 6.7 | — | nothing near enough | (British Empire) (523 km); Freetown Colony (523 km); British Cape Colony (523 km) |
 | Ban. | 1786–1795 | 5 | 113.6, -0.4 | Sultanate of Banjar | place+time+size | Sultanate of Brunei (294 km); Sultanate of Kutai Kartanegara (328 km); Sultanate of Sukadana (381 km) |
-| New South Wales | 1788–1899 | 43 | 143.9, -26.9 | British Colonial Empire | place+time+size | (British Empire) (0 km) |
+| New South Wales | 1788–1899 | 43 | 143.9, -26.9 | — | nothing near enough | British Colonial Empire (0 km); (British Empire) (0 km) |
 | Dai Viet | 1788–1801 | 7 | 107.9, 8.2 | Cambodia | place+time+size | Đại Việt (355 km); Tây Sơn dynasty (255 km); Nguyễn dynasty (255 km) |
-| Lower Canada | 1790–1807 | 9 | -64.5, 51.5 | British Colonial Empire | place+time+size | (British Empire) (172 km) |
+| Lower Canada | 1790–1807 | 9 | -64.5, 51.5 | — | nothing near enough | British Colonial Empire (172 km); (British Empire) (172 km) |
 | 3St-Do | 1795–1803 | 5 | -71.4, 18.9 | French Louisiana | place+time+size | Spanish Empire (0 km); (Spanish Empire) (0 km); Haiti (34 km) |
 | Trinidad | 1797–1828 | 16 | -58.6, 10.5 | French Louisiana | place+time+size | British Colonial Empire (229 km); (British Empire) (229 km); (Allegiance of Kingdom of Hawaï'i to British Empire) (229 km) |
 | British | 1801–1878 | 38 | -70.8, 69.3 | — | no polity alive near it; refused far: British Colonial Empire 1,199 km, (British Empire) 1,199 km, British Empire 1,858 km |  |
 | Arctic | 1801–1878 | 38 | -69.6, 68.3 | — | no polity alive near it |  |
 | Territory | 1801–1878 | 38 | -68.2, 67.5 | — | no polity alive near it |  |
 | UK | 1801–2025 | 109 | -1.5, 52.4 | Kingdom of Great Britain | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (0 km); (British Empire) (0 km); (Commonwealth of Nations) (0 km) |
-| Bonaparte | 1801–1813 | 7 | 55.0, -22.1 | French India | place+time+size | British Colonial Empire (85 km); (French Consulate) (85 km); French Consulate (85 km) |
+| Bonaparte | 1801–1813 | 7 | 55.0, -22.1 | French Consulate | place+time+size | British Colonial Empire (85 km); (French Consulate) (85 km); (British Empire) (85 km) |
 | Afghanistan sikhs | 1803–1811 | 5 | 70.6, 31.4 | Durrani Empire | place+time+size | Sikh Empire (156 km); (Allegiance of Kingdom of Hawaï'i to British Empire) (322 km); Mughal Empire (314 km) |
 | Viet Nam | 1803–1837 | 17 | 113.8, 14.2 | — | nothing near enough | Nguyễn dynasty (480 km); Đại Việt (563 km) |
 | "H.S. | 1807–1818 | 6 | -72.1, 20.5 | Empire of Haiti | place+time+size | Spanish Empire (76 km); (Spanish Empire) (76 km); (British Empire) (107 km) |
 | H.R. | 1807–1816 | 3 | -72.3, 17.1 | Empire of Haiti | place+time+size | Spanish Empire (97 km); (Spanish Empire) (97 km); Portuguese Empire (97 km) |
 | Sierra Leone | 1807–1820 | 7 | -15.9, 6.9 | — | nothing near enough | British Cape Colony (326 km); (British Empire) (326 km); (Allegiance of Kingdom of Hawaï'i to British Empire) (326 km) |
-| Canada Lower Canada | 1809–1839 | 15 | -77.8, 47.2 | British Colonial Empire | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (99 km); British Empire (99 km); (British Empire) (99 km) |
+| Canada Lower Canada | 1809–1839 | 15 | -77.8, 47.2 | British Empire | place+time+size | (Allegiance of Kingdom of Hawaï'i to British Empire) (99 km); British Colonial Empire (99 km); (British Empire) (99 km) |
 | Bo.Kan. | 1809–1813 | 3 | 14.5, 15.0 | Bornu Empire | place+time+size | Wadai Empire (83 km); Sokoto Caliphate (225 km) |
-| Newfoundland | 1809–1949 | 67 | -63.8, 54.5 | British Colonial Empire | place+time+size | Canada (0 km); (Allegiance of Kingdom of Hawaï'i to British Empire) (186 km); (British Empire) (0 km) |
+| Newfoundland | 1809–1949 | 67 | -63.8, 54.5 | — | nothing near enough | British Colonial Empire (0 km); (British Empire) (0 km); Canada (0 km) |
 | wadai Darfur | 1816–1868 | 26 | 22.5, 14.4 | Wadai Empire | place+time+name | Sultanate of Darfur (0 km); Muhammad Ali dynasty (523 km); Khedivate of Egypt (523 km) |
 | Liga Federal | 1816–1820 | 3 | -59.0, -31.3 | Federal League | place+time+name | Río de la Plata (0 km); Portuguese Empire (85 km); (Portuguese Empire) (85 km) |
 | Mossi | 1818–1893 | 37 | -2.2, 14.2 | Massina Empire | place+time+name | Bamana Empire (90 km); Sokoto Caliphate (214 km); German Africa (424 km) |
 | snnz | 1818–1881 | 21 | 34.3, -28.5 | Zululand | place+time+size | British Cape Colony (306 km); South African Republic (306 km); (British Empire) (306 km) |
 | Company Raj | 1818–1855 | 19 | 80.7, 24.2 | British Empire | place+time+size | Maratha Empire (35 km); (Allegiance of Kingdom of Hawaï'i to British Empire) (0 km); (British Empire) (0 km) |
-| Oregon | 1820–1845 | 13 | -118.0, 46.7 | British Colonial Empire | place+time+size | (British Empire) (128 km); British Empire (128 km); United States of America (229 km) |
+| Oregon | 1820–1845 | 13 | -118.0, 46.7 | British Empire | place+time+size | British Colonial Empire (128 km); (British Empire) (128 km); United States of America (229 km) |
 | Herat | 1820–1870 | 19 | 62.7, 33.7 | Emirate of Afghanistan | place+time+size | Durrani Empire (0 km); Durrani Dynasty (0 km); Khanate of Khiva (168 km) |
 | T.S. | 1820–1904 | 41 | 53.6, 25.1 | Trucial States | place+time+size | (British Empire) (99 km); Qatar Dynasty (187 km); (Netherlands) (182 km) |
-| Mane Sierra Leone | 1822–1887 | 30 | -16.0, 8.5 | French Africa | place+time+size | British Cape Colony (291 km); (French Third Republic) (249 km); (Portuguese Empire) (288 km) |
+| Mane Sierra Leone | 1822–1887 | 30 | -16.0, 8.5 | — | nothing near enough | French Africa (249 km); (French Third Republic) (249 km); (Portuguese Empire) (288 km) |
 | Ha'il | 1824–1914 | 44 | 43.4, 24.5 | Emirate of Nejd | place+time+size | Muhammad Ali dynasty (0 km); Emirate of Jabal Shammar (0 km); Ottoman Empire (0 km) |
 | Ash. Da. | 1824–1828 | 3 | -0.1, 7.5 | Ashanti Empire | place+time+size | Danish Gold Coast (173 km); Dutch Gold Coast (193 km); Oyo Empire (50 km) |
 | America | 1826–1866 | 20 | -151.1, 64.2 | Russian Empire | place+time+size | British Colonial Empire (455 km); (British Empire) (455 km) |
-| North-Western Territory | 1826–1868 | 21 | -123.0, 62.6 | British Colonial Empire | place+time+size | (British Empire) (32 km) |
+| North-Western Territory | 1826–1868 | 21 | -123.0, 62.6 | — | nothing near enough | British Colonial Empire (32 km); (British Empire) (32 km) |
 | Van Diemen's | 1826–1855 | 15 | 140.8, -41.6 | — | nothing near enough | British Colonial Empire (293 km); (British Empire) (293 km) |
-| Land | 1826–1855 | 15 | 143.1, -42.9 | British Colonial Empire | place+time+size | (British Empire) (166 km) |
-| West Australia | 1828–1899 | 35 | 121.9, -26.1 | British Colonial Empire | place+time+size | (British Empire) (0 km) |
-| :Dominica Martinique | 1830–1857 | 6 | -58.0, 14.6 | British Colonial Empire | place+time+size | (British Empire) (212 km); Bourbon Kingdom of France (295 km); (Bourbon Kingdom of France) (295 km) |
+| Land | 1826–1855 | 15 | 143.1, -42.9 | — | nothing near enough | British Colonial Empire (166 km); (British Empire) (166 km) |
+| West Australia | 1828–1899 | 35 | 121.9, -26.1 | — | nothing near enough | British Colonial Empire (0 km); (British Empire) (0 km) |
+| :Dominica Martinique | 1830–1857 | 6 | -58.0, 14.6 | — | nothing near enough | (British Empire) (212 km); British Colonial Empire (212 km); Bourbon Kingdom of France (295 km) |
 | *Windward Islands Trinidad | 1830–1883 | 26 | -57.6, 11.2 | — | nothing near enough | (British Empire) (281 km); British Colonial Empire (281 km); Gran Colombia (401 km) |
 | Guadeloupe :Dominica Martinique | 1832–1883 | 20 | -57.9, 15.3 | — | nothing near enough | (British Empire) (284 km); British Colonial Empire (284 km); Bourbon Kingdom of France (323 km) |
-| Falklands | 1832–2025 | 96 | -58.8, -50.7 | (Commonwealth of Nations) | place+time+size | (Spanish Empire) (86 km); Spanish Empire (86 km); British Colonial Empire (73 km) |
+| Falklands | 1832–2025 | 96 | -58.8, -50.7 | Spanish Empire | place+time+size | (Spanish Empire) (86 km); (Commonwealth of Nations) (73 km); British Colonial Empire (73 km) |
 | Ch. | 1834–1887 | 26 | 73.0, 35.5 | Talpur Dynasty | place+time+size | Sikh Empire (99 km); (British Empire) (0 km); British Empire (0 km) |
 | Lad. | 1834–1839 | 3 | 76.5, 35.0 | Sikh Empire | place+time+size | Emirate of Afghanistan (0 km); Qing Dynasty (99 km); Emirate of Bukhara (286 km) |
 | Mahri Yemeni States | 1834–1887 | 26 | 53.8, 14.8 | Sultanate of Oman | place+time+size | British Colonial Empire (188 km); (British Empire) (188 km); British Cape Colony (225 km) |
@@ -636,99 +638,101 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Bassam | 1834–1889 | 27 | -4.5, 4.0 | Ashanti Empire | place+time+size | (British Empire) (199 km); Bourbon Kingdom of France (156 km); (Bourbon Kingdom of France) (156 km) |
 | Kaabu Guinea | 1837–1881 | 22 | -18.0, 12.0 | Kingdom of Portugal | place+time+size | (Portuguese Empire) (141 km); British Cape Colony (181 km); (British Empire) (181 km) |
 | Pot. | 1837–1847 | 6 | 27.3, -25.9 | — | nothing near enough | Natalia Republic (289 km); British Cape Colony (359 km); (British Empire) (359 km) |
-| South Australia | 1837–1899 | 31 | 134.5, -25.7 | British Colonial Empire | place+time+size | (British Empire) (0 km) |
-| New South Wales | 1837–1860 | 12 | 139.2, -22.1 | British Colonial Empire | place+time+size | (British Empire) (129 km) |
+| South Australia | 1837–1899 | 31 | 134.5, -25.7 | — | nothing near enough | (British Empire) (0 km); British Colonial Empire (0 km) |
+| New South Wales | 1837–1860 | 12 | 139.2, -22.1 | — | nothing near enough | (British Empire) (129 km); British Colonial Empire (129 km) |
 | Muscat | 1839–1853 | 8 | 59.3, 24.4 | Sultanate of Oman | place+time+size | Qajar Dynasty (109 km); Talpur Dynasty (252 km); Trucial States (334 km) |
 | Dai Nam | 1839–1881 | 21 | 113.7, 14.1 | — | nothing near enough | Nguyễn dynasty (470 km) |
 | Mt. | 1839–1864 | 13 | 28.6, -20.4 | South African Republic | place+time+size | Kingdom of Portugal (589 km); (Portuguese Empire) (589 km) |
 | Ladakh | 1841–1845 | 3 | 77.7, 35.0 | Sikh Empire | place+time+size | Qing Dynasty (48 km); Talpur Dynasty (169 km); Durrani Dynasty (350 km) |
-| Yuc. | 1841–1847 | 4 | -89.0, 19.8 | Centralist Mexico | place+time+size | Federated Republic of Mexico (0 km); British Colonial Empire (162 km); Guatemala (227 km) |
+| Yuc. | 1841–1847 | 4 | -89.0, 19.8 | Guatemala | place+time+size | Federated Republic of Mexico (0 km); Centralist Mexico (0 km); British Colonial Empire (162 km) |
 | Guat Hond. | 1843–2025 | 90 | -88.4, 14.8 | Honduras | place+time+size | Guatemala (66 km); British Colonial Empire (135 km); Republic of El Salvador (80 km) |
 | French Polynesia | 1843–2025 | 91 | -146.1, -12.4 | — | no polity alive near it |  |
 | D.R. | 1845–1860 | 8 | -70.6, 18.9 | Empire of Haiti | place+time+size | Dominican Republic (0 km); British Colonial Empire (345 km); (British Empire) (345 km) |
 | Cape". | 1847–2025 | 43 | -26.0, 16.4 | Kingdom of Portugal | place+time+size | Republic of Cabo Verde (92 km); (Portuguese Empire) (92 km); Estado Novo (92 km) |
-| Reunion | 1849–2025 | 88 | 55.2, -22.3 | French Indochina | place+time+size | (French Second Republic) (101 km); French Second Republic (101 km); (French Third Republic) (101 km) |
+| Reunion | 1849–2025 | 88 | 55.2, -22.3 | French Second Republic | place+time+size | French Indochina (101 km); (French Second Republic) (101 km); (French Third Republic) (101 km) |
 | Mozambique | 1849–1889 | 20 | 36.1, -15.5 | Kingdom of Portugal | place+time+size | (Portuguese Empire) (246 km); Omani Slave Coast (468 km) |
 | Tra. | 1851–1857 | 4 | 28.1, -26.3 | South African Republic | place+time+size | Free Orange State (61 km); (British Empire) (55 km); Natalia Republic (208 km) |
-| Victoria | 1851–1899 | 24 | 144.9, -36.9 | British Colonial Empire | place+time+size | (British Empire) (0 km) |
-| Toro | 1853–1860 | 4 | -13.9, 15.1 | French Africa | place+time+size | (Second French Empire) (59 km); Kingdom of Portugal (355 km); British Cape Colony (301 km) |
+| Victoria | 1851–1899 | 24 | 144.9, -36.9 | — | nothing near enough | British Colonial Empire (0 km); (British Empire) (0 km) |
+| Toro | 1853–1860 | 4 | -13.9, 15.1 | — | nothing near enough | (Second French Empire) (59 km); French Africa (59 km); British Cape Colony (301 km) |
 | Natal Mpondoland | 1853–1891 | 19 | 33.1, -31.4 | — | nothing near enough | Natalia Republic (252 km); British Cape Colony (259 km); (British Empire) (259 km) |
 | Turkmens | 1855–1883 | 14 | 57.9, 40.1 | Khanate of Khiva | place+time+size | Russian Empire (0 km); Qajar Dynasty (213 km); Emirate of Bukhara (437 km) |
-| Senegal | 1855–1899 | 18 | -14.9, 14.7 | French Africa | place+time+size | (French Third Republic) (0 km); Kingdom of Portugal (230 km); (Second French Empire) (170 km) |
+| Senegal | 1855–1899 | 18 | -14.9, 14.7 | British Cape Colony | place+time+size | French Africa (0 km); (French Third Republic) (0 km); Kingdom of Portugal (230 km) |
 | Yeke | 1855–1889 | 17 | 26.7, -8.6 | — | nothing near enough | Kingdom of Portugal (398 km); (Portuguese Empire) (398 km) |
+| British Colombia | 1857–1868 | 6 | -125.0, 55.7 | — | nothing near enough | (British Empire) (0 km); British Colonial Empire (0 km); Russian Empire (311 km) |
 | Tasmania | 1857–1899 | 21 | 141.7, -42.2 | — | nothing near enough | (British Empire) (252 km); British Colonial Empire (252 km) |
 | Verde . | 1860–1920 | 7 | -25.7, 14.8 | Kingdom of Portugal | place+time+size | (Portuguese Empire) (139 km); Portuguese Republic (139 km) |
 | Transvaal | 1860–1908 | 24 | 29.2, -25.2 | South African Republic | place+time+size | British Africa (0 km); British Cape Colony (0 km); (British Empire) (0 km) |
-| Queensland | 1860–1899 | 20 | 144.5, -23.8 | British Colonial Empire | place+time+size | (British Empire) (0 km) |
-| Tukulor | 1862–1891 | 15 | -8.7, 13.9 | French Africa | place+time+size | (French Third Republic) (0 km); (Second French Empire) (272 km); (Portuguese Empire) (545 km) |
-| Cochinchina | 1862–1947 | 41 | 107.2, 7.5 | French Indochina | place+time+name | (Second French Empire) (234 km); (Vichy France) (234 km); (French Third Republic) (234 km) |
-| Ca. | 1864–1906 | 21 | 105.7, 12.5 | French Indochina | place+time+size | (French Third Republic) (0 km); (Second French Empire) (0 km); Kingdom of Champasak (164 km) |
-| Mtwakazi | 1866–1891 | 6 | 29.5, -19.2 | British Africa | place+time+size | (British Empire) (0 km); South African Republic (333 km); British Cape Colony (333 km) |
+| Queensland | 1860–1899 | 20 | 144.5, -23.8 | — | nothing near enough | (British Empire) (0 km); British Colonial Empire (0 km) |
+| Tukulor | 1862–1891 | 15 | -8.7, 13.9 | — | nothing near enough | French Africa (0 km); (French Third Republic) (0 km); (Second French Empire) (272 km) |
+| Cochinchina | 1862–1947 | 41 | 107.2, 7.5 | — | nothing near enough | French Indochina (234 km); (Second French Empire) (234 km); (French Third Republic) (234 km) |
+| Ca. | 1864–1906 | 21 | 105.7, 12.5 | Khmer Empire | place+time+size | French Indochina (0 km); (French Third Republic) (0 km); (Second French Empire) (0 km) |
+| Mtwakazi | 1866–1891 | 6 | 29.5, -19.2 | — | nothing near enough | (British Empire) (0 km); British Africa (0 km); South African Republic (333 km) |
 | TCLMtwakazi | 1870–1883 | 7 | 28.4, -19.1 | — | nothing near enough | South African Republic (349 km); (British Empire) (349 km); British Cape Colony (349 km) |
-| Was. | 1878–1895 | 9 | -6.9, 11.7 | French Africa | place+time+size | (French Third Republic) (0 km); (British Empire) (485 km); Ashanti Empire (491 km) |
+| Was. | 1878–1895 | 9 | -6.9, 11.7 | — | nothing near enough | French Africa (0 km); (French Third Republic) (0 km); Republic of Liberia (462 km) |
 | Tip | 1878–1891 | 7 | 27.7, -6.2 | Belgian Congo | place+time+size |  |
-| Baro. | 1881–1897 | 9 | 24.6, -15.5 | British Africa | place+time+size | (British Empire) (0 km); German Africa (220 km); Kingdom of Portugal (284 km) |
-| S. Rivers | 1883–1889 | 4 | -14.7, 14.8 | French Africa | place+time+size | (British Empire) (112 km); (French Third Republic) (0 km); British Africa (112 km) |
+| Baro. | 1881–1897 | 9 | 24.6, -15.5 | — | nothing near enough | British Africa (0 km); (British Empire) (0 km); German Africa (220 km) |
+| S. Rivers | 1883–1889 | 4 | -14.7, 14.8 | Kingdom of Portugal | place+time+size | (British Empire) (112 km); (French Third Republic) (0 km); French Africa (0 km) |
 | Annam | 1883–1949 | 32 | 113.1, 14.2 | — | nothing near enough | French Indochina (401 km); Nguyễn dynasty (401 km); (French Third Republic) (401 km) |
-| Mane | 1883–1889 | 3 | -15.2, 9.3 | French Africa | place+time+size | British Cape Colony (205 km); (French Third Republic) (129 km); (British Empire) (205 km) |
+| Mane | 1883–1889 | 3 | -15.2, 9.3 | Kingdom of Portugal | place+time+size | British Cape Colony (205 km); (French Third Republic) (129 km); French Africa (129 km) |
 | Oro River | 1885–1968 | 31 | -14.5, 22.8 | Kingdom of Spain | place+time+size | Francoist Spain (0 km); Second Spanish Republic (0 km); (Spanish Empire) (0 km) |
-| Tonkin | 1885–1949 | 31 | 104.8, 21.6 | French Indochina | place+time+size | Kuomintang (132 km); (French Third Republic) (0 km); Empire of Japan (0 km) |
-| Guadeloupe :Dominica Martinique ·Barbados *Windward Islands Trinidad | 1885–1957 | 31 | -57.6, 13.6 | British Colonial Empire | place+time+size | (British Empire) (196 km); French Third Republic (355 km); (French Third Republic) (355 km) |
+| Tonkin | 1885–1949 | 31 | 104.8, 21.6 | Kingdom of Luang Phrabang | place+time+size | French Indochina (0 km); Kuomintang (132 km); (French Third Republic) (0 km) |
+| Guadeloupe :Dominica Martinique ·Barbados *Windward Islands Trinidad | 1885–1957 | 31 | -57.6, 13.6 | — | nothing near enough | (British Empire) (196 km); British Colonial Empire (196 km); French Third Republic (355 km) |
 | Kaiser-Wilhelmsland | 1885–1897 | 7 | 148.5, -0.4 | German Empire | place+time+size |  |
-| Papua | 1885–1899 | 8 | 143.2, -6.7 | British Colonial Empire | place+time+size | German Empire (88 km); (British Empire) (0 km); Qajar Dynasty (253 km) |
-| Batwana | 1885–1910 | 13 | 24.2, -20.1 | British Africa | place+time+size | (British Empire) (0 km); German Africa (192 km); South African Republic (486 km) |
-| Bechuanaland | 1885–1965 | 39 | 24.2, -22.7 | British Africa | place+time+size | British East Africa (0 km); (British Empire) (0 km); South African Republic (285 km) |
-| Bech. | 1885–1891 | 4 | 23.5, -27.4 | British Africa | place+time+size | (British Empire) (0 km); South African Republic (133 km); Free Orange State (152 km) |
+| Papua | 1885–1899 | 8 | 143.2, -6.7 | German Empire | place+time+size | British Colonial Empire (0 km); (British Empire) (0 km); Qajar Dynasty (253 km) |
+| Batwana | 1885–1910 | 13 | 24.2, -20.1 | — | nothing near enough | (British Empire) (0 km); British Africa (0 km); German Africa (192 km) |
+| Bechuanaland | 1885–1965 | 39 | 24.2, -22.7 | — | nothing near enough | (British Empire) (0 km); British Africa (0 km); British East Africa (0 km) |
+| Bech. | 1885–1891 | 4 | 23.5, -27.4 | South African Republic | place+time+size | (British Empire) (0 km); British Africa (0 km); Free Orange State (152 km) |
 | Oro | 1887–1940 | 9 | -14.3, 23.7 | Kingdom of Spain | place+time+size | Francoist Spain (0 km); Second Spanish Republic (0 km); (Spanish Empire) (0 km) |
 | River | 1887–1940 | 9 | -14.7, 22.1 | Kingdom of Spain | place+time+size | (Spanish Empire) (0 km); Francoist Spain (0 km); Second Spanish Republic (0 km) |
 | Neutral Territory | 1887–1904 | 9 | 163.0, -17.3 | — | nothing near enough | (French Third Republic) (335 km); French Indochina (335 km); New Hebrides (427 km) |
-| South West Africa | 1887–1912 | 13 | 17.3, -21.3 | German Africa | place+time+size | British Africa (288 km); (British Empire) (288 km); (Portuguese Empire) (429 km) |
+| South West Africa | 1887–1912 | 13 | 17.3, -21.3 | — | nothing near enough | German Africa (0 km); (British Empire) (288 km); British Africa (288 km) |
 | Aden | 1889–1965 | 37 | 50.1, 16.3 | Kingdom of Great Britain | place+time+size | British Colonial Empire (0 km); (British Empire) (0 km); Kingdom of Saudi Arabia (265 km) |
 | Somaliland | 1889–1959 | 31 | 49.5, 1.8 | — | nothing near enough | Italian Africa (328 km); (British Empire) (328 km); British Africa (328 km) |
-| East Africa Protectorate | 1891–1918 | 14 | 38.2, 0.5 | British Africa | place+time+size | (British Empire) (0 km); Italian Africa (297 km); Ethiopian Empire (340 km) |
-| Soudan | 1893–1899 | 4 | -7.0, 13.6 | French Africa | place+time+size | (French Third Republic) (0 km); British Africa (600 km); (British Empire) (600 km) |
-| Ivory Coast | 1893–1899 | 4 | -5.5, 7.4 | French Africa | place+time+size | British Gold Coast (258 km); (French Third Republic) (0 km); (British Empire) (258 km) |
+| East Africa Protectorate | 1891–1918 | 14 | 38.2, 0.5 | — | nothing near enough | British Africa (0 km); (British Empire) (0 km); Italian Africa (297 km) |
+| East Africa | 1891–1920 | 15 | 34.7, -6.4 | — | nothing near enough | British Africa (0 km); German Africa (0 km); (British Empire) (0 km) |
+| Soudan | 1893–1899 | 4 | -7.0, 13.6 | — | nothing near enough | French Africa (0 km); (French Third Republic) (0 km); British Africa (600 km) |
+| Ivory Coast | 1893–1899 | 4 | -5.5, 7.4 | Ashanti Empire | place+time+size | British Gold Coast (258 km); (French Third Republic) (0 km); French Africa (0 km) |
 | N.C.P. | 1893–1897 | 3 | 7.2, 6.7 | British Gold Coast | place+time+size | (British Empire) (56 km); Sokoto Caliphate (128 km); German Africa (209 km) |
-| Bengui | 1893–1902 | 5 | 19.7, 6.3 | French Africa | place+time+size | (French Third Republic) (0 km); Belgian Congo (124 km); Bornu Empire (502 km) |
+| Bengui | 1893–1902 | 5 | 19.7, 6.3 | Belgian Congo | place+time+size | (French Third Republic) (0 km); French Africa (0 km); Bornu Empire (502 km) |
 | Katanga | 1893–1908 | 8 | 27.0, -7.3 | Belgian Congo | place+time+size | British Africa (256 km); German Africa (323 km); (British Empire) (256 km) |
-| Rhodesia | 1893–1897 | 3 | 28.8, -17.3 | British Africa | place+time+size | (British Empire) (0 km); (Portuguese Empire) (219 km); Kingdom of Portugal (219 km) |
-| Ery. | 1895–1934 | 18 | 38.9, 15.5 | Italian Africa | place+time+size | Kingdom of Italy (35 km); Ethiopian Empire (100 km); (British Empire) (213 km) |
+| Rhodesia | 1893–1897 | 3 | 28.8, -17.3 | Kingdom of Portugal | place+time+size | British Africa (0 km); (British Empire) (0 km); (Portuguese Empire) (219 km) |
+| Ery. | 1895–1934 | 18 | 38.9, 15.5 | Kingdom of Italy | place+time+size | Italian Africa (0 km); Ethiopian Empire (100 km); (British Empire) (213 km) |
 | Korea | 1897–1947 | 24 | 132.5, 39.0 | — | nothing near enough | Empire of Japan (305 km); United States of America (305 km); Joseon (311 km) |
 | GermanNewGuinea | 1899–1918 | 10 | 148.8, -0.5 | German Empire | place+time+name | (British Empire) (113 km); British Colonial Empire (113 km) |
-| NE Rhodesia | 1899–1910 | 6 | 31.3, -10.8 | British Africa | place+time+size | (British Empire) (0 km); German Africa (203 km); Belgian Congo (234 km) |
-| NW Rhodesia | 1899–1910 | 6 | 24.9, -15.4 | British Africa | place+time+size | (British Empire) (0 km); German Africa (238 km); Kingdom of Portugal (295 km) |
-| Southern Rhodesia | 1899–1980 | 28 | 30.3, -19.1 | Rhodesia | place+time+name | Zimbabwe Rhodesia (0 km); British East Africa (0 km); British Africa (0 km) |
-| Western Africa | 1902–1957 | 27 | -2.1, 16.2 | French Africa | place+time+name | (French Third Republic) (0 km); (Vichy France) (0 km); (French Fourth Republic) (0 km) |
+| NE Rhodesia | 1899–1910 | 6 | 31.3, -10.8 | Belgian Congo | place+time+size | British Africa (0 km); (British Empire) (0 km); German Africa (203 km) |
+| NW Rhodesia | 1899–1910 | 6 | 24.9, -15.4 | — | nothing near enough | (British Empire) (0 km); British Africa (0 km); German Africa (238 km) |
+| Southern Rhodesia | 1899–1980 | 28 | 30.3, -19.1 | Rhodesia | place+time+name | Zimbabwe Rhodesia (0 km); British Africa (0 km); South Africa (349 km) |
+| Western Africa | 1902–1957 | 27 | -2.1, 16.2 | — | nothing near enough | French Africa (0 km); (French Third Republic) (0 km); (Vichy France) (0 km) |
 | Red Canal | 1904–1968 | 31 | -16.7, 26.8 | Francoist Spain | place+time+size | Second Spanish Republic (125 km); Kingdom of Spain (125 km); (Spanish Empire) (125 km) |
 | North Nigeria | 1904–1912 | 5 | 8.4, 10.5 | British Gold Coast | place+time+size | Sokoto Caliphate (0 km); (British Empire) (0 km); (French Third Republic) (265 km) |
-| Ubangi-Shari | 1904–1931 | 9 | 20.7, 6.4 | French Africa | place+time+size | (French Third Republic) (0 km); Belgian Congo (173 km); British Africa (416 km) |
-| Martinique ·Barbados *Windward Islands Trinidad | 1906–1942 | 4 | -57.4, 12.4 | British Colonial Empire | place+time+size | (British Empire) (232 km); French Third Republic (438 km); (French Third Republic) (438 km) |
-| Equatorial Africa | 1910–1957 | 17 | 19.6, 8.0 | French Africa | place+time+size | Free French (0 km); German Africa (305 km); (French Third Republic) (0 km) |
-| Cyren. | 1912–1925 | 7 | 22.5, 31.1 | Italian Africa | place+time+size | British Africa (146 km); (British Empire) (146 km); Kingdom of Egypt (222 km) |
-| Fezzan | 1912–1951 | 11 | 15.1, 27.2 | Italian Africa | place+time+size | French Africa (0 km); (Vichy France) (0 km); (French Fourth Republic) (0 km) |
-| Northern Rhodesia | 1912–1963 | 21 | 25.5, -15.0 | British Africa | place+time+size | British East Africa (0 km); (British Empire) (0 km); Portuguese Republic (288 km) |
+| Ubangi-Shari | 1904–1931 | 9 | 20.7, 6.4 | Belgian Congo | place+time+size | (French Third Republic) (0 km); French Africa (0 km); British Africa (416 km) |
+| Martinique ·Barbados *Windward Islands Trinidad | 1906–1942 | 4 | -57.4, 12.4 | — | nothing near enough | (British Empire) (232 km); British Colonial Empire (232 km); French Third Republic (438 km) |
+| Equatorial Africa | 1910–1957 | 17 | 19.6, 8.0 | Free French | place+time+size | French Africa (0 km); German Africa (305 km); (French Third Republic) (0 km) |
+| Cyren. | 1912–1925 | 7 | 22.5, 31.1 | Kingdom of Egypt | place+time+size | Italian Africa (0 km); British Africa (146 km); (British Empire) (146 km) |
+| Fezzan | 1912–1951 | 11 | 15.1, 27.2 | — | nothing near enough | Italian Africa (0 km); French Africa (0 km); (Vichy France) (0 km) |
+| Northern Rhodesia | 1912–1963 | 21 | 25.5, -15.0 | — | nothing near enough | (British Empire) (0 km); British Africa (0 km); British East Africa (0 km) |
 | Yunnan | 1914–1925 | 6 | 101.6, 24.6 | Republic of China | place+time+size | Empire of China (0 km); Kuomintang (175 km); French Indochina (235 km) |
 | Sichuan | 1916–1934 | 9 | 102.8, 30.5 | Tibet | place+time+size | Empire of China (0 km); Republic of China (0 km); Kuomintang (0 km) |
-| Hunan | 1916–1925 | 5 | 110.7, 27.5 | Kuomintang | place+time+size | Empire of China (0 km); Empire of Japan (589 km) |
-| Guiz. | 1916–1922 | 4 | 107.0, 26.6 | Kuomintang | place+time+size | Empire of China (0 km); (French Third Republic) (401 km); French Indochina (401 km) |
-| Guangdxi | 1916–1925 | 5 | 109.2, 23.9 | Kuomintang | place+time+size | Empire of China (0 km); French Indochina (273 km); (French Third Republic) (273 km) |
-| Tuva | 1920–1942 | 11 | 95.9, 51.2 | Union of Soviet Socialist Republics | place+time+size | Great Mongol State (137 km); Republics of the Soviet Union (0 km); Mongolian People's Republic (137 km) |
+| Hunan | 1916–1925 | 5 | 110.7, 27.5 | — | nothing near enough | Empire of China (0 km); Kuomintang (0 km); Empire of Japan (589 km) |
+| Guiz. | 1916–1922 | 4 | 107.0, 26.6 | — | nothing near enough | Empire of China (0 km); Kuomintang (0 km); French Indochina (401 km) |
+| Guangdxi | 1916–1925 | 5 | 109.2, 23.9 | — | nothing near enough | Empire of China (0 km); Kuomintang (0 km); French Indochina (273 km) |
+| Tuva | 1920–1942 | 11 | 95.9, 51.2 | Mongolian People's Republic | place+time+size | Union of Soviet Socialist Republics (0 km); Great Mongol State (137 km); Republics of the Soviet Union (0 km) |
 | Lebanon Palestine | 1920–1947 | 13 | 32.4, 33.1 | Kingdom of Great Britain | place+time+size | Lebanon (262 km); (British Empire) (177 km); British Colonial Empire (235 km) |
 | B. | 1920–1949 | 3 | 90.6, 27.3 | Kingdom of Bhutan | abbreviation+place | Tibet (82 km); (British Empire) (47 km); British Raj (47 km) |
 | Anhui | 1920–1925 | 3 | 121.6, 26.0 | Empire of Japan | place+time+size | Kuomintang (154 km) |
-| Equatorial Africa | 1920–1931 | 6 | 18.0, 12.9 | French Africa | place+time+size | (French Third Republic) (0 km); British Africa (417 km); (British Empire) (370 km) |
-| Somaliland | 1920–1938 | 9 | 46.4, 9.9 | British Africa | place+time+size | Italian Africa (171 km); (British Empire) (0 km); Ethiopian Empire (171 km) |
-| Equatorial Africa | 1920–1931 | 6 | 13.5, -1.2 | French Africa | place+time+size | (French Third Republic) (0 km); Estado Novo (367 km); (Spanish Empire) (357 km) |
+| Equatorial Africa | 1920–1931 | 6 | 18.0, 12.9 | — | nothing near enough | (French Third Republic) (0 km); French Africa (0 km); British Gold Coast (370 km) |
+| Somaliland | 1920–1938 | 9 | 46.4, 9.9 | Ethiopian Empire | place+time+size | Italian Africa (171 km); British Africa (0 km); (British Empire) (0 km) |
+| Equatorial Africa | 1920–1931 | 6 | 13.5, -1.2 | — | nothing near enough | (French Third Republic) (0 km); French Africa (0 km); Belgian Congo (313 km) |
 | USSR | 1922–1990 | 31 | 97.9, 63.5 | Union of Soviet Socialist Republics | place+time+size |  |
 | Ireland | 1922–2025 | 53 | -12.6, 52.9 | Éire | place+time+size | Irish Free State (156 km); Kingdom of Great Britain (341 km); (Commonwealth of Nations) (341 km) |
 | T.S | 1922–1970 | 23 | 53.6, 25.1 | Kingdom of Great Britain | place+time+size | (British Empire) (99 km); Sultanate of Muscat and Oman (188 km); Qajar Dynasty (182 km) |
 | Najr. | 1922–1931 | 5 | 46.3, 18.2 | North Yemen | place+time+size | Emirate of Nejd (217 km); Kingdom of Hejaz and Nejd (104 km); Asir (217 km) |
 | Tr. | 1925–1945 | 10 | 36.7, 30.3 | Kingdom of Great Britain | place+time+size | British Africa (0 km); (British Empire) (0 km); Kingdom of Saudi Arabia (92 km) |
 | Xinjiang | 1927–1940 | 4 | 87.0, 41.5 | Communist Party of China | place+time+size | Kuomintang (0 km); Republic of China (0 km); Union of Soviet Socialist Republics (0 km) |
-| Cyrenaica | 1927–1951 | 6 | 21.8, 29.2 | Italian Africa | place+time+size | British Africa (0 km); (British Empire) (0 km); French Africa (293 km) |
+| Cyrenaica | 1927–1951 | 6 | 21.8, 29.2 | Nazi Germany | place+time+size | Italian Africa (0 km); British Africa (0 km); (British Empire) (0 km) |
 | Manchuria | 1934–1945 | 6 | 126.7, 46.7 | Empire of Japan | place+time+size | Union of Soviet Socialist Republics (325 km); Republic of China (533 km); Mongolian People's Republic (520 km) |
-| B. | 1934–1965 | 16 | 28.5, -29.7 | (British Empire) | abbreviation+place | British Africa (0 km); British East Africa (0 km); South Africa (51 km) |
-| East Africa | 1936–1940 | 3 | 40.6, 7.1 | Italian Africa | place+time+name | British Africa (316 km); French Africa (443 km); (British Empire) (316 km) |
+| B. | 1934–1965 | 16 | 28.5, -29.7 | — | single letters, no abbreviation near |  |
+| East Africa | 1936–1940 | 3 | 40.6, 7.1 | — | nothing near enough | Italian Africa (0 km); (British Empire) (316 km); British Africa (316 km) |
 | Comores | 1947–2025 | 42 | 44.9, -10.6 | Republic of Cabo Verde | place+time+size | (French Fourth Republic) (185 km); French Africa (185 km); French Fifth Republic (185 km) |
 | Lebanon Israel | 1949–2025 | 41 | 33.0, 33.0 | State of Israel | place+time+name | Lebanon (211 km); Republic of Cyprus (174 km); Kingdom of Great Britain (174 km) |
 | Ceylon | 1949–1970 | 11 | 85.0, 7.1 | — | nothing near enough | Sri Lanka (339 km) |
@@ -737,7 +741,7 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | South Maluku | 1951–1961 | 6 | 128.6, -4.9 | Republic of Indonesia | place+time+size | Estado Novo (419 km) |
 | Darul Islam | 1951–1961 | 6 | 103.3, -7.8 | Republic of Indonesia | place+time+size |  |
 | SouthVietnam | 1955–1975 | 10 | 113.9, 13.3 | — | nothing near enough | French Indochina (477 km); (French Fourth Republic) (477 km); Republic of Vietnam (477 km) |
-| Rhodesia& Nyasaland | 1955–1961 | 4 | 26.4, -15.4 | (British Empire) | place+time+size | British Africa (0 km); British East Africa (0 km); South Africa (289 km) |
+| Rhodesia& Nyasaland | 1955–1961 | 4 | 26.4, -15.4 | — | nothing near enough | (British Empire) (0 km); British Africa (0 km); British East Africa (0 km) |
 | Upper Volta | 1959–1982 | 11 | -0.9, 12.5 | Burkina Faso | place+time+size | French Fifth Republic (0 km); British Gold Coast (164 km); Republic of the Niger (221 km) |
 | Coast Ghana | 1959–2025 | 36 | -3.1, 6.4 | Ghana | place+time+size | British Gold Coast (0 km); Republic of Côte d'Ivoire (14 km); French Fifth Republic (14 km) |
 | Guadeloupe :Dominica Martinique "Barbados | 1963–2025 | 7 | -57.6, 14.8 | — | nothing near enough | British Colonial Empire (259 km); (British Empire) (259 km); Barbados (259 km) |
@@ -750,25 +754,27 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Ery. | 2000–2025 | 13 | 39.0, 15.7 | State of Eritrea | place+time+size | Ethiopia (119 km); Republic of Yemen (342 km); Republic of Sudan (215 km) |
 | Timor-Leste | 2003–2025 | 18 | 128.8, -10.1 | East Timor | place+time+size | Republic of Indonesia (228 km); Commonwealth of Australia (198 km) |
 
-## Large Cliopatria polities in view that the video never names (18)
+## Large Cliopatria polities in view that the video never names (20)
 
 Polities of at least 500,000 km² at their largest, alive 50 years or more of the span read, whose box centre was inside the map's view, and named by no track (by its match, or by name or abbreviation in one of its periods): what Cottereau left out or drew under another name (or what the OCR missed). Cliopatria's bracketed wholes (colonial empires, alliances) are left out.
 
 | Polity | Years | Largest area (km²) | Wikipedia |
 | --- | --- | ---: | --- |
+| French Africa | 1846–1957 | 11,671,356 | French Africa |
+| British Africa | 1885–1960 | 10,639,583 | Scramble for Africa |
 | Xiongnu | 208 BC–153 | 5,619,496 | Xiongnu |
 | Xianbei | 60–237 | 5,220,510 | Xianbei |
+| Italian Africa | 1890–1943 | 3,514,816 | Italian Empire |
 | Kimek-Kipchak confederation | 750–1235 | 3,015,095 | Kimek-Kipchak confederation |
 | Muhammad Ali dynasty | 1805–1865 | 2,689,225 | History of Egypt under the Muhammad Ali dynasty |
 | Tümed | 1547–1699 | 2,616,320 | Tumed |
 | Tughlaq Dynasty | 1326–1414 | 2,449,486 | Tughlaq dynasty |
-| Democratic Republic of the Congo | 1960–2024 | 2,307,868 | Democratic Republic of the Congo |
 | Scythia | 650 BC–224 BC | 1,687,837 | Scythians |
 | Moghulistan | 1463–1518 | 1,383,470 | Moghulistan |
 | Zengid dynasty | 1139–1259 | 1,162,883 | Zengid dynasty |
 | Yuezhi | 404 BC–42 | 916,154 | Yuezhi |
 | Magadha - Shaishunaga dynasty | 404 BC–334 BC | 797,305 | Shaishunaga dynasty |
-| East Franks | 850–910 | 730,939 | East Francia |
+| French Indochina | 1860–1957 | 790,410 | French Indochina |
 | Emirate of Jabal Shammar | 1825–1921 | 674,803 | Emirate of Jabal Shammar |
 | Gothia | 207–382 | 634,926 | Gothia |
 | Khwarezmid Dynasty | 1094–1201 | 614,269 | Anushtegin dynasty |
@@ -796,33 +802,33 @@ Polities of at least 500,000 km² at their largest, alive 50 years or more of th
 | 11 c. BC | 18 | 8 | 9 | 89% |
 | 10 c. BC | 19 | 9 | 11 | 82% |
 | 9 c. BC | 22 | 12 | 14 | 79% |
-| 8 c. BC | 24 | 15 | 34 | 41% |
+| 8 c. BC | 24 | 16 | 34 | 44% |
 | 7 c. BC | 27 | 19 | 37 | 49% |
 | 6 c. BC | 25 | 17 | 50 | 32% |
 | 5 c. BC | 24 | 17 | 51 | 33% |
 | 4 c. BC | 41 | 31 | 53 | 57% |
-| 3 c. BC | 48 | 41 | 78 | 51% |
-| 2 c. BC | 55 | 35 | 54 | 63% |
+| 3 c. BC | 48 | 40 | 78 | 51% |
+| 2 c. BC | 55 | 34 | 54 | 63% |
 | 1 c. BC | 42 | 27 | 56 | 48% |
 | 1 c. | 25 | 17 | 51 | 33% |
 | 2 c. | 40 | 17 | 45 | 38% |
 | 3 c. | 54 | 26 | 58 | 45% |
 | 4 c. | 62 | 39 | 73 | 53% |
-| 5 c. | 69 | 50 | 79 | 59% |
-| 6 c. | 92 | 57 | 97 | 58% |
+| 5 c. | 69 | 49 | 79 | 59% |
+| 6 c. | 92 | 55 | 97 | 57% |
 | 7 c. | 99 | 60 | 100 | 59% |
-| 8 c. | 94 | 64 | 107 | 59% |
-| 9 c. | 96 | 63 | 136 | 46% |
-| 10 c. | 149 | 108 | 189 | 56% |
+| 8 c. | 94 | 63 | 107 | 58% |
+| 9 c. | 97 | 63 | 136 | 46% |
+| 10 c. | 150 | 109 | 189 | 57% |
 | 11 c. | 133 | 90 | 202 | 45% |
 | 12 c. | 139 | 89 | 195 | 45% |
-| 13 c. | 152 | 103 | 244 | 41% |
-| 14 c. | 167 | 95 | 227 | 41% |
-| 15 c. | 188 | 101 | 212 | 47% |
-| 16 c. | 233 | 120 | 191 | 62% |
-| 17 c. | 230 | 87 | 152 | 57% |
-| 18 c. | 270 | 106 | 196 | 54% |
-| 19 c. | 338 | 157 | 305 | 51% |
-| 20 c. | 285 | 258 | 346 | 74% |
-| 21 c. | 170 | 149 | 197 | 75% |
+| 13 c. | 152 | 100 | 244 | 41% |
+| 14 c. | 167 | 94 | 227 | 41% |
+| 15 c. | 188 | 101 | 212 | 48% |
+| 16 c. | 233 | 119 | 191 | 62% |
+| 17 c. | 230 | 84 | 152 | 55% |
+| 18 c. | 271 | 103 | 196 | 53% |
+| 19 c. | 338 | 151 | 305 | 50% |
+| 20 c. | 286 | 251 | 346 | 73% |
+| 21 c. | 171 | 151 | 197 | 77% |
 

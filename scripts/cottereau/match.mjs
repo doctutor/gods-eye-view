@@ -17,11 +17,31 @@
  * A record of the same name far away (FAR_KM and more) is never the
  * match: it is noted as refused.
  *
+ * And four rules against pairings that were names alike, or places, but
+ * not the polity:
+ * - Directions must agree: a label and a name that each say a direction
+ *   (east, west, north, south, upper, lower) and not the same one are no
+ *   likeness ("East Francia" is not "West Franks", "SouthKorea" not North
+ *   Korea).
+ * - A label held by a polity of a like name wins over one beside it of a
+ *   slightly likelier name ("Congo" inside the Democratic Republic, not the
+ *   Republic across the river); a composite never wins so (it holds what
+ *   its dependencies do).
+ * - By place alone, or by a single letter ("B.", "G."), never a
+ *   composite: a bracketed record (a polity with its dependencies), a
+ *   colonial empire, a "French Africa" (a named colony or people inside
+ *   one is not the empire). A label of single letters is matched by its
+ *   abbreviation or not at all: by place it would be whatever holds it.
+ * - By place alone, never a polity over TOO_LARGE (log10, 30 times) larger
+ *   than the label's size says (a warlord's label inside the Han, a
+ *   colony's inside an empire): no name-matched polity is ever so far
+ *   above the size model.
+ *
  * Personal fork tooling; not part of upstream God's Eye View.
  */
 
 import { aliveIn, boxNear, distanceKm } from './cliopatria.mjs';
-import { foldName, textSimilarity } from './tracks.mjs';
+import { directionsDiffer, foldName, textSimilarity } from './tracks.mjs';
 
 export const NAME_KM = 300;
 // A near-exact name may sit further off: a small polity's label is often
@@ -31,6 +51,8 @@ export const NEAR_PLACE_KM = 250;
 export const ABBREVIATION_KM = 200;
 export const PLACE_KM = 50;
 export const FAR_KM = 1000;
+/** A place-only match this far (log10 area) above the size model's prediction is another polity. */
+export const TOO_LARGE = 1.5;
 
 // Words a polity's name may carry that a map label leaves out.
 const GENERIC = new Set(
@@ -73,6 +95,8 @@ export function nameScore(label, names) {
     const n = foldName(name).replace(/\./g, '');
     if (!n) continue;
     if (l === n) return 1;
+    // East is not West: no likeness at all.
+    if (directionsDiffer(l, n)) continue;
     best = Math.max(best, textSimilarity(l, n));
     const lc = core(l);
     const nc = core(n);
@@ -195,12 +219,35 @@ export const bracketed = (name) => /^\(.*\)$/.test(name);
 export const unbracketed = (name) => String(name).replace(/^\((.*)\)$/, '$1');
 
 /**
+ * A composite record: a polity with its dependencies (bracketed), a
+ * colonial empire, a nation's colonies in a continent. By place alone a
+ * label inside one is a colony or a people of it, never it.
+ */
+export const composite = (name) =>
+  bracketed(name) ||
+  /\b(Colonial|Colonies)\b/.test(name) ||
+  /^(British|French|German|Italian|Portuguese|Belgian|Spanish|Dutch|English) (Africa|East Africa|West Africa|India|Indochina)$/.test(
+    name,
+  );
+
+/** A label of single letters ("B.", "G. K."): no polity can be told from it. */
+export const singleLetters = (text) =>
+  foldName(text)
+    .split(' ')
+    .filter(Boolean)
+    .every((w) => w.replace(/\./g, '').length <= 1);
+
+/** A like name's rank: its likeness, a little more when the polity holds the label. */
+const HELD = 0.15;
+
+/**
  * Match a track: {name, wikidata, wikipedia, confidence: high | medium |
  * low, reason, distanceKm, nameScore, alternatives} or {name: null,
  * reason} when nothing fits; `refused` lists same-name records far away.
  */
 export function matchTrack(track, records, { sizeModel = null } = {}) {
   const candidates = candidatesOf(track, records);
+  const letters = singleLetters(track.text);
   const result = (group, confidence, reason) => ({
     name: group.name,
     wikidata: group.wikidata || null,
@@ -243,7 +290,8 @@ export function matchTrack(track, records, { sizeModel = null } = {}) {
     .sort(
       byBest(
         (c) =>
-          c.nameScore -
+          c.nameScore +
+          (c.distanceKm === 0 && !composite(c.name) ? HELD : 0) -
           c.distanceKm / 3000 +
           (c.type === 'POLITY' ? 0.001 : 0) -
           (bracketed(c.name) ? 0.002 : 0),
@@ -260,7 +308,12 @@ export function matchTrack(track, records, { sizeModel = null } = {}) {
   }
   // 2. abbreviation + place.
   const abbreviated = candidates
-    .filter((c) => c.abbreviation && c.distanceKm <= ABBREVIATION_KM)
+    .filter(
+      (c) =>
+        c.abbreviation &&
+        c.distanceKm <= ABBREVIATION_KM &&
+        !(letters && composite(c.name)),
+    )
     .sort(byBest((c) => -c.distanceKm + c.nameScore * 100));
   if (abbreviated.length) {
     const best = abbreviated[0];
@@ -278,18 +331,34 @@ export function matchTrack(track, records, { sizeModel = null } = {}) {
           : 'medium';
     return result(best, confidence, 'abbreviation+place');
   }
-  // 3. place + time.
+  // 3. place + time (never for single letters: they name a small polity
+  // that is not the one holding them).
+  if (letters)
+    return {
+      name: null,
+      reason: 'single letters, no abbreviation near',
+      refused: refusedOf(),
+      alternatives: [],
+    };
   // Within PLACE_KM; failing that within NEAR_PLACE_KM (a city state's
   // label set apart from its neighbours'), the nearest first.
-  let placed = candidates.filter((c) => c.distanceKm <= PLACE_KM);
+  const predicted =
+    sizeModel && track.size > 0
+      ? sizeModel.intercept + sizeModel.slope * Math.log10(track.size)
+      : null;
+  const placeable = candidates.filter(
+    (c) =>
+      !composite(c.name) &&
+      !(
+        predicted !== null &&
+        c.area > 0 &&
+        Math.log10(c.area) - predicted > TOO_LARGE
+      ),
+  );
+  let placed = placeable.filter((c) => c.distanceKm <= PLACE_KM);
   const nearOnly = !placed.length;
-  if (nearOnly)
-    placed = candidates.filter((c) => c.distanceKm <= NEAR_PLACE_KM);
+  if (nearOnly) placed = placeable.filter((c) => c.distanceKm <= NEAR_PLACE_KM);
   if (placed.length) {
-    const predicted =
-      sizeModel && track.size > 0
-        ? sizeModel.intercept + sizeModel.slope * Math.log10(track.size)
-        : null;
     const sizeFit = (c) =>
       predicted === null || !(c.area > 0)
         ? 0
@@ -351,7 +420,13 @@ export function matchTrack(track, records, { sizeModel = null } = {}) {
  * Consecutive years of one name are one period: [{name, wikidata, from,
  * to, reason}].
  */
-export function periodsOf(track, records, main = null) {
+export function periodsOf(
+  track,
+  records,
+  main = null,
+  { sizeModel = null } = {},
+) {
+  const letters = singleLetters(track.text);
   const near = aliveIn(records, track.firstYear, track.lastYear).filter((r) =>
     boxNear(r, track.lon, track.lat, EXACT_NAME_KM),
   );
@@ -373,6 +448,16 @@ export function periodsOf(track, records, main = null) {
       ...scores.get(r.name),
     };
   });
+  // By place, not a polity far larger than the label says (TOO_LARGE).
+  const predicted =
+    sizeModel && track.size > 0
+      ? sizeModel.intercept + sizeModel.slope * Math.log10(track.size)
+      : null;
+  const tooLarge = (area) =>
+    predicted !== null && area > 0 && Math.log10(area) - predicted > TOO_LARGE;
+  // A like name, a little more when the polity (not a composite) holds the label.
+  const rank = (c) =>
+    c.score + (c.km === 0 && !composite(c.record.name) ? HELD : 0);
   const choose = (year) => {
     const alive = info.filter(
       ({ record }) => record.from <= year && record.to >= year,
@@ -386,25 +471,32 @@ export function periodsOf(track, records, main = null) {
       )
       .sort(
         (a, b) =>
-          b.score - a.score ||
+          rank(b) - rank(a) ||
           Number(bracketed(a.record.name)) - Number(bracketed(b.record.name)) ||
           a.km - b.km,
       );
     if (named.length) return [named[0].record, 'name'];
     const abbreviated = alive
-      .filter((c) => c.abbreviation && c.km <= ABBREVIATION_KM)
+      .filter(
+        (c) =>
+          c.abbreviation &&
+          c.km <= ABBREVIATION_KM &&
+          !(letters && composite(c.record.name)),
+      )
       .sort((a, b) => a.km - b.km);
     if (abbreviated.length) return [abbreviated[0].record, 'abbreviation'];
     const same =
       main?.name &&
       alive.find((c) => c.record.name === main.name && c.km <= NEAR_PLACE_KM);
     if (same) return [same.record, 'main match'];
+    if (letters) return [null, null];
     const placed = alive
       .filter(
         (c) =>
           c.km <= PLACE_KM &&
           c.record.type === 'POLITY' &&
-          !/^\(/.test(c.record.name),
+          !composite(c.record.name) &&
+          !tooLarge(c.record.area),
       )
       .sort((a, b) => a.km - b.km || a.record.area - b.record.area);
     // The label named its polity, and goes on while Cliopatria renames the

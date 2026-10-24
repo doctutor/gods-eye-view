@@ -22,6 +22,7 @@ import {
   viewChange,
 } from '../../scripts/cottereau/framings.mjs';
 import {
+  directionsDiffer,
   mergeTracks,
   textSimilarity,
   trackLabels,
@@ -34,9 +35,11 @@ import {
 } from '../../scripts/cottereau/cliopatria.mjs';
 import {
   abbreviates,
+  composite,
   matchTrack,
   nameScore,
   periodsOf,
+  singleLetters,
 } from '../../scripts/cottereau/match.mjs';
 
 const box = (cx, cy, w, h, text) => ({ cx, cy, w, h, text, conf: 0.8 });
@@ -441,4 +444,105 @@ test('periods: a label named once goes on while Cliopatria renames what is under
       ['First French Empire', 1810, 1810, 'continued'],
     ],
   );
+});
+
+/** A mini Cliopatria of the given squares. */
+const recordsOf = (features) =>
+  readFeatureLines(
+    Readable.from([
+      [
+        '{',
+        '"features": [',
+        features.map((f) => JSON.stringify(f)).join(',\n'),
+        ']',
+        '}',
+      ].join('\n'),
+    ]),
+  );
+
+test('the matcher’s rules: directions agree, a held polity breaks a near tie, never a composite or a giant by place, single letters by abbreviation only', async () => {
+  const records = await recordsOf([
+    square('West Franks', 840, 990, 2, 47, 3),
+    square('East Franks', 840, 990, 10, 50, 3),
+    square('Republic of the Congo', 1960, 2024, 15, -1, 1.5),
+    square('Democratic Republic of the Congo', 1960, 2024, 23, -3, 6),
+    square('British Colonial Empire', 1700, 1900, -80, 40, 15),
+    square('(Kingdom of England)', 1600, 1700, -75, 42, 8),
+    square('Han Dynasty', -202, 220, 110, 33, 12),
+    square('Kingdom of Wessex', 700, 900, -1.5, 51, 1),
+  ]);
+  // Directions: "East Francia" is never the West Franks, however near.
+  assert.equal(directionsDiffer('East Francia', 'West Franks'), true);
+  assert.equal(directionsDiffer('SouthKorea', 'North Korea'), true);
+  assert.equal(directionsDiffer('East Francia', 'East Franks'), false);
+  assert.equal(
+    directionsDiffer('Francia', 'West Franks'),
+    false,
+    'one side says none',
+  );
+  assert.equal(nameScore('East Francia', ['West Franks']), 0);
+  const east = matchTrack(track('East Francia', 850, 900, 8, 49), records);
+  assert.equal(east.name, 'East Franks');
+  // Held: the label inside the Democratic Republic, the Republic's name a hair likelier.
+  const congo = matchTrack(track('Congo', 1965, 2000, 23, -3), records);
+  assert.equal(congo.name, 'Democratic Republic of the Congo');
+  // By place alone: a colony's or a people's label inside a composite is unmatched.
+  assert.ok(
+    composite('British Colonial Empire') && composite('(Kingdom of England)'),
+  );
+  assert.ok(composite('French Africa') && !composite('Kingdom of France'));
+  const wabanaki = matchTrack(track('Wabanaki', 1620, 1650, -70, 44), records);
+  assert.equal(wabanaki.name, null);
+  assert.deepEqual(
+    periodsOf(track('Wabanaki', 1620, 1650, -70, 44), records, wabanaki).filter(
+      (p) => p.name,
+    ),
+    [],
+  );
+  // By place alone: a warlord's small label inside the Han is not the Han.
+  const sizeModel = { slope: 3, intercept: 1 };
+  const warlord = track('Liu Biao', 193, 208, 112, 31, { size: 4 });
+  assert.equal(matchTrack(warlord, records, { sizeModel }).name, null);
+  assert.deepEqual(
+    periodsOf(warlord, records, null, { sizeModel }).filter((p) => p.name),
+    [],
+  );
+  assert.equal(
+    matchTrack(track('Liu Biao', 193, 208, 112, 31, { size: 200 }), records, {
+      sizeModel,
+    }).name,
+    'Han Dynasty',
+    'a label the Han’s size may be the Han',
+  );
+  // Single letters: by abbreviation, never by place.
+  assert.equal(
+    singleLetters('B.') && singleLetters('G. K.') && !singleLetters('Ba.'),
+    true,
+  );
+  assert.equal(
+    matchTrack(track('W.', 750, 800, -1.5, 51), records).name,
+    'Kingdom of Wessex',
+  );
+  const b = matchTrack(track('B.', 100, 150, 110, 33), records);
+  assert.equal(b.name, null, 'B. inside the Han names no abbreviation of it');
+  assert.deepEqual(
+    periodsOf(track('B.', 100, 150, 110, 33), records, b).filter((p) => p.name),
+    [],
+  );
+});
+
+test('tracking: labels of other directions are other labels, however alike', () => {
+  const samples = [1, 2, 3].map((t) => ({
+    t,
+    year: 850 + t,
+    labels: [
+      { text: 'West Francia', lon: 2, lat: 47, size: 20 },
+      { text: 'East Francia', lon: 9, lat: 50, size: 20 },
+    ],
+  }));
+  const tracks = mergeTracks(trackLabels(samples));
+  assert.deepEqual(tracks.map((t) => t.text).sort(), [
+    'East Francia',
+    'West Francia',
+  ]);
 });

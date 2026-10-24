@@ -39,7 +39,9 @@ Per frame:
 4. Unclaimed land is the near-white fill; the off-white cream is a fill
    like any other (Cottereau draws many small polities in it).
 5. Each region is named by the label whose point falls in it (or, for a
-   label set beside its polity, the nearest coloured region close by, but
+   label set beside its polity, the nearest coloured region close by: one
+   mostly inside its matched Cliopatria polity first, and such labels before
+   the others; but
    never one over MAX_CLAIM times its matched Cliopatria polity's area:
    a small polity's label over the sea is not the giant's beside it). Two
    labels in one region split it by nearest label (flagged "split"). A
@@ -75,8 +77,11 @@ FORMAT = 1
 # What this writes (see above). 1: the first full run. 2: frames without
 # a sea are skipped (they were one region the size of the frame). 3: a
 # label set beside its polity, or a region joining one, never claims more
-# than MAX_CLAIM times its matched Cliopatria polity's area.
-EXTRACTOR_VERSION = 3
+# than MAX_CLAIM times its matched Cliopatria polity's area. 4: a beside
+# label's own region is one mostly (MOSTLY_OWN) inside its matched polity,
+# not one whose centroid is; and labels with such a region choose first.
+EXTRACTOR_VERSION = 4
+MOSTLY_OWN = 0.5  # a region this much inside a label's matched polity is that label's side
 MAX_CLAIM = 6  # a beside or joined claim over 6x the matched polity is another polity's (none with IoU >= 0.2 above it)
 MIN_SEA_SHARE = 0.05  # a map shows at least this much sea (0.27 at the closest framing; a fade 0)
 SPLIT_CELLS = 4_000_000  # pixel x label distances held at once in a split (32 MB)
@@ -424,15 +429,16 @@ def name_regions(comp, table, labels, hint=None, claim=None):
             outside.append(i)
         else:
             owners.setdefault(cid, []).append(i)
+    plans = []
     for i in outside:
         candidates = beside_candidates(comp, table, labels[i])
         # The matched Cliopatria polity, when there is one: a candidate
-        # centred in its polygons first (which side the label belongs to).
+        # mostly inside it first (which side the label belongs to).
         inside = hint(labels[i]) if hint else None
-        if inside:
-            def centred(cid):
-                return inside(*table[cid]['centroid'])
-            candidates = [c for c in candidates if centred(c)] + [c for c in candidates if not centred(c)]
+        own = [c for c in candidates if inside(c)] if inside else []
+        plans.append((i, own, own + [c for c in candidates if c not in own]))
+
+    def take(i, candidates):
         for cid in candidates:
             if cid in owners:
                 continue
@@ -441,7 +447,20 @@ def name_regions(comp, table, labels, hint=None, claim=None):
                 continue
             owners[cid] = [i]
             beside.add(i)
-            break
+            return True
+        return False
+
+    # First every label with a region of its own matched polity, so one set
+    # beside its neighbour (first by label order) does not take the region
+    # another label's polity is (Banu Sulaym's over the Mamluks' Egypt);
+    # then the rest, as near and as large as before.
+    placed = set()
+    for i, own, _ in plans:
+        if own and take(i, own):
+            placed.add(i)
+    for i, _, candidates in plans:
+        if i not in placed:
+            take(i, candidates)
     assignment = {}  # region -> label index
     flags = {}  # label index -> set of flags
     next_id = int(comp.max()) + 1
@@ -649,30 +668,21 @@ def extract(frame, sample, framing, clio=None):
     comp, table = segment(frame, boxes, sea)
     labels = sample['labels']
     def hint(label):
-        """Whether a pixel lies in the label's matched Cliopatria polity
-        (its polygons that year, projected), or None without one."""
+        """Whether a region is mostly (MOSTLY_OWN of its pixels) inside the
+        label's matched Cliopatria polity that year, or None without one. A
+        centroid would fall in a gap of a large region's polity (the
+        Mamluks' 1372 ring leaves out south Sinai)."""
         name = label.get('cliopatria')
-        records = [r for r in (clio or {}).get('byName', {}).get(name, []) if r['from'] <= sample['year'] <= r['to']] if name else []
-        if not records:
+        if not (clio and name) or not any(r['from'] <= sample['year'] <= r['to'] for r in clio.get('byName', {}).get(name, [])):
             return None
-        coords = clio['coords']
-        polygons = []
-        for r in records:
-            for polygon in r['polygons']:
-                rings = []
-                for start, end in polygon:
-                    ring = coords[start:end]
-                    x, y = lonlat_to_pixel(framing, ring[:, 0], ring[:, 1])
-                    rings.append(np.stack([x, y], 1).astype(np.float32))
-                polygons.append(rings)
 
-        def inside(px, py):
-            for rings in polygons:
-                if cv2.pointPolygonTest(rings[0], (float(px), float(py)), False) >= 0 and not any(
-                    cv2.pointPolygonTest(hole, (float(px), float(py)), False) > 0 for hole in rings[1:]
-                ):
-                    return True
-            return False
+        def inside(cid):
+            x0, y0, x1, y1 = table[cid]['bbox']
+            theirs = cliopatria_mask(clio, name, sample['year'], framing, (x0, y0, x1, y1))
+            if theirs is None:
+                return False
+            ours = comp[y0:y1, x0:x1] == cid
+            return int((ours & theirs).sum()) >= MOSTLY_OWN * max(1, int(ours.sum()))
 
         return inside
 

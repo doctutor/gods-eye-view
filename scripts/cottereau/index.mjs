@@ -304,7 +304,7 @@ async function build({ labels, cliopatria }) {
   // Year by year, the names a track lives through.
   matches = matches.map((match, i) => ({
     ...match,
-    periods: periodsOf(tracks[i], records, match),
+    periods: periodsOf(tracks[i], records, match, { sizeModel }),
   }));
   writeJson(path.join(OUT, 'tracks.json'), {
     source:

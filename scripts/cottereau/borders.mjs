@@ -207,6 +207,9 @@ const CLAIM_MARGIN = 0.8;
  *   polity's whole area went over it too. So a sample stands unless one
  *   of its beside or joined polities, traced, is near or over the bound
  *   (CLAIM_MARGIN for the tracing).
+ * - 3 → 4: no rule, so none carries over. Labels whose own matched polity
+ *   a region mostly is choose first, which reorders the beside labels of
+ *   nearly every sample (1,031 of 1,038 have one).
  *
  * A rule is (result, {framing, cliopatria}) → whether it stands, where
  * `cliopatria(name, year, framing)` is the matched polity's pixel area.
