@@ -29,6 +29,7 @@ import { recordedVideoProxy } from './recordedVideo.js';
 import { earthEngineProxy } from './earthEngine.js';
 // Personal fork: the Wikipedia coverage layer.
 import { wikipediaCoverageProxy } from './wikipediaCoverage.js';
+import { cottereauBordersProxy } from './cottereauBorders.js';
 // Personal fork: the Rivers layer's self-hosted HydroSHEDS v2 tiles.
 import { riversV2Proxy } from './riversV2.js';
 // Personal fork: the Administrative boundaries layer's Overture country lines.
@@ -92,6 +93,8 @@ function localProviderPlugins({ realtime } = {}) {
     recordedVideoProxy({ sourceRoot: defaultSourceRoot }),
     earthEngineProxy({ sourceRoot: defaultSourceRoot }),
     wikipediaCoverageProxy({ sourceRoot: defaultSourceRoot }),
+    // Personal fork: private, and only with COTTEREAU_BORDERS_DIR set.
+    cottereauBordersProxy(),
     riversV2Proxy({ sourceRoot: defaultSourceRoot }),
     overtureBoundariesProxy({ sourceRoot: defaultSourceRoot }),
     riverReachProxy({ sourceRoot: defaultSourceRoot }),

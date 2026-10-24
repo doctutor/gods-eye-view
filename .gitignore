@@ -29,3 +29,10 @@ changelog.d/.assembling/
 
 # Personal fork: local credential files (Earth Engine service-account key); never committed
 .gev-secrets/
+
+# Personal fork: Cottereau's extracted borders are private (personal use
+# only): no build, sample or Cliopatria cut of one may ever be tracked.
+/data/cottereau/borders/
+/.gev-cache/cottereau/
+**/samples/[0-9][0-9][0-9][0-9].json.gz
+**/cliopatria.f64

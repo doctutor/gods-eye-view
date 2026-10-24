@@ -244,11 +244,21 @@ export function placedSamples(frames, framings) {
               // The line height over the framing's scale: comparable across framings.
               size: (label.h / framing.sx) * 1000,
               framing: framing.id,
+              // Its pixels, for the borders' extraction (borders.mjs).
+              x: label.x,
+              y: label.y,
+              w: label.w,
+              h: label.h,
             };
           })
         : [],
     };
   });
+}
+
+/** Every track of the labels with its points: what build() keeps (seen twice or more) and borders.mjs names regions by. */
+export function computeTracks(frames, framings) {
+  return mergeTracks(trackLabels(placedSamples(frames, framings)));
 }
 
 async function build({ labels, cliopatria }) {
@@ -261,8 +271,7 @@ async function build({ labels, cliopatria }) {
     console.warn(
       '[cottereau] the labels run past the last fitted framing: run fit again',
     );
-  const samples = placedSamples(frames, framings);
-  const all = mergeTracks(trackLabels(samples));
+  const all = computeTracks(frames, framings);
   const tracks = all.filter((t) => t.samples >= 2);
   console.log(
     `[cottereau] ${frames.length} samples (to ${frames.at(-1).year}), ${all.length} tracks, ${tracks.length} seen twice or more`,

@@ -5838,6 +5838,99 @@ label's own move not taken for one, Miller against the other cylinders on
 control points, tracking with a slip and a far namesake, and matching by
 name, by abbreviation, by another name, and refusing the namesake far away.
 
+### Cottereau's borders (private)
+
+Cottereau's drawn borders, extracted from the video as lon/lat polygons,
+for a **private** comparison layer beside Cliopatria. They are for the
+user's personal use only.
+
+**The privacy line.** The code is committed; the geometry never is. That
+means no polygons, no rasters, no frames, and nothing derived from the
+fills, in the repository or the fork:
+
+- A build lives under `E:\gev-data\cottereau\borders\`, or wherever
+  `--out` / `COTTEREAU_BORDERS_DIR` says. `borders.mjs` refuses any
+  directory inside the repository.
+- `.gitignore` guards every path a build could take there.
+- A test (`src/tooling/cottereauBorders.test.mjs`) fails if a borders file
+  is ever tracked.
+- The route `/api/cottereau-borders` exists only when
+  `COTTEREAU_BORDERS_DIR` is set where the server starts. It is same-site
+  and GET only, and absent otherwise.
+- Frames are decoded in memory and never written.
+
+```bash
+node scripts/cottereau/borders.mjs extract [--workers 2]     # the whole video
+node scripts/cottereau/borders.mjs extract --samples 50,650,1000 --out <scratch>   # a trial
+node scripts/cottereau/borders.mjs status
+```
+
+**Per sample** (one a video second, 1,043; `extractBorders.py`, Python with
+OpenCV, a frame decoded in memory):
+
+1. **Sea.** The sea is masked with the framing fit's colour rule, and the
+   year box counts as sea.
+2. **Label text is painted out.** Inside each OCR box, the strokes (black,
+   or white on a darker fill) and a rim round them take the box's own
+   background colour, so the fill runs on under the label. A grey border
+   line through a box is left alone. Text over the sea becomes sea; white
+   strokes on a land fill, which the sea mask takes for sea, are land.
+3. **Separators** are:
+   - the thin grey border lines (a black-hat: thin and darker than both
+     sides; a wide dark fill, such as the Holy Roman Empire's grey, is not
+     one);
+   - every jump of colour between neighbouring pixels (more than 24 in a
+     channel), which is two fills meeting;
+   - a thin neutral-grey region (a line no darker than the fill beside it).
+4. **Regions** are the connected components of what is left. Crumbs under
+   25 px become separators, and every separator pixel goes to the nearest
+   region, so the polygons tile.
+5. **Fills.** Near-white is unclaimed land. The off-white cream is a fill
+   like any other: Cottereau draws many small polities in it, divided by
+   lines.
+6. **Naming.**
+   - A region takes the label whose point falls in it.
+   - A label set beside its polity (over the sea, or over unclaimed land)
+     takes the nearest region within three line heights that no label
+     inside has. Among those about as near it prefers the largest, and
+     those centred in its matched Cliopatria polity's polygons come first
+     (flag `beside`).
+   - Two labels in one region split it by nearest label (`split`).
+   - A region with no label joins the nearest region of its colour within
+     800 px (an exclave, a colony, an island; `joined`). It never joins
+     through a colour three or more polities share in that frame, such as
+     the cream. Otherwise it is kept as unlabelled, with its colour.
+7. **Polygons.** Each polity's regions are traced, holes kept (specks of
+   text under 30 px dropped), simplified to about a pixel, and projected
+   with the sample's framing (inverse Miller).
+8. **Measures.** Its area in km² (each pixel row's area at its latitude),
+   and its intersection over union, by area and on land, with the
+   Cliopatria polygon of its matched name in that year (matches.json
+   periods).
+
+**A build** (`borders.mjs`, "Builds and restarts"):
+
+- It is keyed by its inputs: the extractor's code, the framings, the
+  matches, the labels file.
+- While it runs it is `builds/<key>.partial/`, holding `samples.json` (the
+  labels per sample with their tracks), the matched Cliopatria polygons
+  (`cliopatria.json` and `.f64`), and `samples/<index>.json.gz`, each
+  written whole. A stopped run resumes.
+- When done it becomes `builds/<key>/`, with `manifest.json` (the counts,
+  each framing's pixel size, the quality report, and each sample's year and
+  the years it covers to the next), and `current.json` moves to it in one
+  rename.
+- A polygon is `{track, label, cliopatria, wikidata, colour, areaKm2,
+flags, regions, iou, polygons}`, its rings integer at 1e-4° (the first
+  vertex absolute, each later one a delta).
+- A year shows the latest sample at or before it.
+
+**Running time.** The quality numbers stay in the build's manifest and the
+printed report, never here. On a trial:
+
+- About 9 s a sample on one worker: about 2½ to 3 hours for the whole
+  video, or about half that on two workers (400 MB each).
+
 ## Smaller additions
 
 - **What the dev server watches and scans** (`build/vite.js`). Vite's

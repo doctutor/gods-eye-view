@@ -79,8 +79,11 @@ def sea_mask(frame, tolerance=10):
     b, g, r = [frame[:, :, i].astype(np.int16) for i in range(3)]
     spread = np.max(frame, axis=2).astype(np.int16) - np.min(frame, axis=2)
     bluish = (b - r >= 10) & (b - r <= 40) & (b >= 185) & (spread <= 45) & (g >= r)
-    colours, counts = np.unique(frame[bluish] // 2, axis=0, return_counts=True)
-    sea_colour = colours[np.argmax(counts)].astype(np.int16) * 2 + 1
+    # The commonest bluish colour (at half precision): one packed bincount.
+    half = (frame[bluish] // 2).astype(np.int32)
+    packed = np.bincount(half[:, 0] * 16384 + half[:, 1] * 128 + half[:, 2], minlength=128 ** 3)
+    mode = int(np.argmax(packed))
+    sea_colour = np.array([mode // 16384, (mode // 128) % 128, mode % 128], np.int16) * 2 + 1
     near = np.max(np.abs(frame.astype(np.int16) - sea_colour), axis=2) <= tolerance
     # The coastline's antialiased edge pixels stay with the land they blend into.
     return (bluish & near).astype(np.uint8)
