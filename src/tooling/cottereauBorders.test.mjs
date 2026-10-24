@@ -14,9 +14,12 @@ import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import {
   carriesOver,
+  cliopatriaPixels,
   extractorVersion,
   insideRepository,
   manifestSamples,
+  maxClaim,
+  polygonsPixels,
   qualityReport,
   reuseSamples,
   sampleForYear,
@@ -396,5 +399,89 @@ test('--reuse: carries the samples that stand over from a build of the same samp
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('2 → 3: a sample whose beside or joined polity is near or over MAX_CLAIM times its matched polity is extracted again; the rest stand', () => {
+  assert.equal(maxClaim('MAX_CLAIM = 6  # a note\n'), 6);
+  assert.ok(maxClaim() >= 2);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gev-claim-'));
+  try {
+    // Cliopatria: "Small", a 1° square at 40-41° E, 40-41° N, alive 1600-1700.
+    const square = [40, 40, 41, 40, 41, 41, 40, 41];
+    fs.writeFileSync(
+      path.join(dir, 'cliopatria.f64'),
+      Buffer.from(new Float64Array(square).buffer),
+    );
+    fs.writeFileSync(
+      path.join(dir, 'cliopatria.json'),
+      JSON.stringify({
+        records: [
+          { name: 'Small', from: 1600, to: 1700, polygons: [[[0, 4]]] },
+        ],
+      }),
+    );
+    const framing = { id: 1, sx: 1945.8, tx: -439.4, sy: 1945.8, ty: 1952.7 };
+    const cliopatria = cliopatriaPixels(dir);
+    const own = cliopatria('Small', 1650, framing);
+    assert.ok(own > 0);
+    assert.equal(cliopatria('Small', 1800, framing), null, 'not alive');
+    // A polygon the size of `side` degrees, delta-encoded at 1e-4°.
+    const polity = (side, flags) => ({
+      cliopatria: 'Small',
+      flags,
+      polygons: [[[40e4, 40e4, side * 1e4, 0, 0, side * 1e4, -side * 1e4, 0]]],
+    });
+    const sample = (p) => ({
+      extractor: 2,
+      year: 1650,
+      framing: 1,
+      polygons: [p],
+    });
+    const context = { framing, cliopatria };
+    assert.ok(
+      Math.abs(polygonsPixels(framing, polity(1, []).polygons) - own) <
+        0.02 * own,
+      'the same pixels both ways',
+    );
+    assert.equal(
+      carriesOver(sample(polity(1.5, ['beside'])), 3, context),
+      true,
+    );
+    assert.equal(
+      carriesOver(sample(polity(3, ['beside'])), 3, context),
+      false,
+      '9x its polity, beside',
+    );
+    assert.equal(
+      carriesOver(sample(polity(3, ['joined'])), 3, context),
+      false,
+      'or by joins',
+    );
+    assert.equal(
+      carriesOver(sample(polity(3, [])), 3, context),
+      true,
+      'a label inside its region is not bounded',
+    );
+    assert.equal(
+      carriesOver({ ...sample(polity(3, ['beside'])), year: 1800 }, 3, context),
+      true,
+      'no matched polity that year: no bound',
+    );
+    assert.equal(
+      carriesOver(sample(polity(3, ['beside'])), 3, {}),
+      false,
+      'without the Cliopatria polygons, extracted again',
+    );
+    assert.equal(
+      carriesOver(
+        { extractor: 2, skipped: 'no-sea', polygons: [] },
+        3,
+        context,
+      ),
+      true,
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

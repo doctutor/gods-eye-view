@@ -39,10 +39,13 @@ Per frame:
 4. Unclaimed land is the near-white fill; the off-white cream is a fill
    like any other (Cottereau draws many small polities in it).
 5. Each region is named by the label whose point falls in it (or, for a
-   label set beside its polity, the nearest coloured region close by). Two
+   label set beside its polity, the nearest coloured region close by, but
+   never one over MAX_CLAIM times its matched Cliopatria polity's area:
+   a small polity's label over the sea is not the giant's beside it). Two
    labels in one region split it by nearest label (flagged "split"). A
    region with no label joins the nearest region of its colour within
-   JOIN_PX (an exclave, a colony, an island; flagged "joined"), else it is
+   JOIN_PX (an exclave, a colony, an island; flagged "joined"; within the
+   same MAX_CLAIM of a matched polity's area), else it is
    kept as "unlabelled" with its colour.
 6. Each polity's regions are traced (holes kept), simplified to about a
    pixel, and projected with the sample's framing (inverse Miller).
@@ -70,8 +73,11 @@ sea_mask = _fit.sea_mask
 R_KM = 6371.0
 FORMAT = 1
 # What this writes (see above). 1: the first full run. 2: frames without
-# a sea are skipped (they were one region the size of the frame).
-EXTRACTOR_VERSION = 2
+# a sea are skipped (they were one region the size of the frame). 3: a
+# label set beside its polity, or a region joining one, never claims more
+# than MAX_CLAIM times its matched Cliopatria polity's area.
+EXTRACTOR_VERSION = 3
+MAX_CLAIM = 6  # a beside or joined claim over 6x the matched polity is another polity's (none with IoU >= 0.2 above it)
 MIN_SEA_SHARE = 0.05  # a map shows at least this much sea (0.27 at the closest framing; a fade 0)
 SPLIT_CELLS = 4_000_000  # pixel x label distances held at once in a split (32 MB)
 LINE_BLACKHAT = 25  # a thin line's darkness over its surroundings
@@ -393,11 +399,22 @@ def nearest_label(xs, ys, points):
     return nearest
 
 
-def name_regions(comp, table, labels, hint=None):
+def name_regions(comp, table, labels, hint=None, claim=None):
     """Each region's owner: labels inside a region first; then each label set
     beside its polity takes the best region near it that no label inside
     has; a region two labels share is split by nearest label; the unlabelled
-    regions join the nearest of their colour."""
+    regions join the nearest of their colour. `claim(i)`: the most pixels
+    label i may take beside it or by joins (MAX_CLAIM times its matched
+    polity's area), or None (no match: no bound)."""
+    caps = {}
+
+    def cap(i):
+        if claim is None:
+            return None
+        if i not in caps:
+            caps[i] = claim(labels[i])
+        return caps[i]
+
     owners = {}
     beside = set()
     outside = []
@@ -417,10 +434,14 @@ def name_regions(comp, table, labels, hint=None):
                 return inside(*table[cid]['centroid'])
             candidates = [c for c in candidates if centred(c)] + [c for c in candidates if not centred(c)]
         for cid in candidates:
-            if cid not in owners:
-                owners[cid] = [i]
-                beside.add(i)
-                break
+            if cid in owners:
+                continue
+            # Not a region far larger than the polity it would name.
+            if cap(i) is not None and table[cid]['px'] > cap(i):
+                continue
+            owners[cid] = [i]
+            beside.add(i)
+            break
     assignment = {}  # region -> label index
     flags = {}  # label index -> set of flags
     next_id = int(comp.max()) + 1
@@ -459,6 +480,9 @@ def name_regions(comp, table, labels, hint=None):
     # cream for small polities): that is a fill, not one polity's.
     joined = {}
     labelled = [(cid, i) for cid, i in assignment.items()]
+    claimed = {}  # label index -> pixels it has
+    for cid, i in labelled:
+        claimed[i] = claimed.get(i, 0) + table[cid]['px']
     shared = set()
     for cid, i in labelled:
         others = {j for c, j in labelled if colour_close(table[c]['colour'], table[cid]['colour'])}
@@ -469,16 +493,22 @@ def name_regions(comp, table, labels, hint=None):
             continue
         if any(colour_close(entry['colour'], table[s]['colour']) for s in shared):
             continue
-        best, best_gap = None, None
-        for lcid, i in labelled:
+        # The nearest of its colour (the first on a tie), unless that would
+        # take the polity past its claim: then the next nearest.
+        options = []
+        for k, (lcid, i) in enumerate(labelled):
             if not colour_close(entry['colour'], table[lcid]['colour']):
                 continue
             g = gap_px(entry['bbox'], table[lcid]['bbox'])
-            if g <= JOIN_PX and (best_gap is None or g < best_gap):
-                best, best_gap = i, g
-        if best is not None:
-            joined[cid] = best
-            flags.setdefault(best, set()).add('joined')
+            if g <= JOIN_PX:
+                options.append((g, k, i))
+        for g, k, i in sorted(options):
+            if cap(i) is not None and claimed[i] + entry['px'] > cap(i):
+                continue
+            joined[cid] = i
+            claimed[i] += entry['px']
+            flags.setdefault(i, set()).add('joined')
+            break
     for i in beside:
         flags.setdefault(i, set()).add('beside')
     return assignment, joined, flags
@@ -541,6 +571,25 @@ def load_cliopatria(build):
     for record in index['records']:
         by_name.setdefault(record['name'], []).append(record)
     return {'byName': by_name, 'coords': coords}
+
+
+def cliopatria_px(clio, name, year, framing):
+    """The area, in a framing's pixels, of the Cliopatria polygons of `name`
+    alive in `year` (outer rings less their holes; the shoelace on the
+    projected rings, as borders.mjs computes it), or None."""
+    records = [r for r in clio.get('byName', {}).get(name, []) if r['from'] <= year <= r['to']]
+    if not records:
+        return None
+    coords = clio['coords']
+    total = 0.0
+    for record in records:
+        for polygon in record['polygons']:
+            for k, (start, end) in enumerate(polygon):
+                ring = coords[start:end]
+                x, y = lonlat_to_pixel(framing, ring[:, 0], ring[:, 1])
+                area = abs(float(np.dot(x, np.roll(y, -1)) - np.dot(np.roll(x, -1), y))) / 2
+                total += area if k == 0 else -area
+    return max(0.0, total)
 
 
 def cliopatria_mask(clio, name, year, framing, window):
@@ -627,7 +676,20 @@ def extract(frame, sample, framing, clio=None):
 
         return inside
 
-    assignment, joined, flags = name_regions(comp, table, labels, hint)
+    claims = {}
+
+    def claim(label):
+        """MAX_CLAIM times the label's matched Cliopatria polity's area that
+        year, in this frame's pixels (its polygons projected), or None."""
+        name = label.get('cliopatria')
+        if name not in claims:
+            claims[name] = None
+            px = cliopatria_px(clio, name, sample['year'], framing) if clio and name else None
+            if px:
+                claims[name] = MAX_CLAIM * px
+        return claims[name]
+
+    assignment, joined, flags = name_regions(comp, table, labels, hint, claim)
     area_row = row_area_km2(framing, height)
     owner = {}  # region -> label index
     owner.update(assignment)

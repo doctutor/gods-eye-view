@@ -4,8 +4,9 @@ Personal fork: tests of extractBorders.py on synthetic frames drawn here
 changes, label text painted out, an exclave joined to its polity, a region
 two labels share split, a colour with no label kept apart, the projection
 both ways and pixel areas; the split's nearest label in chunks (the dense
-answer, within a memory bound for a region holding many labels), and a
-frame without sea skipped. Run by src/tooling/cottereauBorders.test.mjs
+answer, within a memory bound for a region holding many labels), a
+frame without sea skipped, and a small polity's label beside a giant
+bounded by its matched polity's area (beside and by joins). Run by src/tooling/cottereauBorders.test.mjs
 (or directly: python -I test_extractBorders.py).
 """
 
@@ -198,6 +199,60 @@ class Bounds(unittest.TestCase):
         frame, boxes, labels = synthetic()
         result = eb.extract(frame, {'index': 1, 't': 1.0, 'year': 1, 'boxes': boxes, 'labels': labels}, FRAMING)
         self.assertNotIn('skipped', result)
+
+
+class Claims(unittest.TestCase):
+    """A small polity's label set beside a giant: the bound on its claim."""
+
+    @staticmethod
+    def world():
+        # Over a strip of sea (x 200..229): a giant on the left, the small
+        # polity's own island on the right, both 15 px from the label; a
+        # second piece of the giant's colour further right, unlabelled.
+        comp = np.zeros((400, 600), np.int32)
+        comp[:, :200] = 1
+        comp[190:210, 230:250] = 2
+        comp[100:300, 400:600] = 3
+        def entry(cid, colour):
+            ys, xs = np.nonzero(comp == cid)
+            return {'px': int(len(xs)), 'bbox': (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1),
+                    'white': False, 'colour': colour, 'centroid': (float(xs.mean()), float(ys.mean()))}
+        table = {1: entry(1, (40, 90, 200)), 2: entry(2, (200, 90, 40)), 3: entry(3, (40, 90, 200))}
+        labels = [{'text': 'Small', 'x': 215, 'y': 200, 'h': 20, 'cliopatria': 'Small'}]
+        return comp, table, labels
+
+    def test_without_a_bound_the_nearby_giant_is_taken(self):
+        comp, table, labels = self.world()
+        assignment, joined, flags = eb.name_regions(comp, table, labels)
+        self.assertEqual(assignment, {1: 0}, 'about as near, the larger first')
+        self.assertEqual(joined, {3: 0}, "and the giant's other piece joins it")
+
+    def test_a_beside_label_never_claims_far_more_than_its_polity(self):
+        comp, table, labels = self.world()
+        own = table[2]['px']
+        assignment, joined, flags = eb.name_regions(comp, table, labels, claim=lambda label: eb.MAX_CLAIM * own)
+        self.assertEqual(assignment, {2: 0}, 'its own island')
+        self.assertEqual(joined, {}, "the giant's colour is not its")
+        self.assertEqual(flags[0], {'beside'})
+
+    def test_a_join_stops_at_the_bound(self):
+        comp, table, labels = self.world()
+        labels[0]['x'] = 100  # inside the giant: it names it
+        assignment, joined, flags = eb.name_regions(comp, table, labels, claim=lambda label: 1.1 * table[1]['px'])
+        self.assertEqual(assignment, {1: 0})
+        self.assertEqual(joined, {}, 'the second piece would take it past its bound')
+        unbounded = eb.name_regions(comp, table, labels)[1]
+        self.assertEqual(unbounded, {3: 0})
+
+    def test_the_matched_polity_in_pixels(self):
+        coords = np.array([[0, 0], [10, 0], [10, 10], [0, 10], [2, 2], [4, 2], [4, 4], [2, 4]], float)
+        clio = {'byName': {'Sq': [{'from': 1, 'to': 5, 'polygons': [[[0, 4], [4, 8]]]}]}, 'coords': coords}
+        px = eb.cliopatria_px(clio, 'Sq', 3, FRAMING)
+        x, y = eb.lonlat_to_pixel(FRAMING, coords[:4, 0], coords[:4, 1])
+        outer = abs(float(np.dot(x, np.roll(y, -1)) - np.dot(np.roll(x, -1), y))) / 2
+        self.assertLess(px, outer, 'the hole taken out')
+        self.assertGreater(px, 0.9 * outer)
+        self.assertIsNone(eb.cliopatria_px(clio, 'Sq', 9, FRAMING), 'not alive that year')
 
 
 if __name__ == '__main__':

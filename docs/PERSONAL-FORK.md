@@ -5955,12 +5955,16 @@ OpenCV, a frame decoded in memory):
      takes the nearest region within three line heights that no label
      inside has. Among those about as near it prefers the largest, and
      those centred in its matched Cliopatria polity's polygons come first
-     (flag `beside`).
+     (flag `beside`). It never takes a region over six times its matched
+     polity's area that year (`MAX_CLAIM`): a small polity's label over the
+     sea, beside a giant, is not the giant. Abkhazia beside the Ottomans'
+     Black Sea coast was the case.
    - Two labels in one region split it by nearest label (`split`).
    - A region with no label joins the nearest region of its colour within
      800 px (an exclave, a colony, an island; `joined`). It never joins
      through a colour three or more polities share in that frame, such as
-     the cream. Otherwise it is kept as unlabelled, with its colour.
+     the cream. Nor does it take a matched polity past the same six times.
+     Otherwise it is kept as unlabelled, with its colour.
 7. **Polygons.** Each polity's regions are traced, holes kept (specks of
    text under 30 px dropped), simplified to about a pixel, and projected
    with the sample's framing (inverse Miller).
@@ -5979,8 +5983,12 @@ OpenCV, a frame decoded in memory):
 - `--reuse` names an earlier build, finished or partial. Its samples carry
   over where the newer version's change leaves them as they were
   (`CARRY_OVER` in `borders.mjs`), and only when both builds were prepared
-  from the same samples. The rest are extracted again. From version 1 to 2
-  (frames without a sea skipped), only those frames are redone.
+  from the same samples. The rest are extracted again.
+  - From version 1 to 2 (frames without a sea skipped), only those frames
+    are redone.
+  - From 2 to 3 (the six-times bound), a sample is redone when one of its
+    beside or joined polities, traced, comes within 80% of the bound. On
+    the first full build that is 378 of the 1,043 samples.
 - Two labels in one region split it by nearest label in chunks of pixels,
   so a region holding many labels stays within a few hundred MB.
 - While it runs it is `builds/<key>.partial/`, holding `samples.json` (the

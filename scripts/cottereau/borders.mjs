@@ -84,42 +84,159 @@ export function withSpans(samples, lastYear) {
 
 const sha = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
-/** extractBorders.py's declared EXTRACTOR_VERSION. */
-export function extractorVersion(
-  code = fs.readFileSync(
+const extractorCode = () =>
+  fs.readFileSync(
     path.join(ROOT, 'scripts/cottereau/extractBorders.py'),
     'utf8',
-  ),
-) {
-  const match = /^EXTRACTOR_VERSION = (\d+)\s*$/m.exec(code);
-  if (!match)
-    throw new Error('extractBorders.py declares no EXTRACTOR_VERSION');
+  );
+
+/** A constant extractBorders.py declares (`NAME = 6`). */
+function declared(name, code) {
+  const match = new RegExp(`^${name} = (\\d+)\\b`, 'm').exec(code);
+  if (!match) throw new Error(`extractBorders.py declares no ${name}`);
   return Number(match[1]);
+}
+
+/** extractBorders.py's declared EXTRACTOR_VERSION. */
+export const extractorVersion = (code = extractorCode()) =>
+  declared('EXTRACTOR_VERSION', code);
+
+/** extractBorders.py's MAX_CLAIM: a beside or joined claim's bound. */
+export const maxClaim = (code = extractorCode()) => declared('MAX_CLAIM', code);
+
+/** A lon/lat ring (flat pairs) in a framing's pixels (Miller, as extractBorders.py). */
+function ringPixels(framing, flat) {
+  const out = new Float64Array(flat.length);
+  for (let i = 0; i + 1 < flat.length; i += 2) {
+    const u = (flat[i] * Math.PI) / 180;
+    const v =
+      1.25 *
+      Math.log(Math.tan(Math.PI / 4 + (0.4 * flat[i + 1] * Math.PI) / 180));
+    out[i] = framing.sx * u + framing.tx;
+    out[i + 1] = framing.ty - framing.sy * v;
+  }
+  return out;
+}
+
+/** The shoelace area of a flat ring of pixels. */
+function ringArea(xy) {
+  let twice = 0;
+  const n = xy.length / 2;
+  for (let i = 0, j = n - 1; i < n; j = i++)
+    twice += xy[j * 2] * xy[i * 2 + 1] - xy[i * 2] * xy[j * 2 + 1];
+  return Math.abs(twice) / 2;
+}
+
+/** A sample polygon's rings (delta-encoded at 1e-4°) as flat lon/lat pairs. */
+function decodeRing(deltas) {
+  const flat = new Float64Array(deltas.length);
+  let x = 0;
+  let y = 0;
+  for (let i = 0; i + 1 < deltas.length; i += 2) {
+    x += deltas[i];
+    y += deltas[i + 1];
+    flat[i] = x / 1e4;
+    flat[i + 1] = y / 1e4;
+  }
+  return flat;
+}
+
+/** A polity's area in a framing's pixels: outer rings less their holes. */
+export function polygonsPixels(framing, polygons) {
+  let total = 0;
+  for (const rings of polygons)
+    rings.forEach((ring, k) => {
+      const area = ringArea(ringPixels(framing, decodeRing(ring)));
+      total += k === 0 ? area : -area;
+    });
+  return Math.max(0, total);
+}
+
+/**
+ * The matched Cliopatria polities' areas in a framing's pixels, from a
+ * build's cliopatria.json and .f64 (as extractBorders.cliopatria_px).
+ */
+export function cliopatriaPixels(dir) {
+  const file = path.join(dir, 'cliopatria.json');
+  if (!fs.existsSync(file)) return () => null;
+  const { records } = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const raw = fs.readFileSync(path.join(dir, 'cliopatria.f64'));
+  const coords = new Float64Array(
+    raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength),
+  );
+  const byName = new Map();
+  for (const r of records) {
+    const list = byName.get(r.name) || [];
+    list.push(r);
+    byName.set(r.name, list);
+  }
+  return (name, year, framing) => {
+    const alive = (byName.get(name) || []).filter(
+      (r) => r.from <= year && year <= r.to,
+    );
+    if (!alive.length) return null;
+    let total = 0;
+    for (const r of alive)
+      for (const polygon of r.polygons)
+        polygon.forEach(([start, end], k) => {
+          const area = ringArea(
+            ringPixels(framing, coords.subarray(start * 2, end * 2)),
+          );
+          total += k === 0 ? area : -area;
+        });
+    return Math.max(0, total);
+  };
 }
 
 /** The video's frame, px (a sample's land is at most this). */
 const FRAME_PX = 3840 * 1920;
+/** A traced polity is a little smaller than its pixels: a claim this near the bound counts as over it. */
+const CLAIM_MARGIN = 0.8;
 
 /**
  * Which samples written by an older extractor carry over to the current
  * one, by the version that wrote them (a sample without one is version 1):
  * a version's change leaves those it names as they were.
+ * Each version names what changed:
  * - 1 → 2: frames without a sea are skipped; every other sample is the
  *   same (checked on real samples with splits). A frame without a sea was
  *   one region the size of the frame, land everywhere.
+ * - 2 → 3: a beside or joined claim is bounded by MAX_CLAIM times the
+ *   matched Cliopatria polity's area. The bound changes a sample only where
+ *   a beside region, or a polity's joins, went over it; and then that
+ *   polity's whole area went over it too. So a sample stands unless one
+ *   of its beside or joined polities, traced, is near or over the bound
+ *   (CLAIM_MARGIN for the tracing).
+ *
+ * A rule is (result, {framing, cliopatria}) → whether it stands, where
+ * `cliopatria(name, year, framing)` is the matched polity's pixel area.
  */
 export const CARRY_OVER = Object.freeze({
   1: (result) => !(result.stats?.landPx >= 0.95 * FRAME_PX),
+  2: (result, { framing, cliopatria, claim = maxClaim() } = {}) => {
+    if (result.skipped) return true;
+    if (!framing || !cliopatria) return false;
+    for (const p of result.polygons || []) {
+      if (!p.cliopatria) continue;
+      if (!p.flags?.includes('beside') && !p.flags?.includes('joined'))
+        continue;
+      const theirs = cliopatria(p.cliopatria, result.year, framing);
+      if (!theirs) continue;
+      if (polygonsPixels(framing, p.polygons) > CLAIM_MARGIN * claim * theirs)
+        return false;
+    }
+    return true;
+  },
 });
 
 /** Whether a sample written by an older extractor stands for `version`. */
-export function carriesOver(result, version) {
+export function carriesOver(result, version, context = {}) {
   let from = result.extractor ?? 1;
   if (from === version) return true;
   if (from > version) return false;
   for (; from < version; from++) {
     const rule = CARRY_OVER[from];
-    if (!rule || !rule(result)) return false;
+    if (!rule || !rule(result, context)) return false;
   }
   return true;
 }
@@ -401,12 +518,18 @@ export function reuseSamples({ from, partial, indices, version }) {
     throw new Error(
       `--reuse ${from} was prepared from other samples: nothing carried over`,
     );
+  const { framings } = JSON.parse(
+    fs.readFileSync(path.join(partial, 'samples.json'), 'utf8'),
+  );
+  const framingOf = new Map(framings.map((f) => [f.id, f]));
+  const cliopatria = cliopatriaPixels(partial);
   const carried = [];
   for (const i of indices) {
     const source = path.join(from, 'samples', sampleName(i));
     if (!fs.existsSync(source)) continue;
     const result = readSample(source);
-    if (result.index !== i || !carriesOver(result, version)) continue;
+    const context = { framing: framingOf.get(result.framing), cliopatria };
+    if (result.index !== i || !carriesOver(result, version, context)) continue;
     writeAtomic(
       path.join(partial, 'samples', sampleName(i)),
       zlib.gzipSync(JSON.stringify({ ...result, extractor: version })),
