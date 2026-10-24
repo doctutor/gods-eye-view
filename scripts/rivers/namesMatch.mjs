@@ -172,13 +172,20 @@ export function sampleLine(coords, project, step, maxSamples = MAX_SAMPLES) {
 /**
  * The name group a reach follows: {group, coverage, distance} for the
  * group covering the most of it, or null under MIN_COVERAGE (`best` then
- * says how close the nearest came).
+ * says how close the nearest came). `maxAngle`: how far a segment may turn
+ * from the reach and still count (the live names, server/providers/
+ * riverNames/live.js, allow more for HydroRIVERS v1's stepped lines).
  * @param {number[]} coords the reach's [lon, lat, …]
  */
 export function matchReach(
   coords,
   index,
-  { tolerance, minCoverage = MIN_COVERAGE, maxSamples = MAX_SAMPLES } = {},
+  {
+    tolerance,
+    minCoverage = MIN_COVERAGE,
+    maxSamples = MAX_SAMPLES,
+    maxAngle = MAX_ANGLE_DEGREES,
+  } = {},
 ) {
   const { samples, length } = sampleLine(
     coords,
@@ -189,7 +196,14 @@ export function matchReach(
   if (!samples.length) return null;
   const covered = new Map(); // group → [length, Σ distance × length]
   for (const s of samples) {
-    for (const [group, d] of index.near(s.x, s.y, s.dx, s.dy, tolerance)) {
+    for (const [group, d] of index.near(
+      s.x,
+      s.y,
+      s.dx,
+      s.dy,
+      tolerance,
+      maxAngle,
+    )) {
       const entry = covered.get(group) || [0, 0];
       entry[0] += s.w;
       entry[1] += d * s.w;

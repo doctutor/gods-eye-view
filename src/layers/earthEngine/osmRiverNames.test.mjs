@@ -146,3 +146,41 @@ test('the reach card takes OpenStreetMap’s name first, and says where it came 
   );
   assert.equal(osmNameSource(null), '');
 });
+
+test('a live name from a nearby waterway: after the sidecar’s, before BB_NAME only where BB_NAME is silent or agrees', () => {
+  const live = (name) => ({ name, confidence: 'live', coverage: 0.9 });
+  const answer = (osmName, BB_NAME = '', segments = []) => ({
+    osmName,
+    reach: { properties: { BB_NAME } },
+    downstream: { segments },
+  });
+  // Unnamed in HydroRIVERS: the live name, and where it came from.
+  assert.equal(reachTitle(answer(live('Jones Falls'))), 'Jones Falls');
+  assert.equal(
+    osmNameSource(live('Jones Falls')),
+    'Name from OpenStreetMap (nearby waterway), © OpenStreetMap contributors, ODbL',
+  );
+  // BB_NAME names a big river: it stays, unless the live name agrees.
+  assert.equal(
+    reachTitle(answer(live('Rock Run'), 'Susquehanna')),
+    'Susquehanna',
+  );
+  assert.equal(osmNameSource(live('Rock Run'), 'Susquehanna'), '');
+  assert.equal(
+    reachTitle(answer(live('Susquehanna River'), 'Susquehanna')),
+    'Susquehanna River',
+  );
+  // The sidecar's own names still come first, BB_NAME or not.
+  assert.equal(
+    reachTitle(
+      answer({ name: 'Rock Run', confidence: 'direct' }, 'Susquehanna'),
+    ),
+    'Rock Run',
+  );
+  // No name at all: the tributary fallback, then unnamed.
+  assert.equal(
+    reachTitle(answer(null, '', [{ name: '' }, { name: 'Patapsco' }])),
+    'Tributary of Patapsco',
+  );
+  assert.equal(reachTitle(answer(null)), 'Unnamed river');
+});

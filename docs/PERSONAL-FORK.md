@@ -3898,6 +3898,59 @@ E:/gev-data/osm/planet-261012.osm.pbf`): osmium in the Overpass image
   Titles toggle hides them like the others.
 - `GET /api/rivers/names/nearest?lat=&lon=` answers a point's name too.
 
+**Live names from the local Overpass.** When the sidecar has no name for
+a clicked reach, or is not built, and v1 has no `BB_NAME` for it, the reach
+endpoint asks the local Overpass once for the named waterway that follows
+the reach (`server/providers/riverNames/live.js`). That is
+`OVERPASS_UPSTREAMS` through the app's own Overpass transport, never a
+public instance.
+
+- **The query** is `way(around:R, <the reach's line>)["waterway"~"^(river|stream|canal)$"]["name"]; out tags geom;`:
+  around the reach's own polyline, thinned to about 40 points, not only
+  the click.
+- **The choice** is the sidecar matcher's (`matchReach`,
+  `scripts/rivers/namesMatch.mjs`):
+  - the reach is sampled along its length;
+  - each sample counts for the names whose nearest segment lies within
+    the tolerance and runs within 60° of the reach;
+  - the name covering the most of the reach wins, at 40% or more.
+  - A crossing stream counts at a sample or two, and a tributary at a
+    confluence only near the reach's end. Ways are grouped by name, since
+    a river's ways do not all carry its Wikidata item.
+- **The tolerance is wider than the sidecar's** because v1's reaches are
+  stepped lines on its 15″ grid. Around Baltimore (2026-10-23) the waterway
+  lay 63–114 m from its reach on average:
+  - 150 m covered only 21–87% of each reach;
+  - so it is 250 m, and 400 m for RIV_ORD 4 and under (100 m³/s and more).
+- **What the five test reaches got**, each in 0.4–1.0 s:
+  - 7617971: Gwynns Falls, 83% of the reach, mean 103 m off.
+  - 7619123: Patapsco River, 89%, 100 m.
+  - 7617765: Jones Falls, 92%, 81 m.
+  - 7617526 and 7616599: Gwynns Falls, 97% and 94%.
+  - At the Gwynns Falls/Gwynns Run confluence, Gwynns Run covered 17%.
+- **Kept with the reach:** the answer is stored as `<id>.osmname.json`
+  beside the reach's own file (180 days), including when no waterway
+  follows the reach. A second click asks nothing.
+- **Budget:** one request a click at most, 10 s (`LIVE_TIMEOUT_MS`). A
+  failed or slow Overpass is not kept, and the card shows what it had
+  before, never an error.
+- **On the card,** the name order is:
+  1. the sidecar's (direct, then carried down the main stem, then its
+     nearest waterway);
+  2. the live name;
+  3. `BB_NAME`;
+  4. "Tributary of …";
+  5. "Unnamed river".
+- **`BB_NAME` stays authoritative:** a reach it names is never looked up
+  live, and the card prefers `BB_NAME` to a live name unless the two
+  agree. The Susquehanna stays the Susquehanna.
+- **The line under the title** reads "Name from OpenStreetMap (nearby
+  waterway), © OpenStreetMap contributors, ODbL". That is the ODbL
+  credit, as for the sidecar's names.
+- **Not done:** the "Tributary of …" fallback does not look downstream
+  live. It would cost a request per segment, and the sidecar build names
+  those reaches once it lands.
+
 Attribution: the names are © OpenStreetMap contributors, under the
 [ODbL](https://opendatacommons.org/licenses/odbl/1-0/), beside
 HydroSHEDS' (the Rivers layer's credit, and the card's line). The sidecar

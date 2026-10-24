@@ -753,3 +753,89 @@ test('a clicked reach carries the name the river names sidecar gives the click',
   });
   assert.equal('osmName' in plain.body, false);
 });
+
+test('no sidecar name: the live OpenStreetMap name, asked once and kept with the reach; never for a BB_NAME reach', async (t) => {
+  const root = await tempRoot(t);
+  const asked = [];
+  let answer = { status: 'failed' };
+  const liveNames = {
+    async name(reach) {
+      asked.push(reach.id);
+      return answer;
+    },
+  };
+  const make = (names = null) =>
+    createRiverReachService({
+      sourceRoot: root,
+      backend: fakeEngine({ nearest: 30 }),
+      names,
+      liveNames,
+    });
+  const click = { lat: -0.5, lon: -0.5, heightM: 100_000 };
+  // Overpass down: no name, nothing kept, the card as today.
+  const failed = await make().atPoint(click);
+  assert.equal(failed.status, 200);
+  assert.equal(failed.body.reach.id, 30);
+  assert.equal(failed.body.osmName, undefined);
+  assert.deepEqual(asked, [30]);
+  // Up again: the name, kept.
+  answer = {
+    status: 'named',
+    osmName: {
+      name: 'Gwynns Falls',
+      coverage: 0.83,
+      distanceM: 103,
+      confidence: 'live',
+    },
+  };
+  const named = await make().atPoint(click);
+  assert.equal(named.body.osmName.name, 'Gwynns Falls');
+  assert.equal(named.body.osmName.confidence, 'live');
+  assert.deepEqual(asked, [30, 30]);
+  const kept = JSON.parse(
+    await fs.readFile(
+      path.join(root, '.gev-cache', 'rivers', 'reach', '30.osmname.json'),
+      'utf8',
+    ),
+  );
+  assert.equal(kept.version, CACHE_VERSION);
+  assert.equal(kept.osmName.name, 'Gwynns Falls');
+  // A second click (a fresh process too) asks nothing.
+  const again = await make().atPoint(click);
+  assert.equal(again.body.osmName.name, 'Gwynns Falls');
+  assert.deepEqual(asked, [30, 30]);
+  // The sidecar's name comes first: no live lookup.
+  const sidecar = await make({
+    nearest: () => ({ name: 'Dead Run', confidence: 'direct', distanceM: 12 }),
+  }).atPoint(click);
+  assert.equal(sidecar.body.osmName.name, 'Dead Run');
+  assert.deepEqual(asked, [30, 30]);
+  // A reach BB_NAME names (the Susquehanna's case) keeps that name.
+  const creek = await createRiverReachService({
+    sourceRoot: root,
+    backend: fakeEngine({ nearest: 11 }),
+    liveNames,
+  }).atPoint({ lat: 0.25, lon: 0.0001, heightM: 100_000 });
+  assert.equal(creek.body.reach.properties.BB_NAME, 'Creek');
+  assert.equal(creek.body.osmName, undefined);
+  assert.deepEqual(asked, [30, 30]);
+});
+
+test('a live lookup that finds no waterway is kept as none: the next click asks nothing either', async (t) => {
+  const root = await tempRoot(t);
+  let calls = 0;
+  const service = createRiverReachService({
+    sourceRoot: root,
+    backend: fakeEngine({ nearest: 30 }),
+    liveNames: {
+      async name() {
+        calls += 1;
+        return { status: 'none' };
+      },
+    },
+  });
+  const click = { lat: -0.5, lon: -0.5, heightM: 100_000 };
+  assert.equal((await service.atPoint(click)).body.osmName, undefined);
+  assert.equal((await service.byId(30)).body.osmName, undefined);
+  assert.equal(calls, 1);
+});

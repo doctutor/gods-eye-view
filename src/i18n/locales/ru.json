@@ -3840,5 +3840,6 @@
   "Maryland parcels only": "Только участки Мэриленда",
   "MD iMAP did not answer: try again": "MD iMAP не ответил: попробуйте ещё раз",
   "No parcel at the view centre": "В центре вида нет участка",
-  "ADD PARCEL AT VIEW CENTRE": "ДОБАВИТЬ УЧАСТОК В ЦЕНТРЕ ВИДА"
+  "ADD PARCEL AT VIEW CENTRE": "ДОБАВИТЬ УЧАСТОК В ЦЕНТРЕ ВИДА",
+  "Name from OpenStreetMap (nearby waterway), © OpenStreetMap contributors, ODbL": "Название из OpenStreetMap (ближайший водоток), © участники OpenStreetMap, ODbL"
 }
