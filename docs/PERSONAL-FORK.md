@@ -55,6 +55,7 @@ unless its switch is set to `0`.
 - [Rivers: names from OpenStreetMap](#rivers-names-from-openstreetmap)
 - [Builds and restarts](#builds-and-restarts)
 - [Cottereau's world history against Cliopatria](#cottereaus-world-history-against-cliopatria)
+- [World history (REFERENCE)](#world-history-reference)
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
 - [Lego rendering mode](#lego-rendering-mode)
 - [Colour scales: palettes and a window per layer](#colour-scales-palettes-and-a-window-per-layer)
@@ -5124,6 +5125,7 @@ Where each build stands:
 | Census tracts (`census:build`)                 | temporary file, renamed                                   | surface temperature resumes state by state (`lst-v<rules>/<state>.json`); the rest is quick                                                        |
 | Rivers (`rivers:build`)                        | level files and manifest via temporary files              | `rivers:fetch` skips a download already whole; the build is redone                                                                                 |
 | Property sales (`property:build`)              | stamped files, `current.json`                             | redone; its spill is under `--tmp`                                                                                                                 |
+| World history (`world-history:build`)          | stamped files, `current.json`                             | redone (under a minute); an unchanged input is skipped                                                                                             |
 
 The rule for a new build: write the output with a stamp or a temporary
 name and switch it in one rename. Any step longer than a few minutes
@@ -5837,6 +5839,221 @@ Cliopatria): joining and keeping apart stacked lines, a cut found and one
 label's own move not taken for one, Miller against the other cylinders on
 control points, tracking with a slip and a far namesake, and matching by
 name, by abbreviation, by another name, and refusing the namesake far away.
+
+## World history (REFERENCE)
+
+Any year from 2500 BC to 2025 on the globe, as Cottereau's video "History
+of the World: Every Year" shows it, in the same frame as every other
+layer: the polities he names that year, filled and labelled. A second
+list compares any set of polities, each in its own colour, where the
+overlaps mix.
+
+**Copyright.** No frame or image of the video is used anywhere: not in
+the build, the served index or the app. Cottereau's labels and years are
+used as facts (which polities, under which names, in which years), through
+`data/cottereau/` ("Cottereau's world history against Cliopatria",
+above). The shapes are Cliopatria's.
+
+**Using it.** Turn on World history (REFERENCE, in the DATA LAYERS panel).
+The WORLD HISTORY panel opens in the right rail:
+
+- **YEAR:** a slider, ◀ and ▶ for a year either way, and a typed year
+  ("500 BC", "500 BCE", "-500", "1 AD", "AD 1", "476 CE", "2025"). There
+  is no year 0: 1 BC is followed by 1 AD, on the slider and in the steps.
+  Cliopatria ends in 2024, so 2025 shows 2024, and the panel says so.
+- **VIEW:**
+  - **COTTEREAU** (the default) shows the Cliopatria polities matched to
+    his labels at high or medium confidence, in the years he shows them.
+    Each one carries his label text when it was matched by name or
+    abbreviation, set where the video set it; otherwise it carries
+    Cliopatria's name, at the polygon.
+  - **Include place-only matches** adds the low-confidence ones (a polity
+    matched by place alone), labelled with Cliopatria's name.
+  - **ALL CLIOPATRIA** shows every polity alive that year. RELATION
+    records, which repeat their members' land ("(Alliance of …)"), are
+    left out.
+  - The video shows no Americas or southern Africa before 1450. The
+    Cottereau view follows its matches, so it shows none either.
+- **COMPARE:**
+  - **The picker:** type a name to filter all 1,637 Cliopatria names
+    (a name starting so first, then a word, then anywhere, the largest
+    first). Tick several and **ADD n SELECTED**, or press Enter for the
+    first. Names Cottereau shows are brighter.
+  - **Each entry** gets the next free colour of eight. ◉/○ shows or hides
+    it, **MAX** / **AT YEAR** switches its shape, and × removes it. The
+    entries can't be renamed. **CLEAR** empties the list.
+  - **MAX** (the default) is the polity's largest record by Cliopatria's
+    Area, its maximum extent. **AT YEAR** is its record alive in the
+    slider's year; a polity with none that year says NOT IN that year.
+  - **OPACITY** is one control for all the list's fills.
+- **A click** on a polity, or on its name, opens a card: the name
+  (Cottereau's label over Cliopatria's name when they differ), the years,
+  the area, the Wikipedia title and the credit. A list entry on top wins,
+  then the smallest polity under the click. The panel shows the same,
+  with the Wikipedia link and **COMPARE**.
+
+**Rendering.**
+
+- **Fills** are two imagery layers painted from the served polygons
+  (`src/layers/worldHistory/painter.js`): the year's, and the list's above
+  it.
+  - Each 256 px tile is a canvas on which the polygons crossing it are
+    filled and outlined. Holes are cut by the even-odd rule, and points
+    under half a pixel apart are dropped.
+  - They sit on the imagery host, as the draped overlays do: the globe on
+    the blank styles and the 2D maps, the Google 3D tiles on Google 3D,
+    and the plate under Custom cutouts. So a Baltimore cutout over the
+    year view shows the fills on the plate around the cut tiles.
+  - The tiles use a geographic tiling scheme, up to level 10. Levels 0–2
+    paint the coarsest served level, 3–4 the middle one, and 5 and up the
+    finest.
+- **Colours:**
+  - The year view's colour is fixed by the polity's name (FNV-1a over a
+    twelve-colour palette of mid tones that read on a black and a white
+    plate), so a polity keeps its colour from year to year. The fill is
+    at 0.42 alpha with a 1 px outline.
+  - List entries take eight strong colours in order, a freed one given
+    again. The fill is at 0.55 alpha with a 2 px outline.
+  - Overlapping entries are composited on the tile, so where two overlap
+    the colour is their mix. The OPACITY control is the list layer's
+    alpha, so moving it repaints nothing.
+- **Names** are `label` entries on the world overlay, never Cesium
+  labels, so the Titles toggle hides them.
+  - A year polity is named when the square root of its area is at least
+    2.5% of the camera's height, at most 120 of them, largest first. The
+    overlay's collision groups thin them further.
+  - The list's names come first, in their colours.
+- **Changing the year:** a year typed or dragged is drawn once it has
+  stood 140 ms. The new year's coarse answer is asked for first, and its
+  layer replaces the old one when it arrives, so a year's tiles are
+  painted afresh each time.
+- **Measured** on 2026-10-23 in headless Chrome, with Cesium 1.138 on the
+  machine's GTX 1080 Ti through ANGLE D3D11, 1280 × 800, a black globe
+  and no other layer. The year is 2024 in All Cliopatria (195 polities),
+  plus six overlapping list entries (Roman, Achaemenid, Eastern Roman,
+  Umayyad, Ottoman, Ilkhanate). Frame times are `scene.render()` plus
+  `gl.finish()`, 150 frames, median / 95th percentile in ms:
+
+  | View                 | No layer  | Year view | Year and list | Year loaded | List loaded |
+  | -------------------- | --------- | --------- | ------------- | ----------- | ----------- |
+  | World (20,000 km up) | 1.3 / 2.1 | 1.0 / 1.8 | 0.6 / 1.5     | 0.62 s      | 0.43 s      |
+  | Region (4,000 km)    | 1.5 / 2.3 | 1.8 / 2.7 | 1.7 / 2.6     | 0.34 s      | 0.26 s      |
+  | Close (600 km)       | 1.4 / 2.2 | 1.7 / 2.4 | 1.3 / 2.0     | 0.41 s      | 0.49 s      |
+
+  The fills cost the frame nothing measurable: imagery is drawn the same
+  however many polygons were painted into it. "Loaded" is until the
+  globe's tiles settle (13, 52 and 45 tiles a layer). A ground primitive
+  per polygon would cost every frame instead, and its geometry would be
+  rebuilt on each year.
+
+**The data.** Cliopatria v0.2.1 (Seshat Global History Databank, CC BY
+4.0; 13,797 records of 1,637 names, 3400 BCE to 2024 CE, 3,802,843
+vertices), with each record's Name, FromYear and ToYear (inclusive,
+negative BCE), Area (km²), Type, Wikipedia and Wikidata. Six records end
+in "year 0", which a year query reads as the end of 1 BC. The credit is
+in the data popover and the panel: "Cliopatria (Seshat Global History
+Databank), CC BY 4.0", with the links. The shapes are simplified (see
+below), which is the change the licence asks to be noted.
+
+**The build** (`scripts/worldHistory/`):
+
+```bash
+npm run world-history:build    # --file ZIP, --dir DIR, --force
+npm run world-history:status   # --json
+```
+
+- **Input:** Cliopatria's zip (`--file`, else `CLIOPATRIA_ZIP`, else
+  `GEV_RAW_DIR/cliopatria/raw/cliopatria-v0.2.1.geojson.zip`), streamed
+  once a feature a line and never loaded whole, with
+  `data/cottereau/matches.json` and `tracks.json`.
+- **Output:** `WORLD_HISTORY_DIR`, else `.gev-cache/world-history`:
+  - **Each record:** its metadata, a label point (the inside point
+    farthest from the edges of its largest polygon, on a 16 × 16 grid),
+    its box, and its polygons at three levels. Douglas–Peucker tolerances
+    are 0.25°, 0.08° and 0.02°, keeping 876,736, 2,747,885 and 3,595,043
+    vertices. Cliopatria's edges zigzag at about 5 km, so 0.05° still
+    kept 90% of them.
+  - **The level files:** each level is one file of the served text
+    (polygons of rings, each its first point then the differences, at
+    1e-4°), with every record's offset and length. The server pastes
+    these into its answers without decoding them.
+  - **The year index:** the records by 50-year bucket, so a year is a
+    lookup.
+  - **Each polity:** its records and its largest, by Area.
+  - **Cottereau's spans:** 2,347 of them. Each is a label, a Cliopatria
+    name, years and a confidence. A matched track's periods run on to the
+    next one's start, because the samples are a second of video apart.
+- **The switch-over:** the files carry the build id (from the inputs'
+  sizes and times and the format), and `current.json` moves to the new
+  manifest in one rename, the old build's files going after. A stopped
+  build leaves the previous one current. Unchanged inputs are skipped
+  (`--force` rebuilds). It keeps no checkpoint, because it runs in under
+  a minute (see "Builds and restarts").
+- **Measured** on 2026-10-23, from the zip on E: into the scratch
+  directory: 17 to 19 s, a peak of 255 MB resident (83 MB heap). The
+  output is 76.0 MB: the index 4.2 MB, and the levels 9.6, 27.6 and
+  34.6 MB.
+
+**The routes** (`server/providers/worldHistory.js`, same-site, GET only):
+
+- `/api/world-history/status`
+- `/api/world-history/year/<year>?mode=cottereau|all&places=1&lod=0..2`:
+  the year's polities with their polygons, largest first. The year is
+  negative BCE and never 0; 2025 answers with Cliopatria's 2024.
+- `/api/world-history/polity?name=<Cliopatria name>&extent=max|<year>&lod=`:
+  one polity at its largest, or as at a year (404 when it has none then).
+- `/api/world-history/names[?q=]`: all the names for the picker
+  (`[name, from, to, area, in Cottereau's subset]`, 65 KB), or the 50
+  best for `q`.
+
+Each answer has an ETag on the build id and the question, with
+`Cache-Control: private, no-cache`, so a repeat is a 304 until a rebuild.
+The index is read once and checked for a new `current.json` every 5 s.
+503 says to build it. Measured on the full index: loaded in 77 ms, about
+86 MB resident in the test process, a year answered in 1.4 to 9.9 ms.
+2025 in the Cottereau view is 136 polities, 105 KB at the coarsest level
+and 281 KB at the finest.
+
+**State and the URL.** The layer is local-only (never in `l=`). Its state
+rides in its own hash parameter, `wh`, e.g.
+`wh=1.-500.c.60~*mRoman%20Empire~!yHan%20Dynasty`:
+
+- the toggle, the year, the mode (`c` Cottereau, `cp` with place-only
+  matches, `a` all) and the opacity in percent;
+- then each list entry: `*` shown or `!` hidden, `m` max or `y` at the
+  year, and its Cliopatria name, URI-encoded with `!'()*~.` escaped too.
+
+A link that says on turns the layer on once the page is up. Polygons are
+never in the URL.
+
+**Limits.**
+
+- Cliopatria's shapes are one reading of each polity's land: borders are
+  uncertain and coarse at the scale they were drawn.
+- Cottereau's subset is the matching's: about 9 in 10 of his labels are
+  matched. A label matched only by place can name a polity he did not
+  mean, which is why place-only matches are off by default.
+- A dragged year redraws its tiles each time (0.3–0.6 s a year above).
+- Holes are kept but small islands go at the coarse levels.
+
+**Tests:**
+
+- the model (`src/data/worldHistory.test.mjs`: typed years, no year 0,
+  the geometry's text, colours, the list, the `wh` round trip);
+- the build on a mini Cliopatria (`src/tooling/worldHistoryBuild.test.mjs`:
+  records at three levels, the year index, the largest record, BCE years
+  and the record ending at 0, Cottereau's spans and modes, the
+  switch-over, status);
+- the routes (`server/providers/worldHistory.test.mjs`: modes, ETag and
+  304, polity at max and in a year, names, refusals, not built);
+- the layer against stubs (`src/layers/worldHistory/layer.test.mjs`:
+  tiles painted in order, the layers on the host with the list above and
+  its alpha the opacity, names thinned, a new year swapped in, the click's
+  card, off);
+- the panel's words (`src/ui/worldHistoryPanel.test.mjs`).
+
+The frame times above were measured in a scratch page, not in the app.
+The live app has not been checked in a browser here.
 
 ## Smaller additions
 

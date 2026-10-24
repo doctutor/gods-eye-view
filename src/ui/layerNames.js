@@ -64,6 +64,7 @@ export const LAYER_NAME_KEYS = Object.freeze({
   'ee-tree-canopy': msg('Tree canopy'),
   grid: msg('Grid'),
   'custom-cutouts': msg('Custom cutouts'),
+  'world-history': msg('World history'),
   'wikipedia-coverage': msg('Wikipedia'),
   localities: msg('Localities'),
   'street-assets': msg('Street assets'),

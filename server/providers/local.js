@@ -47,6 +47,8 @@ import { overtureRoadsProxy } from './overtureRoads.js';
 import { propertyProxy } from './property.js';
 // Personal fork: Maryland's parcels for the Custom cutouts layer.
 import { mdParcelsProxy } from './mdParcels.js';
+// Personal fork: the World history layer's index.
+import { worldHistoryProxy } from './worldHistory.js';
 // Personal fork: raster values (numbers, not tiles) for the Lego mode.
 import { rasterValuesProxy } from './rasterValues.js';
 import { keySetupEndpoint } from '../standalone/key-setup.js';
@@ -102,6 +104,7 @@ function localProviderPlugins({ realtime } = {}) {
     propertyProxy({ sourceRoot: defaultSourceRoot }),
     rasterValuesProxy({ sourceRoot: defaultSourceRoot }),
     mdParcelsProxy({ sourceRoot: defaultSourceRoot }),
+    worldHistoryProxy({ sourceRoot: defaultSourceRoot }),
     firePerimetersProxy(),
     gnssIntegrityProxy(),
     keySetupEndpoint(),
