@@ -6343,6 +6343,7 @@ node scripts/cottereau/borders.mjs extract [--workers 2]     # the whole video
 node scripts/cottereau/borders.mjs extract --samples 50,650,1000 --out <scratch>   # a trial
 node scripts/cottereau/borders.mjs extract --reuse <out>/builds/<old key>.partial   # after an extractor change
 node scripts/cottereau/borders.mjs status
+node scripts/cottereau/borders.mjs report [--write]   # the current build's quality report again
 ```
 
 **Per sample** (one a video second, 1,043; `extractBorders.py`, Python with
@@ -6434,6 +6435,26 @@ OpenCV, a frame decoded in memory):
 flags, regions, iou, polygons}`, its rings integer at 1e-4° (the first
   vertex absolute, each later one a delta).
 - A year shows the latest sample at or before it.
+
+**The quality report** (the manifest's `quality`, printed after a build
+and by `status`):
+
+- Per century: the share of claimed land labelled, and the IoU with
+  Cliopatria (median, and by area) of his regions matched by name.
+- The merged and split regions, and the largest unlabelled ones.
+- **The IoU summary** (`iou`) counts only the pairs matched by name or
+  abbreviation, with their 20 worst.
+- **Place-only pairs** are counted apart (`placeOnly`, the same numbers and
+  their own 20 worst). A pair is place-only when the year's period chose the
+  polity by place, or when the track's match is low confidence (by place,
+  or by single letters) and the period is not a name's. Such a pair is often
+  a polity he shows inside one Cliopatria has (Austrasia in the Kingdom of
+  the Franks), so its IoU says little of his borders.
+- `iouAll` is every pair, as the summary was before.
+- `report` makes the report again from the current build's samples and
+  today's `matches.json`, in a few seconds and without extracting
+  anything. `--write` keeps it in the manifest; it warns when the inputs
+  no longer make that build.
 
 **Running time.** The quality numbers stay in the build's manifest and the
 printed report, never here. On a trial:

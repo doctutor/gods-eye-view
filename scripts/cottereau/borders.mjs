@@ -6,6 +6,11 @@
  *   node scripts/cottereau/borders.mjs extract [--out DIR] [--samples 0,10,20 | --every N]
  *                                              [--workers N] [--force] [--reuse BUILD_DIR]
  *   node scripts/cottereau/borders.mjs status  [--out DIR]
+ *   node scripts/cottereau/borders.mjs report  [--out DIR] [--write]
+ *
+ * `report` makes the current build's quality report again from its samples
+ * and matches.json (the place-only pairs apart from the IoU summary); with
+ * --write it replaces the report in the build's manifest.
  *
  * PRIVACY: the geometry is extracted from Cottereau's copyrighted video. It
  * is written only under --out (default COTTEREAU_BORDERS_DIR, else
@@ -390,12 +395,63 @@ const median = (values) => {
   return s.length ? s[s.length >> 1] : null;
 };
 
-/** The manifest's quality report from the samples written. */
-export function qualityReport(results) {
+/**
+ * Whether a sample's pair (his region, the Cliopatria polity its label is
+ * matched to that year) rests on place alone, from matches.json: the year's
+ * period chose the polity by place ('place'), or the track's match is low
+ * confidence (a guess by place, or by single letters) and the period is not
+ * a name's. Such a pair is often a polity he shows inside one Cliopatria
+ * has, so its IoU says little of his borders: the report keeps it apart.
+ */
+export function placeOnlyPairs(matches) {
+  const byTrack = new Map(matches.map((m) => [m.track, m]));
+  return (track, year, name) => {
+    const match = byTrack.get(track);
+    if (!match) return false;
+    const period = (match.periods || []).find(
+      (q) => q.name === name && q.from <= year && q.to >= year,
+    );
+    return (
+      period?.reason === 'place' ||
+      (match.confidence === 'low' && period?.reason !== 'name')
+    );
+  };
+}
+
+/** A list of pairs' IoU: how many, the median, and by area. */
+function iouSummary(pairs) {
+  const weight = pairs.reduce((sum, i) => sum + i.areaKm2, 0);
+  return {
+    count: pairs.length,
+    median: median(pairs.map((i) => i.iou)),
+    // By area: a large polity counts for more than a city state.
+    byArea: weight
+      ? Math.round(
+          (1000 * pairs.reduce((sum, i) => sum + i.iou * i.areaKm2, 0)) /
+            weight,
+        ) / 1000
+      : null,
+  };
+}
+
+const worstOf = (pairs, n) =>
+  [...pairs]
+    .sort((a, b) => a.iou - b.iou || b.areaKm2 - a.areaKm2)
+    .filter((i) => i.areaKm2 > 0)
+    .slice(0, n);
+
+/**
+ * The manifest's quality report from the samples written. `placeOnly`
+ * (placeOnlyPairs) says which pairs rest on place alone: they are kept out
+ * of the IoU summary and its worst cases, and reported apart (`placeOnly`);
+ * `iouAll` is every pair, as the summary was before.
+ */
+export function qualityReport(results, { placeOnly = () => false } = {}) {
   const centuries = new Map();
   const unlabelled = [];
   const merged = [];
   const ious = [];
+  const placed = [];
   for (const r of results) {
     const c = centuryOf(r.year);
     const entry = centuries.get(c) || {
@@ -405,6 +461,7 @@ export function qualityReport(results) {
       claimedPx: 0,
       labelledPx: 0,
       ious: [],
+      placed: [],
     };
     entry.samples += 1;
     entry.landPx += r.stats.landPx;
@@ -429,14 +486,20 @@ export function qualityReport(results) {
           regions: p.regions,
         });
       if (typeof p.iou === 'number') {
-        ious.push({
+        const pair = {
           year: r.year,
           track: p.track,
           label: p.label,
           cliopatria: p.cliopatria,
           iou: p.iou,
           areaKm2: p.areaKm2,
-        });
+        };
+        if (placeOnly(p.track, r.year, p.cliopatria)) {
+          placed.push(pair);
+          entry.placed.push(p.iou);
+          continue;
+        }
+        ious.push(pair);
         entry.ious.push(p.iou);
         entry.iouArea = (entry.iouArea || 0) + p.iou * p.areaKm2;
         entry.iouWeight = (entry.iouWeight || 0) + p.areaKm2;
@@ -445,7 +508,7 @@ export function qualityReport(results) {
   }
   const perCentury = [...centuries.values()]
     .sort((a, b) => a.century - b.century)
-    .map(({ ious: list, iouArea = 0, iouWeight = 0, ...e }) => ({
+    .map(({ ious: list, placed: apart, iouArea = 0, iouWeight = 0, ...e }) => ({
       ...e,
       // By area: a large polity counts for more than a city state.
       iouByArea: iouWeight
@@ -465,6 +528,7 @@ export function qualityReport(results) {
             1000
           : null,
       },
+      placeOnly: { n: apart.length, median: median(apart) },
     }));
   return {
     perCentury,
@@ -478,23 +542,9 @@ export function qualityReport(results) {
       joined: merged.filter((m) => m.flags.includes('joined')).length,
       cases: merged.slice(0, 200),
     },
-    iou: {
-      count: ious.length,
-      median: median(ious.map((i) => i.iou)),
-      byArea: (() => {
-        const weight = ious.reduce((sum, i) => sum + i.areaKm2, 0);
-        return weight
-          ? Math.round(
-              (1000 * ious.reduce((sum, i) => sum + i.iou * i.areaKm2, 0)) /
-                weight,
-            ) / 1000
-          : null;
-      })(),
-      worst: [...ious]
-        .sort((a, b) => a.iou - b.iou || b.areaKm2 - a.areaKm2)
-        .filter((i) => i.areaKm2 > 0)
-        .slice(0, 20),
-    },
+    iou: { ...iouSummary(ious), worst: worstOf(ious, 20) },
+    placeOnly: { ...iouSummary(placed), worst: worstOf(placed, 20) },
+    iouAll: iouSummary([...ious, ...placed]),
   };
 }
 
@@ -694,7 +744,9 @@ async function extract(options) {
       unlabelled: results.reduce((s, r) => s + r.unlabelled.length, 0),
       secondsPerSample: median(results.map((r) => r.seconds)),
     },
-    quality: qualityReport(results),
+    quality: qualityReport(results, {
+      placeOnly: placeOnlyPairs(JSON.parse(matchesText).matches),
+    }),
   };
   writeAtomic(
     path.join(partial, 'manifest.json'),
@@ -734,16 +786,85 @@ export function printReport(manifest, log = console.log) {
     );
   for (const c of q.perCentury)
     log(
-      `  ${c.century < 0 ? `${-c.century} c. BC` : `${c.century} c.`}: ${c.samples} samples, labelled ${(100 * c.labelledOfClaimed).toFixed(1)}% of claimed land (${(100 * c.labelledOfLand).toFixed(1)}% of all land), IoU with Cliopatria median ${c.iou.median ?? '—'}, by area ${c.iouByArea ?? '—'} (${c.iou.n})`,
+      `  ${c.century < 0 ? `${-c.century} c. BC` : `${c.century} c.`}: ${c.samples} samples, labelled ${(100 * c.labelledOfClaimed).toFixed(1)}% of claimed land (${(100 * c.labelledOfLand).toFixed(1)}% of all land), IoU with Cliopatria median ${c.iou.median ?? '—'}, by area ${c.iouByArea ?? '—'} (${c.iou.n})${c.placeOnly ? `; place-only ${c.placeOnly.n}` : ''}`,
     );
   log(
-    `  merged or split: ${q.merged.count} (split ${q.merged.split}, joined ${q.merged.joined}); unlabelled regions ${q.unlabelled.count}; IoU median ${q.iou.median}, by area ${q.iou.byArea}, over ${q.iou.count}`,
+    `  merged or split: ${q.merged.count} (split ${q.merged.split}, joined ${q.merged.joined}); unlabelled regions ${q.unlabelled.count}`,
   );
-  log('  largest disagreements with Cliopatria:');
-  for (const w of q.iou.worst.slice(0, 20))
+  const line = (s) =>
+    `median ${s.median ?? '—'}, by area ${s.byArea ?? '—'}, over ${s.count}`;
+  // A manifest from before the place-only pairs were kept apart has neither.
+  if (q.placeOnly) {
     log(
-      `    ${w.year} ${w.label} ↔ ${w.cliopatria}: IoU ${w.iou}, ${Math.round(w.areaKm2).toLocaleString('en-US')} km²`,
+      `  IoU with Cliopatria, matched by name or abbreviation: ${line(q.iou)}`,
     );
+    log(
+      `  place-only pairs (low confidence, not in the summary): ${line(q.placeOnly)}`,
+    );
+    log(`  every pair: ${line(q.iouAll)}`);
+  } else log(`  IoU with Cliopatria, every pair: ${line(q.iou)}`);
+  const pairs = (list) => {
+    for (const w of list)
+      log(
+        `    ${w.year} ${w.label} ↔ ${w.cliopatria}: IoU ${w.iou}, ${Math.round(w.areaKm2).toLocaleString('en-US')} km²`,
+      );
+  };
+  log('  largest disagreements with Cliopatria:');
+  pairs(q.iou.worst.slice(0, 20));
+  if (q.placeOnly?.worst.length) {
+    log('  largest place-only disagreements (not in the summary):');
+    pairs(q.placeOnly.worst.slice(0, 10));
+  }
+}
+
+/**
+ * The current build's quality report again, from its samples and
+ * matches.json as they are: printed, and with --write kept in its manifest
+ * (the only file it changes). It warns when the inputs are no longer the
+ * build's.
+ */
+function report(options) {
+  const out = path.resolve(options.out);
+  const { build } = JSON.parse(
+    fs.readFileSync(path.join(out, 'current.json'), 'utf8'),
+  );
+  const dir = path.join(out, 'builds', build);
+  const file = path.join(dir, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const matchesText = fs.readFileSync(
+    path.join(ROOT, 'data/cottereau/matches.json'),
+    'utf8',
+  );
+  try {
+    const key = buildKey({
+      labels: options.labels,
+      framingsText: fs.readFileSync(
+        path.join(ROOT, 'data/cottereau/framings.json'),
+        'utf8',
+      ),
+      matchesText,
+    });
+    if (key !== build)
+      console.log(
+        `[borders] the inputs now make build ${key}, not ${build}: the report reads today's matches.json`,
+      );
+  } catch (error) {
+    console.log(`[borders] the build's inputs not checked: ${error.message}`);
+  }
+  // Each sample's polygons without their rings: the report needs none.
+  const results = manifest.samples.map((s) => {
+    const r = readSample(path.join(dir, s.file));
+    return { ...r, polygons: r.polygons.map(({ polygons, ...p }) => p) };
+  });
+  manifest.quality = qualityReport(results, {
+    placeOnly: placeOnlyPairs(JSON.parse(matchesText).matches),
+  });
+  console.log(`[borders] build ${build}`);
+  printReport(manifest);
+  if (options.write) {
+    writeAtomic(file, JSON.stringify(manifest, null, 1));
+    console.log(`[borders] kept in ${file}`);
+  }
 }
 
 function status(options) {
@@ -797,6 +918,7 @@ async function main(argv) {
     labels: flags.labels || DEFAULTS.labels,
     workers: Number(flags.workers) || 1,
     force: !!flags.force,
+    write: !!flags.write,
     reuse: typeof flags.reuse === 'string' ? flags.reuse : null,
     samples: null,
   };
@@ -809,7 +931,8 @@ async function main(argv) {
   }
   if (command === 'extract') return extract(options);
   if (command === 'status') return status(options);
-  throw new Error(`unknown command ${command}: extract or status`);
+  if (command === 'report') return report(options);
+  throw new Error(`unknown command ${command}: extract, status or report`);
 }
 
 if (

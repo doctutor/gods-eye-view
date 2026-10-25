@@ -19,7 +19,9 @@ import {
   insideRepository,
   manifestSamples,
   maxClaim,
+  placeOnlyPairs,
   polygonsPixels,
+  printReport,
   qualityReport,
   reuseSamples,
   sampleForYear,
@@ -130,6 +132,118 @@ test('the quality report: labelled shares, merged and split cases, IoU by centur
     iou: 0.1,
     areaKm2: 100,
   });
+  // Without matches, every pair is in the summary.
+  assert.equal(report.placeOnly.count, 0);
+  assert.equal(report.iouAll.count, 3);
+});
+
+test('the quality report keeps the place-only pairs apart from the IoU summary', () => {
+  const placeOnly = placeOnlyPairs([
+    {
+      track: 1,
+      confidence: 'high',
+      reason: 'name+place',
+      periods: [
+        { name: 'Achaemenid Empire', from: -550, to: -330, reason: 'name' },
+        { name: 'Macedonia', from: -329, to: -320, reason: 'place' },
+      ],
+    },
+    {
+      track: 2,
+      confidence: 'low',
+      reason: 'place+time+size',
+      periods: [
+        { name: 'Lydia', from: -560, to: -547, reason: 'main match' },
+        { name: 'Lydian Kingdom', from: -546, to: -540, reason: 'name' },
+      ],
+    },
+  ]);
+  assert.equal(placeOnly(1, -500, 'Achaemenid Empire'), false, 'by name');
+  assert.equal(placeOnly(1, -325, 'Macedonia'), true, 'a place period');
+  assert.equal(placeOnly(2, -550, 'Lydia'), true, 'a low match by place');
+  assert.equal(
+    placeOnly(2, -545, 'Lydian Kingdom'),
+    false,
+    "a low match's name period",
+  );
+  assert.equal(placeOnly(9, -545, 'Elam'), false, 'no match: kept');
+  const pair = (track, cliopatria, iou, areaKm2) => ({
+    track,
+    label: cliopatria,
+    cliopatria,
+    flags: [],
+    regions: 1,
+    iou,
+    areaKm2,
+  });
+  const report = qualityReport(
+    [
+      {
+        year: -550,
+        stats: { landPx: 1000, unclaimedPx: 0, labelledPx: 900 },
+        unlabelled: [],
+        polygons: [
+          pair(1, 'Achaemenid Empire', 0.8, 3000),
+          pair(2, 'Lydia', 0, 500),
+        ],
+      },
+      {
+        year: -325,
+        stats: { landPx: 1000, unclaimedPx: 0, labelledPx: 900 },
+        unlabelled: [],
+        polygons: [pair(1, 'Macedonia', 0.2, 1000)],
+      },
+    ],
+    { placeOnly },
+  );
+  assert.equal(report.iou.count, 1);
+  assert.equal(report.iou.median, 0.8);
+  assert.equal(report.iou.byArea, 0.8);
+  assert.deepEqual(
+    report.iou.worst.map((w) => w.cliopatria),
+    ['Achaemenid Empire'],
+  );
+  assert.equal(report.placeOnly.count, 2);
+  assert.deepEqual(
+    report.placeOnly.worst.map((w) => w.cliopatria),
+    ['Lydia', 'Macedonia'],
+  );
+  assert.equal(report.placeOnly.byArea, Math.round((1000 * 200) / 1500) / 1000);
+  assert.equal(report.iouAll.count, 3);
+  assert.equal(report.iouAll.byArea, Math.round((1000 * 2600) / 4500) / 1000);
+  const [bc6, bc4] = report.perCentury;
+  assert.deepEqual([bc6.iou.n, bc6.placeOnly.n], [1, 1]);
+  assert.deepEqual([bc4.iou.n, bc4.placeOnly.n, bc4.iouByArea], [0, 1, null]);
+  // The printed report gives both, and a manifest from before gives one.
+  const lines = [];
+  printReport(
+    { complete: true, counts: { samples: 2, polities: 3 }, quality: report },
+    (line) => lines.push(line),
+  );
+  const text = lines.join('\n');
+  assert.match(
+    text,
+    /matched by name or abbreviation: median 0\.8, by area 0\.8, over 1/,
+  );
+  assert.match(
+    text,
+    /place-only pairs \(low confidence, not in the summary\): median 0\.2.*over 2/,
+  );
+  assert.match(text, /every pair: .*over 3/);
+  assert.match(
+    text,
+    /largest place-only disagreements[^\n]*\n {4}-550 Lydia ↔ Lydia: IoU 0/,
+  );
+  const before = [];
+  const { placeOnly: _apart, iouAll: _all, ...old } = report;
+  printReport(
+    { complete: true, counts: { samples: 2, polities: 3 }, quality: old },
+    (line) => before.push(line),
+  );
+  assert.match(
+    before.join('\n'),
+    /IoU with Cliopatria, every pair: median 0\.8/,
+  );
 });
 
 test('no extracted border is ever tracked: only the code and its tests', () => {
