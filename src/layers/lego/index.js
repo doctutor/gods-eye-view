@@ -482,6 +482,11 @@ export function createLegoController({
     getExaggeration: () => store.getExaggeration(flatBasemap()),
     setExaggeration: (value) => store.setExaggeration(value),
     getStatus: () => _status,
+    /**
+     * The window drawn now (its header, columns and the exaggeration), or
+     * null: what "Photoreal on bricks" (photoreal.js) lifts the tiles by.
+     */
+    getBuilt: () => _built,
     subscribe(listener) {
       _listeners.add(listener);
       return () => _listeners.delete(listener);

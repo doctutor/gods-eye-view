@@ -1452,6 +1452,18 @@ body.recording-mode #right-context-rail > [data-panel-id] {
   padding: 2px 4px;
 }
 
+.lego-photoreal-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-primary);
+  font-size: 10px;
+  cursor: pointer;
+}
+.lego-photoreal-toggle[hidden] {
+  display: none;
+}
+
 .lego-render-status {
   flex-basis: 100%;
   color: var(--text-secondary);

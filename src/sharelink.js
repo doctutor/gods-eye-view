@@ -11,6 +11,11 @@ import {
   WORLD_HISTORY_PARAM,
   worldHistoryStore,
 } from './layers/worldHistory/store.js';
+// Personal fork: Relief ×N and Photoreal on bricks (`lp`).
+import {
+  LEGO_PHOTOREAL_PARAM,
+  photorealStore,
+} from './layers/lego/photoreal.js';
 import * as Cesium from 'cesium';
 import { BLOOM_INTENSITY_DEFAULT, BLOOM_SCALE_VERSION } from './bloom.js';
 import {
@@ -170,6 +175,10 @@ export class ShareLinkManager {
     this._removeCutouts = cutoutStore().subscribe(() => this._scheduleUpdate());
     // Personal fork: and a changed World history year or list.
     this._removeWorldHistory = worldHistoryStore().subscribe(() =>
+      this._scheduleUpdate(),
+    );
+    // Personal fork: and the photoreal relief or bricks.
+    this._removePhotoreal = photorealStore().subscribe(() =>
       this._scheduleUpdate(),
     );
   }
@@ -633,6 +642,10 @@ export class ShareLinkManager {
     const history = worldHistoryStore().param();
     if (history) params.set(WORLD_HISTORY_PARAM, history);
     else params.delete(WORLD_HISTORY_PARAM);
+    // Personal fork: Relief ×N and Photoreal on bricks (src/layers/lego/photoreal.js).
+    const photoreal = photorealStore().param();
+    if (photoreal) params.set(LEGO_PHOTOREAL_PARAM, photoreal);
+    else params.delete(LEGO_PHOTOREAL_PARAM);
     this._encodePanelStateParam(params, this._panelStateProvider?.());
     // Personal fork: the panel's Titles toggle, in the same `ui` param.
     if (this._titlesProvider) encodeTitlesParam(params, this._titlesProvider());
@@ -668,6 +681,8 @@ export class ShareLinkManager {
     this._removeCutouts = null;
     this._removeWorldHistory?.();
     this._removeWorldHistory = null;
+    this._removePhotoreal?.();
+    this._removePhotoreal = null;
     clearTimeout(this._debounceTimer);
     this._debounceTimer = null;
     this._removeCameraChanged?.();
