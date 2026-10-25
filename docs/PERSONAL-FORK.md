@@ -58,6 +58,7 @@ unless its switch is set to `0`.
 - [World history (REFERENCE)](#world-history-reference)
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
 - [Lego rendering mode](#lego-rendering-mode)
+  - [Lego with the Google 3D tiles: Relief ×N and Photoreal on bricks](#lego-with-the-google-3d-tiles-relief-n-and-photoreal-on-bricks)
 - [Colour scales: palettes and a window per layer](#colour-scales-palettes-and-a-window-per-layer)
 - [Local Overpass: clone or import](#local-overpass-clone-or-import)
 - [MSFS renderer on AWS](#msfs-renderer-on-aws)
@@ -5584,6 +5585,184 @@ frame; the frame interval is capped by the display rate):
 Build is decode + columns + mesh + upload, on the main thread. A real
 massif or city keeps more sides (up to about 500,000 faces for the
 synthetic city), still one draw call.
+
+### Lego with the Google 3D tiles: Relief ×N and Photoreal on bricks
+
+The colour and Lego renderings of elevation read well alone but not over
+the photoreal tiles. Two prototypes show elevation together with the
+Google 3D tiles (`src/layers/lego/photoreal.js`). Both are off by default,
+set beside the Render drop-down under the **ANALYSIS** heading, and kept
+in the share link as `lp`:
+
+- `lp=3` is Relief ×3;
+- `lp=1.b` is Photoreal on bricks;
+- `lp=3.b` is both.
+
+A link with `.b` turns Lego mode on. Once the layers are restored it also
+turns on Elevation, when no Lego layer is on.
+
+**A: Relief ×N** (×1, ×2, ×3, ×5; ×1 is off). It sets Cesium's own
+`scene.verticalExaggeration`, which 3D Tiles follow since Cesium 1.116
+(the Model's vertical exaggeration stage).
+
+- The tiles are exaggerated, and so is the globe's terrain where it shows
+  (the Custom cutouts plate, other maps). The Lego bricks are not.
+- `scene.verticalExaggerationRelativeHeight` is the true ground under
+  the middle of the view: a depth pick there, turned back from the drawn
+  height. That point stays where it is, so the view does not jump when
+  the relief comes on.
+- The anchor moves only when the view settles more than one camera
+  height away from it. At that moment the ground around shifts by
+  (new − old anchor) × (N − 1).
+- **Picks** read the exaggerated positions: the depth pick
+  (`scene.pickPosition`) and Cesium's CPU pick of the tiles (`pickModel`,
+  which applies the exaggeration) alike. The camera's ground guard is
+  Cesium's, and it follows the exaggeration too.
+- **Custom cutouts** clip in plan (`ClippingPolygonCollection`), so they
+  are unaffected. The plate, the globe's ellipsoid, moves by
+  anchor × (1 − N) and stays under the cut tiles.
+
+**B: Photoreal on bricks.** While Lego mode draws its bricks over a shown
+3D tileset, the tileset carries a `CustomShader` whose vertex stage lifts
+each Lego cell's patch of the photoreal mesh by that cell's lift. The
+photoreal surface then stands on its brick, and the brick sides are the
+Lego layer's own.
+
+- **The lift** (`cellLifts`) is the brick's top less the ground the tiles
+  draw there:
+  - The top is the column's base plus its bricks.
+  - The ground is the DEM height (the column's base, or elevation's own
+    value) plus the geoid's height at the window's centre (EGM96, from
+    `src/data/geoid.js`). Lego stands its columns on DEM heights read as
+    ellipsoidal, while Google's mesh is ellipsoidal: at Baltimore that
+    is 33 m.
+  - Under the relief, the ground is exaggerated as Cesium does it. The
+    exaggeration stage runs before the custom shader, so the lift is
+    measured from the exaggerated ground.
+  - A cell without a column, or without a known ground, is not lifted.
+- **The texture:** one texel a cell (at most 512 × 512), north row
+  first, RGBA bytes. RGB is the lift in decimetres from −1 km (24 bits:
+  −1 km to +1,676 km), and A is 255 where the cell is lifted. It is read
+  with NEAREST filtering at the cell's centre, so no float textures are
+  needed.
+- **The vertex stage:**
+  1. The vertex in eye coordinates (Cesium's precise model-view) goes
+     into the window's east-north-up frame at its centre, through
+     `u_ecToWindow`: the frame's world-to-ENU times the camera's inverse
+     view, composed in doubles each frame on `scene.preRender`.
+  2. It goes down to the ground under it: the tangent plane is
+     1 + h/R farther out at height h.
+  3. Then to latitude and longitude by a short series, with no trig per
+     vertex: the north offset less the parallel's rise (x² tan φ / 2Rn),
+     over Rm, and the east offset over Rn cos φ, with cos φ to first order
+     about the centre.
+  4. Then to the window's uv and its cell. The cell's lift is added along
+     the window's up vector in model coordinates
+     (`mat3(czm_inverseModel)`).
+  - Over 447 cells a side, the mapping's worst error at the window's
+    corners is 0.02 m at a 22 m cell (a 10 km window), 0.7 m at a 112 m
+    cell (50 km), and 7 m at a 280 m cell (125 km at Rainier's latitude):
+    under 3% of a cell, the same at 0 m and 4,000 m.
+- **The lifecycle:**
+  - The shader goes on the shown tileset when the bricks are built, and
+    off on Lego off, Colour, a flat map, a map switch (onto the new
+    tileset if there is one), the store's switch off, and destroy.
+  - A custom shader the tileset had is given back, and the old shader is
+    freed after the next frame.
+  - A moved window, or a changed relief, keeps the shader and sets new
+    uniforms: the lift texture, the frame, the box and the cells.
+- **Edges: hard.** A fade of the lift to zero over a band at each cell's
+  edge (`u_edgeBand`, 0.15 of a cell tried) was worse in every view. It
+  turns every cell edge into a slope, and more of the tiles are stretched
+  (below).
+
+**Limits.**
+
+- **Curtains:** a triangle whose corners fall in cells of different
+  lifts is stretched between them. Cells differ wherever their brick
+  counts do, which on any slope is most of them. The share of the frame
+  is in the table below.
+- **Picks:**
+  - A depth pick (`scene.pickPosition`: the Lego card, the annotation and
+    cutout drawing tools) reads the lifted surface, which is what is
+    seen.
+  - Cesium's CPU picks of the tiles (`Cesium3DTileset.pick`, the camera's
+    collision with the tiles) read the mesh unlifted, so the camera can
+    go below a lifted patch.
+  - `unliftHeight(lon, lat, height)` turns a picked height back by the
+    cell's lift for any caller that wants the tiles' own. Nothing calls
+    it yet.
+- **The window's edges:** outside the Lego window nothing is lifted. Its
+  edge is a step as tall as the lifts there, and the brick sides do not
+  cover it.
+- **Relief and bricks together:** inside the window the tiles stand on
+  the bricks as drawn. With Lego at 1× (its default on photoreal) and
+  Relief ×3, that undoes the relief inside the window, and the window's
+  edge is then a step of about twice the ground's height above the
+  anchor.
+- **Only on Google 3D in 3D mode:** the lift needs the camera's 3D
+  inverse view.
+
+**Measured** on 2026-10-25 in headless Chrome, with Cesium 1.138 on the
+machine's GTX 1080 Ti through ANGLE D3D11, 1280 × 800. The Google tiles
+can't be fetched there, so each view has a synthetic one-tile stand-in:
+a 1,000 × 1,000 heightfield mesh (2.0 M triangles; 10 m, 60 m and 150 m
+apart; a city of 6–76 m blocks on rolling ground, rolling country, and
+a 4,392 m cone with ridges). Over it is the Lego elevation window the
+view builds (447 × 447 cells of 22, 112 and 280 m; 161,000 to 200,000
+columns). The camera looks north at −45°, from 2 km over Baltimore
+downtown, 20 km over the Baltimore region, and 50 km over Mount
+Rainier. Frame times are `scene.render()` plus `gl.finish()`, 240
+frames, median / 95th percentile in ms:
+
+| View           | Tiles only | Relief ×3 | Bricks    | Bricks, lifted | Relief ×3, lifted |
+| -------------- | ---------- | --------- | --------- | -------------- | ----------------- |
+| City, 2 km     | 0.6 / 1.3  | 0.3 / 0.5 | 0.2 / 0.4 | 0.2 / 0.3      | 0.2 / 0.3         |
+| Region, 20 km  | 0.3 / 0.7  | 0.3 / 0.5 | 0.2 / 0.4 | 0.2 / 0.3      | 0.2 / 0.3         |
+| Rainier, 50 km | 0.8 / 1.4  | 0.9 / 1.5 | 0.4 / 0.6 | 0.2 / 0.4      | 0.3 / 0.4         |
+
+Neither prototype costs a measurable frame time here: all of it is under
+1.5 ms, and the differences are the run's noise. With Lego at 3× the
+frames were the same (0.3 to 1.0 ms medians).
+
+The curtains, from the shader's debug colours (`u_debug`: a triangle
+whose corners were lifted differently red, the rest blue), unlit and
+counted, with Lego at 1×:
+
+| View           | Of the tiles' pixels (bricks hidden) | Of the frame, bricks drawn | With the 0.15 edge band |
+| -------------- | ------------------------------------ | -------------------------- | ----------------------- |
+| City, 2 km     | 29%                                  | 24%                        | 79%                     |
+| Region, 20 km  | 66%                                  | 29%                        | 80%                     |
+| Rainier, 50 km | 85%                                  | 38%                        | 98%                     |
+
+With Lego at 3× the hidden-bricks shares were 30%, 76% and 85%. The
+curtains grow with the triangles' size against the cells', and Google's
+mesh keeps its triangles about the same size on screen, so the synthetic
+spacing stands in for it.
+
+**To see them live** (any dev server; the hash is the share link's):
+Baltimore downtown from 1.5 km, oblique (the camera 2.1 km south of the
+Inner Harbor); the Patapsco valley from 8 km (11.4 km south of
+39.24° N, 76.75° W); Mount Rainier from 25 km (29.4 km south of the
+summit); all looking north at −35°, with `lp=3`, `lp=1.b` or `lp=3.b`:
+
+```
+#lat=39.2664&lon=-76.6097&alt=1500&heading=0&pitch=-35&roll=0&map=photoreal&lp=3.b
+#lat=39.1374&lon=-76.7500&alt=8000&heading=0&pitch=-35&roll=0&map=photoreal&lp=3.b
+#lat=46.5879&lon=-121.7603&alt=25000&heading=0&pitch=-35&roll=0&map=photoreal&lp=3.b
+```
+
+Tests (`src/layers/lego/photoreal.test.mjs`):
+
+- the `lp` round trip;
+- the lift, with the geoid and the relief;
+- the texture's packing and its decode, which the shader shares;
+- the ENU mapping against exact geodetic positions at four windows, on
+  the ground and 4,000 m up, every tested cell centre in its own cell;
+- the uniforms and the world-to-window matrix;
+- the lifecycle on stubs: on, a window move, Lego off, a map switch, a
+  globe map, a flat map, the switch off, destroy;
+- the relief's anchor, re-anchoring and reset.
 
 ## Colour scales: palettes and a window per layer
 

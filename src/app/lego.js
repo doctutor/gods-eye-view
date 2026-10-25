@@ -1,5 +1,11 @@
 import { createLegoController } from '../layers/lego/index.js';
+import { isLegoLayer, ELEVATION_LAYER_ID } from '../layers/lego/layerSpecs.js';
+import {
+  createPhotorealController,
+  photorealStore,
+} from '../layers/lego/photoreal.js';
 import { createLegoHeadingControl } from '../layers/lego/presentation.js';
+import { ensureGeoidReady, geoidHeight } from '../data/geoid.js';
 import { governorRequestRender } from '../renderGovernor.js';
 import { layerNameForId } from '../ui/layerNames.js';
 import { overlayHost } from './layers/overlayHost.js';
@@ -7,7 +13,8 @@ import { overlayHost } from './layers/overlayHost.js';
 /**
  * Personal fork: the Lego rendering mode for raster layers
  * (src/layers/lego/), and the drop-down beside the ANALYSIS heading that
- * turns it on.
+ * turns it on; with it, Relief ×N and Photoreal on bricks (photoreal.js),
+ * the two ways of seeing elevation with the Google 3D tiles.
  * @param {{viewer: object, dataManager: object, mapStackController?: object}} scene
  */
 export function createApplicationLego({
@@ -27,12 +34,39 @@ export function createApplicationLego({
     requestRender: governorRequestRender,
     layerName: (id) => layerNameForId(id) || id,
   });
+  const store = photorealStore();
+  const photoreal = createPhotorealController({
+    viewer,
+    lego,
+    mapStackController,
+    store,
+    geoid: { ready: ensureGeoidReady, height: geoidHeight },
+    requestRender: governorRequestRender,
+  });
+  // A link asking for the bricks turns Lego on, and the elevation layer
+  // when no Lego layer is on, once the layers are restored.
+  if (store.linkAskedForBricks()) {
+    lego.setMode('lego');
+    setTimeout(() => {
+      const on = (dataManager.getAll?.() || []).some(
+        (layer) => isLegoLayer(layer.id) && dataManager.isEnabled(layer.id),
+      );
+      if (!on)
+        dataManager.setEnabled?.(ELEVATION_LAYER_ID, true, {
+          origin: 'programmatic',
+        });
+    }, 0);
+  }
   return {
     lego,
+    photoreal,
     /** Group heading controls for the layer panel (LayerPresentation). */
     headingControls: {
-      Analysis: (doc) => createLegoHeadingControl(doc, lego),
+      Analysis: (doc) => createLegoHeadingControl(doc, lego, photoreal),
     },
-    destroy: () => lego.destroy(),
+    destroy: () => {
+      photoreal.destroy();
+      lego.destroy();
+    },
   };
 }
