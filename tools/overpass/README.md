@@ -223,6 +223,12 @@ A failed copy leaves its `.partial` and changes nothing else; the next run
 removes it. `backup.lock` in the backups directory stops a second backup
 running at once.
 
+Every docker command is spawned from Node with an argument list and no shell.
+That matters on this PC: Git Bash rewrites a bare absolute path passed to a
+native program (`docker compose exec -T overpass cat /db/replicate_id` reads
+`C:/Program Files/Git/db/replicate_id`), so by hand, put container paths
+inside `sh -c '…'` or set `MSYS_NO_PATHCONV=1`.
+
 A copy made by hand before this script (a directory named `<yyyymmdd>` holding
 /db's `replicate_id` and `db/`) becomes a backup with `--adopt <dir>`: its
 manifest is written from the files on disk and marked `adopted`, since its

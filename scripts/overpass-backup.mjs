@@ -761,9 +761,17 @@ const SOCKETS_EXCLUDED =
 const HOST_TAR =
   process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar';
 
-function run(command, args, { cwd } = {}) {
+/**
+ * Every command is spawned from here with an argv array and no shell, so a
+ * container path (/db, /src) reaches docker as written: Git Bash rewrites a
+ * bare absolute path passed to a native program (`cat /db/replicate_id`
+ * becomes C:/Program Files/Git/db/replicate_id), but no shell is involved.
+ */
+const SPAWN_OPTIONS = Object.freeze({ windowsHide: true, shell: false });
+
+function run(spawnImpl, command, args, { cwd } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd, windowsHide: true });
+    const child = spawnImpl(command, args, { ...SPAWN_OPTIONS, cwd });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => (stdout += chunk));
@@ -776,10 +784,10 @@ function run(command, args, { cwd } = {}) {
 }
 
 /** One process's stdout into another's stdin, counting the bytes. */
-function pipe([fromCmd, fromArgs], [toCmd, toArgs], onBytes) {
+function pipe(spawnImpl, [fromCmd, fromArgs], [toCmd, toArgs], onBytes) {
   return new Promise((resolve) => {
-    const from = spawn(fromCmd, fromArgs, { windowsHide: true });
-    const to = spawn(toCmd, toArgs, { windowsHide: true });
+    const from = spawnImpl(fromCmd, fromArgs, SPAWN_OPTIONS);
+    const to = spawnImpl(toCmd, toArgs, SPAWN_OPTIONS);
     let stderr = '';
     from.stderr.on('data', (chunk) => (stderr += chunk));
     to.stderr.on('data', (chunk) => (stderr += chunk));
@@ -801,13 +809,15 @@ function pipe([fromCmd, fromArgs], [toCmd, toArgs], onBytes) {
   });
 }
 
-export function realIo({ composeDir, dockerDrive }) {
-  const docker = (args) => run('docker', args);
+export function realIo({ composeDir, dockerDrive, spawnImpl = spawn }) {
+  const docker = (args) => run(spawnImpl, 'docker', args);
   return {
     docker,
-    compose: (args) => run('docker', ['compose', ...args], { cwd: composeDir }),
+    compose: (args) =>
+      run(spawnImpl, 'docker', ['compose', ...args], { cwd: composeDir }),
     stream: (dest, onBytes) =>
       pipe(
+        spawnImpl,
         [
           'docker',
           [
@@ -827,6 +837,7 @@ export function realIo({ composeDir, dockerDrive }) {
       ),
     unstream: (src, onBytes) =>
       pipe(
+        spawnImpl,
         [HOST_TAR, ['-cf', '-', '--exclude', MANIFEST, '-C', src, '.']],
         [
           'docker',
@@ -840,7 +851,8 @@ export function realIo({ composeDir, dockerDrive }) {
             'sh',
             IMAGE,
             '-c',
-            'tar -xf - -C /db && chown -R overpass:overpass /db 2>/dev/null; true',
+            // A failed extract fails the step; ownership is best effort.
+            'tar -xf - -C /db && { chown -R overpass:overpass /db 2>/dev/null || true; }',
           ],
         ],
         onBytes,

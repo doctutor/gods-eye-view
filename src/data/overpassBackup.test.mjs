@@ -22,7 +22,10 @@ import {
   parseFiles,
   parseProcesses,
   parseState,
+  PROCESS_PROBE,
   progressLine,
+  realIo,
+  STATE_PROBE,
   restoreRefusal,
   runBackup,
   runRestore,
@@ -758,4 +761,49 @@ test('a copy made by hand is adopted as a backup: its manifest from the files on
     'E:/x/20261025',
   );
   assert.equal(parseArgs([]).command, 'backup');
+});
+
+test('container paths reach docker as written: argv arrays, no shell (Git Bash would rewrite /db)', async () => {
+  const calls = [];
+  const fakeChild = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdout.pipe = () => {};
+    child.stdin = new EventEmitter();
+    setTimeout(() => child.emit('close', 0), 0);
+    return child;
+  };
+  const spawnImpl = (command, args, options) => {
+    calls.push({ command, args, options });
+    return fakeChild();
+  };
+  const io = realIo({
+    composeDir: 'tools/overpass',
+    dockerDrive: 'D:/',
+    spawnImpl,
+  });
+  await io.docker(['exec', 'gev-overpass', 'sh', '-c', STATE_PROBE]);
+  await io.docker(['exec', 'gev-overpass', 'sh', '-c', PROCESS_PROBE]);
+  await io.stream('E:/b/20261025.partial', () => {});
+  await io.unstream('E:/b/20261025', () => {});
+  await io.compose(['up', '-d']);
+  for (const call of calls) assert.equal(call.options.shell, false);
+  assert.deepEqual(calls[0].args.slice(0, 4), [
+    'exec',
+    'gev-overpass',
+    'sh',
+    '-c',
+  ]);
+  assert.match(calls[0].args[4], /cd \/db .*cat replicate_id/);
+  assert.match(calls[1].args[4], /\/proc\/\[0-9\]\*/);
+  const stream = calls.find(
+    (c) => c.args.includes('--rm') && !c.args.includes('-i'),
+  );
+  assert.ok(stream.args.includes('gev-overpass-db:/src:ro'));
+  assert.match(stream.args.at(-1), /^cd \/src && find \. -type s/);
+  const unstream = calls.find((c) => c.args.includes('-i'));
+  assert.ok(unstream.args.includes('gev-overpass-db:/db'));
+  assert.match(unstream.args.at(-1), /^tar -xf - -C \/db && \{ chown/);
+  assert.equal(calls.at(-1).options.cwd, 'tools/overpass');
 });
