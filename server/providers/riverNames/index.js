@@ -19,8 +19,84 @@ import {
 } from './namesFile.js';
 
 export const NEEDS_NAMES = 'Run npm run rivers:names to name the rivers';
-/** A click's name: the nearest named line within this many metres. */
+/** A small stream's line names a point within this many metres. */
 export const NEAREST_MAX_M = 150;
+
+/**
+ * How far a named line may lie from a point and still name it, by the
+ * river's Strahler order: a point on a wide river can be half its width
+ * from the centreline OSM draws (and v2's reach sits up to 250 m from that
+ * line, the sidecar matcher's tolerance from order 6). Measured from points
+ * on the water, 2026-10-24: the Gwynns Falls (4) 124 m, the Potomac at
+ * Georgetown (8) 84 m, the Hudson off Manhattan (8) 584 m, the Missouri at
+ * St. Charles (9) 249 m, the Rio Negro at Manaus (9) 823 m, the Mississippi
+ * at St. Louis (10) 100 m and at New Orleans (11) 292 m.
+ */
+export function nearestRadiusM(strahler) {
+  const order = Number(strahler) || 0;
+  if (order >= 12) return 2000;
+  if (order >= 11) return 1500;
+  if (order >= 9) return 1000;
+  if (order >= 8) return 700;
+  if (order >= 6) return 400;
+  return NEAREST_MAX_M;
+}
+/** An OSM river with no v2 reach of its group nearby: a mid-size river's radius. */
+const OSM_RIVER_RADIUS_M = 400;
+/** The search reaches the largest radius. */
+export const NEAREST_SEARCH_M = 2000;
+
+/**
+ * The name a point takes from the named lines near it ([{group, d, source,
+ * strahler, waterway?}], `source` SOURCE.*): each name group sized by its
+ * largest v2 order there (an OSM line by its group's reaches, else 400 m
+ * for a river, 150 m for anything else), kept when one of its lines lies
+ * within that radius, the group nearest for its size winning (distance ÷
+ * radius), so a creek past 150 m never names a point in a wide river and
+ * a river's centreline 800 m off does. Within the group a v2 reach's line
+ * (direct or inherited) speaks before OSM's own. Returns {group, d, source,
+ * strahler, radiusM} or null.
+ */
+export function chooseNearest(candidates, { maxM = NEAREST_SEARCH_M } = {}) {
+  const groups = new Map();
+  for (const c of candidates) {
+    let g = groups.get(c.group);
+    if (!g) groups.set(c.group, (g = { order: 0, osmRiver: false, lines: [] }));
+    if (c.source !== SOURCE.osm) g.order = Math.max(g.order, c.strahler || 0);
+    else if (c.waterway === 'river') g.osmRiver = true;
+    g.lines.push(c);
+  }
+  let best = null;
+  for (const [group, g] of groups) {
+    const radiusM = Math.min(
+      maxM,
+      g.order
+        ? nearestRadiusM(g.order)
+        : g.osmRiver
+          ? OSM_RIVER_RADIUS_M
+          : NEAREST_MAX_M,
+    );
+    const inRange = g.lines.filter((line) => line.d <= radiusM);
+    if (!inRange.length) continue;
+    const reaches = inRange.filter((line) => line.source !== SOURCE.osm);
+    const pick = (reaches.length ? reaches : inRange).reduce((a, b) =>
+      b.d < a.d ? b : a,
+    );
+    const score = Math.min(...inRange.map((line) => line.d)) / radiusM;
+    if (!best || score < best.score)
+      best = {
+        group,
+        d: pick.d,
+        source: pick.source,
+        strahler: pick.strahler || g.order || 0,
+        radiusM,
+        score,
+      };
+  }
+  if (!best) return null;
+  const { score: _score, ...chosen } = best;
+  return chosen;
+}
 
 const WORLD = 2 ** 28;
 const mercX = (lon) =>
@@ -187,33 +263,44 @@ export function createRiverNamesIndex({
     },
 
     /**
-     * The name of the river nearest a point: a named HydroSHEDS v2 reach
-     * (its name direct or inherited) before an OSM waterway, the nearest of
-     * each within `maxM`; null when none.
+     * The name of the river at a point: the named lines within the search
+     * (NEAREST_SEARCH_M, or `maxM`), each name sized by its river's order
+     * (chooseNearest: a wide river's centreline far off, a creek only close
+     * by), a named HydroSHEDS v2 reach (direct or inherited) before OSM's
+     * own waterway of the same name; null when none.
      */
-    nearest({ lat, lon, maxM = NEAREST_MAX_M }) {
+    nearest({ lat, lon, maxM = NEAREST_SEARCH_M }) {
       const h = current();
       if (!h) return null;
-      const dLat = maxM / 110_574;
+      const searchM = Math.min(maxM, NEAREST_SEARCH_M);
+      const dLat = searchM / 110_574;
       const dLon =
-        maxM / (111_320 * Math.max(0.05, Math.cos((lat * Math.PI) / 180)));
+        searchM / (111_320 * Math.max(0.05, Math.cos((lat * Math.PI) / 180)));
       const box = [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
-      let reach = null;
-      let osm = null;
+      // The nearest line of each name group and source, and the group's
+      // largest order among its lines here.
+      const found = new Map();
       eachBlock(h.manifest, NAMES_KIND.LINE, LINE_ZOOM, box, (raw) =>
         eachLine(raw, (group, tag, coords) => {
           const d = distanceToLine(lat, lon, coords);
-          if (d > maxM) return;
+          if (d > searchM) return;
           const source = sourceOfTag(tag);
-          const target = source === SOURCE.osm ? 'osm' : 'reach';
-          const best = target === 'osm' ? osm : reach;
-          if (best && best.d <= d) return;
-          const hit = { group, d, source, strahler: strahlerOfTag(tag) };
-          if (target === 'osm') osm = hit;
-          else reach = hit;
+          const strahler = strahlerOfTag(tag);
+          const key = group * 4 + source;
+          const held = found.get(key);
+          if (!held) found.set(key, { group, d, source, strahler });
+          else {
+            if (d < held.d) held.d = d;
+            if (strahler > held.strahler) held.strahler = strahler;
+          }
         }),
       );
-      const hit = reach || osm;
+      const candidates = [...found.values()].map((c) =>
+        c.source === SOURCE.osm
+          ? { ...c, waterway: h.names.name(c.group)?.waterway || '' }
+          : c,
+      );
+      const hit = chooseNearest(candidates, { maxM: searchM });
       if (!hit) return null;
       const name = describe(h.names, hit.group);
       return name
@@ -221,6 +308,7 @@ export function createRiverNamesIndex({
             ...name,
             confidence: SOURCE_KEYS[hit.source],
             distanceM: Math.round(hit.d),
+            radiusM: hit.radiusM,
             ...(hit.strahler ? { strahler: hit.strahler } : {}),
           }
         : null;

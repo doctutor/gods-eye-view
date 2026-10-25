@@ -3886,9 +3886,10 @@ E:/gev-data/osm/planet-261012.osm.pbf`): osmium in the Overpass image
 **What the app does with it**:
 
 - The reach card (`src/layers/rivers/reachCard.js`) is titled by the name
-  at the click (`osmName` on the `/api/rivers/reach` answer): a named v2
-  reach within 150 m first, else the nearest named OSM waterway within
-  150 m (how v1's reaches outside the Americas get a name), in its own
+  at the click (`osmName` on the `/api/rivers/reach` answer): the named
+  line nearest for its river's size (see below), a named v2 reach before
+  OSM's own waterway of the same name (how v1's reaches outside the
+  Americas get a name), in its own
   language with `name:en` in brackets when different; then v1's
   `BB_NAME`, "Tributary of …", the basin, and "Unnamed river" only when
   nothing matched. A line under it says where the name came from
@@ -3898,6 +3899,52 @@ E:/gev-data/osm/planet-261012.osm.pbf`): osmium in the Overpass image
   (`/api/rivers/names/labels`), overlay variant `label`, so the panel's
   Titles toggle hides them like the others.
 - `GET /api/rivers/names/nearest?lat=&lon=` answers a point's name too.
+
+**The radius follows the river's size** (`nearestRadiusM` and
+`chooseNearest`, `server/providers/riverNames/index.js`, since 2026-10-24).
+On a wide river a point on the water can lie half the river's width from
+the centreline OSM draws, and v2's reach can sit up to the matcher's 250 m
+from that line. So one fixed radius missed the wide rivers.
+
+- **Measured from points on the water:**
+
+  | River                      | Strahler order | Distance to its line |
+  | -------------------------- | -------------- | -------------------- |
+  | Gwynns Falls               | 4              | 124 m                |
+  | Potomac at Georgetown      | 8              | 6 m                  |
+  | Hudson off Manhattan       | 8              | 584 m                |
+  | Missouri at St. Charles    | 9              | 249 m                |
+  | Rio Negro at Manaus        | 9              | 823 m                |
+  | Mississippi at St. Louis   | 10             | 100 m                |
+  | Mississippi at New Orleans | 11             | 292 m                |
+
+  At 150 m, the Mississippi at New Orleans, the Rio Negro, the Missouri and
+  the Hudson were all "No named river here".
+
+- **The radii:** 150 m to order 5, 400 m for 6 and 7, 700 m for 8, 1 km for
+  9 and 10, 1.5 km for 11, and 2 km from 12. The search reaches 2 km.
+- **How a name is chosen:**
+  - Each name group found is sized by its largest v2 order there. An OSM
+    line counts with its own name's reaches; with none nearby, an OSM river
+    gets 400 m and anything else 150 m.
+  - A group counts when one of its lines lies within its radius.
+  - The group nearest for its size wins (distance ÷ radius). A creek past
+    150 m never names a point in a wide river. At Manaus, the Igarapé do
+    Quarenta at 503 m (order 3) loses to the Río Negro at 823 m of its 1 km.
+  - Within a group, a v2 reach's line speaks before OSM's own.
+- **Deltas, braids and confluences:** a channel's own line is near and the
+  neighbour's is far for its size, so each names its own water.
+  - Checked on the built sidecar: the Paraná de las Palmas and the Paraná
+    Guazú, the Mississippi's Southwest Pass and South Pass, and the
+    Missouri and the Mississippi just above their confluence all named
+    right.
+  - With the eight spot points that is 14 of 14, each answered in 0.3 to
+    41 ms.
+- **River areas are not used yet.** OSM's `waterway=riverbank` or
+  `natural=water` + `water=river` would name a point inside a river's
+  polygon directly. But the sidecar holds lines only, and the size-scaled
+  radius already names all 14 points. Adding the areas means extracting
+  them in `npm run rivers:names` and a point-in-polygon step.
 
 **Live names from the local Overpass.** When the sidecar has no name for
 a clicked reach, or is not built, and v1 has no `BB_NAME` for it, the reach
@@ -3922,7 +3969,11 @@ public instance.
   stepped lines on its 15″ grid. Around Baltimore (2026-10-23) the waterway
   lay 63–114 m from its reach on average:
   - 150 m covered only 21–87% of each reach;
-  - so it is 250 m, and 400 m for RIV_ORD 4 and under (100 m³/s and more).
+  - so it is 250 m at least, and from there the river's size as the point
+    lookup sizes it: RIV_ORD 5 (10–100 m³/s) as Strahler 6 (400 m), 4 as
+    8 (700 m), 3 as 11 (1.5 km), and 1 or 2 as 12 (2 km)
+    (`liveToleranceM`). The coverage and the 60° angle checks keep a
+    neighbouring channel out.
 - **What the five test reaches got**, each in 0.4–1.0 s:
   - 7617971: Gwynns Falls, 83% of the reach, mean 103 m off.
   - 7619123: Patapsco River, 89%, 100 m.

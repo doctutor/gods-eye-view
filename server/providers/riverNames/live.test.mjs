@@ -104,7 +104,10 @@ test('nothing in range, too little of the reach, or no ways: no name', () => {
     null,
   );
   // The big rivers get a wider tolerance (v1's lines sit further off).
-  assert.equal(liveToleranceM(3), 400);
+  assert.equal(liveToleranceM(2), 2000);
+  assert.equal(liveToleranceM(3), 1500);
+  assert.equal(liveToleranceM(4), 700);
+  assert.equal(liveToleranceM(5), 400);
   assert.equal(liveToleranceM(6), 250);
   assert.equal(liveToleranceM(undefined), 250);
 });
@@ -152,12 +155,16 @@ test('the lookup: a name, none, a failed or slow Overpass (nothing shown, never 
     osmName: {
       name: 'Patapsco River',
       coverage: 1,
-      distanceM: 58,
+      distanceM: 57,
       confidence: 'live',
     },
   });
   assert.equal(asked.length, 1, 'one request');
-  assert.match(decodeURIComponent(asked[0].body), /around:250,/);
+  assert.match(
+    decodeURIComponent(asked[0].body),
+    /around:400,/,
+    'RIV_ORD 5 is a mid-size river',
+  );
   // The transport's own wait is cut to the click's.
   assert.equal(typeof asked[0].options.fetchImpl, 'function');
   assert.equal(LIVE_TIMEOUT_MS, 10_000);

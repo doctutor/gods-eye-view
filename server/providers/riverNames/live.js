@@ -7,19 +7,32 @@ import {
   localProjector,
   matchReach,
 } from '../../../scripts/rivers/namesMatch.mjs';
+import { nearestRadiusM } from './index.js';
+
+/**
+ * The Strahler order a v1 flow class stands for, roughly (RIV_ORD: 3 is
+ * 1,000 to 10,000 m³/s, 4 100 to 1,000, 5 10 to 100), so the live lookup
+ * sizes a river as the sidecar's point lookup does (nearestRadiusM in
+ * ./index.js). Measured: the Patapsco (RIV_ORD 5, 16 m³/s) is Strahler 6
+ * to 7 in v2, the Susquehanna (3) 11, the Mississippi below the Missouri
+ * (2) 11 to 12.
+ */
+const STRAHLER_FOR_RIV_ORD = Object.freeze({ 1: 12, 2: 12, 3: 11, 4: 8, 5: 6 });
 
 /**
  * HydroRIVERS v1's reaches are drawn on its 15″ grid (about 450 m), in
  * steps of 45°, so their lines sit off OpenStreetMap's channels further
  * than the sidecar's 1″ v2 reaches do. Around Baltimore (2026-10-23) the
  * named waterway that follows a reach lay 63 to 114 m from it on average:
- * 150 m covered 21 to 87 % of each reach, 250 m 83 to 97 % for the streams
- * (49 % for the Susquehanna), 400 m all of them. Hence 250 m, and 400 m for
- * the big rivers (RIV_ORD 4 or less: 100 m³/s and more).
+ * 150 m covered 21 to 87 % of each reach, 250 m 83 to 97 % for the streams.
+ * So 250 m at least, and from there the river's size as the point lookup
+ * measures it: 400 m for RIV_ORD 5, 700 m for 4, 1.5 km for 3, 2 km for the
+ * largest. The coverage and angle checks keep a neighbouring channel out.
  */
+export const LIVE_MIN_TOLERANCE_M = 250;
 export function liveToleranceM(rivOrd) {
-  const order = Number(rivOrd);
-  return Number.isFinite(order) && order <= 4 ? 400 : 250;
+  const strahler = STRAHLER_FOR_RIV_ORD[Number(rivOrd)] || 0;
+  return Math.max(LIVE_MIN_TOLERANCE_M, nearestRadiusM(strahler));
 }
 /** A waterway names the reach when it follows at least this share of it. */
 export const LIVE_MIN_COVERAGE = 0.4;
