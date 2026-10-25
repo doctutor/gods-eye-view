@@ -45,6 +45,10 @@ import {
   overtureBoundariesImageryOptions,
   overtureBoundariesReady,
 } from './overtureBoundaries.js';
+import {
+  areaCoastImageryOptions,
+  areaFillImageryOptions,
+} from './overtureAreas.js';
 
 /**
  * Personal fork: one Earth Engine overlay (src/data/earthEngineLayers.js) as
@@ -111,6 +115,9 @@ import {
 export const OPACITY_STORAGE_PREFIX = 'gev.earthEngine.opacity.';
 export const INK_STORAGE_PREFIX = 'gev.earthEngine.ink.';
 export const LEVEL_STORAGE_PREFIX = 'gev.earthEngine.level.';
+/** Personal fork: the boundaries' FILLS and COASTS toggles ('1' on, '0' off). */
+export const FILLS_STORAGE_PREFIX = 'gev.earthEngine.fills.';
+export const COASTS_STORAGE_PREFIX = 'gev.earthEngine.coasts.';
 /** The overlay's rectangle: half its side is this many camera heights… */
 export const VIEW_HALF_FACTOR = 3;
 /** …and at least this many metres. */
@@ -294,6 +301,12 @@ export const demCreditText = (sources) =>
  *   Earth Engine's, and `countriesCredit` is registered. A variant with a
  *   `localSet` (regions, districts) draws that set's tiles only below its
  *   `localBelowM` and where the view's cell has lines of its level.
+ *   `areasSource`: for a record with `areas`, Overture's division areas
+ *   (./overtureAreas.js): while they are built, REGIONS and DISTRICTS can
+ *   draw their units' fills under the lines (FILLS, off by default) and
+ *   COUNTRIES from Overture its countries' coasts over them (COASTS, on by
+ *   default), and `clicks` is told when a click should identify (REGIONS
+ *   or DISTRICTS showing).
  */
 export function createEarthEngineLayer({
   record,
@@ -312,6 +325,7 @@ export function createEarthEngineLayer({
   overtureCredit = null,
   countriesSource = null,
   countriesCredit = null,
+  areasSource = null,
   colourScales = null,
   setTimeoutImpl = (...args) => setTimeout(...args),
   clearTimeoutImpl = (...args) => clearTimeout(...args),
@@ -414,6 +428,21 @@ export function createEarthEngineLayer({
   let _overtureImagery = null;
   /** Overture's country lines (COUNTRIES, and AUTO from orbit). */
   let _countriesStatus = null;
+  /** Overture's division areas: their status, and the fills and coasts drawn. */
+  let _areasStatus = null;
+  let _fillImagery = null;
+  let _coastImagery = null;
+  let _extrasKey = '';
+  const readToggle = (prefix, fallback) => {
+    try {
+      const value = store?.getItem(`${prefix}${record.id}`);
+      return value === '1' ? true : value === '0' ? false : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  let _fills = readToggle(FILLS_STORAGE_PREFIX, false);
+  let _coasts = readToggle(COASTS_STORAGE_PREFIX, true);
   const notify = () => {
     try {
       _rowListener?.();
@@ -574,7 +603,22 @@ export function createEarthEngineLayer({
     );
   }
 
+  /** The fills and coasts off the map. */
+  function removeExtras() {
+    for (const layer of [_fillImagery, _coastImagery])
+      if (layer)
+        try {
+          _collection?.remove(layer, true);
+        } catch {
+          /* already gone */
+        }
+    _fillImagery = null;
+    _coastImagery = null;
+    _extrasKey = '';
+  }
+
   function unmount() {
+    removeExtras();
     if (!_imagery) return;
     try {
       _collection?.remove(_imagery, true);
@@ -680,7 +724,82 @@ export function createEarthEngineLayer({
     notify();
   }
 
+  /** Whether a click identifies: REGIONS or DISTRICTS showing, the areas built. */
+  function identifyActive() {
+    return Boolean(
+      _enabled &&
+      record.areas &&
+      areasSource &&
+      _areasStatus?.configured &&
+      ['level1', 'level2'].includes(wantedVariant()),
+    );
+  }
+
+  /** The fills (REGIONS, DISTRICTS) and coasts (COUNTRIES from Overture) the toggles want now. */
+  function extrasWanted() {
+    if (!record.areas || !areasSource || !_areasStatus?.configured)
+      return { fill: null, coast: null };
+    const variant = wantedVariant();
+    const fill =
+      _fills && (variant === 'level1' || variant === 'level2')
+        ? areaFillImageryOptions(
+            _areasStatus,
+            variant === 'level1' ? 'regions' : 'districts',
+          )
+        : null;
+    const coast =
+      _coasts && variant === 'level0' && localVariant()
+        ? areaCoastImageryOptions(_areasStatus, wantedInk())
+        : null;
+    return { fill, coast };
+  }
+
+  /** The fills under the lines and the coasts over them, while the lines draw. */
+  function syncExtras() {
+    const want =
+      _enabled && _imagery && _collection
+        ? extrasWanted()
+        : { fill: null, coast: null };
+    const key = `${want.fill?.url || ''}|${want.coast?.url || ''}`;
+    if (key === _extrasKey) return;
+    removeExtras();
+    const make = ({ url, credit, ...levels }) =>
+      new cesium.ImageryLayer(
+        new cesium.UrlTemplateImageryProvider({
+          url,
+          tilingScheme: new cesium.WebMercatorTilingScheme(),
+          ...levels,
+          minimumLevel: _hostKind === 'tileset' ? 0 : levels.minimumLevel,
+          credit,
+        }),
+        { alpha: _opacity },
+      );
+    if (want.fill) {
+      _fillImagery = make(want.fill);
+      const under =
+        typeof _collection.indexOf === 'function'
+          ? _collection.indexOf(_imagery)
+          : -1;
+      if (under >= 0) _collection.add(_fillImagery, under);
+      else _collection.add(_fillImagery);
+    }
+    if (want.coast) {
+      _coastImagery = make(want.coast);
+      _collection.add(_coastImagery);
+    }
+    _extrasKey = key;
+    if ((want.fill || want.coast) && countriesCredit)
+      credits?.register?.(_viewer, countriesCredit);
+    requestRender('earth-engine-extras');
+  }
+
   function sync() {
+    syncMain();
+    syncExtras();
+    clicks?.update?.();
+  }
+
+  function syncMain() {
     const layer = _catalog?.layers?.get?.(record.id);
     const host = imageryHost();
     _hostKind = host.kind;
@@ -975,6 +1094,31 @@ export function createEarthEngineLayer({
   }
 
   /** The country lines' status: a failure reads as not built (LSIB). */
+  /** The division areas' status: a failure reads as not built (no fills, coasts or cards). */
+  async function loadAreas({ refresh = false } = {}) {
+    if (!record.areas || !areasSource) return;
+    try {
+      _areasStatus = await areasSource.status({ refresh });
+    } catch {
+      _areasStatus = null;
+    }
+    if (_enabled) sync();
+    notify();
+  }
+
+  /** A FILLS or COASTS chip: kept per record, drawn at once. */
+  function setToggle(prefix, value) {
+    if (prefix === FILLS_STORAGE_PREFIX) _fills = value;
+    else _coasts = value;
+    try {
+      store?.setItem(`${prefix}${record.id}`, value ? '1' : '0');
+    } catch {
+      /* private mode: kept for this page only */
+    }
+    if (_enabled) sync();
+    notify();
+  }
+
   async function loadCountries({ refresh = false } = {}) {
     if (!countriesSource) return;
     try {
@@ -1085,6 +1229,8 @@ export function createEarthEngineLayer({
     }
     if (_v2Imagery) _v2Imagery.alpha = _opacity;
     if (_overtureImagery) _overtureImagery.alpha = _opacity;
+    if (_fillImagery) _fillImagery.alpha = _opacity;
+    if (_coastImagery) _coastImagery.alpha = _opacity;
     if (_imagery) {
       _imagery.alpha = _opacity;
       requestRender('earth-engine-opacity');
@@ -1114,8 +1260,9 @@ export function createEarthEngineLayer({
       _localStatus = localSource?.last?.() || _localStatus;
       _overtureStatus = overtureSource?.last?.() || _overtureStatus;
       _countriesStatus = countriesSource?.last?.() || _countriesStatus;
+      _areasStatus = areasSource?.last?.() || _areasStatus;
       names?.enable();
-      clicks?.enable(_viewer);
+      clicks?.enable(_viewer, { active: identifyActive });
       if (colourScales?.subscribe && !_offScales) {
         const off = colourScales.subscribe(onScaleChange);
         _offScales = typeof off === 'function' ? off : null;
@@ -1126,6 +1273,7 @@ export function createEarthEngineLayer({
       void loadLocal();
       void loadOverture();
       void loadCountries();
+      void loadAreas();
     },
 
     disable() {
@@ -1147,6 +1295,7 @@ export function createEarthEngineLayer({
       void loadV2({ refresh: true });
       void loadOverture({ refresh: true });
       void loadCountries({ refresh: true });
+      void loadAreas({ refresh: true });
       return loadCatalog({ refresh: true });
     },
 
@@ -1211,6 +1360,22 @@ export function createEarthEngineLayer({
               ? 'overture-buildings'
               : record.coverage.key
             : '',
+        // Personal fork: the boundaries' FILLS and COASTS, while the areas are built.
+        toggles:
+          record.areas && areasSource && _areasStatus?.configured
+            ? [
+                {
+                  id: 'areas-fills',
+                  active: _fills,
+                  onClick: () => setToggle(FILLS_STORAGE_PREFIX, !_fills),
+                },
+                {
+                  id: 'areas-coasts',
+                  active: _coasts,
+                  onClick: () => setToggle(COASTS_STORAGE_PREFIX, !_coasts),
+                },
+              ]
+            : [],
         creditTitle:
           record.demStack && _demSources.length
             ? demCreditText(_demSources)

@@ -3836,5 +3836,15 @@
   "data {age}": "datos {age}",
   "no data yet": "aún sin datos",
   "refreshing": "actualizando",
-  "{list} refresh failed {age}: {error}": "{list}: la actualización falló {age}: {error}"
+  "{list} refresh failed {age}: {error}": "{list}: la actualización falló {age}: {error}",
+  "At sea": "En el mar",
+  "In the territorial sea of {country}": "En el mar territorial de {country}",
+  "County: {name}": "Condado: {name}",
+  "Region: {name}": "Región: {name}",
+  "Country: {name} ({code})": "País: {name} ({code})",
+  "Country: {name}": "País: {name}",
+  "No county in Overture here": "Overture no tiene condado aquí",
+  "Fill each region or county in its own colour (Overture division areas)": "Rellenar cada región o condado con su propio color (áreas de división de Overture)",
+  "COASTS": "COSTAS",
+  "Draw the countries' coasts with their Overture lines (island countries' outlines)": "Dibujar las costas de los países con sus líneas de Overture (contornos de los países insulares)"
 }

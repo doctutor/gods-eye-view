@@ -969,10 +969,86 @@ the samples with an Overture line within 1 km; the rest is coast.
   There GAUL is off at any height where districts show, so the heights
   above are set by the good cases.
 
-**What `division_area` would add** (4.5 GB, not used): polygons, so
-fills (a colour per region or county), click-to-identify (which county
-is under the pointer, with its name), and coasts drawn as each unit's
-outline. Lines need none of that, so the build leaves it out.
+**Built (2026-10-25): division areas.** `division_area` adds what lines
+cannot: a click's card, fills, and the countries' coasts.
+
+- **Data:** `release/2026-09-23.1/theme=divisions/type=division_area/`,
+  eight files, 4.53 GB (ODbL), in
+  `raw/2026-09-23.1/divisions/division_area/` of the Overture cache. A
+  file still named `.partial` is not read.
+- **What is kept:** the land areas of the country, dependency, region and
+  county subtypes, and the countries' and dependencies' territorial seas
+  (for "at sea, in X's territorial sea"). That is 43,345 units: 219
+  countries, 53 dependencies, 3,929 regions and 38,933 counties, from
+  121.8 million points. Localities, neighbourhoods and the regions' and
+  counties' sea copies are left out. A unit keeps its primary name and its
+  English name (`names.common` `en`) when that differs.
+- **Build:** `npm run overture:areas` (`--force`, `--dir DIR`;
+  `scripts/overture/areas.mjs`). It streams one row group at a time and
+  writes each unit's polygons out at once. Each band's level is
+  simplified to half a pixel like the lines. Only the units' small records
+  are held. Written to `build/areas/` of the Overture cache:
+  - `areas-<stamp>.bin`, the polygons by offset;
+  - `units-<stamp>.json`, 12.4 MB;
+  - `index-<stamp>.json`, 1.1 MB: a multi-level grid, each unit in at
+    most 2 × 2 cells of the deepest zoom up to 10 where its box is that
+    small;
+  - `coasts-<stamp>/`, the countries' and dependencies' land outlines as
+    line level files, cut into cells like the boundary lines.
+    Latitudes are clamped to Web Mercator's ±85.05° (Antarctica's land
+    reaches -90°).
+- **Measured** on 2026-10-25, building into a scratch directory: 88.1 s,
+  184.2 MB (polygons 171.6 MB, of which z 10–14 is 136.4 MB; coasts
+  12.6 MB), peak resident 468 MB (heap 134 MB).
+- **Server:** `server/providers/overtureAreas.js`, at
+  `/api/boundaries/areas`:
+  - `/layers`;
+  - `/identify?lat=&lon=`, the country (or dependency), region and county
+    holding the point, each with its names, subtype and country code; at
+    sea, the territorial sea's country, if any;
+  - `/fill/<regions|districts>/<z>/<x>/<y>`;
+  - `/coast/<ink>/<z>/<x>/<y>`.
+    A point is looked up in one index cell per zoom, then tested against
+    each candidate's finest polygons, read by offset (decoded polygons kept
+    up to 12 M points). Loaded, it takes about 80 MB.
+- **Click card:** with REGIONS or DISTRICTS showing (forced, or AUTO in
+  their bands), a click asks `/identify` and shows a card on the world
+  overlay (`src/layers/earthEngine/boundaryClicks.js`): the county, the
+  region and the country with its code, or "At sea". Measured answers:
+
+  | Point                      | Card                                                          |
+  | -------------------------- | ------------------------------------------------------------- |
+  | Baltimore's Inner Harbor   | Baltimore; Maryland; United States (US)                       |
+  | Towson                     | Baltimore County; Maryland; United States (US)                |
+  | Qingdao                    | 青岛市 (Qingdao); 山东省 (Shandong); 中国 (China) (CN)        |
+  | Quimper                    | Finistère; Bretagne (Brittany); France (FR)                   |
+  | Chesapeake Bay             | At sea, in the territorial sea of United States               |
+  | Mid-Atlantic (35° N 40° W) | At sea                                                        |
+  | Rio de Janeiro             | Rio de Janeiro; Brasil (Brazil); "No county in Overture here" |
+
+  Each took 1 to 28 ms (the first point decodes the US outline).
+
+- **FILLS** (a chip on the row, off by default): REGIONS and DISTRICTS
+  draw their units under the lines, each in one of twelve mid-tone colours
+  that read on black and white plates alike (the World history layer's),
+  picked by the unit's id so it keeps its colour. The fill's own alpha is
+  0.35, and the row's opacity applies on top. Tiles took 15 to 98 ms cold.
+- **COASTS** (a chip, on by default): COUNTRIES drawn from Overture gets
+  the countries' and dependencies' land outlines over its lines, in the
+  same ink. A toggle, not "only where a country has no land border": that
+  rule misses Indonesia, the United Kingdom and Ireland, Malaysia, Papua
+  New Guinea and Haiti, which are mostly coast yet have a land border,
+  while a toggle draws every coast alike. It is on by default because an
+  island country with no outline reads as no country; off, the basemap or
+  imagery shows the shore. LSIB 2017 (without Overture) has its coasts
+  already.
+- **Antimeridian:** a line's margin over ±180° reached a cell off the grid,
+  whose key named another cell. Such runs are now dropped in both builds;
+  each is in its own cell anyway. In the boundary lines that was 12 pieces
+  of Fiji's region and county lines. `BOUNDARIES_FORMAT` is 3, so
+  `npm run overture:boundaries` rebuilds them.
+- **Credit:** the same "Boundary lines" credit, registered while fills or
+  coasts draw.
 
 **Not recommended.**
 

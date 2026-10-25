@@ -34,6 +34,8 @@ import { cottereauBordersProxy } from './cottereauBorders.js';
 import { riversV2Proxy } from './riversV2.js';
 // Personal fork: the Administrative boundaries layer's Overture country lines.
 import { overtureBoundariesProxy } from './overtureBoundaries.js';
+// Personal fork: the Administrative boundaries layer's Overture division areas.
+import { overtureAreasProxy } from './overtureAreas.js';
 // Personal fork: clicking a river reach (the Rivers layer).
 import { riverReachProxy } from './riverReach.js';
 // Personal fork: the Rivers layer's names from OpenStreetMap.
@@ -99,6 +101,7 @@ function localProviderPlugins({ realtime } = {}) {
     cottereauBordersProxy(),
     riversV2Proxy({ sourceRoot: defaultSourceRoot }),
     overtureBoundariesProxy({ sourceRoot: defaultSourceRoot }),
+    overtureAreasProxy({ sourceRoot: defaultSourceRoot }),
     riverReachProxy({ sourceRoot: defaultSourceRoot }),
     riverNamesProxy({ sourceRoot: defaultSourceRoot }),
     censusProxy({ sourceRoot: defaultSourceRoot }),
