@@ -1156,6 +1156,23 @@ const TREE_CANOPY = Object.freeze({
   maxZoom: 16,
 });
 
+/**
+ * Below these camera heights REGIONS and DISTRICTS draw Overture's region
+ * and county lines (where built and where the view has them) in place of
+ * FAO GAUL 2025.
+ * - GAUL's coasts and shore-following lines are generalised: hundreds of
+ *   metres to about a kilometre off the imagery (Baltimore's harbour). On
+ *   a 1,600 px canvas a pixel is about the camera height / 1,400, so that
+ *   error starts to show below about 1,400 km.
+ * - Overture's county lines are built from z 7, which a 1,000 px canvas
+ *   drapes from about 1,050 km down: DISTRICTS switches at 1,000 km, and
+ *   so does AUTO's district level (below 800 km).
+ * - Region lines are built from z 4 (about 8,500 km on that canvas):
+ *   REGIONS switches at 5,000 km, where AUTO hands the countries over.
+ */
+export const OVERTURE_REGIONS_BELOW_M = 5_000_000;
+export const OVERTURE_DISTRICTS_BELOW_M = 1_000_000;
+
 export const EARTH_ENGINE_LAYERS = Object.freeze([
   Object.freeze({
     id: 'ee-terrain-slope',
@@ -1317,6 +1334,10 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
       // table's, and a cold z 3 tile in a median 1.2 s against 2.5 s (worst
       // 2.0 s against 9.7 s; 2026-10-22). Its smallest islands collapse to
       // points, which `pointSize: 0` leaves undrawn.
+      // While Overture's region and county lines are built, REGIONS draws
+      // them below `localBelowM`, and DISTRICTS below its own, wherever the
+      // view's cell has lines of that level (Brazil has no county lines);
+      // GAUL above and elsewhere (OVERTURE_REGIONS_BELOW_M).
       Object.freeze({
         key: 'level1',
         asset: Object.freeze({ table: 'FAO/GAUL/2025/level1' }),
@@ -1327,12 +1348,18 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
         }),
         auto: true,
         minHeightM: 800_000,
+        local: 'overture-boundaries',
+        localSet: 'regions',
+        localBelowM: OVERTURE_REGIONS_BELOW_M,
       }),
       Object.freeze({
         key: 'level2',
         asset: Object.freeze({ table: 'FAO/GAUL/2025/level2' }),
         auto: true,
         maxHeightM: 800_000,
+        local: 'overture-boundaries',
+        localSet: 'districts',
+        localBelowM: OVERTURE_DISTRICTS_BELOW_M,
       }),
     ]),
     style: Object.freeze({

@@ -41,6 +41,7 @@ import {
 } from './overtureBuildings.js';
 import { censusImageryOptions, censusModeMessage } from '../census/source.js';
 import {
+  overtureBoundariesCover,
   overtureBoundariesImageryOptions,
   overtureBoundariesReady,
 } from './overtureBoundaries.js';
@@ -287,10 +288,12 @@ export const demCreditText = (sources) =>
  *   terrain layer, a DEM source's popover entry (src/data/dataCredits.js
  *   demSourceCredit), registered when the source first draws;
  *   `countriesSource`: for a record whose variant is `local:
- *   'overture-boundaries'`, the Overture country lines' status
+ *   'overture-boundaries'`, the Overture boundary lines' status
  *   (./overtureBoundaries.js): while they are built, that variant (and
  *   AUTO from its `localAutoAboveM` up) draws their tiles in place of
- *   Earth Engine's, and `countriesCredit` is registered.
+ *   Earth Engine's, and `countriesCredit` is registered. A variant with a
+ *   `localSet` (regions, districts) draws that set's tiles only below its
+ *   `localBelowM` and where the view's cell has lines of its level.
  */
 export function createEarthEngineLayer({
   record,
@@ -481,12 +484,21 @@ export function createEarthEngineLayer({
     return local ? local.key : variantForHeight(record, height).key;
   }
 
-  /** Whether a variant's local tiles are built (in the ink drawn now). */
+  /**
+   * Whether a variant's local tiles draw it now: built (in the ink drawn
+   * now); for a region or district set, below its height and where the
+   * view's cell has lines of its level.
+   */
   function localVariantReady(variant, ink = wantedInk()) {
-    return Boolean(
-      variant?.local === 'overture-boundaries' &&
-      countriesSource &&
-      overtureBoundariesReady(_countriesStatus, ink),
+    if (variant?.local !== 'overture-boundaries' || !countriesSource)
+      return false;
+    const set = variant.localSet || 'countries';
+    if (!overtureBoundariesReady(_countriesStatus, ink, set)) return false;
+    if (set === 'countries') return true;
+    const view = viewNow();
+    return (
+      view.height < (variant.localBelowM ?? Infinity) &&
+      overtureBoundariesCover(_countriesStatus, set, view.lat, view.lon)
     );
   }
 
@@ -603,10 +615,14 @@ export function createEarthEngineLayer({
     mountLocal(host, view, options, `local|${_mode}|${options.url}`);
   }
 
-  /** A local variant (the Overture country lines) in the ink drawn now. */
+  /** A local variant (Overture's lines of its set) in the ink drawn now. */
   function syncLocalVariant(host, view, variant) {
     const ink = wantedInk();
-    const options = overtureBoundariesImageryOptions(_countriesStatus, ink);
+    const options = overtureBoundariesImageryOptions(
+      _countriesStatus,
+      ink,
+      variant.localSet || 'countries',
+    );
     if (!options) {
       unmount();
       notify();

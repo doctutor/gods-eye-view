@@ -1,5 +1,6 @@
-// Personal fork: the Overture country lines, from a division_boundary file
-// to the tiles the Administrative boundaries layer drapes.
+// Personal fork: the Overture boundary lines (country, region, county),
+// from a division_boundary file to the tiles the Administrative boundaries
+// layer drapes in each set.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -27,7 +28,7 @@ import {
   renderTileCoverage,
 } from './overtureBoundaries/tiles.js';
 import { createCoverage, EMPTY_PNG } from './riversV2/render.js';
-import { openLevel } from './riversV2/levelFile.js';
+import { decodeCell, openLevel } from './riversV2/levelFile.js';
 import { worldX, worldY } from './riversV2/tileMath.js';
 import {
   NEEDS_BUILD,
@@ -97,6 +98,7 @@ const SCHEMA = [
     ],
   },
   leaf('is_disputed', BOOLEAN),
+  leaf('country'),
 ];
 
 /** Rows → a GeoParquet-shaped file: {id, subtype, cls, disputed, geometry, perspective?}. */
@@ -148,13 +150,15 @@ function boundaryFile(file, rows) {
       'perspectives.mode': flat((row) => row.perspective?.mode, BYTES, 2),
       'perspectives.countries.list.element': countries,
       is_disputed: flat((row) => row.disputed, BOOLEAN),
+      country: flat((row) => row.country),
     },
   });
 }
 
 // A land border along 45° N from 0° to 10° E, a disputed one in Kashmir
-// (two parts, from India's perspective), a maritime one, and rows the
-// build leaves out: a region's line and a country's point.
+// (two parts, from India's perspective), a maritime one, a region's line
+// and a county's in France, and a row the build leaves out: a country's
+// point.
 const ROWS = [
   {
     id: 'land',
@@ -201,9 +205,21 @@ const ROWS = [
     subtype: 'region',
     cls: 'land',
     disputed: false,
+    country: 'FR',
     geometry: wkb([
       [1, 46],
       [2, 46],
+    ]),
+  },
+  {
+    id: 'county',
+    subtype: 'county',
+    cls: 'land',
+    disputed: false,
+    country: 'FR',
+    geometry: wkb([
+      [3, 47],
+      [3, 48],
     ]),
   },
   {
@@ -279,7 +295,7 @@ test('WKB lines decode; anything else is null', () => {
   assert.equal(wkbLines(null), null);
 });
 
-test('the build keeps the country lines with their classes, per band, and skips an unchanged input', async (t) => {
+test('the build keeps the country, region and county lines with their classes, each from its zoom, and skips an unchanged input', async (t) => {
   const { outDir, inputs } = await built(t);
   assert.equal(inputs.length, 1);
   const lines = [];
@@ -293,30 +309,78 @@ test('the build keeps the country lines with their classes, per band, and skips 
   assert.equal(first.skipped, false);
   const { manifest } = first;
   assert.equal(manifest.release, '2026-09-23.1');
-  assert.equal(manifest.lines, 3, 'two land lines and a maritime one');
+  assert.equal(
+    manifest.lines,
+    5,
+    'two land lines, a maritime one, a region and a county',
+  );
   assert.equal(manifest.disputed, 1);
   assert.deepEqual(manifest.byClass, {
-    land: 1,
-    'land, disputed': 1,
-    maritime: 1,
+    'country land': 1,
+    'country land, disputed': 1,
+    'country maritime': 1,
+    'region land': 1,
+    'county land': 1,
   });
   assert.deepEqual(manifest.classes, [
-    { class: 'land', disputed: false, perspective: null },
+    { subtype: 'country', class: 'land', disputed: false, perspective: null },
     {
+      subtype: 'country',
       class: 'land',
       disputed: true,
       perspective: { mode: 'disputed_by', countries: ['CN', 'IN'] },
     },
-    { class: 'maritime', disputed: false, perspective: null },
+    {
+      subtype: 'country',
+      class: 'maritime',
+      disputed: false,
+      perspective: null,
+    },
+    { subtype: 'region', class: 'land', disputed: false, perspective: null },
+    { subtype: 'county', class: 'land', disputed: false, perspective: null },
   ]);
+  assert.deepEqual(manifest.bySubtype, {
+    country: { lines: 3, vertices: 11 },
+    region: { lines: 1, vertices: 2 },
+    county: { lines: 1, vertices: 2 },
+  });
+  assert.deepEqual(manifest.byCountry, {
+    region: { FR: 1 },
+    county: { FR: 1 },
+  });
+  // Where Overture has each level: the z 6 cells its lines cross.
+  assert.equal(manifest.coverage.gridZoom, 6);
+  assert.deepEqual(manifest.coverage.region.length, 1);
+  assert.deepEqual(manifest.coverage.county.length, 1);
   assert.deepEqual(manifest.sources, [
     {
       file: 'part-00000.zstd.parquet',
       bytes: inputs[0].bytes,
-      rows: 5,
-      kept: 3,
+      rows: 6,
+      kept: 5,
     },
   ]);
+  // A region line from the z 4 band on, a county line from z 7.
+  const kindsIn = (entry) => {
+    const level = openLevel(path.join(outDir, ...entry.file.split('/')));
+    const kinds = new Set();
+    for (let index = 0; index < level.count; index++)
+      decodeCell(level.readCell(index), 0, 0, (kind) => kinds.add(kind));
+    level.close();
+    return [...kinds].map((kind) => manifest.classes[kind].subtype);
+  };
+  assert.deepEqual(
+    manifest.levels.map((entry) => [
+      entry.level,
+      [...new Set(kindsIn(entry))].sort(),
+    ]),
+    [
+      ['z0', ['country']],
+      ['z4', ['country', 'region']],
+      ['z7', ['country', 'county', 'region']],
+      ['z10', ['country', 'county', 'region']],
+    ],
+  );
   assert.deepEqual(
     manifest.levels.map((level) => level.level),
     BANDS.map((band) => band.level),
@@ -327,8 +391,9 @@ test('the build keeps the country lines with their classes, per band, and skips 
     assert.ok(level.count >= 1, `${entry.level} has cells`);
     level.close();
   }
-  assert.ok(lines.some((line) => /3 lines of 5 rows/.test(line)));
-  assert.equal(boundariesStatus(outDir).lines, 3);
+  assert.ok(lines.some((line) => /5 lines of 6 rows/.test(line)));
+  assert.equal(boundariesStatus(outDir).lines, 5);
+  assert.deepEqual(boundariesStatus(outDir).coverage, { region: 1, county: 1 });
   assert.equal(boundariesStatus(path.join(outDir, 'none')).built, false);
 
   const again = runBoundariesBuild({ outDir, inputs, now: () => clock++ });
@@ -401,7 +466,18 @@ test('tiles draw the lines (dashed where disputed) and the route serves them in 
   const layers = await call('/layers');
   assert.equal(layers.body.configured, true);
   assert.equal(layers.body.buildId, manifest.buildId);
-  assert.equal(layers.body.lines, 3);
+  assert.equal(layers.body.lines, 5);
+  // The region and district sets: their versions and where they have lines.
+  assert.deepEqual(Object.keys(layers.body.sets), ['regions', 'districts']);
+  assert.deepEqual(layers.body.sets.regions.cells, manifest.coverage.region);
+  assert.deepEqual(layers.body.sets.districts.cells, manifest.coverage.county);
+  assert.equal(layers.body.coverage.gridZoom, 6);
+  const versions = new Set([
+    layers.body.versions.light,
+    layers.body.sets.regions.versions.light,
+    layers.body.sets.districts.versions.light,
+  ]);
+  assert.equal(versions.size, 3, 'each set its own tiles');
   assert.equal(layers.body.maxZoom, 14);
   assert.match(layers.body.attribution, /OpenStreetMap.*Overture.*ODbL/);
   assert.match(layers.body.versions.light, /^[0-9a-f]{12}$/);
@@ -453,11 +529,52 @@ test('tiles draw the lines (dashed where disputed) and the route serves them in 
       any = solid.values[at * 256 + px] > 0.5;
     assert.ok(any, `the undisputed line is solid (column ${px})`);
   }
-  // The maritime line is drawn too; the region's line is not in the build.
+  // The maritime line is drawn too; the region's line only in the region
+  // and district sets, the county's only in the district set.
   const [mz, mx, my] = tileAt(-5.5, 35.95, 10);
   assert.equal(renderTileCoverage(open, mz, mx, my).coverage.empty, false);
   const [rz, rx, ry] = tileAt(1.5, 46, 10);
   assert.equal(renderTileCoverage(open, rz, rx, ry).coverage.empty, true);
+  assert.equal(
+    renderTileCoverage(open, rz, rx, ry, 'regions').coverage.empty,
+    false,
+  );
+  assert.equal(
+    renderTileCoverage(open, rz, rx, ry, 'districts').coverage.empty,
+    false,
+  );
+  const [cz, cx, cy] = tileAt(3, 47.5, 10);
+  assert.equal(
+    renderTileCoverage(open, cz, cx, cy, 'regions').coverage.empty,
+    true,
+  );
+  assert.equal(
+    renderTileCoverage(open, cz, cx, cy, 'districts').coverage.empty,
+    false,
+  );
+  // Counties are not drawn from far out (not in the z 4 band): there the
+  // district set draws what the region set does.
+  const [fz, fx, fy] = tileAt(3, 47.5, 5);
+  assert.deepEqual(
+    renderTileCoverage(open, fz, fx, fy, 'districts').coverage.values,
+    renderTileCoverage(open, fz, fx, fy, 'regions').coverage.values,
+  );
+  // The routes: a set's tile, and none of a set that is not one.
+  const district = await call(
+    `/tile/districts/light/${cz}/${cx}/${cy}?v=${layers.body.sets.districts.versions.light}`,
+  );
+  assert.equal(district.statusCode, 200);
+  assert.notEqual(district.body, EMPTY_PNG);
+  assert.equal(
+    (await call(`/tile/regions/light/${cz}/${cx}/${cy}`)).body,
+    EMPTY_PNG,
+  );
+  assert.equal(
+    (await call('/tile/towns/light/0/0/0')).nexted,
+    true,
+    'not a tile route',
+  );
+  assert.equal((await service.tile('light', 0, 0, 0, 'towns')).status, 404);
 
   // Away from every line: the shared transparent tile, nothing kept.
   const ocean = await service.tile('dark', ...tileAt(-30, -30, 8));

@@ -1,15 +1,31 @@
-// Personal fork: what the Overture country lines build
+// Personal fork: what the Overture boundary lines build
 // (scripts/overture/boundaries.mjs), their tile server
 // (server/providers/overtureBoundaries.js) and the Administrative
 // boundaries layer share. Not part of upstream God's Eye View.
 
 export const OVERTURE_BOUNDARIES_ENDPOINT = '/api/boundaries/countries';
 /**
+ * The tile sets the build draws: COUNTRIES' country lines, REGIONS' those
+ * and the region lines, DISTRICTS' all three. A tile of a set draws only
+ * its subtypes.
+ */
+export const BOUNDARY_SETS = Object.freeze({
+  countries: Object.freeze(['country']),
+  regions: Object.freeze(['country', 'region']),
+  districts: Object.freeze(['country', 'region', 'county']),
+});
+/** The set a level of detail of the region and county lines needs: its own subtype. */
+export const SET_LEVEL = Object.freeze({
+  regions: 'region',
+  districts: 'county',
+});
+/**
  * Overture's divisions theme is ODbL; every country line of the
- * 2026-09-23.1 release names OpenStreetMap as its only source.
+ * 2026-09-23.1 release names OpenStreetMap as its only source, as do its
+ * region and county lines.
  */
 export const OVERTURE_BOUNDARIES_ATTRIBUTION =
-  'Country lines: © OpenStreetMap contributors, Overture Maps Foundation (ODbL)';
+  'Boundary lines: © OpenStreetMap contributors, Overture Maps Foundation (ODbL)';
 export const OVERTURE_BOUNDARIES_LICENSE = Object.freeze({
   name: 'ODbL 1.0',
   url: 'https://opendatacommons.org/licenses/odbl/1-0/',

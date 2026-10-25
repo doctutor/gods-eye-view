@@ -3,7 +3,7 @@
 import { decodeCell } from '../riversV2/levelFile.js';
 import { TILE_SIZE, createCoverage } from '../riversV2/render.js';
 import { cellKey, cellRange, tileWorldBox } from '../riversV2/tileMath.js';
-import { DASH_OFF, DASH_ON, MAX_WIDTH_PX, bandForZoom } from './bands.js';
+import { DASH_OFF, DASH_ON, MAX_WIDTH_PX, SETS, bandForZoom } from './bands.js';
 
 /**
  * A line's dashes into `coverage`: along each segment's longer axis, the
@@ -51,17 +51,23 @@ export function dashedPolyline(
 }
 
 /**
- * The coverage of tile z/x/y: every piece of the zoom's band from the cells
- * under the tile, solid, or dashed where its class is disputed.
+ * The coverage of tile z/x/y in a set: every piece of the zoom's band of
+ * the set's subtypes (a build's class without one is a country line),
+ * from the cells under the tile, solid, or dashed where its class is
+ * disputed.
  * @param {Map<string, ReturnType<import('../riversV2/levelFile.js').openLevel>>} levels by band level
  */
-export function renderTileCoverage(levels, z, x, y) {
+export function renderTileCoverage(levels, z, x, y, set = 'countries') {
   const coverage = createCoverage(TILE_SIZE);
   const band = bandForZoom(z);
   const level = band ? levels.get(band.level) : null;
   if (!level) return { coverage, cells: 0, pieces: 0 };
   const { quantBits, gridZoom, marginUnits = 0, classes = [] } = level.header;
   const disputed = classes.map((entry) => entry?.disputed === true);
+  const subtypes = new Set(SETS[set] || SETS.countries);
+  const drawn = classes.map((entry) =>
+    subtypes.has(entry?.subtype || 'country'),
+  );
   const box = tileWorldBox(z, x, y);
   // Cells built with a margin of the widest line hold every line that can
   // reach into them: read only the cells under the tile. Otherwise pad.
@@ -94,6 +100,7 @@ export function renderTileCoverage(levels, z, x, y) {
         cx * cellUnits,
         cy * cellUnits,
         (kind, coords) => {
+          if (drawn[kind] === false) return;
           pieces++;
           if (pixels.length < coords.length)
             pixels = new Float64Array(coords.length);

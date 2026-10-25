@@ -71,7 +71,8 @@ export function createApplicationEarthEngineLayers({
       // Buildings: Overture's outside Open Buildings, when built.
       overtureSource: record.overture ? overtureBuildings : null,
       overtureCredit: record.overture ? OVERTURE_BUILDINGS_CREDIT : null,
-      // Administrative boundaries: COUNTRIES from the local country lines.
+      // Administrative boundaries: COUNTRIES from the local country lines,
+      // REGIONS and DISTRICTS from the local region and county lines.
       countriesSource: hasCountryLines(record) ? overtureBoundaries : null,
       countriesCredit: hasCountryLines(record)
         ? OVERTURE_BOUNDARIES_CREDIT
