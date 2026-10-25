@@ -1,10 +1,13 @@
 import { formatNumber, msg, t, tn } from '../../i18n/index.js';
 import { EXAGGERATIONS, formatLatLon, formatValue } from './model.js';
+import { RELIEF_FACTORS } from './photoreal.js';
 
 /**
  * Personal fork: what the Lego mode says: the drop-down beside the
  * ANALYSIS heading (Render: Colour / Lego, and Lego's elevation
- * exaggeration), its status line, and a clicked column's card.
+ * exaggeration), its status line, and a clicked column's card; and the
+ * two ways of seeing elevation with the Google 3D tiles (photoreal.js):
+ * Relief ×N and Photoreal on bricks.
  */
 
 export const RENDER_LABELS = Object.freeze({
@@ -27,6 +30,21 @@ export function columnCardDetails(column, header, { sourceName = '' } = {}) {
     formatLatLon(lat, lon),
     t('Source: {source}', { source: sourceName || header.source || '' }),
   ];
+}
+
+/** What Photoreal on bricks says when it is asked for but not lifting. */
+export function photorealStatusText(status) {
+  switch (status?.bricks === 'waiting' ? status.reason : '') {
+    case 'no-photoreal':
+      return t('Photoreal on bricks needs the Google 3D map');
+    case 'no-lego':
+    case 'no-bricks':
+      return t('Photoreal on bricks waits for the bricks');
+    case 'geoid':
+      return t('Loading the geoid…');
+    default:
+      return '';
+  }
 }
 
 /** The status line beside the drop-down. */
@@ -58,9 +76,12 @@ export function legoStatusText(status) {
  * @param {{getMode: () => string, setMode: (mode: string) => void,
  *   getExaggeration: () => number, setExaggeration: (value: number) => void,
  *   getStatus: () => object, subscribe: (listener: Function) => Function}} lego
+ * @param {{getState: () => {relief: number, bricks: boolean},
+ *   setRelief: Function, setBricks: Function, getStatus: () => object,
+ *   subscribe: Function}|null} [photoreal] Relief ×N and Photoreal on bricks
  * @returns {{element: HTMLElement, destroy: () => void}}
  */
-export function createLegoHeadingControl(doc, lego) {
+export function createLegoHeadingControl(doc, lego, photoreal = null) {
   const wrap = doc.createElement('span');
   wrap.className = 'data-layer-group-control lego-render-control';
   const mode = doc.createElement('select');
@@ -89,17 +110,65 @@ export function createLegoHeadingControl(doc, lego) {
   }
   const status = doc.createElement('span');
   status.className = 'lego-render-status';
-  wrap.append(mode, exaggeration, status);
+  wrap.append(mode, exaggeration);
+  // Relief ×N, on any map; Photoreal on bricks, in Lego.
+  let relief = null;
+  let bricks = null;
+  let bricksLabel = null;
+  if (photoreal) {
+    relief = doc.createElement('select');
+    relief.className = 'lego-relief-select';
+    relief.setAttribute('aria-label', t('Relief'));
+    relief.title = t(
+      'Relief: the Google 3D tiles (and the terrain) drawn taller, about the ground in the middle of the view',
+    );
+    for (const value of RELIEF_FACTORS) {
+      const option = doc.createElement('option');
+      option.value = String(value);
+      option.textContent =
+        value === 1 ? t('Relief ×1') : t('Relief ×{factor}', { factor: value });
+      relief.appendChild(option);
+    }
+    bricksLabel = doc.createElement('label');
+    bricksLabel.className = 'lego-photoreal-toggle';
+    bricks = doc.createElement('input');
+    bricks.type = 'checkbox';
+    bricksLabel.title = t(
+      'Lift each cell of the Google 3D tiles onto its brick',
+    );
+    bricksLabel.append(
+      bricks,
+      doc.createTextNode(` ${t('Photoreal on bricks')}`),
+    );
+    wrap.append(relief, bricksLabel);
+  }
+  wrap.append(status);
 
   const sync = () => {
     mode.value = lego.getMode();
     exaggeration.value = String(lego.getExaggeration());
     exaggeration.hidden = lego.getMode() !== 'lego';
-    const text =
+    let text =
       lego.getMode() === 'lego' ? legoStatusText(lego.getStatus()) : '';
+    if (photoreal) {
+      const state = photoreal.getState();
+      relief.value = String(state.relief);
+      bricks.checked = state.bricks;
+      bricksLabel.hidden = lego.getMode() !== 'lego';
+      const waiting =
+        lego.getMode() === 'lego'
+          ? photorealStatusText(photoreal.getStatus())
+          : '';
+      if (waiting) text = text ? `${text} · ${waiting}` : waiting;
+    }
     if (status.textContent !== text) status.textContent = text;
   };
   const onMode = () => lego.setMode(mode.value);
+  const onRelief = () => photoreal?.setRelief(Number(relief.value));
+  const onBricks = () => photoreal?.setBricks(bricks.checked);
+  relief?.addEventListener('change', onRelief);
+  bricks?.addEventListener('change', onBricks);
+  const unsubscribePhotoreal = photoreal?.subscribe?.(sync);
   const onExaggeration = () => lego.setExaggeration(Number(exaggeration.value));
   mode.addEventListener('change', onMode);
   exaggeration.addEventListener('change', onExaggeration);
@@ -112,6 +181,9 @@ export function createLegoHeadingControl(doc, lego) {
     element: wrap,
     destroy() {
       unsubscribe?.();
+      unsubscribePhotoreal?.();
+      relief?.removeEventListener('change', onRelief);
+      bricks?.removeEventListener('change', onBricks);
       mode.removeEventListener('change', onMode);
       exaggeration.removeEventListener('change', onExaggeration);
       wrap.removeEventListener('click', stop);
