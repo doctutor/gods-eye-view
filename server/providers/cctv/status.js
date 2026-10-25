@@ -223,8 +223,10 @@ export function createCctvStatus({
       refreshedAt: catalog.refreshedAt
         ? new Date(catalog.refreshedAt).toISOString()
         : null,
-      packs: catalog.packs.map((pack) => ({
+      packs: catalog.packs.map(({ upstream, ...pack }) => ({
         ...pack,
+        // Personal fork: a self-refreshing pack's lists, as they are now.
+        ...(typeof upstream === 'function' ? { upstream: upstream() } : {}),
         lastRefreshAt: pack.lastRefreshAt
           ? new Date(pack.lastRefreshAt).toISOString()
           : null,

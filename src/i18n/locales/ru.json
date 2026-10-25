@@ -3925,5 +3925,9 @@
   "Cottereau’s labels": "Подписи Котро",
   "Opacity of Cottereau’s borders": "Непрозрачность границ Котро",
   "Cottereau only": "Только Котро",
-  "Cliopatria only": "Только Cliopatria"
+  "Cliopatria only": "Только Cliopatria",
+  "data {age}": "данные {age}",
+  "no data yet": "данных пока нет",
+  "refreshing": "обновляется",
+  "{list} refresh failed {age}: {error}": "{list}: обновление не удалось {age}: {error}"
 }

@@ -7,6 +7,7 @@ import {
   formatCount,
   quotaLine,
   sourceRows,
+  upstreamParts,
 } from './cctvSources.js';
 
 const NOW = Date.parse('2026-10-16T20:00:00Z');
@@ -165,4 +166,81 @@ test('one row per source, with its counts, age and last error', () => {
     ],
   );
   assert.deepEqual(sourceRows(null, null, NOW), []);
+});
+
+test('a self-refreshing pack shows its data’s age, a refresh running, and its last failure', () => {
+  const lists = (osm, wikidata) => ({
+    lists: [
+      { name: 'osm', ...osm },
+      { name: 'wikidata', ...wikidata },
+    ],
+  });
+  assert.deepEqual(upstreamParts(undefined, NOW), {
+    age: null,
+    note: '',
+    error: null,
+    empty: false,
+  });
+  // Stale, refreshing: the older list's age.
+  assert.deepEqual(
+    upstreamParts(
+      lists(
+        { at: '2026-10-08T20:00:00Z', refreshing: true },
+        { at: '2026-10-15T20:00:00Z' },
+      ),
+      NOW,
+    ),
+    { age: 'data 8d ago', note: 'refreshing', error: null, empty: false },
+  );
+  // The last refresh failed: said, with when; the old copy still served.
+  const failed = upstreamParts(
+    lists(
+      {
+        at: '2026-10-08T20:00:00Z',
+        lastFailedAt: '2026-10-16T19:00:00Z',
+        lastError: 'no answer within 300 s',
+      },
+      { at: '2026-10-15T20:00:00Z' },
+    ),
+    NOW,
+  );
+  assert.equal(
+    failed.error,
+    'OpenStreetMap refresh failed 1h ago: no answer within 300 s',
+  );
+  assert.equal(failed.empty, false);
+  // Nothing held and a failure: an error row.
+  const none = upstreamParts(
+    lists(
+      { lastFailedAt: '2026-10-16T19:59:00Z', lastError: 'QLever 503' },
+      { refreshing: true },
+    ),
+    NOW,
+  );
+  assert.equal(none.age, 'no data yet');
+  assert.equal(none.empty, true);
+  const [row] = sourceRows(
+    {
+      packs: [
+        {
+          name: 'linked',
+          enabled: true,
+          proximityOnly: true,
+          inIndex: 0,
+          lastRefreshAt: '2026-10-16T19:58:00Z',
+          lastError: null,
+          upstream: lists(
+            { lastFailedAt: '2026-10-16T19:59:00Z', lastError: 'QLever 503' },
+            { refreshing: true },
+          ),
+        },
+      ],
+    },
+    null,
+    NOW,
+  );
+  assert.equal(row.counts, '0 indexed · refreshing');
+  assert.equal(row.age, 'no data yet');
+  assert.match(row.error, /OpenStreetMap refresh failed 1m ago: QLever 503/);
+  assert.equal(row.state, 'error');
 });

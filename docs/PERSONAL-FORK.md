@@ -177,17 +177,33 @@ Code: `server/providers/cctv/windy.js`.
 coordinates (about 600). Direct image, HLS and YouTube links play in the app.
 Links to an operator's page become pins that open the page.
 
-**Where it comes from, and terms.** Overpass (upstream's `OVERPASS_UPSTREAMS`,
-else four public mirrors), falling back to QLever's OSM planet endpoint when
-every mirror fails. Wikidata comes from its SPARQL endpoint. OpenStreetMap
-data is ODbL and Wikidata is CC0; each feed belongs to its operator.
+**Where it comes from, and terms.** The configured Overpass only
+(`OVERPASS_UPSTREAMS`, read as the Overpass proxy reads it: the local
+instance here), falling back to QLever's OSM planet endpoint when every
+configured endpoint fails, or at once when none is set. There is no public
+mirror list of its own any more. Wikidata comes from its SPARQL endpoint.
+OpenStreetMap data is ODbL and Wikidata is CC0; each feed belongs to its
+operator.
 
 **Switches.** `CCTV_LINKED_ENABLED` (`1`), `OVERPASS_UPSTREAMS` (shared with
 upstream).
 
 **Cache.** `.gev-cache/cctv-linked/osm.json` and `wikidata.json`, refreshed
-weekly. After a failure it retries in 30 minutes and serves the stale copy
-meanwhile.
+weekly, stale-while-revalidate:
+
+- The CCTV catalog never waits for the pack. A stale copy is served at once
+  while one refresh per list runs in the background.
+- A refresh gives up after 5 minutes (`LINKED_REFRESH_DEADLINE_MS`) and
+  aborts every request it made. Before, a catalog rebuild could wait about
+  32 minutes when every upstream failed (4 mirrors × 180 s plus 4 QLever
+  attempts × 300 s).
+- After a failure the next refresh waits an hour (`LINKED_RETRY_MS`).
+- With no copy at all the pack is empty until its first fetch lands. The
+  catalog retries an empty pack within two minutes and picks the list up
+  then.
+- The status (`/api/cctv/status`, the SOURCES block) shows each list's data
+  age, "refreshing" while a refresh runs, and the last failure with its
+  time.
 
 **Limits.** Since 2026-10-14 the public Overpass mirrors refuse this query, so
 the OSM half arrives through QLever (up to 5 minutes, 32 MB).
