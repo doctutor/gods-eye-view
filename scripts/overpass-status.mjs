@@ -9,7 +9,9 @@
 //   npm run overpass:status [-- --url http://localhost:12345/api] [--json]
 //   npm run overpass:recover
 import { execFile } from 'node:child_process';
+import fsPromises from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { DEFAULT_BACKUP_DIR, listBackups } from './overpass-backup.mjs';
 
 export const DEFAULT_URL = 'http://localhost:12345/api';
 const USER_AGENT = 'gods-eye-view/0.1 (overpass:status)';
@@ -167,6 +169,32 @@ export function classify({
   };
 }
 
+/** A backup older than this many days is called out. */
+export const BACKUP_WARN_DAYS = 14;
+
+/**
+ * The "Backup:" line: the newest complete backup (overpass-backup.mjs),
+ * its date, age, replicate_id and size, or none; a warning past
+ * BACKUP_WARN_DAYS.
+ */
+export function backupLine(backups, now = Date.now()) {
+  const newest = backups?.[0];
+  if (!newest)
+    return 'Backup: none (npm run overpass:backup makes one; a .partial is never one)';
+  const m = newest.manifest;
+  const age = describeAge(m.createdAt, now);
+  const days = (now - Date.parse(m.createdAt)) / 86_400_000;
+  const size = Number.isFinite(m.sizeBytes)
+    ? `, ${(m.sizeBytes / 1e9).toFixed(0)} GB`
+    : '';
+  return (
+    `Backup: ${newest.name} (${age || '?'} old), replicate_id ${m.replicateId ?? '?'}${size}` +
+    (days > BACKUP_WARN_DAYS
+      ? ` — older than ${BACKUP_WARN_DAYS} days: npm run overpass:backup`
+      : '')
+  );
+}
+
 /** --recover's lines: the state, its steps, and that nothing was run. */
 export function recoverLines(classified) {
   return [
@@ -187,6 +215,7 @@ export function summarize({
   lastLog,
   error,
   state,
+  backups = null,
   now = Date.now(),
 }) {
   const lines = [];
@@ -219,6 +248,7 @@ export function summarize({
       );
   }
   if (lastLog) lines.push(`  last log: ${lastLog}`);
+  if (backups) lines.push(backupLine(backups, now));
   if (state && state.state !== 'serving')
     lines.push(`State: ${state.headline}`);
   return lines;
@@ -293,6 +323,10 @@ async function main() {
   } catch (error) {
     found.error = error?.cause?.code || error?.message || String(error);
   }
+  found.backups = await listBackups(
+    process.env.OVERPASS_BACKUP_DIR || DEFAULT_BACKUP_DIR,
+    fsPromises,
+  );
   found.state = classify({
     dockerUp,
     container: found.container,

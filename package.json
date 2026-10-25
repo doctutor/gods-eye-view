@@ -73,6 +73,8 @@
     "world-history:status": "node scripts/worldHistory/index.mjs status",
     "overpass:status": "node scripts/overpass-status.mjs",
     "overpass:recover": "node scripts/overpass-status.mjs --recover",
+    "overpass:backup": "node scripts/overpass-backup.mjs",
+    "overpass:restore": "node scripts/overpass-backup.mjs restore",
     "msfs:deploy": "node tools/msfs-renderer/msfs.mjs deploy",
     "msfs:start": "node tools/msfs-renderer/msfs.mjs start",
     "msfs:stop": "node tools/msfs-renderer/msfs.mjs stop",

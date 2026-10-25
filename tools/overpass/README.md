@@ -23,6 +23,7 @@ answers 406 to non-browser clients and the public mirrors are overloaded
 | `docker-compose.clone.yml`           | Not in use: a clone of dev.overpass-api.de instead of the import (below) |
 | `initdb-clone/10-clone-resumable.sh` | The clone, resumable after a restart                                     |
 | `../../scripts/overpass-status.mjs`  | `npm run overpass:status` and `npm run overpass:recover`                 |
+| `../../scripts/overpass-backup.mjs`  | `npm run overpass:backup` and `npm run overpass:restore` (below)         |
 
 ## How the import works
 
@@ -150,11 +151,105 @@ compose command.
 | Import in progress                                              | Nothing; a restart now means starting again                                    |
 | Clone in progress                                               | Nothing; a restart resumes it                                                  |
 | Serving                                                         | Nothing; the diffs catch up from `/db/replicate_id`                            |
+| Database lost or damaged (a disk or Docker failure)             | `npm run overpass:restore -- latest` prints the plan; add `--yes` to run it    |
+
+After any restart, also look at the status's `Backup:` line:
+
+- a backup older than 14 days is called out, so take a new one once the
+  server serves again (`npm run overpass:backup`);
+- a `<date>.partial` directory under the backups is a copy the restart cut
+  off. It is never a backup; the next backup removes it.
 
 An import that a restart cuts off is not restarted over itself: on the next
 start `initdb/10-import-pbf.sh` finds `/db/import_started` without
 `/db/init_done`, logs "did not finish; the database is incomplete", and
 waits.
+
+## Backup and restore
+
+There is no second SSD, so the recovery plan for the database is a copy on
+E:, not a new clone (300 GB, about 10 h).
+
+```bash
+npm run overpass:backup                        # to E:/gev-data/overpass-backup/<yyyymmdd>
+npm run overpass:status                        # its "Backup:" line: newest, age, replicate_id, size
+npm run overpass:restore -- latest             # prints the plan; changes nothing
+npm run overpass:restore -- 20261025 --yes     # does it (refused while the live database is healthy)
+npm run overpass:backup -- --adopt E:/gev-data/overpass-backup/20261025   # a copy made by hand: writes its manifest
+```
+
+`--dir` (or `OVERPASS_BACKUP_DIR`) moves the backups, and `--keep` (2) sets
+how many complete ones stay. `--docker-drive` (or `OVERPASS_DOCKER_DRIVE`,
+`D:/`) is where the restore checks for room.
+
+**What a backup does** (`scripts/overpass-backup.mjs`):
+
+1. **Waits for a clean point**: no `update_from_dir` or `pyosmium` running,
+   no `/db/diffs/changes.osc` waiting, `/db/changes.log`'s last line
+   "Update finished with status code: 3", and `replicate_id` no older than
+   the last backup's. It takes two such probes 20 s apart with the same
+   `replicate_id`.
+   - Between catch-up batches no process runs at all, so "nothing running"
+     alone is not a clean point.
+   - `/proc/<pid>/comm` holds at most 15 characters: `update_from_dir` is
+     exactly 15, and `pyosmium-get-changes` appears as `pyosmium-get-ch`.
+     They are compared whole; a 14-character string once missed a running
+     update.
+2. **Pauses the writers** with SIGSTOP: `update_overpass_loop.sh`,
+   `update_overpass.sh`, `update_from_dir`, `pyosmium-get-changes`,
+   `rules_loop.sh` and its `osm3s_query --progress --rules`.
+   - The dispatchers and nginx go on, so queries are answered throughout.
+   - If an update slipped in between the check and the pause, it resumes
+     them and waits again.
+   - SIGCONT always follows: when it finishes, when it fails, and on Ctrl+C
+     or SIGTERM. A power cut needs nothing, since the container's processes
+     start afresh.
+3. **Copies the volume** from a second, read-only container (sockets left
+   out) into `<yyyymmdd>.partial`, logging GB copied, rate and ETA every
+   30 s.
+   - It checks the drive for the volume's size plus 5% first.
+   - The tar is streamed over the container's stdout into Windows'
+     `tar.exe`, not written through a bind mount.
+4. **Checks every file's size** against the volume's list, writes
+   `manifest.json`, and renames the directory to `<yyyymmdd>`, or
+   `<yyyymmdd>-2` for a second backup that day.
+   - `manifest.json` holds `replicate_id`, the data timestamp, the size,
+     the duration, and every file with its size.
+   - A directory without that manifest, a `.partial` above all, is never a
+     backup.
+5. **Only then removes** the oldest complete backups beyond `--keep`.
+
+A failed copy leaves its `.partial` and changes nothing else; the next run
+removes it. `backup.lock` in the backups directory stops a second backup
+running at once.
+
+A copy made by hand before this script (a directory named `<yyyymmdd>` holding
+/db's `replicate_id` and `db/`) becomes a backup with `--adopt <dir>`: its
+manifest is written from the files on disk and marked `adopted`, since its
+sizes were not checked against the volume when it was made.
+
+**The copy's speed** (measured 2026-10-25, on one 1.13 GB database file
+while the updater ran at 77% of a core catching up): through a bind mount into a Windows folder, 4.4 MB/s; streamed over stdout into `tar.exe`, 10.5 MB/s; the stream alone, counted and dropped, 11.2 MB/s. So the stream is 2.4 times the bind mount, and reading the volume through Docker is now the limit, not the target drive. A full backup is about 384 GB: some 10 h at 10.5 MB/s, less with the writers paused. The first copy, made by hand through a bind mount to E:, ran at about 13 MB/s.
+
+**A restore** (`npm run overpass:restore -- <name|latest>`):
+
+- **It refuses:**
+  - with no complete backup by that name;
+  - while the live database answers with data under three days old, since
+    replacing a healthy database is the wrong move (`--force` overrides);
+  - when the Docker drive's free space, plus what the old volume frees
+    inside Docker's disk image, is under the backup's size plus 5%.
+- **Without `--yes`** it prints the plan and stops.
+- **With `--yes`:**
+  1. `docker compose rm -sf` stops and removes the container.
+  2. `docker volume rm gev-overpass-db` deletes the volume; the live
+     database is gone from here on.
+  3. `docker volume create` makes it again, and the backup streams in
+     (host `tar.exe` into `docker run -i … tar -x`).
+  4. `docker compose up -d` starts the container.
+- **Afterwards** it watches `replicate_id` for up to an hour and says when
+  it passes the backup's own, which means the updater is catching up from
+  there.
 
 ## Disk
 
