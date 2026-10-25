@@ -754,12 +754,13 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Ery. | 2000–2025 | 13 | 39.0, 15.7 | State of Eritrea | place+time+size | Ethiopia (119 km); Republic of Yemen (342 km); Republic of Sudan (215 km) |
 | Timor-Leste | 2003–2025 | 18 | 128.8, -10.1 | East Timor | place+time+size | Republic of Indonesia (228 km); Commonwealth of Australia (198 km) |
 
-## Pairs that differ by definition (5)
+## Pairs that differ by definition (6)
 
 Matched rightly, but Cottereau and Cliopatria draw different things under the name; checked by hand against the frames and Cliopatria's records (`differences.mjs`). The borders' quality report keeps them apart from its IoU summary.
 
 | Label | Cliopatria | Years | What differs |
 | --- | --- | --- | --- |
+| Iroquois | Haudenosaunee | 1763–1768 | After 1763 Cottereau sets the Iroquois in the Ohio valley, a strip of the British crimson between its lines (about 97,000 km²); Cliopatria's Haudenosaunee of 1763–68 is Iroquoia in New York, 43,334 km². |
 | Russian | Russian Empire | 1799–1867 | Russian America: Cliopatria's Russian Empire stops at the Bering Strait, without Alaska, which Cottereau fills in its own colour. |
 | Nejd | Emirate of Nejd | 1895–1904 | Cliopatria's Emirate of Nejd of 1895–1904 is a record of 53 km² (40.5° E, 28.8° N); Cottereau draws the emirate's land. |
 | Zhou | Later Zhou | 750 BC–257 BC | Cliopatria's Later Zhou (the Eastern Zhou) is the royal domain at Luoyang, 4,000 to 10,000 km²; Cottereau's Zhou covers the plain to the east. |

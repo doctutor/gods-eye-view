@@ -15,6 +15,13 @@
 
 export const DIFFERENCES = Object.freeze([
   {
+    label: 'Iroquois',
+    cliopatria: 'Haudenosaunee',
+    from: 1763,
+    to: 1768,
+    why: "After 1763 Cottereau sets the Iroquois in the Ohio valley, a strip of the British crimson between its lines (about 97,000 km²); Cliopatria's Haudenosaunee of 1763–68 is Iroquoia in New York, 43,334 km².",
+  },
+  {
     label: 'Russian',
     cliopatria: 'Russian Empire',
     from: 1799,

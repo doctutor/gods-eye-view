@@ -303,6 +303,16 @@ class Version5(unittest.TestCase):
         two = [dict(labels[0], cliopatria='Alaska'), labels[1]]
         self.assertEqual(len(eb.merge_lines(comp, table, two)), 2)
 
+    def test_beside_a_region_partly_its_polity_before_a_larger_one_not_at_all(self):
+        # Sarawak's label over the sea between its crimson strip (a third of
+        # it in Cliopatria's Sarawak) and the larger Dutch Borneo (none).
+        comp, table, labels = TwoPasses.world()
+        labels = [dict(labels[0], cliopatria='Kingdom of Sarawak')]
+        shares = {1: 0.0, 2: 0.3}
+        assignment = eb.name_regions(comp, table, labels, lambda label: lambda cid: shares[cid])[0]
+        self.assertEqual(assignment, {2: 0})
+        self.assertEqual(eb.name_regions(comp, table, labels)[0], {1: 0}, 'without a hint, the larger')
+
     def test_one_polity_s_labels_in_one_fill_name_it_together(self):
         comp = np.ones((300, 900), np.int32)
         table = {1: {'px': 270000, 'bbox': (0, 0, 900, 300), 'white': False, 'colour': (129, 75, 105), 'centroid': (450, 150)}}

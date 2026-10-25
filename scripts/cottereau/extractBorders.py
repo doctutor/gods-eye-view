@@ -43,8 +43,8 @@ Per frame:
    like any other (Cottereau draws many small polities in it).
 5. Each region is named by the label whose point falls in it (or, for a
    label set beside its polity, the nearest coloured region close by: one
-   mostly inside its matched Cliopatria polity first, and such labels before
-   the others; but
+   mostly inside its matched Cliopatria polity first, then one partly
+   inside it, and such labels before the others; but
    never one over MAX_CLAIM times its matched Cliopatria polity's area:
    a small polity's label over the sea is not the giant's beside it). One
    label set on two lines is one label. Labels of several polities in one
@@ -91,6 +91,7 @@ FORMAT = 1
 # in one fill are not split from each other.
 EXTRACTOR_VERSION = 5
 MOSTLY_OWN = 0.5  # a region this much inside a label's matched polity is that label's side
+SOME_OWN = 0.1  # a region this much inside it comes before one wholly outside
 MAX_CLAIM = 6  # a beside or joined claim over 6x the matched polity is another polity's (none with IoU >= 0.2 above it)
 MIN_SEA_SHARE = 0.05  # a map shows at least this much sea (0.27 at the closest framing; a fade 0)
 SEA_BGR = np.array([237, 226, 217])  # the map's sea, in every framing (#d9e2ed)
@@ -564,10 +565,14 @@ def name_regions(comp, table, labels, hint=None, claim=None):
     for i in outside:
         candidates = beside_candidates(comp, table, labels[i])
         # The matched Cliopatria polity, when there is one: a candidate
-        # mostly inside it first (which side the label belongs to).
+        # mostly inside it first (which side the label belongs to), then
+        # one partly inside it (SOME_OWN) before one wholly outside it, however
+        # large (Sarawak's strip before the Dutch Borneo beside it).
         inside = hint(labels[i]) if hint else None
-        own = [c for c in candidates if inside(c)] if inside else []
-        plans.append((i, own, own + [c for c in candidates if c not in own]))
+        shares = {c: float(inside(c)) for c in candidates} if inside else {}
+        own = [c for c in candidates if shares.get(c, 0) >= MOSTLY_OWN]
+        some = [c for c in candidates if SOME_OWN <= shares.get(c, 0) < MOSTLY_OWN]
+        plans.append((i, own, own + some + [c for c in candidates if c not in own and c not in some]))
 
     def take(i, candidates):
         for cid in candidates:
@@ -813,7 +818,7 @@ def extract(frame, sample, framing, clio=None):
     comp, table = segment(frame, boxes, sea)
     labels = merge_lines(comp, table, sample['labels'])
     def hint(label):
-        """Whether a region is mostly (MOSTLY_OWN of its pixels) inside the
+        """How much of a region (the share of its pixels) lies inside the
         label's matched Cliopatria polity that year, or None without one. A
         centroid would fall in a gap of a large region's polity (the
         Mamluks' 1372 ring leaves out south Sinai)."""
@@ -825,9 +830,9 @@ def extract(frame, sample, framing, clio=None):
             x0, y0, x1, y1 = table[cid]['bbox']
             theirs = cliopatria_mask(clio, name, sample['year'], framing, (x0, y0, x1, y1))
             if theirs is None:
-                return False
+                return 0.0
             ours = comp[y0:y1, x0:x1] == cid
-            return int((ours & theirs).sum()) >= MOSTLY_OWN * max(1, int(ours.sum()))
+            return int((ours & theirs).sum()) / max(1, int(ours.sum()))
 
         return inside
 

@@ -6397,7 +6397,9 @@ OpenCV, a frame decoded in memory):
      takes the nearest region within three line heights that no label
      inside has. Among those about as near it prefers the largest, and
      those mostly (half their pixels or more) inside its matched Cliopatria
-     polity come first (flag `beside`). Labels with such a region choose
+     polity come first, then those partly (a tenth or more) inside it, so
+     Sarawak's crimson strip comes before the larger Dutch Borneo beside
+     it (flag `beside`). Labels with such a region choose
      before the others, so a label set beside its neighbour cannot take,
      by coming first, the region another label's polity is. Banu Sulaym's
      label took the Mamluks' Egypt and Levant for three centuries this way.
@@ -6485,6 +6487,8 @@ and by `status`):
   the two sources draw different things under the name; each was checked
   by hand against the frames and the records (`differences.mjs`, also
   listed in `review.md`):
+  - Iroquois 1764–66: his are the Ohio valley between the colonies'
+    lines; Cliopatria's Haudenosaunee is Iroquoia in New York.
   - Russian America: Cliopatria's Russian Empire leaves out Alaska.
   - Nejd 1902–04: Cliopatria's Emirate of Nejd of 1895–1904 is a 53 km²
     record.
