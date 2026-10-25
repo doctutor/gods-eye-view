@@ -7,7 +7,10 @@ both ways and pixel areas; the split's nearest label in chunks (the dense
 answer, within a memory bound for a region holding many labels), a
 frame without sea skipped, and a small polity's label beside a giant
 bounded by its matched polity's area (beside and by joins), and the
-labels whose own polity a region mostly is choosing first. Run by src/tooling/cottereauBorders.test.mjs
+labels whose own polity a region mostly is choosing first; a border line
+under a label still dividing, a line darker in red alone, fills meeting
+over three pixels, a fade skipped, a label's two lines one label, and one
+polity's labels naming its fill together. Run by src/tooling/cottereauBorders.test.mjs
 (or directly: python -I test_extractBorders.py).
 """
 
@@ -200,6 +203,126 @@ class Bounds(unittest.TestCase):
         frame, boxes, labels = synthetic()
         result = eb.extract(frame, {'index': 1, 't': 1.0, 'year': 1, 'boxes': boxes, 'labels': labels}, FRAMING)
         self.assertNotIn('skipped', result)
+
+
+CRIMSON = (80, 28, 215)  # BGR; its border lines are darker in red alone
+CRIMSON_LINE = (60, 20, 150)  # its mean under 80, as in the frames: a letter's core to the old painting
+
+
+class Version5(unittest.TestCase):
+    """Border lines under labels, faint lines, soft meetings of fills,
+    fades, a label's two lines, and one polity's labels in one fill."""
+
+    def test_a_border_line_under_a_label_still_divides(self):
+        # Two crimson polities divided by a darker crimson line; a white
+        # label set on the line, its letters' feet on it (as "Neu." on
+        # Austrasia's border in 613), its box over it.
+        f = np.zeros((H, W, 3), np.uint8)
+        f[:] = SEA
+        cv2.rectangle(f, (200, 200), (1400, 900), CRIMSON, -1)
+        cv2.line(f, (200, 550), (1400, 550), CRIMSON_LINE, 2)
+        cv2.putText(f, 'Neu.', (700, 547), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (255, 255, 255), 4, cv2.LINE_AA)
+        (tw, th), _ = cv2.getTextSize('Neu.', cv2.FONT_HERSHEY_SIMPLEX, 1.6, 4)
+        boxes = [[700 + tw / 2, 547 - th / 2, tw, th + 10]]
+        comp, table = eb.segment(f, boxes)
+        self.assertNotEqual(int(comp[400, 750]), int(comp[700, 750]), 'the line divides them under the label')
+        self.assertNotEqual(int(comp[400, 300]), int(comp[700, 300]))
+        self.assertEqual(eb.region_for_label(comp, table, {'x': boxes[0][0], 'y': boxes[0][1]}), int(comp[400, 750]))
+        # Painted out as before, the label joins them.
+        sea = eb.sea_mask(f).astype(bool)
+        painted = eb.paint_out_text(f, [b[:4] for b in boxes], sea.copy())
+        seps = eb.line_mask(painted) | eb.colour_edges(painted)
+        n, before = cv2.connectedComponents((~sea & ~seps).astype(np.uint8), connectivity=4)
+        self.assertEqual(before[400, 750], before[700, 750])
+
+    def test_a_black_label_touching_a_grey_line_is_painted_out(self):
+        # Its letters are thin dark lines too: they are no border.
+        f = np.zeros((H, W, 3), np.uint8)
+        f[:] = SEA
+        cv2.rectangle(f, (200, 200), (1400, 900), CREAM, -1)
+        cv2.line(f, (200, 520), (1400, 520), LINE, 2)
+        cv2.putText(f, 'Tajikistan', (600, 560), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (20, 20, 20), 3, cv2.LINE_AA)
+        (tw, th), _ = cv2.getTextSize('Tajikistan', cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)
+        boxes = [[600 + tw / 2, 560 - th / 2, tw, th + 10]]
+        comp, table = eb.segment(f, boxes)
+        below = int(comp[700, 700])
+        self.assertNotEqual(int(comp[400, 700]), below, 'the line divides')
+        x, y = int(boxes[0][0]), int(boxes[0][1])
+        window = comp[y - 5:y + 5, x - tw // 3:x + tw // 3]
+        self.assertEqual(set(np.unique(window).tolist()), {below}, 'the letters are its fill')
+
+    def test_a_line_darker_in_one_channel_is_a_line(self):
+        f = np.zeros((200, 200, 3), np.uint8)
+        f[:] = CRIMSON
+        cv2.line(f, (0, 100), (199, 100), (58, 22, 161), 2)  # 1764's colony lines
+        f = cv2.GaussianBlur(f, (3, 3), 0)  # the video's softness
+        gray = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+        grey_only = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, np.ones((7, 7), np.uint8)) > eb.LINE_BLACKHAT
+        self.assertFalse(grey_only[95:106, 50].any(), 'in grey it is too faint')
+        self.assertTrue(eb.line_mask(f)[95:106, 50].any(), 'in red it is a line')
+        self.assertFalse(eb.line_mask(f)[20:80, :].any(), 'the flat fill is none')
+
+    def test_fills_meeting_over_three_pixels_separate(self):
+        f = np.zeros((100, 120, 3), np.uint8)
+        f[:, :60] = (111, 117, 73)  # BGR, the Ottomans' teal
+        f[:, 63:] = (76, 112, 27)  # Nejd's green
+        f[:, 60] = (97, 117, 57)
+        f[:, 61] = (87, 107, 41)
+        f[:, 62] = (78, 110, 30)
+        steps = np.abs(np.diff(f.astype(int), axis=1)).max(axis=2)
+        self.assertLessEqual(int(steps.max()), eb.COLOUR_EDGE, 'no one step is an edge')
+        edges = eb.colour_edges(f)
+        self.assertTrue(edges[50, 58:65].any())
+        self.assertFalse(edges[50, :55].any() or edges[50, 68:].any())
+
+    def test_a_fade_is_skipped(self):
+        frame, boxes, labels = synthetic()
+        dimmed = (frame.astype(np.float32) * 0.93).astype(np.uint8)
+        result = eb.extract(dimmed, {'index': 551, 't': 552.0, 'year': 799, 'boxes': boxes, 'labels': labels}, FRAMING)
+        self.assertEqual(result['skipped'], 'fade')
+        self.assertEqual(result['polygons'], [])
+
+    def test_a_labels_two_lines_are_one_label(self):
+        comp = np.ones((400, 400), np.int32)
+        table = {1: {'px': 160000, 'bbox': (0, 0, 400, 400), 'white': False, 'colour': (75, 193, 231), 'centroid': (200, 200)}}
+        labels = [
+            {'text': 'America', 'x': 201, 'y': 230, 'w': 140, 'h': 37, 'track': 1358, 'cliopatria': None},
+            {'text': 'Russian', 'x': 200, 'y': 185, 'w': 130, 'h': 34, 'track': 1357, 'cliopatria': 'Russian Empire'},
+            {'text': 'Far', 'x': 60, 'y': 380, 'w': 50, 'h': 30, 'track': 9, 'cliopatria': None},
+        ]
+        merged = eb.merge_lines(comp, table, labels)
+        self.assertEqual([l['text'] for l in merged], ['Russian America', 'Far'])
+        self.assertEqual(merged[0]['track'], 1357)
+        self.assertEqual(merged[0]['cliopatria'], 'Russian Empire')
+        assignment, joined, flags = eb.name_regions(comp, table, merged[:1])
+        self.assertEqual(assignment, {1: 0}, 'one label, its region whole')
+        # Two unmatched lines may be two polities: not merged.
+        apart = [dict(labels[0]), dict(labels[1], cliopatria=None)]
+        self.assertEqual(len(eb.merge_lines(comp, table, apart)), 2)
+        # Nor two lines matched to two polities.
+        two = [dict(labels[0], cliopatria='Alaska'), labels[1]]
+        self.assertEqual(len(eb.merge_lines(comp, table, two)), 2)
+
+    def test_one_polity_s_labels_in_one_fill_name_it_together(self):
+        comp = np.ones((300, 900), np.int32)
+        table = {1: {'px': 270000, 'bbox': (0, 0, 900, 300), 'white': False, 'colour': (129, 75, 105), 'centroid': (450, 150)}}
+        labels = [
+            {'text': 'Byzantine', 'x': 150, 'y': 100, 'w': 120, 'h': 30, 'cliopatria': 'Eastern Roman Empire'},
+            {'text': 'Empire', 'x': 450, 'y': 200, 'w': 90, 'h': 30, 'cliopatria': 'Eastern Roman Empire'},
+            {'text': 'Avars', 'x': 800, 'y': 150, 'w': 70, 'h': 30, 'cliopatria': 'Avar Khaganate'},
+        ]
+        assignment, joined, flags = eb.name_regions(comp, table, labels)
+        self.assertEqual(sorted(assignment.values()), [0, 2], 'Empire names it with Byzantine')
+        theirs = [cid for cid, i in assignment.items() if i == 0][0]
+        # Byzantine's part reaches past the midpoint to Empire's cell.
+        self.assertEqual(int(comp[200, 450]), theirs)
+        self.assertEqual(int(comp[150, 850]), [cid for cid, i in assignment.items() if i == 2][0])
+        self.assertEqual(flags[0], {'split'})
+        # Alone in their fill, one polity's labels do not split it at all.
+        comp = np.ones((300, 900), np.int32)
+        assignment, joined, flags = eb.name_regions(comp, {1: dict(table[1])}, labels[:2])
+        self.assertEqual(assignment, {1: 0})
+        self.assertEqual(flags, {})
 
 
 class Claims(unittest.TestCase):

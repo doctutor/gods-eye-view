@@ -220,15 +220,22 @@
    ],
    "periods": [
     {
-     "name": null,
+     "name": "Sumerian City-States",
+     "wikidata": "Q2345840",
      "from": -2500,
-     "to": -2259,
+     "to": -2326,
+     "reason": "continued"
+    },
+    {
+     "name": null,
+     "from": -2316,
+     "to": -2211,
      "reason": "none"
     },
     {
      "name": "Akkadian Empire",
      "wikidata": "Q4461035",
-     "from": -2249,
+     "from": -2201,
      "to": -2201,
      "reason": "continued"
     },
@@ -456,8 +463,15 @@
     {
      "name": null,
      "from": -2326,
-     "to": -2307,
+     "to": -2326,
      "reason": "none"
+    },
+    {
+     "name": "Sumerian City-States",
+     "wikidata": "Q2345840",
+     "from": -2316,
+     "to": -2307,
+     "reason": "continued"
     },
     {
      "name": "Akkadian Empire",
@@ -786,9 +800,15 @@
    "refused": [],
    "periods": [
     {
+     "name": null,
+     "from": -2009,
+     "to": -2009,
+     "reason": "none"
+    },
+    {
      "name": "Sumerian City-States",
      "wikidata": "Q2345840",
-     "from": -2009,
+     "from": -1999,
      "to": -1800,
      "reason": "main match"
     }
@@ -997,8 +1017,15 @@
     {
      "name": null,
      "from": -1146,
-     "to": -1102,
+     "to": -1124,
      "reason": "none"
+    },
+    {
+     "name": "Elam",
+     "wikidata": "Q128904",
+     "from": -1113,
+     "to": -1102,
+     "reason": "continued"
     },
     {
      "name": "Babylonia",
@@ -2082,10 +2109,11 @@
      "reason": "name"
     },
     {
-     "name": null,
+     "name": "Assyrian Egypt",
+     "wikidata": "Q97357417",
      "from": -627,
      "to": -619,
-     "reason": "none"
+     "reason": "continued"
     }
    ]
   },
@@ -2552,8 +2580,14 @@
      "name": "Neo-Assyrian Empire",
      "wikidata": "Q10914393",
      "from": -762,
-     "to": -709,
+     "to": -739,
      "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": -732,
+     "to": -709,
+     "reason": "none"
     }
    ]
   },
@@ -2740,9 +2774,15 @@
    "refused": [],
    "periods": [
     {
+     "name": null,
+     "from": -672,
+     "to": -619,
+     "reason": "none"
+    },
+    {
      "name": "Chu",
      "wikidata": "Q504759",
-     "from": -672,
+     "from": -612,
      "to": -323,
      "reason": "main match"
     }
@@ -3092,9 +3132,15 @@
    ],
    "periods": [
     {
+     "name": null,
+     "from": -627,
+     "to": -627,
+     "reason": "none"
+    },
+    {
      "name": "Neo-Assyrian Empire",
      "wikidata": "Q10914393",
-     "from": -627,
+     "from": -612,
      "to": -604,
      "reason": "continued"
     },
@@ -4431,16 +4477,9 @@
    "refused": [],
    "periods": [
     {
-     "name": "Macedonian Empire",
-     "wikidata": "Q83958",
-     "from": -303,
-     "to": -303,
-     "reason": "place"
-    },
-    {
      "name": "Kingdom of Lysimachus",
      "wikidata": "Q32133",
-     "from": -300,
+     "from": -303,
      "to": -284,
      "reason": "main match"
     }
@@ -5128,19 +5167,6 @@
     {
      "name": null,
      "from": -249,
-     "to": -210,
-     "reason": "none"
-    },
-    {
-     "name": "Xiongnu",
-     "wikidata": "Q188836",
-     "from": -206,
-     "to": -171,
-     "reason": "place"
-    },
-    {
-     "name": null,
-     "from": -167,
      "to": -38,
      "reason": "none"
     },
@@ -6242,9 +6268,15 @@
    ],
    "periods": [
     {
+     "name": null,
+     "from": -143,
+     "to": -132,
+     "reason": "none"
+    },
+    {
      "name": "Greco-Bactrian Kingdom",
      "wikidata": "Q488880",
-     "from": -143,
+     "from": -128,
      "to": -128,
      "reason": "continued"
     },
@@ -7152,9 +7184,16 @@
    ],
    "periods": [
     {
+     "name": "Yuezhi",
+     "wikidata": "Q467985",
+     "from": 30,
+     "to": 34,
+     "reason": "continued"
+    },
+    {
      "name": "Indo-Scythians",
      "wikidata": "Q240123",
-     "from": 30,
+     "from": 38,
      "to": 42,
      "reason": "continued"
     },
@@ -11986,8 +12025,35 @@
      "name": "Gupta Empire",
      "wikidata": "Q11774",
      "from": 487,
-     "to": 539,
+     "to": 487,
      "reason": "main match"
+    },
+    {
+     "name": "White Huns",
+     "wikidata": "Q41761342",
+     "from": 490,
+     "to": 494,
+     "reason": "place"
+    },
+    {
+     "name": "Gupta Empire",
+     "wikidata": "Q11774",
+     "from": 497,
+     "to": 527,
+     "reason": "main match"
+    },
+    {
+     "name": "White Huns",
+     "wikidata": "Q41761342",
+     "from": 530,
+     "to": 533,
+     "reason": "place"
+    },
+    {
+     "name": null,
+     "from": 536,
+     "to": 539,
+     "reason": "none"
     }
    ]
   },
@@ -12351,6 +12417,19 @@
     {
      "name": null,
      "from": 557,
+     "to": 586,
+     "reason": "none"
+    },
+    {
+     "name": "Maukhari Dynasty",
+     "wikidata": "Q12448145",
+     "from": 589,
+     "to": 610,
+     "reason": "place"
+    },
+    {
+     "name": null,
+     "from": 613,
      "to": 624,
      "reason": "none"
     },
@@ -12440,6 +12519,20 @@
      "name": "Kingdom of the Franks",
      "wikidata": "Q146246",
      "from": 513,
+     "to": 610,
+     "reason": "main match"
+    },
+    {
+     "name": "Burgundian Kingdom",
+     "wikidata": "Q13590051",
+     "from": 613,
+     "to": 613,
+     "reason": "place"
+    },
+    {
+     "name": "Kingdom of the Franks",
+     "wikidata": "Q146246",
+     "from": 641,
      "to": 658,
      "reason": "main match"
     },
@@ -12953,17 +13046,11 @@
      "reason": "name"
     },
     {
-     "name": null,
+     "name": "Gurjara-Pratihara Dynasty",
+     "wikidata": "Q5324",
      "from": 962,
-     "to": 979,
-     "reason": "none"
-    },
-    {
-     "name": "Chauhan Dynasty",
-     "wikidata": "Q1068371",
-     "from": 982,
      "to": 1015,
-     "reason": "continued"
+     "reason": "main match"
     }
    ]
   },
@@ -13357,11 +13444,11 @@
    ],
    "periods": [
     {
-     "name": "Eastern Roman Empire",
-     "wikidata": "Q12544",
+     "name": "Lombards",
+     "wikidata": "Q130900",
      "from": 557,
      "to": 566,
-     "reason": "continued"
+     "reason": "main match"
     },
     {
      "name": "Kingdom of Italy",
@@ -16353,8 +16440,14 @@
      "name": "Liao Dynasty",
      "wikidata": "Q4958",
      "from": 926,
-     "to": 937,
+     "to": 926,
      "reason": "continued"
+    },
+    {
+     "name": null,
+     "from": 929,
+     "to": 937,
+     "reason": "none"
     }
    ]
   },
@@ -16482,14 +16575,14 @@
      "wikidata": "Q1057118",
      "from": 708,
      "to": 717,
-     "reason": "name"
+     "reason": "continued"
     },
     {
      "name": "Land Chenla",
      "wikidata": "Q1057118",
      "from": 720,
      "to": 805,
-     "reason": "name"
+     "reason": "main match"
     },
     {
      "name": "Khmer Empire",
@@ -17159,15 +17252,8 @@
    "refused": [],
    "periods": [
     {
-     "name": "Kannauj-Varman Dynasty",
-     "wikidata": "Q614890",
-     "from": 752,
-     "to": 770,
-     "reason": "place"
-    },
-    {
      "name": null,
-     "from": 773,
+     "from": 752,
      "to": 776,
      "reason": "none"
     },
@@ -18436,8 +18522,66 @@
      "name": "Barghawata Conference",
      "wikidata": "Q7903",
      "from": 828,
-     "to": 973,
+     "to": 860,
      "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 863,
+     "to": 863,
+     "reason": "none"
+    },
+    {
+     "name": "Barghawata Conference",
+     "wikidata": "Q7903",
+     "from": 865,
+     "to": 865,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 868,
+     "to": 871,
+     "reason": "none"
+    },
+    {
+     "name": "Barghawata Conference",
+     "wikidata": "Q7903",
+     "from": 874,
+     "to": 877,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 880,
+     "to": 901,
+     "reason": "none"
+    },
+    {
+     "name": "Barghawata Conference",
+     "wikidata": "Q7903",
+     "from": 904,
+     "to": 931,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 937,
+     "to": 937,
+     "reason": "none"
+    },
+    {
+     "name": "Barghawata Conference",
+     "wikidata": "Q7903",
+     "from": 940,
+     "to": 971,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 973,
+     "to": 973,
+     "reason": "none"
     }
    ]
   },
@@ -20590,11 +20734,10 @@
      "reason": "name"
     },
     {
-     "name": "Pandya Empire",
-     "wikidata": "Q844910",
+     "name": null,
      "from": 1260,
      "to": 1278,
-     "reason": "continued"
+     "reason": "none"
     }
    ]
   },
@@ -23622,11 +23765,10 @@
    "refused": [],
    "periods": [
     {
-     "name": "Ganzhou Kingdom",
-     "wikidata": "Q1000124",
+     "name": null,
      "from": 984,
      "to": 987,
-     "reason": "place"
+     "reason": "none"
     },
     {
      "name": "Western Xia",
@@ -24174,8 +24316,15 @@
     {
      "name": null,
      "from": 1265,
-     "to": 1330,
+     "to": 1327,
      "reason": "none"
+    },
+    {
+     "name": "Ilkhanate",
+     "wikidata": "Q178084",
+     "from": 1330,
+     "to": 1330,
+     "reason": "continued"
     },
     {
      "name": "Kingdom of Georgia",
@@ -24545,8 +24694,14 @@
      "name": "Chandela Kingdom",
      "wikidata": "Q2039087",
      "from": 1018,
-     "to": 1301,
+     "to": 1223,
      "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 1241,
+     "to": 1301,
+     "reason": "none"
     }
    ]
   },
@@ -26692,8 +26847,14 @@
      "name": "Great Jin",
      "wikidata": "Q5066",
      "from": 1127,
-     "to": 1132,
+     "to": 1129,
      "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 1132,
+     "to": 1132,
+     "reason": "none"
     }
    ]
   },
@@ -28571,6 +28732,13 @@
      "name": "Ghurid Dynasty",
      "wikidata": "Q199443",
      "from": 1188,
+     "to": 1194,
+     "reason": "continued"
+    },
+    {
+     "name": "Great Seljuk Empire",
+     "wikidata": "Q3708094",
+     "from": 1196,
      "to": 1199,
      "reason": "continued"
     },
@@ -29140,6 +29308,19 @@
     {
      "name": null,
      "from": 1236,
+     "to": 1270,
+     "reason": "none"
+    },
+    {
+     "name": "Mamluk Dynasty",
+     "wikidata": "Q847420",
+     "from": 1273,
+     "to": 1280,
+     "reason": "place"
+    },
+    {
+     "name": null,
+     "from": 1283,
      "to": 1294,
      "reason": "none"
     }
@@ -29471,13 +29652,13 @@
     {
      "name": null,
      "from": 1210,
-     "to": 1226,
+     "to": 1234,
      "reason": "none"
     },
     {
      "name": "Mamluk Dynasty",
      "wikidata": "Q847420",
-     "from": 1228,
+     "from": 1236,
      "to": 1291,
      "reason": "place"
     },
@@ -30586,11 +30767,10 @@
    "refused": [],
    "periods": [
     {
-     "name": "Almohad Caliphate",
-     "wikidata": "Q199688",
+     "name": null,
      "from": 1247,
      "to": 1249,
-     "reason": "place"
+     "reason": "none"
     },
     {
      "name": "Marinid Sultanate",
@@ -30600,9 +30780,15 @@
      "reason": "name"
     },
     {
+     "name": null,
+     "from": 1260,
+     "to": 1267,
+     "reason": "none"
+    },
+    {
      "name": "Almohad Caliphate",
      "wikidata": "Q199688",
-     "from": 1260,
+     "from": 1270,
      "to": 1343,
      "reason": "place"
     },
@@ -31494,12 +31680,12 @@
      "name": "Hanthawaddy Kingdom",
      "wikidata": "Q1572529",
      "from": 1294,
-     "to": 1539,
+     "to": 1544,
      "reason": "main match"
     },
     {
      "name": null,
-     "from": 1542,
+     "from": 1547,
      "to": 1549,
      "reason": "none"
     }
@@ -31848,6 +32034,13 @@
      "name": "Ilkhanate",
      "wikidata": "Q178084",
      "from": 1301,
+     "to": 1301,
+     "reason": "continued"
+    },
+    {
+     "name": "Byzantine Empire",
+     "wikidata": "Q112039853",
+     "from": 1304,
      "to": 1304,
      "reason": "continued"
     },
@@ -33645,9 +33838,16 @@
    ],
    "periods": [
     {
+     "name": "Sukhothai Kingdom",
+     "wikidata": "Q863279",
+     "from": 1356,
+     "to": 1356,
+     "reason": "continued"
+    },
+    {
      "name": "Khmer Empire",
      "wikidata": "Q201705",
-     "from": 1356,
+     "from": 1359,
      "to": 1361,
      "reason": "continued"
     },
@@ -33693,9 +33893,16 @@
    ],
    "periods": [
     {
+     "name": "Kingdom of Pinya",
+     "wikidata": "Q3446213",
+     "from": 1364,
+     "to": 1364,
+     "reason": "continued"
+    },
+    {
      "name": "Sagaing Kingdom",
      "wikidata": "Q3446223",
-     "from": 1364,
+     "from": 1367,
      "to": 1374,
      "reason": "continued"
     },
@@ -33707,9 +33914,16 @@
      "reason": "name"
     },
     {
+     "name": "Shan States",
+     "wikidata": "Q4765854",
+     "from": 1529,
+     "to": 1544,
+     "reason": "continued"
+    },
+    {
      "name": "First Toungoo Empire",
      "wikidata": "Q23039102",
-     "from": 1529,
+     "from": 1547,
      "to": 1554,
      "reason": "continued"
     }
@@ -34167,13 +34381,27 @@
     {
      "name": null,
      "from": 1671,
-     "to": 1708,
+     "to": 1857,
      "reason": "none"
     },
     {
      "name": "Kingdom of Lunda",
      "wikidata": "Q1796223",
-     "from": 1711,
+     "from": 1860,
+     "to": 1883,
+     "reason": "continued"
+    },
+    {
+     "name": "Kingdom of Portugal",
+     "wikidata": "Q45670",
+     "from": 1885,
+     "to": 1885,
+     "reason": "continued"
+    },
+    {
+     "name": "Kingdom of Lunda",
+     "wikidata": "Q1796223",
+     "from": 1887,
      "to": 1889,
      "reason": "continued"
     },
@@ -34381,11 +34609,11 @@
    ],
    "periods": [
     {
-     "name": "Kartids",
-     "wikidata": "Q1734616",
+     "name": "Timurid Empire",
+     "wikidata": "Q484195",
      "from": 1382,
      "to": 1382,
-     "reason": "continued"
+     "reason": "main match"
     },
     {
      "name": "Timurid Empire",
@@ -34395,11 +34623,11 @@
      "reason": "name"
     },
     {
-     "name": "Shaybanids",
-     "wikidata": "Q856361",
+     "name": "Timurid Empire",
+     "wikidata": null,
      "from": 1507,
      "to": 1509,
-     "reason": "continued"
+     "reason": "main match"
     },
     {
      "name": "Timurid Empire",
@@ -35257,16 +35485,9 @@
      "reason": "continued"
     },
     {
-     "name": "Aq Qoyunlu",
-     "wikidata": "Q555994",
-     "from": 1408,
-     "to": 1413,
-     "reason": "name"
-    },
-    {
      "name": "Qara Qoyunlu",
      "wikidata": "Q324470",
-     "from": 1416,
+     "from": 1408,
      "to": 1467,
      "reason": "name"
     },
@@ -35715,6 +35936,19 @@
      "name": "Sind-Samma Dynasty",
      "wikidata": "Q27260",
      "from": 1416,
+     "to": 1434,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 1437,
+     "to": 1447,
+     "reason": "none"
+    },
+    {
+     "name": "Sind-Samma Dynasty",
+     "wikidata": "Q27260",
+     "from": 1449,
      "to": 1456,
      "reason": "main match"
     }
@@ -36101,6 +36335,13 @@
      "name": "Kazakh Khanate",
      "wikidata": "Q1433867",
      "from": 1489,
+     "to": 1502,
+     "reason": "place"
+    },
+    {
+     "name": "Shaybanids",
+     "wikidata": "Q856361",
+     "from": 1504,
      "to": 1509,
      "reason": "place"
     }
@@ -36176,11 +36417,10 @@
    ],
    "periods": [
     {
-     "name": "Mali Empire",
-     "wikidata": "Q184536",
+     "name": null,
      "from": 1432,
      "to": 1462,
-     "reason": "continued"
+     "reason": "none"
     },
     {
      "name": "Songhai Empire",
@@ -39560,10 +39800,11 @@
    ],
    "periods": [
     {
-     "name": null,
+     "name": "Wattasid dynasty",
+     "wikidata": "Q970799",
      "from": 1509,
      "to": 1554,
-     "reason": "none"
+     "reason": "continued"
     },
     {
      "name": "Saadi Sultanate",
@@ -39617,19 +39858,32 @@
      "name": "New France",
      "wikidata": "Q170604",
      "from": 1626,
+     "to": 1626,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 1629,
+     "to": 1631,
+     "reason": "none"
+    },
+    {
+     "name": "New France",
+     "wikidata": "Q170604",
+     "from": 1634,
      "to": 1711,
      "reason": "main match"
     },
     {
      "name": null,
      "from": 1713,
-     "to": 1716,
+     "to": 1778,
      "reason": "none"
     },
     {
      "name": "New France",
      "wikidata": "Q170604",
-     "from": 1718,
+     "from": 1780,
      "to": 1790,
      "reason": "main match"
     },
@@ -41797,6 +42051,19 @@
      "name": "Mughal Empire",
      "wikidata": "Q33296",
      "from": 1579,
+     "to": 1601,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 1604,
+     "to": 1604,
+     "reason": "none"
+    },
+    {
+     "name": "Mughal Empire",
+     "wikidata": "Q33296",
+     "from": 1606,
      "to": 1716,
      "reason": "main match"
     },
@@ -43255,6 +43522,19 @@
      "name": "Sokoto Caliphate",
      "wikidata": "Q600524",
      "from": 1805,
+     "to": 1816,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 1818,
+     "to": 1832,
+     "reason": "none"
+    },
+    {
+     "name": "Sokoto Caliphate",
+     "wikidata": "Q600524",
+     "from": 1834,
      "to": 1899,
      "reason": "main match"
     }
@@ -44297,15 +44577,22 @@
    "refused": [],
    "periods": [
     {
-     "name": null,
+     "name": "New France",
+     "wikidata": "Q170604",
      "from": 1609,
-     "to": 1641,
+     "to": 1626,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 1629,
+     "to": 1631,
      "reason": "none"
     },
     {
      "name": "New France",
      "wikidata": "Q170604",
-     "from": 1644,
+     "from": 1634,
      "to": 1761,
      "reason": "main match"
     },
@@ -47701,6 +47988,19 @@
      "name": "Emirate of Diriyah",
      "wikidata": "Q146871",
      "from": 1776,
+     "to": 1778,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 1780,
+     "to": 1790,
+     "reason": "none"
+    },
+    {
+     "name": "Emirate of Diriyah",
+     "wikidata": "Q146871",
+     "from": 1792,
      "to": 1792,
      "reason": "main match"
     }
@@ -48188,9 +48488,15 @@
    "refused": [],
    "periods": [
     {
+     "name": null,
+     "from": 1683,
+     "to": 1698,
+     "reason": "none"
+    },
+    {
      "name": "Spanish Empire",
      "wikidata": "Q80702",
-     "from": 1683,
+     "from": 1701,
      "to": 1820,
      "reason": "main match"
     }
@@ -48578,15 +48884,9 @@
    "refused": [],
    "periods": [
     {
-     "name": null,
-     "from": 1698,
-     "to": 1750,
-     "reason": "none"
-    },
-    {
      "name": "Portuguese Empire",
      "wikidata": "Q200464",
-     "from": 1753,
+     "from": 1698,
      "to": 1773,
      "reason": "main match"
     }
@@ -49650,9 +49950,15 @@
    ],
    "periods": [
     {
+     "name": null,
+     "from": 1718,
+     "to": 1748,
+     "reason": "none"
+    },
+    {
      "name": "Spanish Empire",
      "wikidata": "Q80702",
-     "from": 1718,
+     "from": 1750,
      "to": 1809,
      "reason": "continued"
     },
@@ -49897,6 +50203,19 @@
      "name": "Mughal Empire",
      "wikidata": "Q33296",
      "from": 1723,
+     "to": 1743,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 1746,
+     "to": 1746,
+     "reason": "none"
+    },
+    {
+     "name": "Mughal Empire",
+     "wikidata": "Q33296",
+     "from": 1748,
      "to": 1841,
      "reason": "main match"
     }
@@ -50462,13 +50781,13 @@
      "name": "Zand Dynasty",
      "wikidata": "Q97629053",
      "from": 1759,
-     "to": 1790,
+     "to": 1786,
      "reason": "continued"
     },
     {
      "name": "Qajar Dynasty",
      "wikidata": "Q189326",
-     "from": 1792,
+     "from": 1788,
      "to": 1795,
      "reason": "continued"
     }
@@ -50550,11 +50869,11 @@
      "reason": "name"
     },
     {
-     "name": "Durrani Empire",
-     "wikidata": "Q467627",
+     "name": "Mughal Empire",
+     "wikidata": "Q33296",
      "from": 1764,
      "to": 1768,
-     "reason": "continued"
+     "reason": "main match"
     }
    ]
   },
@@ -51314,9 +51633,15 @@
    "refused": [],
    "periods": [
     {
+     "name": null,
+     "from": 1761,
+     "to": 1766,
+     "reason": "none"
+    },
+    {
      "name": "Spanish Empire",
      "wikidata": "Q80702",
-     "from": 1761,
+     "from": 1768,
      "to": 1801,
      "reason": "main match"
     }
@@ -52518,9 +52843,15 @@
    ],
    "periods": [
     {
+     "name": null,
+     "from": 1776,
+     "to": 1776,
+     "reason": "none"
+    },
+    {
      "name": "Spanish Empire",
      "wikidata": "Q80702",
-     "from": 1776,
+     "from": 1778,
      "to": 1811,
      "reason": "continued"
     },
@@ -52665,9 +52996,16 @@
    "refused": [],
    "periods": [
     {
+     "name": "Khmer Empire",
+     "wikidata": "Q201705",
+     "from": 1778,
+     "to": 1780,
+     "reason": "place"
+    },
+    {
      "name": "Thonburi Kingdom",
      "wikidata": "Q1115291",
-     "from": 1778,
+     "from": 1782,
      "to": 1782,
      "reason": "place"
     },
@@ -56352,8 +56690,8 @@
      "reason": "name"
     },
     {
-     "name": "United States of America",
-     "wikidata": "Q30",
+     "name": "Second Mexican Empire",
+     "wikidata": "Q371334",
      "from": 1866,
      "to": 1866,
      "reason": "continued"
@@ -56586,11 +56924,10 @@
      "reason": "name"
     },
     {
-     "name": "Honduras",
-     "wikidata": "Q783",
+     "name": null,
      "from": 1895,
      "to": 1895,
-     "reason": "continued"
+     "reason": "none"
     }
    ]
   },
@@ -56982,6 +57319,26 @@
     {
      "name": null,
      "from": 1830,
+     "to": 1841,
+     "reason": "none"
+    },
+    {
+     "name": "Regency of Algiers",
+     "wikidata": "Q3045696",
+     "from": 1843,
+     "to": 1845,
+     "reason": "continued"
+    },
+    {
+     "name": "French Algeria",
+     "wikidata": "Q218272",
+     "from": 1847,
+     "to": 1847,
+     "reason": "continued"
+    },
+    {
+     "name": null,
+     "from": 1849,
      "to": 1957,
      "reason": "none"
     },
@@ -59129,6 +59486,19 @@
      "name": "Kingdom of Portugal",
      "wikidata": "Q45670",
      "from": 1849,
+     "to": 1853,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 1855,
+     "to": 1855,
+     "reason": "none"
+    },
+    {
+     "name": "Kingdom of Portugal",
+     "wikidata": "Q45670",
+     "from": 1857,
      "to": 1889,
      "reason": "main match"
     }
@@ -59521,9 +59891,15 @@
    "refused": [],
    "periods": [
     {
+     "name": null,
+     "from": 1855,
+     "to": 1862,
+     "reason": "none"
+    },
+    {
      "name": "British Cape Colony",
      "wikidata": "Q370736",
-     "from": 1855,
+     "from": 1864,
      "to": 1881,
      "reason": "main match"
     },
@@ -60622,11 +60998,10 @@
      "reason": "name"
     },
     {
-     "name": "Kingdom of Great Britain",
-     "wikidata": "Q23666",
+     "name": null,
      "from": 1945,
      "to": 1945,
-     "reason": "continued"
+     "reason": "none"
     },
     {
      "name": "Federated Republic of Germany",
@@ -60760,16 +61135,9 @@
    ],
    "periods": [
     {
-     "name": "Austria-Hungary",
-     "wikidata": "Q28513",
-     "from": 1878,
-     "to": 1914,
-     "reason": "continued"
-    },
-    {
      "name": "United Principalities of Moldavia and Wallachia",
      "wikidata": "Q958291",
-     "from": 1916,
+     "from": 1878,
      "to": 1916,
      "reason": "continued"
     },
@@ -61563,9 +61931,15 @@
    "refused": [],
    "periods": [
     {
+     "name": null,
+     "from": 1885,
+     "to": 1885,
+     "reason": "none"
+    },
+    {
      "name": "Kingdom of Spain",
      "wikidata": "Q29",
-     "from": 1885,
+     "from": 1893,
      "to": 1931,
      "reason": "main match"
     },
@@ -62837,12 +63211,12 @@
      "name": "Ashanti Empire",
      "wikidata": "Q722071",
      "from": 1893,
-     "to": 1893,
+     "to": 1895,
      "reason": "main match"
     },
     {
      "name": null,
-     "from": 1895,
+     "from": 1897,
      "to": 1899,
      "reason": "none"
     }
@@ -62927,6 +63301,19 @@
      "name": "Belgian Congo",
      "wikidata": "Q213510",
      "from": 1893,
+     "to": 1895,
+     "reason": "main match"
+    },
+    {
+     "name": null,
+     "from": 1897,
+     "to": 1897,
+     "reason": "none"
+    },
+    {
+     "name": "Belgian Congo",
+     "wikidata": "Q213510",
+     "from": 1899,
      "to": 1902,
      "reason": "main match"
     }
@@ -63362,12 +63749,12 @@
      "name": "Wadai Empire",
      "wikidata": "Q1132786",
      "from": 1899,
-     "to": 1910,
+     "to": 1899,
      "reason": "continued"
     },
     {
      "name": null,
-     "from": 1912,
+     "from": 1906,
      "to": 1931,
      "reason": "none"
     },
@@ -63486,16 +63873,9 @@
    ],
    "periods": [
     {
-     "name": "Sokoto Caliphate",
-     "wikidata": "Q600524",
-     "from": 1899,
-     "to": 1902,
-     "reason": "continued"
-    },
-    {
      "name": "British Gold Coast",
      "wikidata": "Q503623",
-     "from": 1914,
+     "from": 1899,
      "to": 1959,
      "reason": "continued"
     },
@@ -63992,16 +64372,9 @@
    "refused": [],
    "periods": [
     {
-     "name": "Sokoto Caliphate",
-     "wikidata": "Q600524",
-     "from": 1904,
-     "to": 1904,
-     "reason": "place"
-    },
-    {
      "name": "British Gold Coast",
      "wikidata": "Q503623",
-     "from": 1906,
+     "from": 1904,
      "to": 1912,
      "reason": "place"
     },
@@ -71345,12 +71718,12 @@
      "name": "East Timor",
      "wikidata": "Q574",
      "from": 2008,
-     "to": 2023,
+     "to": 2015,
      "reason": "main match"
     },
     {
      "name": null,
-     "from": 2025,
+     "from": 2018,
      "to": 2025,
      "reason": "none"
     }

@@ -26,13 +26,16 @@ Per frame:
 0. A frame in which the sea is not found (under MIN_SEA_SHARE of it: the
    opening, the fade-out at the end, a cross-fade between framings) is no
    map: it is written as skipped, with no polygons, and left out of the
-   build's samples.
+   build's samples. So is a fade (a dip between framings, the whole map
+   dimmed), whose sea is off the map's one sea colour.
 1. The sea: the map's one flat light blue (fitFraming.sea_mask).
-2. Separators: the thin grey border lines (a black-hat: thin and darker
-   than both sides; wide dark fills are not lines) and every jump of colour
-   between neighbouring pixels (two fills meeting). The label text is
-   painted out first: inside each OCR box, the pixels far from the box's
-   own background take its colour, so the fill runs on under the label.
+2. Separators: the thin border lines (a black-hat: thin and darker than
+   both sides, in grey or in any one channel, so a crimson's darker lines
+   count; wide dark fills are not lines) and every jump of colour between
+   neighbouring pixels, or over three (two fills meeting). The label text
+   is painted out first: inside each OCR box, the pixels far from the box's
+   own background take its colour, so the fill runs on under the label;
+   but not a border line through the box, nor the strokes over it.
 3. Regions: connected components of what is left, split by colour where
    two fills touch without a line, crumbs dropped; every separator pixel
    then goes to the nearest region, so the polygons tile.
@@ -43,8 +46,10 @@ Per frame:
    mostly inside its matched Cliopatria polity first, and such labels before
    the others; but
    never one over MAX_CLAIM times its matched Cliopatria polity's area:
-   a small polity's label over the sea is not the giant's beside it). Two
-   labels in one region split it by nearest label (flagged "split"). A
+   a small polity's label over the sea is not the giant's beside it). One
+   label set on two lines is one label. Labels of several polities in one
+   region split it by nearest label (flagged "split"); labels matched to
+   one Cliopatria polity there name it together. A
    region with no label joins the nearest region of its colour within
    JOIN_PX (an exclave, a colony, an island; flagged "joined"; within the
    same MAX_CLAIM of a matched polity's area), else it is
@@ -80,12 +85,24 @@ FORMAT = 1
 # than MAX_CLAIM times its matched Cliopatria polity's area. 4: a beside
 # label's own region is one mostly (MOSTLY_OWN) inside its matched polity,
 # not one whose centroid is; and labels with such a region choose first.
-EXTRACTOR_VERSION = 4
+# 5: border lines through a label's box are kept, lines darker in one
+# channel and fills meeting over three pixels separate, fades are skipped,
+# one label's two lines are one label, and the labels of one matched polity
+# in one fill are not split from each other.
+EXTRACTOR_VERSION = 5
 MOSTLY_OWN = 0.5  # a region this much inside a label's matched polity is that label's side
 MAX_CLAIM = 6  # a beside or joined claim over 6x the matched polity is another polity's (none with IoU >= 0.2 above it)
 MIN_SEA_SHARE = 0.05  # a map shows at least this much sea (0.27 at the closest framing; a fade 0)
+SEA_BGR = np.array([237, 226, 217])  # the map's sea, in every framing (#d9e2ed)
+FADE_TOLERANCE = 6  # a sea further off than this in a channel is a fade's (799's: 15 darker)
+LINE_GAP = 0.6  # two labels this close (of a line's height) one above the other are one label's lines
+LINE_ALIGN = 0.25  # and their centres this close across (of the wider line)
 SPLIT_CELLS = 4_000_000  # pixel x label distances held at once in a split (32 MB)
 LINE_BLACKHAT = 25  # a thin line's darkness over its surroundings
+LINE_BLACKHAT_CHANNEL = 32  # the same in any one channel (a crimson's darker lines: 48 to 64)
+LINE_MARGIN = 10  # how far outside a label's box a border line is looked for
+LINE_OUTSIDE_PX = 8  # a line with this many pixels outside the box runs on: a border, not a letter
+LINE_KEEP_PX = 2  # a letter's rim this close to a border line through its box stays
 COLOUR_EDGE = 24  # a jump in a channel between neighbours: two fills meeting
 TEXT_DIFF = 20  # a text pixel's distance from its box's background (strokes and rims)
 MIN_REGION_PX = 25  # crumbs smaller than this are separators
@@ -132,17 +149,49 @@ def row_area_km2(framing, height):
 # --- segmentation ---------------------------------------------------------------
 
 
-def paint_out_text(frame, boxes, sea):
+def border_lines(lines, rect, shape, letters=None):
+    """The border lines through a label's box: the lines (a bool mask of the
+    whole frame) inside the box that run on outside it (LINE_OUTSIDE_PX or
+    more of their pixels within LINE_MARGIN of it, outside), as a mask of
+    the box. A letter's strokes stay inside its box; a border runs on.
+    `letters` (a mask of the box) are never lines: black letters are thin
+    dark strokes too, and one touching a border would take the word."""
+    x0, y0, x1, y1 = rect
+    height, width = shape
+    wx0, wy0 = max(0, x0 - LINE_MARGIN), max(0, y0 - LINE_MARGIN)
+    wx1, wy1 = min(width, x1 + LINE_MARGIN), min(height, y1 + LINE_MARGIN)
+    window = lines[wy0:wy1, wx0:wx1].copy()
+    inner = (slice(y0 - wy0, y1 - wy0), slice(x0 - wx0, x1 - wx0))
+    if letters is not None:
+        window[inner] &= ~letters
+    if not window.any():
+        return np.zeros((y1 - y0, x1 - x0), bool)
+    n, comp = cv2.connectedComponents(window.astype(np.uint8), connectivity=8)
+    outside = np.ones(window.shape, bool)
+    outside[inner] = False
+    counts = np.bincount(comp[outside], minlength=n)
+    runs_on = counts >= LINE_OUTSIDE_PX
+    runs_on[0] = False
+    return runs_on[comp[inner]]
+
+
+def paint_out_text(frame, boxes, sea, lines=None):
     """The frame with its label text painted out (`sea`, a bool mask, updated
     in place: the text of a label over the sea is sea): inside each OCR box (and the
     year box), every pixel far from the box's background (its commonest
     colour: the fill the label sits on) takes that colour. Left as a
-    separator, text would cut the fill into islands between the letters."""
+    separator, text would cut the fill into islands between the letters.
+    With `lines` (the frame's line mask), a border line through the box (one
+    that runs on outside it; the letters are never one) stays, with the
+    text within LINE_KEEP_PX of it: painted, a label set against a border
+    joins the two polities it divides. A letter set right across a line is
+    painted all the same."""
     painted = frame.copy()
     height, width = frame.shape[:2]
     rects = [(cx - w * 0.55 - 3, cy - h * 0.6 - 3, cx + w * 0.55 + 3, cy + h * 0.6 + 3) for cx, cy, w, h in boxes]
     rects.append(YEAR_BOX)
-    for x0, y0, x1, y1 in rects:
+    keep_kernel = np.ones((2 * LINE_KEEP_PX + 1, 2 * LINE_KEEP_PX + 1), np.uint8)
+    for k, (x0, y0, x1, y1) in enumerate(rects):
         x0, y0 = max(0, int(x0)), max(0, int(y0))
         x1, y1 = min(width, int(math.ceil(x1))), min(height, int(math.ceil(y1)))
         if x1 <= x0 or y1 <= y0:
@@ -169,6 +218,16 @@ def paint_out_text(frame, boxes, sea):
         # taken them: on land they are text all the same.
         light_text = (cv2.dilate((core & light).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0) & far
         text &= ~box_sea | (light_text if not over_sea else False)
+        if lines is not None and k < len(boxes):
+            # Never the letters (of the label's shade, white or black,
+            # whichever the box has more of: a dark line under white letters
+            # is a line), nor the fill between white letters (darker than
+            # both sides, so a black-hat line, but the fill's own colour).
+            dark = far & (gray < 80)
+            letters = far & light if (far & light).sum() > dark.sum() else dark
+            border = border_lines(lines, (x0, y0, x1, y1), (height, width), letters | ~far)
+            if border.any():
+                text &= ~(cv2.dilate(border.astype(np.uint8), keep_kernel) > 0)
         painted[y0:y1, x0:x1][text] = np.round(background).astype(np.uint8)
         # A label over the sea: its text is sea (else a sea-coloured island
         # of painted text would be the region it names).
@@ -180,25 +239,36 @@ def paint_out_text(frame, boxes, sea):
 
 
 def line_mask(frame):
-    """Thin grey lines: darker than both sides, at most a few pixels wide."""
+    """Thin lines: darker than both sides, at most a few pixels wide. Grey
+    lines by their grey; a fill's own darker shade (a crimson's border
+    lines, which are darker in red alone) by any one channel."""
+    kernel = np.ones((7, 7), np.uint8)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    blackhat = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, np.ones((7, 7), np.uint8))
-    return blackhat > LINE_BLACKHAT
+    lines = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel) > LINE_BLACKHAT
+    for c in range(3):
+        lines |= cv2.morphologyEx(np.ascontiguousarray(frame[:, :, c]), cv2.MORPH_BLACKHAT, kernel) > LINE_BLACKHAT_CHANNEL
+    return lines
 
 
 def colour_edges(frame):
     """Where the colour jumps (more than COLOUR_EDGE in a channel to the next
-    pixel): two fills meeting, with or without a line between them. The
+    pixel, or to the one after it: the compression spreads some fills' meeting
+    over three pixels): two fills meeting, with or without a line between them. The
     video's compression noise stays well under it, two polities' fills well
     over it, so a region never runs from one fill into another."""
     f = frame.astype(np.int16)
+    edges = np.zeros(frame.shape[:2], bool)
     dx = np.abs(np.diff(f, axis=1)).max(axis=2) > COLOUR_EDGE
     dy = np.abs(np.diff(f, axis=0)).max(axis=2) > COLOUR_EDGE
-    edges = np.zeros(frame.shape[:2], bool)
     edges[:, 1:] |= dx
     edges[:, :-1] |= dx
     edges[1:, :] |= dy
     edges[:-1, :] |= dy
+    dx2 = np.abs(f[:, 2:] - f[:, :-2]).max(axis=2) > COLOUR_EDGE
+    dy2 = np.abs(f[2:] - f[:-2]).max(axis=2) > COLOUR_EDGE
+    for k in range(3):
+        edges[:, k:edges.shape[1] - 2 + k] |= dx2
+        edges[k:edges.shape[0] - 2 + k, :] |= dy2
     return edges
 
 
@@ -211,7 +281,7 @@ def segment(frame, boxes, sea=None):
     # The year box is no land: counted with the sea.
     x0, y0, x1, y1 = YEAR_BOX
     sea[y0:y1, x0:x1] = True
-    frame = paint_out_text(frame, boxes, sea)
+    frame = paint_out_text(frame, boxes, sea, line_mask(frame) & ~sea)
     separators = line_mask(frame) | colour_edges(frame)
     fill = (~sea & ~separators).astype(np.uint8)
     count, comp, cstats, _ = cv2.connectedComponentsWithStats(fill, connectivity=4)
@@ -387,6 +457,67 @@ def beside_candidates(comp, table, label):
     return [cand for _, cand in first + rest]
 
 
+def merge_lines(comp, table, labels):
+    """The labels with one label's lines read as one ("Russian" over
+    "America"): two labels in one region, one above the other (the gap
+    between them under LINE_GAP of a line's height, their centres within
+    LINE_ALIGN of the wider across, the heights alike), of which one is
+    matched, or both to the same Cliopatria polity. The merged label
+    keeps the matched one's track and match, the texts in reading order,
+    and sits between them. Split by nearest label, the lines would cut one
+    polity in two."""
+    regions = [region_for_label(comp, table, label) for label in labels]
+    order = sorted(range(len(labels)), key=lambda i: labels[i]['y'])
+    merged = {}  # index of the lower line -> index of the label it joins
+    for a in order:
+        if a in merged:
+            continue
+        top = labels[a]
+        for b in order:
+            if b == a or b in merged or regions[b] is None or regions[b] != regions[a]:
+                continue
+            low = labels[b]
+            if low['y'] <= top['y']:
+                continue
+            h = max(top['h'], low['h'])
+            gap = (low['y'] - low['h'] / 2) - (top['y'] + top['h'] / 2)
+            if not (-0.2 * h <= gap <= LINE_GAP * h):
+                continue
+            if abs(low['x'] - top['x']) > LINE_ALIGN * max(top['w'], low['w']):
+                continue
+            if max(top['h'], low['h']) > 1.4 * min(top['h'], low['h']):
+                continue
+            # One matched (the other line is no polity's name), or both to
+            # one polity; two unmatched lines may be two polities.
+            names = {top.get('cliopatria'), low.get('cliopatria')} - {None}
+            if len(names) != 1:
+                continue
+            merged[b] = a
+            break
+    if not merged:
+        return labels
+    out = []
+    lower = {a: b for b, a in merged.items()}
+    for i, label in enumerate(labels):
+        if i in merged:
+            continue
+        if i not in lower:
+            out.append(label)
+            continue
+        low = labels[lower[i]]
+        own = label if label.get('cliopatria') or not low.get('cliopatria') else low
+        out.append({
+            **own,
+            'text': f"{label['text']} {low['text']}",
+            'x': (label['x'] + low['x']) / 2,
+            'y': (label['y'] + low['y']) / 2,
+            'w': max(label['w'], low['w']),
+            'h': (low['y'] + low['h'] / 2) - (label['y'] - label['h'] / 2),
+            'lines': 2,
+        })
+    return out
+
+
 def nearest_label(xs, ys, points):
     """For each pixel (xs, ys), the index of the nearest point (squared
     distance; the first on a tie). In chunks of pixels, so a region holding
@@ -470,17 +601,26 @@ def name_regions(comp, table, labels, hint=None, claim=None):
         inside = [i for i in idx if i not in beside]
         if inside and len(inside) < len(idx):
             idx = inside
-        if len(idx) == 1:
-            assignment[cid] = idx[0]
+        # Labels of one Cliopatria polity in one fill name it together: the
+        # first of them (in label order) has it whole.
+        groups = {}
+        for i in idx:
+            name = labels[i].get('cliopatria')
+            groups.setdefault(name if name else ('own', i), []).append(i)
+        firsts = [members[0] for members in groups.values()]
+        if len(firsts) == 1:
+            assignment[cid] = firsts[0]
             continue
-        # Two labels in one region: nearest label (Voronoi inside the region).
+        # Labels of several polities in one region: nearest label (Voronoi
+        # inside the region), each polity's labels their cells together.
+        group_of = {i: members[0] for members in groups.values() for i in members}
         x0, y0, x1, y1 = table[cid]['bbox']
         window = comp[y0:y1, x0:x1]
         inside = window == cid
         ys, xs = np.nonzero(inside)
         points = np.array([[labels[i]['x'] - x0, labels[i]['y'] - y0] for i in idx])
-        nearest = nearest_label(xs, ys, points)
-        for k, i in enumerate(idx):
+        nearest = np.array([firsts.index(group_of[i]) for i in idx])[nearest_label(xs, ys, points)]
+        for k, i in enumerate(firsts):
             sub = np.zeros(inside.shape, bool)
             sub[ys[nearest == k], xs[nearest == k]] = True
             if not sub.any():
@@ -665,8 +805,13 @@ def extract(frame, sample, framing, clio=None):
     sea_share = float(sea.mean())
     if sea_share < MIN_SEA_SHARE:
         return skipped(sample, framing, 'no-sea', sea_share)
+    # A fade (a dip between framings) dims the whole map: its sea is off the
+    # map's one sea colour, and its unclaimed land is no longer white.
+    sea_colour = frame[sea.astype(bool)].mean(axis=0)
+    if np.abs(sea_colour - SEA_BGR).max() > FADE_TOLERANCE:
+        return skipped(sample, framing, 'fade', sea_share)
     comp, table = segment(frame, boxes, sea)
-    labels = sample['labels']
+    labels = merge_lines(comp, table, sample['labels'])
     def hint(label):
         """Whether a region is mostly (MOSTLY_OWN of its pixels) inside the
         label's matched Cliopatria polity that year, or None without one. A
@@ -776,6 +921,7 @@ def extract(frame, sample, framing, clio=None):
             'split': sum(1 for f in flags.values() if 'split' in f),
             'joined': len(joined),
             'beside': sum(1 for f in flags.values() if 'beside' in f),
+            'lines': sum(1 for label in labels if label.get('lines')),
         },
     }
 

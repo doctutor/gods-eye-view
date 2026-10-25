@@ -86,6 +86,36 @@ export function abbreviates(label, name) {
   return true;
 }
 
+/** Two words of names alike: the same, a plural and its singular, or one beginning the other ("Bactria", "Bactrian"; "Ger.", "Germany"). */
+const sameWord = (a, b) => {
+  const x = singular(a);
+  const y = singular(b);
+  return (
+    x === y ||
+    (Math.min(x.length, y.length) >= 3 && (x.startsWith(y) || y.startsWith(x)))
+  );
+};
+
+/**
+ * Whether two names' cores have one head (their last word) but each a
+ * qualifier before it the other lacks ("Qara Qoyunlu" and "Aq Qoyunlu",
+ * "Former Qin" and "Later Qin", "Holy Roman" and "Western Roman"): two
+ * polities. One name holding the other's words ("Zhou" in "Later Zhou")
+ * is not, nor two heads after one qualifier ("Eastern Turkic", "Eastern
+ * Göktürks"). Letters a fold leaves ("đai" for "Đại") never differ.
+ */
+export function qualifiersDiffer(a, b) {
+  const x = a.split(' ').filter(Boolean);
+  const y = b.split(' ').filter(Boolean);
+  if (x.length < 2 || y.length < 2) return false;
+  if (!sameWord(x.at(-1), y.at(-1))) return false;
+  const own = (words, others) =>
+    words
+      .slice(0, -1)
+      .some((w) => /^[a-z]+$/.test(w) && !others.some((o) => sameWord(w, o)));
+  return own(x, y) && own(y, x);
+}
+
 /** How alike a label and a polity's names are, 0 to 1. */
 export function nameScore(label, names) {
   const l = foldName(label).replace(/\./g, '');
@@ -414,9 +444,10 @@ export function matchTrack(track, records, { sizeModel = null } = {}) {
  * At each sample's year, among the records alive then near the track, the
  * same choice as matchTrack's: a like name within NAME_KM (EXACT_NAME_KM
  * for an exact one), else an abbreviation within ABBREVIATION_KM, else
- * the main match while it lives, else the polity holding the label
- * ('continued' when the main match was by name: the label goes on while
- * Cliopatria renames what is under it, else 'place').
+ * the main match while it lives near the label, else the polity holding
+ * the label ('continued' when the main match was by name: the label goes
+ * on while Cliopatria renames what is under it, else 'place'); these two
+ * by where the label stands that year.
  * Consecutive years of one name are one period: [{name, wikidata, from,
  * to, reason}].
  */
@@ -427,27 +458,56 @@ export function periodsOf(
   { sizeModel = null } = {},
 ) {
   const letters = singleLetters(track.text);
-  const near = aliveIn(records, track.firstYear, track.lastYear).filter((r) =>
-    boxNear(r, track.lon, track.lat, EXACT_NAME_KM),
+  // Where the label stands in a year (its points' median), for the choices
+  // by place: a label moves with its polity ("Kushans" in Bactria in 30,
+  // over India later), so its lifetime's median can sit in another polity.
+  const byYear = new Map();
+  for (const p of track.points || [])
+    if (Number.isFinite(p.lon) && Number.isFinite(p.lat)) {
+      if (!byYear.has(p.year)) byYear.set(p.year, []);
+      byYear.get(p.year).push(p);
+    }
+  const middle = (values) =>
+    [...values].sort((a, b) => a - b)[values.length >> 1];
+  const where = new Map(
+    [...byYear].map(([year, ps]) => [
+      year,
+      [middle(ps.map((p) => p.lon)), middle(ps.map((p) => p.lat))],
+    ]),
+  );
+  const near = aliveIn(records, track.firstYear, track.lastYear).filter(
+    (r) =>
+      boxNear(r, track.lon, track.lat, EXACT_NAME_KM) ||
+      [...where.values()].some(([lon, lat]) =>
+        boxNear(r, lon, lat, NEAR_PLACE_KM),
+      ),
   );
   const texts = track.variants?.map((v) => v.text) || [track.text];
+  // A name's likeness to the label's texts (its variants, OCR misreadings
+  // among them); but in a year, not to a variant that is another polity's
+  // name beside that year's own text (one track can be two labels in turn
+  // at one place, "Qara Qoyunlu" and then "Aq Qoyunlu").
   const scores = new Map();
-  const info = near.map((r) => {
-    if (!scores.has(r.name))
-      scores.set(r.name, {
-        score: Math.max(
-          ...texts.map((t) => nameScore(t, [r.name, r.wikipedia])),
-        ),
-        abbreviation: texts.some(
-          (t) => abbreviates(t, r.name) || abbreviates(t, r.wikipedia),
-        ),
-      });
-    return {
-      record: r,
-      km: distanceKm(r, track.lon, track.lat),
-      ...scores.get(r.name),
-    };
-  });
+  const likeness = (r, list) => {
+    let score = 0;
+    let abbreviation = false;
+    for (const t of list) {
+      const key = `${r.name}\n${t}`;
+      if (!scores.has(key))
+        scores.set(key, {
+          score: nameScore(t, [r.name, r.wikipedia]),
+          abbreviation: abbreviates(t, r.name) || abbreviates(t, r.wikipedia),
+        });
+      const s = scores.get(key);
+      score = Math.max(score, s.score);
+      abbreviation ||= s.abbreviation;
+    }
+    return { score, abbreviation };
+  };
+  const info = near.map((r) => ({
+    record: r,
+    km: distanceKm(r, track.lon, track.lat),
+  }));
   // By place, not a polity far larger than the label says (TOO_LARGE).
   const predicted =
     sizeModel && track.size > 0
@@ -458,10 +518,27 @@ export function periodsOf(
   // A like name, a little more when the polity (not a composite) holds the label.
   const rank = (c) =>
     c.score + (c.km === 0 && !composite(c.record.name) ? HELD : 0);
+  const textsOf = new Map();
+  for (const p of track.points || [])
+    if (p.text) {
+      if (!textsOf.has(p.year)) textsOf.set(p.year, new Set());
+      textsOf.get(p.year).add(p.text);
+    }
+  const coreOf = (t) => core(foldName(t).replace(/\./g, ''));
   const choose = (year) => {
-    const alive = info.filter(
-      ({ record }) => record.from <= year && record.to >= year,
+    const here_ = textsOf.has(year) ? [...textsOf.get(year)].map(coreOf) : [];
+    const own = texts.filter(
+      (t) => !here_.some((h) => qualifiersDiffer(h, coreOf(t))),
     );
+    const alive = info
+      .filter(({ record }) => record.from <= year && record.to >= year)
+      .map((c) => ({ ...c, ...likeness(c.record, own) }));
+    const [lon, lat] = where.get(year) || [track.lon, track.lat];
+    const kms = new Map();
+    const kmHere = (c) => {
+      if (!kms.has(c)) kms.set(c, distanceKm(c.record, lon, lat));
+      return kms.get(c);
+    };
     const named = alive
       .filter(
         (c) =>
@@ -487,18 +564,20 @@ export function periodsOf(
     if (abbreviated.length) return [abbreviated[0].record, 'abbreviation'];
     const same =
       main?.name &&
-      alive.find((c) => c.record.name === main.name && c.km <= NEAR_PLACE_KM);
+      alive.find(
+        (c) => c.record.name === main.name && kmHere(c) <= NEAR_PLACE_KM,
+      );
     if (same) return [same.record, 'main match'];
     if (letters) return [null, null];
     const placed = alive
       .filter(
         (c) =>
-          c.km <= PLACE_KM &&
           c.record.type === 'POLITY' &&
           !composite(c.record.name) &&
-          !tooLarge(c.record.area),
+          !tooLarge(c.record.area) &&
+          kmHere(c) <= PLACE_KM,
       )
-      .sort((a, b) => a.km - b.km || a.record.area - b.record.area);
+      .sort((a, b) => kmHere(a) - kmHere(b) || a.record.area - b.record.area);
     // The label named its polity, and goes on while Cliopatria renames the
     // polity under it ("France": its republics and empires): continued.
     const byName = /^(name|abbreviation)/.test(main?.reason || '');

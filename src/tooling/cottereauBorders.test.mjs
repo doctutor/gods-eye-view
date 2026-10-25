@@ -28,6 +28,10 @@ import {
   withSpans,
 } from '../../scripts/cottereau/borders.mjs';
 import {
+  DIFFERENCES,
+  differenceOf,
+} from '../../scripts/cottereau/differences.mjs';
+import {
   cottereauBordersDir,
   cottereauBordersProxy,
   createCottereauBordersHandler,
@@ -227,7 +231,7 @@ test('the quality report keeps the place-only pairs apart from the IoU summary',
   );
   assert.match(
     text,
-    /place-only pairs \(low confidence, not in the summary\): median 0\.2.*over 2/,
+    /place-only pairs \(chosen by place, not in the summary\): median 0\.2.*over 2/,
   );
   assert.match(text, /every pair: .*over 3/);
   assert.match(
@@ -243,6 +247,99 @@ test('the quality report keeps the place-only pairs apart from the IoU summary',
   assert.match(
     before.join('\n'),
     /IoU with Cliopatria, every pair: median 0\.8/,
+  );
+});
+
+test('a continued period is by place; pairs that differ by definition are kept apart and listed', () => {
+  const placeOnly = placeOnlyPairs([
+    {
+      track: 3,
+      confidence: 'high',
+      reason: 'name+place',
+      periods: [
+        {
+          name: 'Achaemenid Empire',
+          from: -525,
+          to: -404,
+          reason: 'continued',
+        },
+        { name: 'Ptolemaic Kingdom', from: -303, to: -30, reason: 'continued' },
+      ],
+    },
+    {
+      track: 4,
+      confidence: 'high',
+      reason: 'name+place',
+      periods: [
+        { name: 'Russian Empire', from: 1799, to: 1866, reason: 'name' },
+      ],
+    },
+  ]);
+  assert.equal(
+    placeOnly(3, -500, 'Achaemenid Empire'),
+    true,
+    '"Egypt" over the Achaemenids: chosen by place',
+  );
+  // The differences are checked by hand: Russian America, Nejd's 53 km².
+  assert.equal(
+    differenceOf('Russian America', 'Russian Empire', 1830).cliopatria,
+    'Russian Empire',
+  );
+  assert.equal(differenceOf('Russian', 'Russian Empire', 1900), null, 'years');
+  assert.equal(differenceOf('Russia', 'Russian Empire', 1830), null, 'label');
+  assert.equal(differenceOf('Nejd', 'Emirate of Nejd', 1906), null);
+  assert.ok(differenceOf('Nejd', 'Emirate of Nejd', 1904).why.includes('53'));
+  for (const d of DIFFERENCES) assert.ok(d.why && d.from <= d.to, d.label);
+  const pair = (track, label, cliopatria, iou, areaKm2) => ({
+    track,
+    label,
+    cliopatria,
+    flags: [],
+    regions: 1,
+    iou,
+    areaKm2,
+  });
+  const report = qualityReport(
+    [
+      {
+        year: 1830,
+        stats: { landPx: 1000, unclaimedPx: 0, labelledPx: 900 },
+        unlabelled: [],
+        polygons: [
+          pair(4, 'Russian America', 'Russian Empire', 0, 1_350_000),
+          pair(5, 'France', 'Kingdom of France', 0.9, 550_000),
+        ],
+      },
+      {
+        year: 1832,
+        stats: { landPx: 1000, unclaimedPx: 0, labelledPx: 900 },
+        unlabelled: [],
+        polygons: [
+          pair(4, 'Russian America', 'Russian Empire', 0.01, 1_350_000),
+        ],
+      },
+    ],
+    { placeOnly, difference: differenceOf },
+  );
+  assert.equal(report.iou.count, 1, 'France alone in the summary');
+  assert.deepEqual(
+    report.iou.worst.map((w) => w.label),
+    ['France'],
+  );
+  assert.equal(report.differences.count, 2);
+  assert.deepEqual(
+    report.differences.cases.map((d) => [d.label, d.years, d.count, d.median]),
+    [['Russian', [1830, 1832], 2, 0.01]],
+  );
+  assert.equal(report.iouAll.count, 3);
+  const lines = [];
+  printReport(
+    { complete: true, counts: { samples: 2, polities: 3 }, quality: report },
+    (line) => lines.push(line),
+  );
+  assert.match(
+    lines.join('\n'),
+    /differ by definition \(not in the summary\): 2\n {4}Russian ↔ Russian Empire, 1830\.\.1832: 2 samples, IoU median 0\.01\. Russian America/,
   );
 });
 
@@ -440,6 +537,11 @@ test('the build is keyed on the declared extractor version; samples an older one
     carriesOver({ ...map, extractor: 3 }, 4),
     false,
     '3 → 4 reorders every sample’s beside labels: none carries over',
+  );
+  assert.equal(
+    carriesOver({ ...map, extractor: 4 }, 5),
+    false,
+    '4 → 5 separates regions in nearly every frame: none carries over',
   );
 });
 

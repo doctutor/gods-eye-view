@@ -39,6 +39,7 @@ import {
   matchTrack,
   nameScore,
   periodsOf,
+  qualifiersDiffer,
   singleLetters,
 } from '../../scripts/cottereau/match.mjs';
 
@@ -528,6 +529,82 @@ test('the matcher’s rules: directions agree, a held polity breaks a near tie, 
   assert.deepEqual(
     periodsOf(track('B.', 100, 150, 110, 33), records, b).filter((p) => p.name),
     [],
+  );
+});
+
+test('periods by place follow the label that year: Kushans over the Yuezhi in Bactria, not the Indo-Scythians under its later place', async () => {
+  const records = await recordsOf([
+    square('Yuezhi', 30, 42, 67, 38, 3),
+    square('Indo-Scythians', 14, 42, 74, 27, 4),
+    square('Kushan Empire', 46, 225, 72, 30, 6),
+  ]);
+  // Its lifetime's median sits over India; in 30 it stood in Bactria.
+  const points = [
+    { year: 30, lon: 67, lat: 38, text: 'Kushans' },
+    ...[60, 100, 150, 200].map((year) => ({
+      year,
+      lon: 74,
+      lat: 27,
+      text: 'Kushans',
+    })),
+  ];
+  const kushans = track('Kushans', 30, 200, 74, 27, { points });
+  const main = matchTrack(kushans, records);
+  assert.equal(main.name, 'Kushan Empire');
+  const periods = periodsOf(kushans, records, main);
+  assert.deepEqual(
+    [periods[0].name, periods[0].from, periods[0].reason],
+    ['Yuezhi', 30, 'continued'],
+  );
+  assert.deepEqual(
+    periods.slice(1).map((p) => [p.name, p.from, p.to]),
+    [['Kushan Empire', 60, 200]],
+  );
+});
+
+test('a track that is two labels in turn at one place: each year its own name ("Qara Qoyunlu", then "Aq Qoyunlu")', async () => {
+  assert.equal(qualifiersDiffer('qara qoyunlu', 'aq qoyunlu'), true);
+  assert.equal(qualifiersDiffer('former qin', 'later qin'), true);
+  assert.equal(qualifiersDiffer('greco bactria', 'greco bactrian'), false);
+  assert.equal(
+    qualifiersDiffer('eastern turkic', 'eastern gokturks'),
+    false,
+    'two heads',
+  );
+  assert.equal(qualifiersDiffer('zhou', 'later zhou'), false);
+  assert.equal(qualifiersDiffer('đai viet', 'dai viet'), false);
+  const records = await recordsOf([
+    square('Qara Qoyunlu', 1407, 1467, 45, 38.5, 1),
+    square('Aq Qoyunlu', 1407, 1508, 46, 37.5, 2),
+  ]);
+  const points = [
+    ...[1410, 1450].map((year) => ({
+      year,
+      lon: 46,
+      lat: 38,
+      text: 'Qara Qoyunlu',
+    })),
+    ...[1480, 1500].map((year) => ({
+      year,
+      lon: 46,
+      lat: 38,
+      text: 'Aq Qoyunlu',
+    })),
+  ];
+  const both = track('Qara Qoyunlu', 1410, 1500, 46, 38, {
+    points,
+    variants: [
+      { text: 'Qara Qoyunlu', n: 2 },
+      { text: 'Aq Qoyunlu', n: 2 },
+    ],
+  });
+  const main = matchTrack(both, records);
+  assert.deepEqual(
+    periodsOf(both, records, main).map((p) => [p.name, p.from, p.to]),
+    [
+      ['Qara Qoyunlu', 1410, 1450],
+      ['Aq Qoyunlu', 1480, 1500],
+    ],
   );
 });
 

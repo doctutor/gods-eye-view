@@ -754,6 +754,18 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Ery. | 2000–2025 | 13 | 39.0, 15.7 | State of Eritrea | place+time+size | Ethiopia (119 km); Republic of Yemen (342 km); Republic of Sudan (215 km) |
 | Timor-Leste | 2003–2025 | 18 | 128.8, -10.1 | East Timor | place+time+size | Republic of Indonesia (228 km); Commonwealth of Australia (198 km) |
 
+## Pairs that differ by definition (5)
+
+Matched rightly, but Cottereau and Cliopatria draw different things under the name; checked by hand against the frames and Cliopatria's records (`differences.mjs`). The borders' quality report keeps them apart from its IoU summary.
+
+| Label | Cliopatria | Years | What differs |
+| --- | --- | --- | --- |
+| Russian | Russian Empire | 1799–1867 | Russian America: Cliopatria's Russian Empire stops at the Bering Strait, without Alaska, which Cottereau fills in its own colour. |
+| Nejd | Emirate of Nejd | 1895–1904 | Cliopatria's Emirate of Nejd of 1895–1904 is a record of 53 km² (40.5° E, 28.8° N); Cottereau draws the emirate's land. |
+| Zhou | Later Zhou | 750 BC–257 BC | Cliopatria's Later Zhou (the Eastern Zhou) is the royal domain at Luoyang, 4,000 to 10,000 km²; Cottereau's Zhou covers the plain to the east. |
+| Zagwe | Zagwe dynasty | 947–1271 | Cliopatria's Zagwe dynasty is the Lasta highlands, 14,454 km²; Cottereau draws it from the highlands to the Red Sea coast, about 275,000 km². |
+| Volga Bulgaria | Volga Bulgaria | 674–1235 | Cottereau's Volga Bulgaria lies north-west of Cliopatria's (56–59° N against 54.5–56.6° N). Kazan, drawn in the same framing, overlaps Cliopatria's at 0.5, so the framing is not the cause. |
+
 ## Large Cliopatria polities in view that the video never names (20)
 
 Polities of at least 500,000 km² at their largest, alive 50 years or more of the span read, whose box centre was inside the map's view, and named by no track (by its match, or by name or abbreviation in one of its periods): what Cottereau left out or drew under another name (or what the OCR missed). Cliopatria's bracketed wholes (colonial empires, alliances) are left out.
@@ -789,7 +801,7 @@ Polities of at least 500,000 km² at their largest, alive 50 years or more of th
 | 24 c. BC | 10 | 3 | 3 | 100% |
 | 23 c. BC | 9 | 3 | 4 | 75% |
 | 22 c. BC | 10 | 4 | 5 | 80% |
-| 21 c. BC | 10 | 4 | 6 | 67% |
+| 21 c. BC | 10 | 3 | 6 | 50% |
 | 20 c. BC | 12 | 4 | 4 | 100% |
 | 19 c. BC | 13 | 4 | 4 | 100% |
 | 18 c. BC | 15 | 7 | 7 | 100% |
@@ -806,11 +818,11 @@ Polities of at least 500,000 km² at their largest, alive 50 years or more of th
 | 7 c. BC | 27 | 19 | 37 | 49% |
 | 6 c. BC | 25 | 17 | 50 | 32% |
 | 5 c. BC | 24 | 17 | 51 | 33% |
-| 4 c. BC | 41 | 31 | 53 | 57% |
+| 4 c. BC | 41 | 32 | 53 | 58% |
 | 3 c. BC | 48 | 40 | 78 | 51% |
 | 2 c. BC | 55 | 34 | 54 | 63% |
 | 1 c. BC | 42 | 27 | 56 | 48% |
-| 1 c. | 25 | 17 | 51 | 33% |
+| 1 c. | 25 | 18 | 51 | 35% |
 | 2 c. | 40 | 17 | 45 | 38% |
 | 3 c. | 54 | 26 | 58 | 45% |
 | 4 c. | 62 | 39 | 73 | 53% |
@@ -819,16 +831,16 @@ Polities of at least 500,000 km² at their largest, alive 50 years or more of th
 | 7 c. | 99 | 60 | 100 | 59% |
 | 8 c. | 94 | 63 | 107 | 58% |
 | 9 c. | 97 | 63 | 136 | 46% |
-| 10 c. | 150 | 109 | 189 | 57% |
+| 10 c. | 150 | 108 | 189 | 56% |
 | 11 c. | 133 | 90 | 202 | 45% |
 | 12 c. | 139 | 89 | 195 | 45% |
 | 13 c. | 152 | 100 | 244 | 41% |
-| 14 c. | 167 | 94 | 227 | 41% |
+| 14 c. | 167 | 93 | 227 | 41% |
 | 15 c. | 188 | 101 | 212 | 48% |
-| 16 c. | 233 | 119 | 191 | 62% |
+| 16 c. | 233 | 118 | 191 | 62% |
 | 17 c. | 230 | 84 | 152 | 55% |
 | 18 c. | 271 | 103 | 196 | 53% |
-| 19 c. | 338 | 151 | 305 | 50% |
-| 20 c. | 286 | 251 | 346 | 73% |
+| 19 c. | 338 | 155 | 305 | 51% |
+| 20 c. | 286 | 250 | 346 | 72% |
 | 21 c. | 171 | 151 | 197 | 77% |
 

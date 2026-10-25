@@ -6275,7 +6275,14 @@ to 4–17 km at the frame's corners.
    label lives through several of Cliopatria's polities ("France" through
    the Kingdom, the First Republic, the Directory, … the Fifth Republic).
    Cliopatria's bracketed twin of a polity (it with its dependencies,
-   "(Kingdom of France)") gives way to the plain one.
+   "(Kingdom of France)") gives way to the plain one. A period chosen by
+   place (the main match while it lives near the label, `continued`, or
+   `place`) is measured from where the label stands that year, not from its
+   lifetime's median: "Kushans" stood in Bactria in 30, over the Yuezhi,
+   though its median lies over India. And a year is named from its own
+   text: one track can be two labels in turn at one place ("Qara Qoyunlu",
+   then "Aq Qoyunlu" after 1467), so a variant naming another polity of the
+   same head word ("Aq" for "Qara") is not that year's.
 
    Rules against pairings that were alike in name or place but not the
    polity:
@@ -6353,20 +6360,30 @@ OpenCV, a frame decoded in memory):
    no map: the opening, the fade to black at the end, a cross-fade between
    framings. A map shows 27% or more. Such a frame is written as skipped
    and left out of the build's samples, so its year shows the last map
-   before it.
+   before it. So is a fade: a dip between framings dims the whole map, its
+   sea off the map's one sea colour (#d9e2ed in every framing) by more than
+   6 in a channel. 799's sea was 15 darker, its unclaimed land grey, and
+   Alodia's label, set on that grey, took 11 million km².
 1. **Sea.** The sea is masked with the framing fit's colour rule, and the
    year box counts as sea.
 2. **Label text is painted out.** Inside each OCR box, the strokes (black,
-   or white on a darker fill) and a rim round them take the box's own
-   background colour, so the fill runs on under the label. A grey border
-   line through a box is left alone. Text over the sea becomes sea; white
-   strokes on a land fill, which the sea mask takes for sea, are land.
+   or white on a darker fill: one shade a label, whichever it has more of)
+   and a rim round them take the box's own background colour, so the fill
+   runs on under the label. Text over the sea becomes sea; white strokes on
+   a land fill, which the sea mask takes for sea, are land. A border line
+   through a box (a line that runs on outside it; the letters are never
+   one) stays, and so do the letters' rims within 2 px of it. "Neu." sat on
+   Neustria's border with Austrasia in 613, and painted out it joined the
+   two. A letter set right across a line is still painted.
 3. **Separators** are:
-   - the thin grey border lines (a black-hat: thin and darker than both
-     sides; a wide dark fill, such as the Holy Roman Empire's grey, is not
-     one);
-   - every jump of colour between neighbouring pixels (more than 24 in a
-     channel), which is two fills meeting;
+   - the thin border lines (a black-hat: thin and darker than both sides,
+     in grey or in any one channel: the British colonies' lines in 1764
+     are a darker crimson, 48 to 64 darker in red but under 25 in grey; a
+     wide dark fill, such as the Holy Roman Empire's grey, is not one);
+   - every jump of colour between neighbouring pixels, or over three (more
+     than 24 in a channel), which is two fills meeting: the compression
+     spreads some meetings over three pixels in steps under 24 (Nejd's
+     green and the Ottomans' teal in 1904);
    - a thin neutral-grey region (a line no darker than the fill beside it).
 4. **Regions** are the connected components of what is left. Crumbs under
    25 px become separators, and every separator pixel goes to the nearest
@@ -6389,7 +6406,13 @@ OpenCV, a frame decoded in memory):
      polity's area that year (`MAX_CLAIM`): a small polity's label over the
      sea, beside a giant, is not the giant. Abkhazia beside the Ottomans'
      Black Sea coast was the case.
-   - Two labels in one region split it by nearest label (`split`).
+   - One label set on two lines that the cleaning kept apart ("Russian"
+     over "America", their pitch 1.4 lines) is one label: two labels in
+     one region, one under the other (a gap under 0.6 of a line), centred
+     alike, one of them matched or both to one polity.
+   - Labels of several polities in one region split it by nearest label
+     (`split`). Labels matched to one Cliopatria polity in one region name
+     it together ("Byzantine" and "Empire").
    - A region with no label joins the nearest region of its colour within
      800 px (an exclave, a colony, an island; `joined`). It never joins
      through a colour three or more polities share in that frame, such as
@@ -6421,6 +6444,10 @@ OpenCV, a frame decoded in memory):
     the first full build that is 378 of the 1,043 samples.
   - From 3 to 4 (the beside labels' two passes), none carries over: it
     reorders the beside labels of nearly every sample.
+  - From 4 to 5 (lines kept under labels, lines in one channel, meetings
+    over three pixels, fades, two-line labels, one polity's labels
+    together), none carries over: the separators change in nearly every
+    frame, and which samples change can only be told from the frames.
 - Two labels in one region split it by nearest label in chunks of pixels,
   so a region holding many labels stays within a few hundred MB.
 - While it runs it is `builds/<key>.partial/`, holding `samples.json` (the
@@ -6446,10 +6473,26 @@ and by `status`):
   abbreviation, with their 20 worst.
 - **Place-only pairs** are counted apart (`placeOnly`, the same numbers and
   their own 20 worst). A pair is place-only when the year's period chose the
-  polity by place, or when the track's match is low confidence (by place,
-  or by single letters) and the period is not a name's. Such a pair is often
-  a polity he shows inside one Cliopatria has (Austrasia in the Kingdom of
-  the Franks), so its IoU says little of his borders.
+  polity by place (`place`, or `continued`: the polity under a label that
+  named another, "Egypt" over the Achaemenids; 352 of the 368 continued
+  periods have no likeness of name), or when the track's match is low
+  confidence (by place, or by single letters) and the period is not a
+  name's. Such a pair is often a polity he shows inside one Cliopatria has
+  (Austrasia in the Kingdom of the Franks), so its IoU says little of his
+  borders.
+- **Pairs that differ by definition** are counted apart too
+  (`differences`, each case with its samples and median). Matched rightly,
+  the two sources draw different things under the name; each was checked
+  by hand against the frames and the records (`differences.mjs`, also
+  listed in `review.md`):
+  - Russian America: Cliopatria's Russian Empire leaves out Alaska.
+  - Nejd 1902–04: Cliopatria's Emirate of Nejd of 1895–1904 is a 53 km²
+    record.
+  - Zhou: Cliopatria's Later Zhou (Eastern Zhou) is the royal domain at
+    Luoyang, 4,000 to 10,000 km².
+  - Zagwe: Cliopatria's Zagwe dynasty is the Lasta highlands, 14,454 km².
+  - Volga Bulgaria: his lies north-west of Cliopatria's, though Kazan in
+    the same framing overlaps at 0.5.
 - `iouAll` is every pair, as the summary was before.
 - `report` makes the report again from the current build's samples and
   today's `matches.json`, in a few seconds and without extracting

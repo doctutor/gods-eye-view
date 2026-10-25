@@ -1,12 +1,14 @@
 /**
  * The review of a match run (data/cottereau/review.md): the tracks with no
- * match or a weak one, the large Cliopatria polities alive and in view
+ * match or a weak one, the pairs that differ by definition (differences.mjs),
+ * the large Cliopatria polities alive and in view
  * that the video never names (what Cottereau cut), and per century the
  * video's labels against Cliopatria's polities.
  *
  * Personal fork tooling; not part of upstream God's Eye View.
  */
 
+import { DIFFERENCES } from './differences.mjs';
 import { framingAt, framingExtent } from './framings.mjs';
 
 const fmtYear = (y) => (y < 0 ? `${-y} BC` : `${y}`);
@@ -94,6 +96,20 @@ export function buildReview({
       `| ${track.text.replace(/\|/g, '/')} | ${fmtYear(track.firstYear)}–${fmtYear(track.lastYear)} | ${track.samples} | ${track.lon.toFixed(1)}, ${track.lat.toFixed(1)} | ${match.name || '—'} | ${match.reason}${refused} | ${alternatives} |`,
     );
   }
+  lines.push('');
+  // Pairs that differ by definition, not by error.
+  lines.push(`## Pairs that differ by definition (${DIFFERENCES.length})`);
+  lines.push('');
+  lines.push(
+    "Matched rightly, but Cottereau and Cliopatria draw different things under the name; checked by hand against the frames and Cliopatria's records (`differences.mjs`). The borders' quality report keeps them apart from its IoU summary.",
+  );
+  lines.push('');
+  lines.push('| Label | Cliopatria | Years | What differs |');
+  lines.push('| --- | --- | --- | --- |');
+  for (const d of DIFFERENCES)
+    lines.push(
+      `| ${d.label} | ${d.cliopatria} | ${fmtYear(d.from)}–${fmtYear(d.to)} | ${d.why.replace(/\|/g, '/')} |`,
+    );
   lines.push('');
   // Large polities absent from the video.
   // Named: a track's match, or a name or abbreviation it took in one of its periods.

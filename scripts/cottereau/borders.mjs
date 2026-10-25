@@ -48,6 +48,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { loadCliopatria } from './cliopatria.mjs';
+import { differenceOf } from './differences.mjs';
 import { framingAt } from './framings.mjs';
 import { readFrames, isLabel } from './labels.mjs';
 import { computeTracks } from './index.mjs';
@@ -215,6 +216,10 @@ const CLAIM_MARGIN = 0.8;
  * - 3 → 4: no rule, so none carries over. Labels whose own matched polity
  *   a region mostly is choose first, which reorders the beside labels of
  *   nearly every sample (1,031 of 1,038 have one).
+ * - 4 → 5: no rule, so none carries over. The border lines kept through
+ *   label boxes, the lines darker in one channel and the fills meeting over
+ *   three pixels separate regions in nearly every frame, and whether a
+ *   sample changes can only be told from its frame.
  *
  * A rule is (result, {framing, cliopatria}) → whether it stands, where
  * `cliopatria(name, year, framing)` is the matched polity's pixel area.
@@ -398,10 +403,12 @@ const median = (values) => {
 /**
  * Whether a sample's pair (his region, the Cliopatria polity its label is
  * matched to that year) rests on place alone, from matches.json: the year's
- * period chose the polity by place ('place'), or the track's match is low
- * confidence (a guess by place, or by single letters) and the period is not
- * a name's. Such a pair is often a polity he shows inside one Cliopatria
- * has, so its IoU says little of his borders: the report keeps it apart.
+ * period chose the polity by place ('place', or 'continued': the polity
+ * under a label that named another, "Egypt" over the Achaemenids), or the
+ * track's match is low confidence (a guess by place, or by single letters)
+ * and the period is not a name's. Such a pair is often a polity he shows
+ * inside one Cliopatria has, so its IoU says little of his borders: the
+ * report keeps it apart.
  */
 export function placeOnlyPairs(matches) {
   const byTrack = new Map(matches.map((m) => [m.track, m]));
@@ -413,6 +420,7 @@ export function placeOnlyPairs(matches) {
     );
     return (
       period?.reason === 'place' ||
+      period?.reason === 'continued' ||
       (match.confidence === 'low' && period?.reason !== 'name')
     );
   };
@@ -443,15 +451,21 @@ const worstOf = (pairs, n) =>
 /**
  * The manifest's quality report from the samples written. `placeOnly`
  * (placeOnlyPairs) says which pairs rest on place alone: they are kept out
- * of the IoU summary and its worst cases, and reported apart (`placeOnly`);
+ * of the IoU summary and its worst cases, and reported apart (`placeOnly`).
+ * So are the pairs that differ by definition (`difference`, differenceOf
+ * in differences.mjs: `differences`, with each one's count and median).
  * `iouAll` is every pair, as the summary was before.
  */
-export function qualityReport(results, { placeOnly = () => false } = {}) {
+export function qualityReport(
+  results,
+  { placeOnly = () => false, difference = () => null } = {},
+) {
   const centuries = new Map();
   const unlabelled = [];
   const merged = [];
   const ious = [];
   const placed = [];
+  const differing = [];
   for (const r of results) {
     const c = centuryOf(r.year);
     const entry = centuries.get(c) || {
@@ -494,6 +508,11 @@ export function qualityReport(results, { placeOnly = () => false } = {}) {
           iou: p.iou,
           areaKm2: p.areaKm2,
         };
+        const differs = difference(p.label, p.cliopatria, r.year);
+        if (differs) {
+          differing.push({ ...pair, difference: differs });
+          continue;
+        }
         if (placeOnly(p.track, r.year, p.cliopatria)) {
           placed.push(pair);
           entry.placed.push(p.iou);
@@ -544,7 +563,36 @@ export function qualityReport(results, { placeOnly = () => false } = {}) {
     },
     iou: { ...iouSummary(ious), worst: worstOf(ious, 20) },
     placeOnly: { ...iouSummary(placed), worst: worstOf(placed, 20) },
-    iouAll: iouSummary([...ious, ...placed]),
+    differences: (() => {
+      const by = new Map();
+      for (const pair of differing) {
+        const d = pair.difference;
+        const key = `${d.label}\n${d.cliopatria}`;
+        if (!by.has(key))
+          by.set(key, {
+            label: d.label,
+            cliopatria: d.cliopatria,
+            why: d.why,
+            years: [pair.year, pair.year],
+            ious: [],
+          });
+        const e = by.get(key);
+        e.years = [
+          Math.min(e.years[0], pair.year),
+          Math.max(e.years[1], pair.year),
+        ];
+        e.ious.push(pair.iou);
+      }
+      return {
+        count: differing.length,
+        cases: [...by.values()].map(({ ious: list, ...e }) => ({
+          ...e,
+          count: list.length,
+          median: median(list),
+        })),
+      };
+    })(),
+    iouAll: iouSummary([...ious, ...placed, ...differing]),
   };
 }
 
@@ -746,6 +794,7 @@ async function extract(options) {
     },
     quality: qualityReport(results, {
       placeOnly: placeOnlyPairs(JSON.parse(matchesText).matches),
+      difference: differenceOf,
     }),
   };
   writeAtomic(
@@ -799,7 +848,7 @@ export function printReport(manifest, log = console.log) {
       `  IoU with Cliopatria, matched by name or abbreviation: ${line(q.iou)}`,
     );
     log(
-      `  place-only pairs (low confidence, not in the summary): ${line(q.placeOnly)}`,
+      `  place-only pairs (chosen by place, not in the summary): ${line(q.placeOnly)}`,
     );
     log(`  every pair: ${line(q.iouAll)}`);
   } else log(`  IoU with Cliopatria, every pair: ${line(q.iou)}`);
@@ -814,6 +863,15 @@ export function printReport(manifest, log = console.log) {
   if (q.placeOnly?.worst.length) {
     log('  largest place-only disagreements (not in the summary):');
     pairs(q.placeOnly.worst.slice(0, 10));
+  }
+  if (q.differences?.count) {
+    log(
+      `  pairs that differ by definition (not in the summary): ${q.differences.count}`,
+    );
+    for (const d of q.differences.cases)
+      log(
+        `    ${d.label} ↔ ${d.cliopatria}, ${d.years.join('..')}: ${d.count} samples, IoU median ${d.median}. ${d.why}`,
+      );
   }
 }
 
@@ -858,6 +916,7 @@ function report(options) {
   });
   manifest.quality = qualityReport(results, {
     placeOnly: placeOnlyPairs(JSON.parse(matchesText).matches),
+    difference: differenceOf,
   });
   console.log(`[borders] build ${build}`);
   printReport(manifest);
