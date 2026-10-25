@@ -19,6 +19,7 @@ import {
   findBoundaryInputs,
   runBoundariesBuild,
 } from './boundaries.mjs';
+import { areasStatus, findAreaInputs, runAreasBuild } from './areas.mjs';
 import {
   INDEX_FORMAT,
   CELL_DEGREES,
@@ -54,6 +55,7 @@ import {
  *   node scripts/overture/index.mjs status [--json] [--dir DIR]
  *   node scripts/overture/index.mjs levels [--workers N] [--dir DIR]
  *   node scripts/overture/index.mjs boundaries [--force] [--input FILE] [--dir DIR]
+ *   node scripts/overture/index.mjs areas [--force] [--dir DIR]
  *
  * `build` lists the release's division point files in Overture's public
  * bucket (one GeoParquet file of 4.69 M points, 582 MB, ODbL), downloads
@@ -98,6 +100,8 @@ export const roadsDirFor = (dir, env = process.env) =>
 
 /** The boundary lines' build: build/boundaries in the Overture cache. */
 export const boundariesDirFor = (dir) => path.join(dir, 'build', 'boundaries');
+/** The division areas' build: build/areas in the Overture cache. */
+export const areasDirFor = (dir) => path.join(dir, 'build', 'areas');
 
 /** A file's path for the manifest: relative inside the cache, else absolute. */
 export function cachePath(dir, file) {
@@ -530,6 +534,7 @@ export function status(dir, rawDir = path.join(dir, 'raw')) {
       infrastructure: placesStatus(dir, 'infrastructure'),
       roads: roadsStatus(roadsDirFor(dir)),
       boundaries: boundariesStatus(boundariesDirFor(dir)),
+      areas: areasStatus(areasDirFor(dir)),
     };
   return {
     built: true,
@@ -548,6 +553,7 @@ export function status(dir, rawDir = path.join(dir, 'raw')) {
     infrastructure: placesStatus(dir, 'infrastructure'),
     roads: roadsStatus(roadsDirFor(dir)),
     boundaries: boundariesStatus(boundariesDirFor(dir)),
+    areas: areasStatus(areasDirFor(dir)),
   };
 }
 
@@ -650,6 +656,27 @@ async function main() {
       );
     return;
   }
+  // Personal fork: the Administrative boundaries layer's division areas.
+  if (flags.command === 'areas') {
+    const outDir = areasDirFor(dir);
+    let peak = 0;
+    let calls = 0;
+    const { skipped, manifest } = runAreasBuild({
+      outDir,
+      inputs: findAreaInputs([overtureRawDir(dir), path.join(dir, 'raw')]),
+      force: flags.force,
+      log: (line) => console.log(`[overture] areas: ${line}`),
+      onMemory: () => {
+        if (++calls % 200 === 0)
+          peak = Math.max(peak, process.memoryUsage().rss);
+      },
+    });
+    if (!skipped)
+      console.log(
+        `[overture] areas ${manifest.buildId}: ${manifest.units} units from ${manifest.sources.length} files, ${(manifest.bytes / 1e6).toFixed(1)} MB in ${outDir}, ${(manifest.timings.totalMs / 1000).toFixed(1)} s, peak RSS ${Math.round(peak / 1048576)} MB`,
+      );
+    return;
+  }
   if (flags.command === 'status') {
     const answer = status(dir);
     if (flags.json) return console.log(JSON.stringify(answer, null, 2));
@@ -705,10 +732,16 @@ async function main() {
         ? `Overture boundary lines ${boundaries.release} of ${boundaries.builtAt}: ${boundaries.lines.toLocaleString('en')} lines${subtypes}, ${boundaries.disputed} disputed, ${(boundaries.bytes / 1e6).toFixed(1)} MB`
         : 'Overture boundary lines: not built. Run npm run overture:boundaries.',
     );
+    const { areas } = answer;
+    console.log(
+      areas.built
+        ? `Overture division areas ${areas.release} of ${areas.builtAt}: ${areas.units.toLocaleString('en')} units from ${areas.inputs} files, ${(areas.bytes / 1e6).toFixed(1)} MB`
+        : 'Overture division areas: not built. Run npm run overture:areas.',
+    );
     return;
   }
   throw new Error(
-    `unknown command ${flags.command} (build, levels, boundaries, status)`,
+    `unknown command ${flags.command} (build, levels, boundaries, areas, status)`,
   );
 }
 

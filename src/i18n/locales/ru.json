@@ -3938,5 +3938,15 @@
   "data {age}": "данные {age}",
   "no data yet": "данных пока нет",
   "refreshing": "обновляется",
-  "{list} refresh failed {age}: {error}": "{list}: обновление не удалось {age}: {error}"
+  "{list} refresh failed {age}: {error}": "{list}: обновление не удалось {age}: {error}",
+  "At sea": "В море",
+  "In the territorial sea of {country}": "В территориальном море: {country}",
+  "County: {name}": "Округ: {name}",
+  "Region: {name}": "Регион: {name}",
+  "Country: {name} ({code})": "Страна: {name} ({code})",
+  "Country: {name}": "Страна: {name}",
+  "No county in Overture here": "Здесь у Overture нет округа",
+  "Fill each region or county in its own colour (Overture division areas)": "Залить каждый регион или округ своим цветом (области Overture)",
+  "COASTS": "ПОБЕРЕЖЬЯ",
+  "Draw the countries' coasts with their Overture lines (island countries' outlines)": "Рисовать побережья стран вместе с их линиями Overture (контуры островных стран)"
 }

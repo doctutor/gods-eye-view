@@ -266,6 +266,22 @@ export const MODE_CHIPS = Object.freeze([
   }),
 ]);
 
+/** Personal fork: the words of the on/off chips a layer adds, by id. */
+const TOGGLE_WORDS = {
+  'areas-fills': () => ({
+    label: t('FILLS'),
+    title: t(
+      'Fill each region or county in its own colour (Overture division areas)',
+    ),
+  }),
+  'areas-coasts': () => ({
+    label: t('COASTS'),
+    title: t(
+      "Draw the countries' coasts with their Overture lines (island countries' outlines)",
+    ),
+  }),
+};
+
 /** The level chips: AUTO (the height rule), then each variant. */
 export const LEVEL_CHIPS = Object.freeze([
   Object.freeze({
@@ -485,6 +501,7 @@ export function rowControls({
   localMessage = '',
   outsideCoverage = '',
   scale = null,
+  toggles = [],
 }) {
   const layer = catalog?.layers?.get?.(record.id) || null;
   const variantKeys = new Set((record.variants || []).map((v) => v.key));
@@ -526,6 +543,17 @@ export function rowControls({
         active: ink === chip.key,
         onClick: () => onInk(chip.key),
       });
+  // Personal fork: on/off chips a layer adds (the boundaries' FILLS, COASTS).
+  for (const toggle of toggles) {
+    const words = TOGGLE_WORDS[toggle.id]?.();
+    if (!words) continue;
+    chips.push({
+      id: toggle.id,
+      ...words,
+      active: toggle.active === true,
+      onClick: toggle.onClick,
+    });
+  }
   // A layer with modes: the mode's legend, each swatch its colour in the
   // ink drawn.
   const drawnMode = record.modes?.length ? modeRecord(record, mode) : null;

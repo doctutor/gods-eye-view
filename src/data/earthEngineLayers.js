@@ -1370,6 +1370,9 @@ export const EARTH_ENGINE_LAYERS = Object.freeze([
     // White on imagery and dark styles; near-black on the white globe,
     // Positron, the light Stamen styles and the light Countries maps.
     inks: BOUNDARY_INKS,
+    // Personal fork: Overture's division areas (`npm run overture:areas`):
+    // a click's card, FILLS and COASTS.
+    areas: true,
     legend: Object.freeze([
       // i18n-ignore: translated through LEGEND_WORDS (src/layers/earthEngine/presentation.js)
       Object.freeze({ label: 'Boundary', color: '#ffffff' }),

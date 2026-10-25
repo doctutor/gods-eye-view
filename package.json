@@ -67,6 +67,7 @@
     "overture:build": "node scripts/overture/index.mjs build",
     "overture:status": "node scripts/overture/index.mjs status",
     "overture:boundaries": "node scripts/overture/index.mjs boundaries",
+    "overture:areas": "node scripts/overture/index.mjs areas",
     "property:build": "node scripts/property/index.mjs build",
     "property:status": "node scripts/property/index.mjs status",
     "world-history:build": "node scripts/worldHistory/index.mjs build",

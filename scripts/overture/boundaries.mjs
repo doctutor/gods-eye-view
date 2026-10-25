@@ -53,7 +53,7 @@ import {
  */
 
 /** Bump when the level files change shape or meaning (forces a rebuild). */
-export const BOUNDARIES_FORMAT = 2;
+export const BOUNDARIES_FORMAT = 3;
 /** The subtypes kept. */
 export const KEPT_SUBTYPES = Object.freeze(['country', 'region', 'county']);
 /** The first zoom each subtype is drawn at: a band ending before it leaves it out. */
@@ -278,16 +278,22 @@ export function boundaryPieces(lines, kind, onPiece, bands = BANDS) {
     for (const points of projected) {
       const coords = quantize(points, simplify(points, tolerance), quantBits);
       if (!coords) continue;
+      const cells = 2 ** band.gridZoom;
       splitIntoCells(
         coords,
         cellShift,
-        (cx, cy, run) =>
+        (cx, cy, run) => {
+          // A margin over the antimeridian or a pole reaches a cell off the
+          // grid, whose key would name another cell: the run is in its own
+          // cell already.
+          if (cx < 0 || cy < 0 || cx >= cells || cy >= cells) return;
           onPiece(
             band,
             cellKey(cx, cy, band.gridZoom),
             encodePiece(kind, run, cx * cellUnits, cy * cellUnits),
             run.length / 2,
-          ),
+          );
+        },
         margin,
       );
     }

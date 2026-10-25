@@ -7,6 +7,9 @@ import { createRiversV2Source } from '../../layers/riversV2/source.js';
 import { createCensusSource } from '../../layers/census/source.js';
 import { createOvertureBuildingsSource } from '../../layers/earthEngine/overtureBuildings.js';
 import { createOvertureBoundariesSource } from '../../layers/earthEngine/overtureBoundaries.js';
+import { createOvertureAreasSource } from '../../layers/earthEngine/overtureAreas.js';
+import { createBoundaryClicks } from '../../layers/earthEngine/boundaryClicks.js';
+import { hitTestWorldOverlay } from '../../overlays/worldOverlay.js';
 import { governorRequestRender } from '../../renderGovernor.js';
 import { colourScales as sharedColourScales } from '../../maps/colourScaleStore.js';
 import {
@@ -27,7 +30,9 @@ import { overlayHost } from './overlayHost.js';
  * source. The Rivers record also gets its names (world-overlay labels), its
  * clicks (a reach traced to the sea) and HydroSHEDS v2 over the Americas;
  * the terrain layers credit their DEM stack's sources (demSourceCredit);
- * the Administrative boundaries draw Overture's country lines when built.
+ * the Administrative boundaries draw Overture's country, region and county
+ * lines when built, and with Overture's division areas a click's card,
+ * FILLS and COASTS.
  * Every windowable layer draws the shared colour-scale store's choice.
  */
 export function createApplicationEarthEngineLayers({
@@ -36,6 +41,7 @@ export function createApplicationEarthEngineLayers({
   census = createCensusSource(),
   overtureBuildings = createOvertureBuildingsSource(),
   overtureBoundaries = createOvertureBoundariesSource(),
+  overtureAreas = createOvertureAreasSource(),
   colourScales = sharedColourScales(),
 } = {}) {
   const credits = { register: registerDynamicCredit };
@@ -59,7 +65,17 @@ export function createApplicationEarthEngineLayers({
               credits,
               credit: RIVER_REACH_CREDIT,
             })
-          : null,
+          : record.areas
+            ? createBoundaryClicks({
+                source: overtureAreas,
+                overlayHost,
+                hitTest: hitTestWorldOverlay,
+                isPointerFree,
+                requestRender: governorRequestRender,
+              })
+            : null,
+      // Administrative boundaries: Overture's division areas.
+      areasSource: record.areas ? overtureAreas : null,
       v2Source: record.americasV2 ? riversV2 : null,
       // Census tracts: HOUSEHOLD INCOME from the local server.
       localSource: record.modes?.some((mode) => mode.local === 'census')
