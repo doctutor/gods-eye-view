@@ -7,7 +7,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  DEFAULT_OVERPASS_MIRRORS,
   LINKED_RETRY_MS,
   LINKED_TTL_MS,
   QLEVER_OSM_ENDPOINT,
@@ -198,15 +197,27 @@ test('Wikidata rows become landmark pins, one per distinct link', () => {
   assert.equal(normalizeSourceItem(sources[2]).embed.videoId, '1_BdSTneH3s');
 });
 
-test('Overpass goes to the configured chain, else public mirrors', () => {
-  assert.deepEqual(overpassEndpoints({}), [...DEFAULT_OVERPASS_MIRRORS]);
+test('Overpass goes to the configured chain only (as the Overpass proxy reads it), else straight to QLever', () => {
+  assert.deepEqual(overpassEndpoints({}), [], 'no public mirror of its own');
   assert.deepEqual(
     overpassEndpoints({
-      OVERPASS_UPSTREAMS: 'https://a.example/api, nope, https://b.example/api',
+      OVERPASS_UPSTREAMS:
+        'https://a.example/api, nope, http://localhost:12345/api/interpreter, https://a.example/api',
     }),
-    ['https://a.example/api', 'https://b.example/api'],
+    ['https://a.example/api', 'http://localhost:12345/api/interpreter'],
   );
 });
+
+/** The configured Overpass in the loader tests (the local instance, say). */
+const LOCAL = 'http://localhost:12345/api/interpreter';
+const localEnv = { OVERPASS_UPSTREAMS: LOCAL };
+
+/** A load, its background refresh run to the end, and the load after it. */
+async function loadSettled(load) {
+  await load();
+  await load.settled();
+  return load();
+}
 
 const osmBody = {
   elements: [
@@ -311,7 +322,7 @@ const qleverBody = {
   },
 };
 
-test('the loader fetches once a week, keeps copies on disk, and serves stale on failure', async (t) => {
+test('the loader fetches once a week in the background, keeps copies on disk, and serves stale on failure', async (t) => {
   t.mock.method(console, 'log', () => {});
   t.mock.method(console, 'warn', () => {});
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-linked-'));
@@ -324,16 +335,22 @@ test('the loader fetches once a week, keeps copies on disk, and serves stale on 
       qleverRequest: qlever.request,
       now: () => clock,
       cacheDir: dir,
-      env: {},
+      env: localEnv,
     });
+    const before = await load();
+    assert.deepEqual(
+      before.everything,
+      [],
+      'nothing held yet: answered at once',
+    );
+    await load.settled();
     const first = await load();
     assert.deepEqual(first, [], 'nothing for the capped catalog');
     assert.equal(first.everything.length, 2);
     assert.equal(first.proximityOnly, true);
-    assert.equal(good.calls.length, 2);
-    assert.ok(
-      good.calls.some((c) => c === DEFAULT_OVERPASS_MIRRORS[0]),
-      'first public mirror',
+    assert.deepEqual(
+      good.calls.sort(),
+      [LOCAL, good.calls.find((c) => c.includes('wikidata'))].sort(),
     );
 
     // Within the week: no fetch, even from a new loader (disk copy).
@@ -344,25 +361,225 @@ test('the loader fetches once a week, keeps copies on disk, and serves stale on 
       qleverRequest: qlever.request,
       now: () => clock,
       cacheDir: dir,
-      env: {},
+      env: localEnv,
     });
     assert.equal((await second()).everything.length, 2);
+    await second.settled();
     assert.equal(bad.calls.length, 0);
 
     // After the week, a failed refresh keeps serving the old copy and
-    // waits before trying again.
+    // waits LINKED_RETRY_MS before trying again.
     clock += 2;
+    assert.equal((await second()).everything.length, 2, 'stale, at once');
+    await second.settled();
+    assert.equal(bad.calls.length, 2, 'the configured Overpass and Wikidata');
     assert.equal((await second()).everything.length, 2);
-    assert.equal(bad.calls.length, DEFAULT_OVERPASS_MIRRORS.length + 1);
-    assert.equal((await second()).everything.length, 2);
-    assert.equal(bad.calls.length, DEFAULT_OVERPASS_MIRRORS.length + 1);
+    await second.settled();
+    assert.equal(bad.calls.length, 2, 'backing off');
+    const failed = second.status().lists.find((l) => l.name === 'osm');
+    assert.equal(failed.refreshing, false);
+    assert.equal(failed.lastFailedAt, new Date(clock).toISOString());
+    assert.match(failed.lastError, /Overpass 502; QLever: QLever 503/);
+    assert.equal(
+      failed.nextAttemptAt,
+      new Date(clock + LINKED_RETRY_MS).toISOString(),
+    );
     clock += LINKED_RETRY_MS;
-    await second();
-    assert.equal(bad.calls.length, 2 * (DEFAULT_OVERPASS_MIRRORS.length + 1));
+    await loadSettled(second);
+    assert.equal(bad.calls.length, 4);
     assert.equal(qlever.calls.length, 2, 'QLever once per failed refresh');
 
     const files = (await fs.readdir(dir)).sort();
     assert.deepEqual(files, ['osm.json', 'wikidata.json']);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+/** A fetch that waits for its release, or for its signal's abort. */
+function heldFetch() {
+  const calls = [];
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  const fetchImpl = (href, init) => {
+    calls.push({ href, signal: init?.signal });
+    return new Promise((resolve, reject) => {
+      init?.signal?.addEventListener(
+        'abort',
+        () => reject(init.signal.reason),
+        {
+          once: true,
+        },
+      );
+      released.then(() =>
+        resolve(
+          href.includes('wikidata')
+            ? Response.json(wikidataBody)
+            : Response.json(osmBody),
+        ),
+      );
+    });
+  };
+  return { fetchImpl, calls, release: () => release() };
+}
+
+/** A cache directory holding both lists, written at `at`. */
+async function cacheAt(dir, at) {
+  await fs.mkdir(dir, { recursive: true });
+  for (const [name, sources] of [
+    [
+      'osm',
+      osmToSources(osmBody.elements).map((s) => ({ ...s, id: `${s.id}-old` })),
+    ],
+    ['wikidata', wikidataToSources(wikidataBody.results.bindings)],
+  ])
+    await fs.writeFile(
+      path.join(dir, `${name}.json`),
+      JSON.stringify({ at, sources }),
+    );
+}
+
+test('a stale copy is served at once; the refresh runs in the background, one at a time, and the next load has it', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-linked-swr-'));
+  let clock = 10 * LINKED_TTL_MS;
+  try {
+    await cacheAt(dir, clock - LINKED_TTL_MS - 1);
+    const held = heldFetch();
+    const qlever = fakeQlever(new Error('unused'));
+    const load = createLinkedLoader({
+      fetchImpl: held.fetchImpl,
+      qleverRequest: qlever.request,
+      now: () => clock,
+      cacheDir: dir,
+      env: localEnv,
+    });
+    const stale = await load();
+    assert.deepEqual(
+      stale.everything.map((s) => s.id).sort(),
+      ['osm-webcam-n1-old', 'wd-webcam-Q9-0'],
+      'the stale copy, while the fetch is still waiting',
+    );
+    assert.equal(held.calls.length, 2);
+    const during = load.status().lists;
+    assert.deepEqual(
+      during.map((l) => [l.name, l.refreshing, l.count]),
+      [
+        ['osm', true, 1],
+        ['wikidata', true, 1],
+      ],
+    );
+    assert.equal(
+      during[0].at,
+      new Date(clock - LINKED_TTL_MS - 1).toISOString(),
+    );
+    // Asked again meanwhile: the same copy, no second refresh.
+    await load();
+    assert.equal(held.calls.length, 2, 'one refresh at a time');
+    held.release();
+    await load.settled();
+    const fresh = await load();
+    assert.deepEqual(
+      fresh.everything.map((s) => s.id).sort(),
+      ['osm-webcam-n1', 'wd-webcam-Q9-0'],
+      'the new list',
+    );
+    assert.deepEqual(
+      load.status().lists.map((l) => [l.refreshing, l.at, l.lastFailedAt]),
+      [
+        [false, new Date(clock).toISOString(), null],
+        [false, new Date(clock).toISOString(), null],
+      ],
+    );
+    assert.ok(
+      held.calls.every((c) => c.signal.aborted),
+      'nothing left listening',
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a refresh gives up at its deadline, aborting what it waits on; then it backs off', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-linked-deadline-'));
+  let clock = 10 * LINKED_TTL_MS;
+  try {
+    await cacheAt(dir, clock - LINKED_TTL_MS - 1);
+    const held = heldFetch(); // never released
+    const qlever = fakeQlever({
+      status: 200,
+      text: JSON.stringify(qleverBody),
+    });
+    const load = createLinkedLoader({
+      fetchImpl: held.fetchImpl,
+      qleverRequest: qlever.request,
+      now: () => clock,
+      cacheDir: dir,
+      env: localEnv,
+      deadlineMs: 30,
+    });
+    const started = Date.now();
+    assert.equal((await load()).everything.length, 2, 'stale, at once');
+    await load.settled();
+    assert.ok(
+      Date.now() - started < 5000,
+      'within the deadline, not the upstream timeouts',
+    );
+    assert.ok(
+      held.calls.every((c) => c.signal.aborted),
+      'every request aborted',
+    );
+    assert.equal(qlever.calls.length, 0, 'no QLever after the deadline');
+    const [osm, wikidata] = load.status().lists;
+    assert.match(osm.lastError, /no answer within 0 s|no answer within/);
+    assert.match(wikidata.lastError, /no answer within/);
+    assert.equal(osm.count, 1, 'the stale copy kept');
+    // Backing off: no refresh until LINKED_RETRY_MS has passed.
+    clock += LINKED_RETRY_MS - 1;
+    await load();
+    await load.settled();
+    assert.equal(held.calls.length, 2);
+    clock += 1;
+    await load();
+    await load.settled();
+    assert.equal(held.calls.length, 4, 'and then once more');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('with no copy at all the pack answers empty at once, and holds the list once fetched', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-linked-none-'));
+  try {
+    const held = heldFetch();
+    const load = createLinkedLoader({
+      fetchImpl: held.fetchImpl,
+      qleverRequest: fakeQlever(new Error('unused')).request,
+      cacheDir: dir,
+      env: localEnv,
+    });
+    const empty = await load();
+    assert.deepEqual([empty.length, empty.everything.length], [0, 0]);
+    assert.deepEqual(
+      load.status().lists.map((l) => [l.at, l.refreshing]),
+      [
+        [null, true],
+        [null, true],
+      ],
+    );
+    assert.equal(
+      typeof empty.upstream,
+      'function',
+      'the readout rides with the list',
+    );
+    held.release();
+    await load.settled();
+    assert.equal((await load()).everything.length, 2);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -442,7 +659,7 @@ test('QLever rows become the same elements Overpass returns', () => {
   assert.deepEqual(qleverToElements([{ osm: { value: 42 } }, null]), []);
 });
 
-test('QLever is asked only after every Overpass mirror fails', async (t) => {
+test('QLever is asked only after every configured Overpass fails, or at once when none is', async (t) => {
   t.mock.method(console, 'log', () => {});
   t.mock.method(console, 'warn', () => {});
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-linked-ql-'));
@@ -457,9 +674,9 @@ test('QLever is asked only after every Overpass mirror fails', async (t) => {
       fetchImpl: good.fetchImpl,
       qleverRequest: unused.request,
       cacheDir: path.join(dir, 'a'),
-      env: {},
+      env: localEnv,
     });
-    assert.equal((await first()).everything.length, 2);
+    assert.equal((await loadSettled(first)).everything.length, 2);
     assert.equal(unused.calls.length, 0);
 
     // Every mirror fails: each is tried in order, then QLever once.
@@ -479,12 +696,12 @@ test('QLever is asked only after every Overpass mirror fails', async (t) => {
         return qlever.request(...args);
       },
       cacheDir: path.join(dir, 'b'),
-      env: {},
+      env: { OVERPASS_UPSTREAMS: `${LOCAL},https://b.example/api` },
     });
-    const result = await second();
+    const result = await loadSettled(second);
     assert.deepEqual(
       order.filter((href) => !href.includes('wikidata')),
-      [...DEFAULT_OVERPASS_MIRRORS, 'qlever'],
+      [LOCAL, 'https://b.example/api', 'qlever'],
     );
     assert.deepEqual(
       result.everything.map((s) => s.id).sort(),
@@ -506,6 +723,26 @@ test('QLever is asked only after every Overpass mirror fails', async (t) => {
       await fs.readFile(path.join(dir, 'b', 'osm.json'), 'utf8'),
     );
     assert.equal(cached.sources.length, 2);
+
+    // None configured: QLever at once, no public mirror.
+    const direct = [];
+    const third = createLinkedLoader({
+      fetchImpl: async (href, init) => {
+        direct.push(href);
+        return bad.fetchImpl(href, init);
+      },
+      qleverRequest: async (...args) => {
+        direct.push('qlever');
+        return qlever.request(...args);
+      },
+      cacheDir: path.join(dir, 'c'),
+      env: {},
+    });
+    assert.equal((await loadSettled(third)).everything.length, 3);
+    assert.deepEqual(
+      direct.filter((href) => !href.includes('wikidata')),
+      ['qlever'],
+    );
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -538,9 +775,9 @@ test('a bad QLever answer leaves the OSM list empty and is reported', async (t) 
         fetchImpl: fakeFetch({ osmStatus: 502 }).fetchImpl,
         qleverRequest: fakeQlever(reply).request,
         cacheDir: path.join(dir, String(i)),
-        env: {},
+        env: localEnv,
       });
-      const result = await load();
+      const result = await loadSettled(load);
       assert.deepEqual(
         result.everything.map((s) => s.id),
         ['wd-webcam-Q9-0'],
@@ -575,9 +812,9 @@ test('QLever connection failures get a few fresh attempts', async (t) => {
         return { status: 200, text: JSON.stringify(qleverBody) };
       },
       cacheDir: path.join(dir, 'a'),
-      env: {},
+      env: localEnv,
     });
-    assert.equal((await flaky()).everything.length, 3);
+    assert.equal((await loadSettled(flaky)).everything.length, 3);
     assert.equal(calls, 3);
 
     // Always timing out: a bounded number of attempts.
@@ -586,20 +823,22 @@ test('QLever connection failures get a few fresh attempts', async (t) => {
       fetchImpl: fakeFetch({ osmStatus: 502 }).fetchImpl,
       qleverRequest: down.request,
       cacheDir: path.join(dir, 'b'),
-      env: {},
+      env: localEnv,
     });
-    assert.equal((await never()).everything.length, 1);
+    assert.equal((await loadSettled(never)).everything.length, 1);
     assert.equal(down.calls.length, 4);
     assert.ok(warnings.some((w) => /QLever: connect ETIMEDOUT/.test(w)));
 
     // An answer that was read is never retried.
     const refused = fakeQlever({ status: 400, text: '{}' });
-    await createLinkedLoader({
-      fetchImpl: fakeFetch({ osmStatus: 502 }).fetchImpl,
-      qleverRequest: refused.request,
-      cacheDir: path.join(dir, 'c'),
-      env: {},
-    })();
+    await loadSettled(
+      createLinkedLoader({
+        fetchImpl: fakeFetch({ osmStatus: 502 }).fetchImpl,
+        qleverRequest: refused.request,
+        cacheDir: path.join(dir, 'c'),
+        env: localEnv,
+      }),
+    );
     assert.equal(refused.calls.length, 1);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -672,6 +911,34 @@ test('the QLever transport posts a form and caps what it reads', async (t) => {
     }),
     /response too large/,
   );
+  t.mock.restoreAll();
+
+  // Aborted by the refresh's deadline: before it starts, and while it runs.
+  const gone = new AbortController();
+  gone.abort(new Error('deadline'));
+  await assert.rejects(
+    postForm('https://q.example/api', 'query=x', {
+      timeoutMs: 1000,
+      maxBytes: 100,
+      signal: gone.signal,
+    }),
+    /deadline/,
+  );
+  t.mock.method(https, 'request', () => {
+    const request = new EventEmitter();
+    request.destroy = (error) =>
+      queueMicrotask(() => request.emit('error', error));
+    request.end = () => {};
+    return request;
+  });
+  const cut = new AbortController();
+  const pending = postForm('https://q.example/api', 'query=x', {
+    timeoutMs: 60_000,
+    maxBytes: 100,
+    signal: cut.signal,
+  });
+  cut.abort(new Error('deadline'));
+  await assert.rejects(pending, /deadline/);
 });
 
 test('linked webcams reach proximity queries but not the capped catalog', async (t) => {
@@ -713,6 +980,15 @@ test('linked webcams reach proximity queries but not the capped catalog', async 
       ['osm-webcam-n1', 'linked', 'image'],
       ['wd-webcam-Q9-0', 'linked', 'link'],
     ]);
+    // The status readout asks the pack how old its lists are.
+    const linked = getSources.status().packs.find((p) => p.name === 'linked');
+    assert.deepEqual(
+      linked.upstream().lists.map((l) => [l.name, l.count, l.refreshing]),
+      [
+        ['osm', 1, false],
+        ['wikidata', 1, false],
+      ],
+    );
   } finally {
     for (const key of Object.keys(process.env))
       if (!(key in saved)) delete process.env[key];

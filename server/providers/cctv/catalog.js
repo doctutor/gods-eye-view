@@ -576,8 +576,8 @@ export function summarizePacks({
         lastError: null,
       };
       const result = results[index];
+      const value = result?.status === 'fulfilled' ? result.value : null;
       if (isEnabled && result) {
-        const value = result.status === 'fulfilled' ? result.value : null;
         const got =
           (Array.isArray(value?.everything) && value.everything.length) ||
           value?.length ||
@@ -612,6 +612,11 @@ export function summarizePacks({
         dedupedAway: Math.max(0, (offered.get(pack.name) || 0) - inIndex),
         lastRefreshAt: past.lastRefreshAt,
         lastError: past.lastError,
+        // Personal fork: a pack that refreshes on its own (linked.js) says,
+        // when asked, how old its lists are and how their refresh goes.
+        ...(typeof value?.upstream === 'function'
+          ? { upstream: value.upstream }
+          : {}),
         // Enabled but deliberately empty (no key), with the reason.
         ...(past.skipped ? { skipped: past.skipped } : {}),
       };

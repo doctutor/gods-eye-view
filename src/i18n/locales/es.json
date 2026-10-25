@@ -3832,5 +3832,9 @@
   "Cottereau’s labels": "Etiquetas de Cottereau",
   "Opacity of Cottereau’s borders": "Opacidad de las fronteras de Cottereau",
   "Cottereau only": "Solo Cottereau",
-  "Cliopatria only": "Solo Cliopatria"
+  "Cliopatria only": "Solo Cliopatria",
+  "data {age}": "datos {age}",
+  "no data yet": "aún sin datos",
+  "refreshing": "actualizando",
+  "{list} refresh failed {age}: {error}": "{list}: la actualización falló {age}: {error}"
 }
