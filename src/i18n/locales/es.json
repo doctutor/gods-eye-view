@@ -3832,5 +3832,14 @@
   "Cottereau’s labels": "Etiquetas de Cottereau",
   "Opacity of Cottereau’s borders": "Opacidad de las fronteras de Cottereau",
   "Cottereau only": "Solo Cottereau",
-  "Cliopatria only": "Solo Cliopatria"
+  "Cliopatria only": "Solo Cliopatria",
+  "Photoreal on bricks needs the Google 3D map": "Fotorrealista sobre ladrillos necesita el mapa Google 3D",
+  "Photoreal on bricks waits for the bricks": "Fotorrealista sobre ladrillos espera a los ladrillos",
+  "Loading the geoid…": "Cargando el geoide…",
+  "Relief": "Relieve",
+  "Relief: the Google 3D tiles (and the terrain) drawn taller, about the ground in the middle of the view": "Relieve: las teselas de Google 3D (y el terreno) más altas, respecto al suelo en el centro de la vista",
+  "Relief ×1": "Relieve ×1",
+  "Relief ×{factor}": "Relieve ×{factor}",
+  "Lift each cell of the Google 3D tiles onto its brick": "Eleva cada celda de las teselas de Google 3D sobre su ladrillo",
+  "Photoreal on bricks": "Fotorrealista sobre ladrillos"
 }

@@ -227,21 +227,30 @@ export function liftFrame(header) {
 }
 
 /**
- * A point in the window's east-north-up frame (m) to its latitude and
- * longitude (radians), as the shader does it: the north offset less the
- * parallel's rise in the tangent plane (x² tan φ / 2Rn), over Rm; the east
- * offset over Rn cos φ, with cos φ by its first-order series about the
- * centre. No trig per vertex.
+ * A point in the window's east-north-up frame (m, `z` up) to its latitude
+ * and longitude (radians), as the shader does it:
+ * - down to the ground under it first: a point h above the ellipsoid lies
+ *   1 + h/R farther out in the tangent plane (h from z and the plane's
+ *   drop, (x² + y²) / 2R), 31 m for a 4,000 m peak 50 km out;
+ * - the north offset less the parallel's rise in the tangent plane
+ *   (x² tan φ / 2Rn), over Rm;
+ * - the east offset over Rn cos φ, with cos φ by its first-order series
+ *   about the centre.
+ * No trig per vertex.
  */
-export function enuToLatLon(x, y, frame) {
+export function enuToLatLon(x0, y0, frame, z = 0) {
+  const h = z + (x0 * x0 + y0 * y0) / (2 * frame.rn);
+  const scale = 1 + h / frame.rn;
+  const x = x0 / scale;
+  const y = y0 / scale;
   const lat = frame.lat + (y - (x * x * frame.tan) / (2 * frame.rn)) / frame.rm;
   const cosLat = frame.cos - frame.sin * (lat - frame.lat);
   return { lat, lon: frame.lon + x / (frame.rn * cosLat) };
 }
 
 /** That point's cell (col, row) and the window's uv, or null outside. */
-export function enuToCell(x, y, frame) {
-  const { lat, lon } = enuToLatLon(x, y, frame);
+export function enuToCell(x, y, frame, z = 0) {
+  const { lat, lon } = enuToLatLon(x, y, frame, z);
   const [west, south, east, north] = frame.box;
   const u = (lon - west) / (east - west);
   const v = (north - lat) / (north - south);
@@ -299,15 +308,17 @@ export function worldToWindowMatrix(frame) {
  * faded to 0 over u_edgeBand of a cell at its edges, added along the
  * window's up vector in model coordinates. The fragment stage only paints
  * when u_debug is set: a triangle whose corners were lifted differently (a
- * "curtain") red, the rest green, for measuring.
+ * "curtain") red, the rest blue, for measuring.
  */
 export const LIFT_VERTEX_SHADER = `
 void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput) {
   vec3 ec = (czm_modelView * vec4(vsOutput.positionMC, 1.0)).xyz;
   vec3 enu = (u_ecToWindow * vec4(ec, 1.0)).xyz;
-  float lat = u_origin.x + (enu.y - enu.x * enu.x * u_radii.z / (2.0 * u_radii.x)) / u_radii.y;
+  float h = enu.z + dot(enu.xy, enu.xy) / (2.0 * u_radii.x);
+  vec2 g = enu.xy / (1.0 + h / u_radii.x);
+  float lat = u_origin.x + (g.y - g.x * g.x * u_radii.z / (2.0 * u_radii.x)) / u_radii.y;
   float cosLat = u_origin.z - u_origin.w * (lat - u_origin.x);
-  float lon = u_origin.y + enu.x / (u_radii.x * cosLat);
+  float lon = u_origin.y + g.x / (u_radii.x * cosLat);
   vec2 uv = vec2((lon - u_box.x) / (u_box.z - u_box.x), (u_box.w - lat) / (u_box.w - u_box.y));
   float lift = 0.0;
   if (uv.x >= 0.0 && uv.x < 1.0 && uv.y >= 0.0 && uv.y < 1.0) {
@@ -332,8 +343,7 @@ export const LIFT_FRAGMENT_SHADER = `
 void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
   if (u_debug > 0.5) {
     bool curtain = fwidth(v_lift) > 0.05;
-    material.diffuse = curtain ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
-    material.emissive = material.diffuse;
+    material.diffuse = curtain ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0);
   }
 }
 `;
@@ -541,6 +551,8 @@ export function createPhotorealController({
         u_debug: { type: U.FLOAT, value: debug ? 1 : 0 },
       },
       varyings: { v_lift: cesium.VaryingType.FLOAT },
+      // The debug colours unlit, so they can be counted.
+      ...(debug ? { lightingModel: cesium.LightingModel.UNLIT } : {}),
       vertexShaderText: LIFT_VERTEX_SHADER,
       fragmentShaderText: LIFT_FRAGMENT_SHADER,
     });
@@ -666,7 +678,7 @@ export function createPhotorealController({
     unliftHeight(lonDeg, latDeg, heightM) {
       if (!frame || !lifts) return heightM;
       const enu = toWindowEnu(ecef(lonDeg, latDeg, heightM), frame);
-      const cell = enuToCell(enu[0], enu[1], frame);
+      const cell = enuToCell(enu[0], enu[1], frame, enu[2]);
       if (!cell) return heightM;
       const lift = lifts[cell.row * frame.cols + cell.col];
       return Number.isFinite(lift) ? heightM - lift : heightM;
