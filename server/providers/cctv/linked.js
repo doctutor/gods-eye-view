@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import https from 'node:https';
 import path from 'node:path';
+import { parseOverpassUpstreams } from '../overpass/constants.js';
 import { isPlausibleLatLon } from './normalize.js';
 import { withObservations } from './observed.js';
 
@@ -9,8 +10,10 @@ import { withObservations } from './observed.js';
  *
  * - OpenStreetMap: every object tagged `contact:webcam` (about ten thousand
  *   worldwide: harbours, ski areas, squares, viewpoints, observatories), via
- *   Overpass, or QLever's OpenStreetMap index when every Overpass mirror
- *   fails. ODbL; the shared OpenStreetMap credit shows while any is loaded.
+ *   the configured Overpass (OVERPASS_UPSTREAMS, as every other Overpass
+ *   use in the app; no public mirror of its own), or QLever's OpenStreetMap
+ *   index when those fail or none is set. ODbL; the shared OpenStreetMap
+ *   credit shows while any is loaded.
  * - Wikidata: every item with a "webcam URL" (P4238) and coordinates (about
  *   six hundred notable landmarks). CC0.
  *
@@ -20,7 +23,12 @@ import { withObservations } from './observed.js';
  * everything to the proximity index, so these appear only near the view.
  *
  * Both lists change slowly: each is fetched at most once a week and kept on
- * disk (.gev-cache/cctv-linked/); a failed fetch keeps serving the old copy.
+ * disk (.gev-cache/cctv-linked/). The catalog never waits for a fetch
+ * (stale-while-revalidate): a stale copy is served at once while one
+ * refresh runs in the background, bounded by LINKED_REFRESH_DEADLINE_MS,
+ * and after a failure the next waits LINKED_RETRY_MS. With no copy at all
+ * the pack is empty until its first fetch lands; the catalog's next
+ * rebuild (it retries an empty pack within minutes) picks the new list up.
  *
  * Personal-fork pack; not part of upstream God's Eye View.
  */
@@ -29,7 +37,13 @@ export const LINKED_CACHE_DIR = path.join('.gev-cache', 'cctv-linked');
 /** A cached list is refetched after this long. */
 export const LINKED_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** After a failed fetch, the next attempt waits this long. */
-export const LINKED_RETRY_MS = 30 * 60 * 1000;
+export const LINKED_RETRY_MS = 60 * 60 * 1000;
+/**
+ * A background refresh gives up after this long, whatever it was waiting
+ * on (every Overpass endpoint and QLever's attempts could otherwise take
+ * half an hour).
+ */
+export const LINKED_REFRESH_DEADLINE_MS = 5 * 60 * 1000;
 const MAX_BYTES = 16 * 1024 * 1024;
 const MAX_QLEVER_BYTES = 32 * 1024 * 1024;
 const OVERPASS_TIMEOUT_MS = 180 * 1000;
@@ -44,16 +58,6 @@ const QLEVER_RETRY_CODES = new Set([
 ]);
 const WIKIDATA_TIMEOUT_MS = 90 * 1000;
 
-/** Public Overpass mirrors, tried in order when OVERPASS_UPSTREAMS is unset. */
-export const DEFAULT_OVERPASS_MIRRORS = Object.freeze([
-  'https://overpass-api.de/api/interpreter',
-  'https://lz4.overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  // Worldwide community mirror; answered when the main servers were at
-  // capacity for two days (2026-10-16). overpass.osm.ch is not listed: it
-  // covers Switzerland only.
-  'https://overpass.private.coffee/api/interpreter',
-]);
 export const OVERPASS_WEBCAM_QUERY =
   '[out:json][timeout:240];nwr["contact:webcam"];out tags center;';
 /**
@@ -374,16 +378,27 @@ export function qleverToElements(bindings) {
  * POST a form over node:https and read at most maxBytes of the answer.
  * QLever can take 20–30 s to accept a connection, past fetch()'s fixed 10 s
  * connect timeout, so this path does not use fetch(). Redirects are not
- * followed (a 3xx comes back as its status).
+ * followed (a 3xx comes back as its status). `signal` aborts it.
  * @returns {Promise<{status: number, text: string}>}
  */
-export function postForm(url, body, { headers = {}, timeoutMs, maxBytes }) {
+export function postForm(
+  url,
+  body,
+  { headers = {}, timeoutMs, maxBytes, signal },
+) {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason || new Error('aborted'));
+      return;
+    }
     let settled = false;
+    const onAbort = () =>
+      request.destroy(signal.reason || new Error('aborted'));
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       fn(value);
     };
     const request = https.request(
@@ -424,26 +439,35 @@ export function postForm(url, body, { headers = {}, timeoutMs, maxBytes }) {
       () => request.destroy(new Error('timed out')),
       timeoutMs,
     );
+    signal?.addEventListener('abort', onAbort, { once: true });
     request.on('error', (error) => finish(reject, error));
     request.end(body);
   });
 }
 
-/** Overpass endpoints: the configured chain, else public mirrors. */
+/**
+ * Overpass endpoints: the configured chain (OVERPASS_UPSTREAMS, read as the
+ * Overpass proxy reads it), else none: then QLever alone.
+ */
 export function overpassEndpoints(env = process.env) {
-  const configured = String(env.OVERPASS_UPSTREAMS || '')
-    .split(',')
-    .map((token) => token.trim())
-    .filter((token) => /^https?:\/\//.test(token));
-  return configured.length ? configured : [...DEFAULT_OVERPASS_MIRRORS];
+  return parseOverpassUpstreams(env.OVERPASS_UPSTREAMS);
 }
+
+/** A per-call timeout that the refresh's own deadline can cut short. */
+const within = (ms, signal) =>
+  signal
+    ? AbortSignal.any([AbortSignal.timeout(ms), signal])
+    : AbortSignal.timeout(ms);
 
 /**
  * The pack loader. Returns an empty capped list whose `everything` holds all
  * linked webcams, so the proximity index gets them and the startup catalog
- * stays as it was.
+ * stays as it was; it never waits for a fetch. `loader.settled()` resolves
+ * once no refresh is running (tests, and a caller that wants to wait), and
+ * `loader.status()` says each list's age and refresh.
  * @param {{fetchImpl?: typeof fetch, qleverRequest?: typeof postForm,
- *   now?: () => number, cacheDir?: string, env?: object}} [options]
+ *   now?: () => number, cacheDir?: string, env?: object,
+ *   deadlineMs?: number}} [options]
  */
 export function createLinkedLoader({
   fetchImpl = (...args) => fetch(...args),
@@ -451,10 +475,25 @@ export function createLinkedLoader({
   now = () => Date.now(),
   cacheDir,
   env = process.env,
+  deadlineMs = LINKED_REFRESH_DEADLINE_MS,
 } = {}) {
-  /** name → {at, sources} in memory; failures → next attempt time. */
-  const memory = new Map();
-  const retryAt = new Map();
+  /**
+   * name → {data: {at, sources} | null, read (disk read once), refreshing
+   * (the running refresh's promise), failedAt, error, retryAt}.
+   */
+  const lists = new Map();
+  const listState = (name) => {
+    if (!lists.has(name))
+      lists.set(name, {
+        data: null,
+        read: false,
+        refreshing: null,
+        failedAt: null,
+        error: null,
+        retryAt: -Infinity,
+      });
+    return lists.get(name);
+  };
 
   function cacheFile(sourceRoot, name) {
     return path.join(
@@ -483,9 +522,10 @@ export function createLinkedLoader({
     }
   }
 
-  async function fetchOsm() {
+  async function fetchOsm(signal) {
     let lastError = null;
     for (const endpoint of overpassEndpoints(env)) {
+      if (signal?.aborted) throw signal.reason;
       try {
         const response = await fetchImpl(endpoint, {
           method: 'POST',
@@ -495,7 +535,7 @@ export function createLinkedLoader({
             Accept: 'application/json',
           },
           body: `data=${encodeURIComponent(OVERPASS_WEBCAM_QUERY)}`,
-          signal: AbortSignal.timeout(OVERPASS_TIMEOUT_MS),
+          signal: within(OVERPASS_TIMEOUT_MS, signal),
           redirect: 'error',
         });
         const text = await readText(response);
@@ -508,20 +548,23 @@ export function createLinkedLoader({
         lastError = error;
       }
     }
-    // Every mirror failed (they refused this query for days in 2026-10):
-    // the same objects from QLever's planet index.
+    // Every endpoint failed, or none is configured: the same objects from
+    // QLever's planet index.
+    if (signal?.aborted) throw signal.reason;
     try {
-      return await fetchQlever();
+      return await fetchQlever(signal);
     } catch (error) {
+      if (signal?.aborted) throw signal.reason;
       throw new Error(
         `${lastError?.message || 'No Overpass endpoint'}; QLever: ${error?.message}`,
       );
     }
   }
 
-  async function fetchQlever() {
+  async function fetchQlever(signal) {
     let answer;
     for (let attempt = 1; !answer; attempt++) {
+      if (signal?.aborted) throw signal.reason;
       try {
         answer = await qleverRequest(
           QLEVER_OSM_ENDPOINT,
@@ -533,6 +576,7 @@ export function createLinkedLoader({
             },
             timeoutMs: QLEVER_TIMEOUT_MS,
             maxBytes: MAX_QLEVER_BYTES,
+            signal,
           },
         );
       } catch (error) {
@@ -557,14 +601,14 @@ export function createLinkedLoader({
     return osmToSources(qleverToElements(bindings));
   }
 
-  async function fetchWikidata() {
+  async function fetchWikidata(signal) {
     const url = `${WIKIDATA_SPARQL}?query=${encodeURIComponent(WIKIDATA_WEBCAM_QUERY)}`;
     const response = await fetchImpl(url, {
       headers: {
         Accept: 'application/sparql-results+json',
         'User-Agent': USER_AGENT,
       },
-      signal: AbortSignal.timeout(WIKIDATA_TIMEOUT_MS),
+      signal: within(WIKIDATA_TIMEOUT_MS, signal),
       redirect: 'error',
     });
     const text = await readText(response);
@@ -580,47 +624,111 @@ export function createLinkedLoader({
     return text;
   }
 
-  /** One list: memory, else fresh disk, else a fetch, else stale disk. */
-  async function list(sourceRoot, name, fetcher) {
-    const t = now();
-    const held = memory.get(name);
-    if (held && t - held.at < LINKED_TTL_MS) return held.sources;
-    const file = cacheFile(sourceRoot, name);
-    const disk = held || readCache(file);
-    if (disk && t - disk.at < LINKED_TTL_MS) {
-      memory.set(name, disk);
-      return disk.sources;
-    }
-    if ((retryAt.get(name) ?? -Infinity) > t) return disk?.sources || [];
-    try {
-      const sources = await fetcher();
-      const payload = { at: t, sources };
-      memory.set(name, payload);
-      writeCache(file, payload);
-      console.log(`[CCTV] Loaded ${name} webcam links: ${sources.length}`);
-      return sources;
-    } catch (error) {
-      retryAt.set(name, t + LINKED_RETRY_MS);
-      console.warn(
-        `[CCTV] ${name} webcam links unavailable (${error?.message}); ` +
-          (disk ? `serving ${disk.sources.length} cached` : 'none cached'),
-      );
-      if (disk) memory.set(name, disk);
-      return disk?.sources || [];
-    }
+  /**
+   * One refresh of a list in the background: one at a time, given up at
+   * the deadline (every request it made is aborted, so nothing outlives
+   * it), a failure waiting LINKED_RETRY_MS before the next.
+   */
+  function refresh(state, file, name, fetcher) {
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () =>
+        controller.abort(
+          new Error(`no answer within ${Math.round(deadlineMs / 1000)} s`),
+        ),
+      deadlineMs,
+    );
+    timer.unref?.();
+    state.refreshing = (async () => {
+      try {
+        const sources = await fetcher(controller.signal);
+        if (controller.signal.aborted) throw controller.signal.reason;
+        const payload = { at: now(), sources };
+        state.data = payload;
+        state.failedAt = null;
+        state.error = null;
+        state.retryAt = -Infinity;
+        writeCache(file, payload);
+        console.log(`[CCTV] Loaded ${name} webcam links: ${sources.length}`);
+      } catch (error) {
+        const reason = controller.signal.aborted
+          ? controller.signal.reason
+          : error;
+        state.failedAt = now();
+        state.error = String(reason?.message || reason).slice(0, 200);
+        state.retryAt = state.failedAt + LINKED_RETRY_MS;
+        console.warn(
+          `[CCTV] ${name} webcam links unavailable (${state.error}); ` +
+            (state.data
+              ? `serving ${state.data.sources.length} cached`
+              : 'none cached'),
+        );
+      } finally {
+        clearTimeout(timer);
+        controller.abort(new Error('refresh over'));
+        state.refreshing = null;
+      }
+    })();
   }
 
-  return async function loadLinkedWebcams({ sourceRoot = process.cwd() } = {}) {
-    const [osm, wikidata] = await Promise.all([
-      list(sourceRoot, 'osm', fetchOsm),
-      list(sourceRoot, 'wikidata', fetchWikidata),
-    ]);
+  /** One list, at once: what is held (fresh or stale, or nothing); a refresh started when it is due. */
+  function list(sourceRoot, name, fetcher) {
+    const state = listState(name);
+    const file = cacheFile(sourceRoot, name);
+    if (!state.read) {
+      state.data = readCache(file);
+      state.read = true;
+    }
+    const t = now();
+    const fresh = state.data && t - state.data.at < LINKED_TTL_MS;
+    if (!fresh && !state.refreshing && t >= state.retryAt)
+      refresh(state, file, name, fetcher);
+    return state.data?.sources || [];
+  }
+
+  /** Each list's age and refresh, for the status readout. */
+  function status() {
+    const iso = (ms) =>
+      Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+    return {
+      lists: ['osm', 'wikidata'].map((name) => {
+        const state = listState(name);
+        return {
+          name,
+          at: iso(state.data?.at),
+          count: state.data?.sources.length ?? 0,
+          refreshing: Boolean(state.refreshing),
+          lastFailedAt: iso(state.failedAt),
+          lastError: state.error,
+          nextAttemptAt: state.failedAt ? iso(state.retryAt) : null,
+        };
+      }),
+    };
+  }
+
+  async function loadLinkedWebcams({ sourceRoot = process.cwd() } = {}) {
+    const osm = list(sourceRoot, 'osm', fetchOsm);
+    const wikidata = list(sourceRoot, 'wikidata', fetchWikidata);
     const everything = [...osm, ...wikidata];
     const kept = [];
     Object.defineProperty(kept, 'everything', { value: everything });
     Object.defineProperty(kept, 'available', { value: everything.length });
     Object.defineProperty(kept, 'proximityOnly', { value: true });
+    // The lists' age and refresh, read when the status is asked for.
+    Object.defineProperty(kept, 'upstream', { value: status });
     // Personal fork: what viewers' frame fetches saw (observed.js).
     return withObservations(kept, sourceRoot);
+  }
+  loadLinkedWebcams.status = status;
+  /** Resolves once no refresh is running. */
+  loadLinkedWebcams.settled = async () => {
+    for (;;) {
+      const running = [...lists.values()]
+        .map((state) => state.refreshing)
+        .filter(Boolean);
+      if (!running.length) return;
+      await Promise.all(running);
+    }
   };
+  return loadLinkedWebcams;
 }

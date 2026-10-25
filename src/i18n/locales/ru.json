@@ -3934,5 +3934,9 @@
   "Relief ×1": "Рельеф ×1",
   "Relief ×{factor}": "Рельеф ×{factor}",
   "Lift each cell of the Google 3D tiles onto its brick": "Поднять каждую ячейку тайлов Google 3D на её кирпич",
-  "Photoreal on bricks": "Фотореализм на кирпичах"
+  "Photoreal on bricks": "Фотореализм на кирпичах",
+  "data {age}": "данные {age}",
+  "no data yet": "данных пока нет",
+  "refreshing": "обновляется",
+  "{list} refresh failed {age}: {error}": "{list}: обновление не удалось {age}: {error}"
 }

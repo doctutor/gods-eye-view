@@ -3841,5 +3841,9 @@
   "Relief ×1": "Relieve ×1",
   "Relief ×{factor}": "Relieve ×{factor}",
   "Lift each cell of the Google 3D tiles onto its brick": "Eleva cada celda de las teselas de Google 3D sobre su ladrillo",
-  "Photoreal on bricks": "Fotorrealista sobre ladrillos"
+  "Photoreal on bricks": "Fotorrealista sobre ladrillos",
+  "data {age}": "datos {age}",
+  "no data yet": "aún sin datos",
+  "refreshing": "actualizando",
+  "{list} refresh failed {age}: {error}": "{list}: la actualización falló {age}: {error}"
 }

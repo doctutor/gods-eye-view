@@ -178,17 +178,33 @@ Code: `server/providers/cctv/windy.js`.
 coordinates (about 600). Direct image, HLS and YouTube links play in the app.
 Links to an operator's page become pins that open the page.
 
-**Where it comes from, and terms.** Overpass (upstream's `OVERPASS_UPSTREAMS`,
-else four public mirrors), falling back to QLever's OSM planet endpoint when
-every mirror fails. Wikidata comes from its SPARQL endpoint. OpenStreetMap
-data is ODbL and Wikidata is CC0; each feed belongs to its operator.
+**Where it comes from, and terms.** The configured Overpass only
+(`OVERPASS_UPSTREAMS`, read as the Overpass proxy reads it: the local
+instance here), falling back to QLever's OSM planet endpoint when every
+configured endpoint fails, or at once when none is set. There is no public
+mirror list of its own any more. Wikidata comes from its SPARQL endpoint.
+OpenStreetMap data is ODbL and Wikidata is CC0; each feed belongs to its
+operator.
 
 **Switches.** `CCTV_LINKED_ENABLED` (`1`), `OVERPASS_UPSTREAMS` (shared with
 upstream).
 
 **Cache.** `.gev-cache/cctv-linked/osm.json` and `wikidata.json`, refreshed
-weekly. After a failure it retries in 30 minutes and serves the stale copy
-meanwhile.
+weekly, stale-while-revalidate:
+
+- The CCTV catalog never waits for the pack. A stale copy is served at once
+  while one refresh per list runs in the background.
+- A refresh gives up after 5 minutes (`LINKED_REFRESH_DEADLINE_MS`) and
+  aborts every request it made. Before, a catalog rebuild could wait about
+  32 minutes when every upstream failed (4 mirrors × 180 s plus 4 QLever
+  attempts × 300 s).
+- After a failure the next refresh waits an hour (`LINKED_RETRY_MS`).
+- With no copy at all the pack is empty until its first fetch lands. The
+  catalog retries an empty pack within two minutes and picks the list up
+  then.
+- The status (`/api/cctv/status`, the SOURCES block) shows each list's data
+  age, "refreshing" while a refresh runs, and the last failure with its
+  time.
 
 **Limits.** Since 2026-10-14 the public Overpass mirrors refuse this query, so
 the OSM half arrives through QLever (up to 5 minutes, 32 MB).
@@ -797,9 +813,14 @@ Engine catalogue, with no data fetched:
 | Natural Earth 10m                      | 0, 1 (2: US counties only)                                          | Public domain                               | v5.1.1 on its download page; boundaries change slowly                                          | De facto by default ("who controls the territory"), with point-of-view editions for several dozen countries and disputed-area themes                     | 1:10 million, about 1 km; good from orbit, coarse below a few hundred km                                                                                      |
 | Overture divisions (2026-09-23.1)      | country, dependency, (macro)region, (macro)county, down to locality | ODbL (from OpenStreetMap and geoBoundaries) | Monthly releases                                                                               | Per boundary: `is_disputed`, and `perspectives` with `accepted_by` / `disputed_by` countries, so a map can be drawn from one country's view or neutrally | OpenStreetMap detail (metres), areas land-clipped or with territorial sea; `division_boundary` is lines, `division_area` polygons; sub-county coverage spotty |
 
-**Recommendation.** Keep GAUL for the regions and districts: it is
-current, CC BY 4.0, one feature per unit, and already in use. For the
-countries, LSIB 2017 is the weak link. It is eight years old, its coasts
+**Recommendation.** Since 2026-10-25, GAUL is no longer kept for the
+regions and districts where Overture draws them: below 5,000 km
+(REGIONS) and 1,000 km (DISTRICTS), wherever Overture has lines of the
+level, the layer draws Overture's region and county lines (see "Built
+(2026-10-25)" below). GAUL stays above those heights and where Overture
+lacks the level: it is current, CC BY 4.0, one feature per unit, and
+draws coasts, which Overture's lines do not. For the countries, LSIB
+2017 is the weak link. It is eight years old, its coasts
 are off by up to a kilometre, and its lines are one government's policy.
 The best replacement is **Overture's `division_boundary`, country
 subtype**:
@@ -873,8 +894,86 @@ are built, and LSIB 2017 from Earth Engine only without them.
   beside the Overture buildings' credit): © OpenStreetMap contributors,
   Overture Maps Foundation, ODbL. It is registered while the lines draw.
 
-GAUL's levels could follow later from `division_area`, region and county,
-which is 4.5 GB, but GAUL is fine there.
+**Built (2026-10-25): region and county lines.** The same build now keeps
+the `region` and `county` subtypes too, and REGIONS and DISTRICTS draw
+them close in.
+
+- **Why:** over Baltimore, GAUL's county lines that follow the shore ran
+  hundreds of metres to over a kilometre off the imagery, looping across
+  the harbour. The city's own straight edges were close.
+- **What is kept:** all 87,530 lines, 35.3 million points (557 country,
+  8,202 region with 8.7 M points, 78,771 county with 24.0 M). Region lines
+  are kept from the z 4 band on, county lines from z 7
+  (`SUBTYPE_MIN_ZOOM`): from farther out a county line is noise. Each
+  line's class now names its subtype, and disputes are kept as before
+  (`is_disputed`, and `perspectives` when present).
+- **Coverage:** region lines in 211 countries, county lines in 164. The
+  gaps are real: Brazil has no county lines in this release, South Africa
+  78, Pakistan 61. The build writes to the manifest which z 6 cells
+  (`coverage.region`, `coverage.county`; 755 and 820 cells) have lines of
+  each level, and the lines per country (`byCountry`).
+- **Measured** on 2026-10-25, building into a scratch directory: 17.9 s
+  (15.5 s reading), 43.1 MB of level files (z 10–14: 15.6 M points,
+  35.2 MB; z 7–9: 3.6 M, 5.6 MB), about 300 MB resident, within the
+  default heap.
+- **Server:** the same routes, with a set before the ink:
+  `/api/boundaries/countries/tile/regions/<ink>/<z>/<x>/<y>` draws the
+  country and region lines, `…/tile/districts/…` all three. A tile draws
+  only its set's subtypes. `/layers` gives each set's versions and its
+  covered cells. The country tiles keep their versions.
+- **Client:** `level1` (REGIONS) and `level2` (DISTRICTS) name
+  `local: 'overture-boundaries'` with a `localSet` and a `localBelowM`
+  (`OVERTURE_REGIONS_BELOW_M` 5,000 km, `OVERTURE_DISTRICTS_BELOW_M`
+  1,000 km). Below its height, and where the cell under the view (or one
+  of the eight around it) has lines of the level, the local set draws in
+  place of GAUL, in the same inks and opacity. AUTO follows: regions below
+  5,000 km and districts below 800 km are Overture's where it has them.
+  Above, and anywhere without the level (Brazil's districts, the open
+  sea), GAUL draws from Earth Engine as before.
+- **The heights:** on a 1,600 px canvas a pixel is about the camera height
+  divided by 1,400. GAUL's worst stretches (p99 1.4 to 1.9 km, below) show
+  as a pixel or more below about 1,400 km, and its median errors only
+  very close in. County lines are built from z 7, which a 1,000 px canvas
+  drapes from about 1,050 km down, hence DISTRICTS at 1,000 km. Region
+  lines start at z 4 (about 8,500 km on that canvas), hence REGIONS at
+  5,000 km, where AUTO hands over to the countries anyway.
+- **Coasts:** `division_boundary` holds lines between divisions (and
+  maritime ones), never coastlines. Where Overture draws, a county's coast
+  has no line, and the imagery or basemap shows the shore. That is the
+  Baltimore fix by construction: no shore-following line can be off the
+  shore.
+- **Credit:** `OVERTURE_BOUNDARIES_CREDIT` now reads "Boundary lines: ©
+  OpenStreetMap contributors, Overture Maps Foundation (ODbL)", and is
+  registered whenever any of Overture's sets draws.
+
+**Measured against OpenStreetMap (2026-10-25).** Samples every 50 m along
+an OSM relation's boundary (the local Overpass), each measured to the
+nearest line Overture's z 10–14 tiles draw (decoded from the level file
+as the tiles are) and to the nearest edge of FAO GAUL 2025 level 2 (its
+units around the place, from Earth Engine). "Where Overture draws it" is
+the samples with an Overture line within 1 km; the rest is coast.
+
+| Place (OSM relation)                         | Overture draws | Overture, median / p90 | GAUL there, median / p90 / p99  | GAUL on the coast, median / p90 / p99 |
+| -------------------------------------------- | -------------- | ---------------------- | ------------------------------- | ------------------------------------- |
+| Baltimore City (133345), 66 km               | 100%           | 0.6 m / 2.7 m          | 9.3 m / 31 m / 1,438 m          | (no coast in the relation)            |
+| Finistère, département 29 (102430), 6,486 km | 10.9%          | 1.2 m / 4.4 m          | 5.4 m / 21 m / 56 m             | 3.5 m / 65 m / 1,879 m                |
+| Qingdao prefecture (3469133), 1,114 km       | 91.0%          | 0.4 m / 2.5 m          | 2,391 m / 30,357 m / over 25 km | over 25 km                            |
+
+- In Baltimore, 7.8% of the city's boundary is more than 100 m from GAUL's
+  lines: the Patapsco and harbour stretches. Overture's worst point is
+  3 m.
+- Finistère's relation is mostly coast and islands, which Overture does
+  not draw. Its land borders are within a few metres. Its p99 of 264 m is
+  coast samples within 1 km of another line.
+- GAUL's units around Qingdao do not follow the prefecture's OSM boundary
+  at all (median 2.4 km off, p90 30 km; the cause was not looked into).
+  There GAUL is off at any height where districts show, so the heights
+  above are set by the good cases.
+
+**What `division_area` would add** (4.5 GB, not used): polygons, so
+fills (a colour per region or county), click-to-identify (which county
+is under the pointer, with its name), and coasts drawn as each unit's
+outline. Lines need none of that, so the build leaves it out.
 
 **Not recommended.**
 
@@ -3887,9 +3986,10 @@ E:/gev-data/osm/planet-261012.osm.pbf`): osmium in the Overpass image
 **What the app does with it**:
 
 - The reach card (`src/layers/rivers/reachCard.js`) is titled by the name
-  at the click (`osmName` on the `/api/rivers/reach` answer): a named v2
-  reach within 150 m first, else the nearest named OSM waterway within
-  150 m (how v1's reaches outside the Americas get a name), in its own
+  at the click (`osmName` on the `/api/rivers/reach` answer): the named
+  line nearest for its river's size (see below), a named v2 reach before
+  OSM's own waterway of the same name (how v1's reaches outside the
+  Americas get a name), in its own
   language with `name:en` in brackets when different; then v1's
   `BB_NAME`, "Tributary of …", the basin, and "Unnamed river" only when
   nothing matched. A line under it says where the name came from
@@ -3899,6 +3999,52 @@ E:/gev-data/osm/planet-261012.osm.pbf`): osmium in the Overpass image
   (`/api/rivers/names/labels`), overlay variant `label`, so the panel's
   Titles toggle hides them like the others.
 - `GET /api/rivers/names/nearest?lat=&lon=` answers a point's name too.
+
+**The radius follows the river's size** (`nearestRadiusM` and
+`chooseNearest`, `server/providers/riverNames/index.js`, since 2026-10-24).
+On a wide river a point on the water can lie half the river's width from
+the centreline OSM draws, and v2's reach can sit up to the matcher's 250 m
+from that line. So one fixed radius missed the wide rivers.
+
+- **Measured from points on the water:**
+
+  | River                      | Strahler order | Distance to its line |
+  | -------------------------- | -------------- | -------------------- |
+  | Gwynns Falls               | 4              | 124 m                |
+  | Potomac at Georgetown      | 8              | 6 m                  |
+  | Hudson off Manhattan       | 8              | 584 m                |
+  | Missouri at St. Charles    | 9              | 249 m                |
+  | Rio Negro at Manaus        | 9              | 823 m                |
+  | Mississippi at St. Louis   | 10             | 100 m                |
+  | Mississippi at New Orleans | 11             | 292 m                |
+
+  At 150 m, the Mississippi at New Orleans, the Rio Negro, the Missouri and
+  the Hudson were all "No named river here".
+
+- **The radii:** 150 m to order 5, 400 m for 6 and 7, 700 m for 8, 1 km for
+  9 and 10, 1.5 km for 11, and 2 km from 12. The search reaches 2 km.
+- **How a name is chosen:**
+  - Each name group found is sized by its largest v2 order there. An OSM
+    line counts with its own name's reaches; with none nearby, an OSM river
+    gets 400 m and anything else 150 m.
+  - A group counts when one of its lines lies within its radius.
+  - The group nearest for its size wins (distance ÷ radius). A creek past
+    150 m never names a point in a wide river. At Manaus, the Igarapé do
+    Quarenta at 503 m (order 3) loses to the Río Negro at 823 m of its 1 km.
+  - Within a group, a v2 reach's line speaks before OSM's own.
+- **Deltas, braids and confluences:** a channel's own line is near and the
+  neighbour's is far for its size, so each names its own water.
+  - Checked on the built sidecar: the Paraná de las Palmas and the Paraná
+    Guazú, the Mississippi's Southwest Pass and South Pass, and the
+    Missouri and the Mississippi just above their confluence all named
+    right.
+  - With the eight spot points that is 14 of 14, each answered in 0.3 to
+    41 ms.
+- **River areas are not used yet.** OSM's `waterway=riverbank` or
+  `natural=water` + `water=river` would name a point inside a river's
+  polygon directly. But the sidecar holds lines only, and the size-scaled
+  radius already names all 14 points. Adding the areas means extracting
+  them in `npm run rivers:names` and a point-in-polygon step.
 
 **Live names from the local Overpass.** When the sidecar has no name for
 a clicked reach, or is not built, and v1 has no `BB_NAME` for it, the reach
@@ -3923,7 +4069,11 @@ public instance.
   stepped lines on its 15″ grid. Around Baltimore (2026-10-23) the waterway
   lay 63–114 m from its reach on average:
   - 150 m covered only 21–87% of each reach;
-  - so it is 250 m, and 400 m for RIV_ORD 4 and under (100 m³/s and more).
+  - so it is 250 m at least, and from there the river's size as the point
+    lookup sizes it: RIV_ORD 5 (10–100 m³/s) as Strahler 6 (400 m), 4 as
+    8 (700 m), 3 as 11 (1.5 km), and 1 or 2 as 12 (2 km)
+    (`liveToleranceM`). The coverage and the 60° angle checks keep a
+    neighbouring channel out.
 - **What the five test reaches got**, each in 0.4–1.0 s:
   - 7617971: Gwynns Falls, 83% of the reach, mean 103 m off.
   - 7619123: Patapsco River, 89%, 100 m.

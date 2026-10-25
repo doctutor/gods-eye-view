@@ -103,6 +103,42 @@ export function quotaLine(status, streetview) {
 const errorText = (error) =>
   error ? `${String(error.message || 'error').slice(0, 120)}` : null;
 
+const UPSTREAM_LISTS = { osm: 'OpenStreetMap', wikidata: 'Wikidata' };
+
+/**
+ * Personal fork: a pack that refreshes its own lists in the background
+ * (the linked webcams): its age is its oldest list's, a note while a
+ * refresh runs, and the last failure. {age (null when it says nothing),
+ * note, error, empty (no list held at all, and one failed)}.
+ */
+export function upstreamParts(upstream, now = Date.now()) {
+  const lists = Array.isArray(upstream?.lists) ? upstream.lists : [];
+  if (!lists.length) return { age: null, note: '', error: null, empty: false };
+  const held = lists.filter((list) => list.at);
+  const oldest = held
+    .map((list) => list.at)
+    .sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+  const failed = lists.filter((list) => list.lastFailedAt);
+  return {
+    age: oldest
+      ? t('data {age}', { age: ageText(oldest, now) })
+      : t('no data yet'),
+    note: lists.some((list) => list.refreshing) ? t('refreshing') : '',
+    error: failed.length
+      ? failed
+          .map((list) =>
+            t('{list} refresh failed {age}: {error}', {
+              list: UPSTREAM_LISTS[list.name] || list.name,
+              age: ageText(list.lastFailedAt, now),
+              error: String(list.lastError || 'error').slice(0, 80),
+            }),
+          )
+          .join('; ')
+      : null,
+    empty: !held.length && failed.length > 0,
+  };
+}
+
 /**
  * One row per source: {key, label, counts, age, error, state}.
  * state: 'ok', 'error' (last attempt failed) or 'off'.
@@ -123,14 +159,21 @@ export function sourceRows(status, streetview, now = Date.now()) {
         ]
           .filter(Boolean)
           .join(' · ');
+    const upstream = upstreamParts(pack.upstream, now);
     rows.push({
       key: `pack:${pack.name}`,
       label: label(pack.name),
-      counts,
-      age: pack.skipped ? '' : ageText(pack.lastRefreshAt, now),
-      error: errorText(pack.lastError),
+      counts: [counts, upstream.note].filter(Boolean).join(' · '),
+      age: pack.skipped
+        ? ''
+        : (upstream.age ?? ageText(pack.lastRefreshAt, now)),
+      error: upstream.error || errorText(pack.lastError),
       state:
-        !pack.enabled || pack.skipped ? 'off' : pack.lastError ? 'error' : 'ok',
+        !pack.enabled || pack.skipped
+          ? 'off'
+          : pack.lastError || upstream.empty
+            ? 'error'
+            : 'ok',
     });
   }
   for (const source of status?.dynamic || []) {

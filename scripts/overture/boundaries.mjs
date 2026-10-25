@@ -22,30 +22,48 @@ import {
 } from '../rivers/levels.mjs';
 
 /**
- * The Overture country lines for the Administrative boundaries layer
+ * The Overture boundary lines for the Administrative boundaries layer
  * (`npm run overture:boundaries`): Overture's division_boundary file, its
- * lines of the country subtype, decoded from GeoParquet WKB, simplified per
- * zoom band and cut into cells, written as the HydroSHEDS v2 rivers' level
- * files (server/providers/riversV2/levelFile.js) under build/boundaries/
- * in the Overture cache, with manifest.json. The server
- * (server/providers/overtureBoundaries.js) draws them.
+ * lines of the country, region and county subtypes, decoded from
+ * GeoParquet WKB, simplified per zoom band and cut into cells, written as
+ * the HydroSHEDS v2 rivers' level files
+ * (server/providers/riversV2/levelFile.js) under build/boundaries/ in the
+ * Overture cache, with manifest.json. The server
+ * (server/providers/overtureBoundaries.js) draws them: COUNTRIES the
+ * country lines, REGIONS those and the region lines, DISTRICTS all three.
  *
  * A piece's `order` field holds its line's class: an index into the level
- * header's `classes` (land or maritime, disputed or not, and a perspective
- * when Overture gives one), so a disputed line can be drawn dashed.
+ * header's `classes` (its subtype, land or maritime, disputed or not, and
+ * a perspective when Overture gives one), so a disputed line can be drawn
+ * dashed and a tile draws only the subtypes it is for.
+ *
+ * Region lines are kept from the z 4 band on, county lines from z 7
+ * (SUBTYPE_MIN_ZOOM): a county line is noise from farther out. Which
+ * cells of zoom COVERAGE_GRID_ZOOM hold region and county lines is
+ * written to the manifest, so the layer knows where Overture has a level
+ * and draws FAO GAUL elsewhere (Brazil has no county lines in
+ * 2026-09-23.1).
  *
  * The release has no dependency subtype among its lines (557 country
  * lines, 8,202 region, 78,771 county in 2026-09-23.1): borders of
- * dependencies are country lines there. It all fits in memory (2.6 M
+ * dependencies are country lines there. It all fits in memory (35 M
  * points), so the build reads the file once on one thread.
  *
  * Personal fork tooling; not part of upstream God's Eye View.
  */
 
 /** Bump when the level files change shape or meaning (forces a rebuild). */
-export const BOUNDARIES_FORMAT = 1;
+export const BOUNDARIES_FORMAT = 2;
 /** The subtypes kept. */
-export const KEPT_SUBTYPES = Object.freeze(['country']);
+export const KEPT_SUBTYPES = Object.freeze(['country', 'region', 'county']);
+/** The first zoom each subtype is drawn at: a band ending before it leaves it out. */
+export const SUBTYPE_MIN_ZOOM = Object.freeze({
+  country: 0,
+  region: 4,
+  county: 7,
+});
+/** The grid the manifest's coverage cells are of (the z 7 band's). */
+export const COVERAGE_GRID_ZOOM = 6;
 /** The columns read (geometry only for row groups that hold a kept line). */
 export const BOUNDARY_COLUMNS = Object.freeze([
   'id',
@@ -54,6 +72,7 @@ export const BOUNDARY_COLUMNS = Object.freeze([
   'is_disputed',
   'perspectives.mode',
   'perspectives.countries.list.element',
+  'country',
   'geometry',
 ]);
 
@@ -125,8 +144,8 @@ export function wkbLines(wkb) {
 
 /**
  * Every kept line of a division_boundary file, as onBoundary({id, subtype,
- * cls, disputed, perspective, lines}); `perspective` is {mode, countries}
- * or null. Returns how many rows were read and kept.
+ * cls, disputed, perspective, country, lines}); `perspective` is {mode,
+ * countries} or null. Returns how many rows were read and kept.
  */
 export function forEachBoundary(file, onBoundary, subtypes = KEPT_SUBTYPES) {
   const parquet = openParquet(file);
@@ -134,8 +153,9 @@ export function forEachBoundary(file, onBoundary, subtypes = KEPT_SUBTYPES) {
   let rows = 0;
   let kept = 0;
   try {
+    // `country` is only counted: a file without it still builds.
     for (const name of BOUNDARY_COLUMNS)
-      if (!parquet.leaf(name))
+      if (name !== 'country' && !parquet.leaf(name))
         throw new Error(`${path.basename(file)} has no column ${name}`);
     const flat = (group, name) =>
       rowsOfFlat(
@@ -157,6 +177,9 @@ export function forEachBoundary(file, onBoundary, subtypes = KEPT_SUBTYPES) {
         parquet.column(group, 'perspectives.countries.list.element'),
         parquet.leaf('perspectives.countries.list.element'),
       );
+      const country = parquet.leaf('country')
+        ? flat(group, 'country')
+        : subtype.map(() => null);
       const geometry = flat(group, 'geometry');
       for (let i = 0; i < subtype.length; i++) {
         if (!keep.has(subtype[i])) continue;
@@ -177,6 +200,7 @@ export function forEachBoundary(file, onBoundary, subtypes = KEPT_SUBTYPES) {
                     .filter((code) => code !== null)
                     .map(String),
                 },
+          country: country[i] === null ? null : String(country[i]),
           lines,
         });
       }
@@ -196,8 +220,9 @@ export function createClasses() {
   const byKey = new Map();
   return {
     table,
-    classOf({ cls, disputed, perspective }) {
+    classOf({ subtype = 'country', cls, disputed, perspective }) {
       const entry = {
+        subtype,
         class: cls || 'land',
         disputed: disputed === true,
         perspective: perspective
@@ -231,6 +256,10 @@ export const marginUnits = (band) =>
   Math.ceil(
     ((MAX_WIDTH_PX / 2 + 1) / 256) * 2 ** (quantBitsFor(band) - band.minZoom),
   );
+
+/** The bands a subtype is kept in: those reaching its first zoom. */
+export const bandsFor = (subtype, bands = BANDS) =>
+  bands.filter((band) => band.maxZoom >= (SUBTYPE_MIN_ZOOM[subtype] ?? 0));
 
 /**
  * The encoded pieces one line adds to every band, as onPiece(band, key,
@@ -330,14 +359,35 @@ export function runBoundariesBuild({
   const sources = [];
   try {
     const readStart = now();
+    /** subtype → line and vertex counts; subtype → country → lines. */
+    const bySubtype = {};
+    const byCountry = { region: {}, county: {} };
+    /** subtype → the COVERAGE_GRID_ZOOM cells its lines cross. */
+    const coverage = { region: new Set(), county: new Set() };
+    const coverageBand = bands.find(
+      (band) => band.gridZoom === COVERAGE_GRID_ZOOM,
+    );
     for (const input of inputs) {
       const read = forEachBoundary(input.file, (boundary) => {
         const kind = classes.classOf(boundary);
-        const label = `${boundary.cls || 'land'}${boundary.disputed ? ', disputed' : ''}`;
+        const label = `${boundary.subtype} ${boundary.cls || 'land'}${boundary.disputed ? ', disputed' : ''}`;
         byClass[label] = (byClass[label] || 0) + 1;
         lines++;
         if (boundary.disputed) disputed++;
-        for (const line of boundary.lines) vertices += line.length / 2;
+        const tally = (bySubtype[boundary.subtype] ||= {
+          lines: 0,
+          vertices: 0,
+        });
+        tally.lines++;
+        for (const line of boundary.lines) {
+          vertices += line.length / 2;
+          tally.vertices += line.length / 2;
+        }
+        const perCountry = byCountry[boundary.subtype];
+        if (perCountry && boundary.country)
+          perCountry[boundary.country] =
+            (perCountry[boundary.country] || 0) + 1;
+        const covered = coverage[boundary.subtype];
         boundaryPieces(
           boundary.lines,
           kind,
@@ -349,8 +399,9 @@ export function runBoundariesBuild({
             const count = counts.get(band.level);
             count.pieces++;
             count.vertices += points;
+            if (covered && band === coverageBand) covered.add(key);
           },
-          bands,
+          bandsFor(boundary.subtype, bands),
         );
       });
       sources.push({ file: input.name, bytes: input.bytes, ...read });
@@ -417,6 +468,14 @@ export function runBoundariesBuild({
       disputed,
       vertices,
       byClass,
+      bySubtype,
+      byCountry,
+      // Where Overture has region and county lines: cells of this zoom.
+      coverage: {
+        gridZoom: COVERAGE_GRID_ZOOM,
+        region: [...coverage.region].sort((a, b) => a - b),
+        county: [...coverage.county].sort((a, b) => a - b),
+      },
       classes: classes.table,
       levels,
       bytes: levels.reduce((sum, level) => sum + level.bytes, 0),
@@ -471,6 +530,13 @@ export function boundariesStatus(outDir) {
     lines: manifest.lines,
     disputed: manifest.disputed,
     vertices: manifest.vertices,
+    bySubtype: manifest.bySubtype || null,
+    coverage: manifest.coverage
+      ? {
+          region: manifest.coverage.region.length,
+          county: manifest.coverage.county.length,
+        }
+      : null,
     bytes: manifest.bytes,
     timings: manifest.timings,
   };

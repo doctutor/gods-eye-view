@@ -204,6 +204,23 @@ test('the status reads the cache files once per change and reports every source'
           lastRefreshAt: 1_792_190_000_000,
           lastError: null,
         },
+        {
+          name: 'linked',
+          enabled: true,
+          proximityOnly: true,
+          available: 2,
+          servedCapped: 0,
+          inIndex: 2,
+          dedupedAway: 0,
+          lastRefreshAt: 1_792_190_000_000,
+          lastError: null,
+          // Asked when the status is: the lists as they are now.
+          upstream: () => ({
+            lists: [
+              { name: 'osm', at: '2026-10-09T20:00:00.000Z', refreshing: true },
+            ],
+          }),
+        },
       ],
       dynamic: [
         {
@@ -256,6 +273,11 @@ test('the status reads the cache files once per change and reports every source'
     body.dynamic[0].lastError.message,
     'Windy webcams 429: slow down',
   );
+  assert.deepEqual(body.packs[1].upstream, {
+    lists: [{ name: 'osm', at: '2026-10-09T20:00:00.000Z', refreshing: true }],
+  });
+  assert.equal('upstream' in body.packs[0], false, 'only a pack that has one');
+  assert.doesNotThrow(() => JSON.stringify(body), 'no function in the answer');
   assert.deepEqual(body.camindex.catalog, {
     generatedAt: '2026-10-16T22:38:31.443Z',
     cameras: 29980,
