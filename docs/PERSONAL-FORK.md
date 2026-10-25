@@ -6494,6 +6494,12 @@ and by `status`):
     record.
   - Zhou: Cliopatria's Later Zhou (Eastern Zhou) is the royal domain at
     Luoyang, 4,000 to 10,000 km².
+  - Qin 206 BC: Cliopatria's Zhai records carry the Qin dynasty's
+    Wikipedia title, so "Qin" matches them by name; that year Zhai is a
+    kingdom of 25,977 km² north of Cottereau's Qin.
+  - Prussia 1834–47: Cliopatria's Kingdom of Prussia after 1807 is
+    exclaves of under 2,000 km²; Prussia's land is its German
+    Confederation record.
   - Zagwe: Cliopatria's Zagwe dynasty is the Lasta highlands, 14,454 km².
   - Volga Bulgaria: his lies north-west of Cliopatria's, though Kazan in
     the same framing overlaps at 0.5.

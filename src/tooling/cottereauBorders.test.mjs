@@ -289,6 +289,15 @@ test('a continued period is by place; pairs that differ by definition are kept a
   assert.equal(differenceOf('Russia', 'Russian Empire', 1830), null, 'label');
   assert.equal(differenceOf('Nejd', 'Emirate of Nejd', 1906), null);
   assert.ok(differenceOf('Nejd', 'Emirate of Nejd', 1904).why.includes('53'));
+  // Prussia's land in Cliopatria's German Confederation; "Qin" on Zhai's records.
+  assert.ok(differenceOf('Prussia', 'Kingdom of Prussia', 1839));
+  assert.equal(differenceOf('Prussia', 'Kingdom of Prussia', 1790), null);
+  assert.ok(differenceOf('Qin', 'Zhai', -206));
+  assert.equal(
+    differenceOf('Qin', 'Zhai', -208),
+    null,
+    'Zhai of 208 BC is the Qin land',
+  );
   for (const d of DIFFERENCES) assert.ok(d.why && d.from <= d.to, d.label);
   const pair = (track, label, cliopatria, iou, areaKm2) => ({
     track,

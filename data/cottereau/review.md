@@ -754,7 +754,7 @@ Labels of Cottereau's "History of the World: Every Year" read at one sample a se
 | Ery. | 2000–2025 | 13 | 39.0, 15.7 | State of Eritrea | place+time+size | Ethiopia (119 km); Republic of Yemen (342 km); Republic of Sudan (215 km) |
 | Timor-Leste | 2003–2025 | 18 | 128.8, -10.1 | East Timor | place+time+size | Republic of Indonesia (228 km); Commonwealth of Australia (198 km) |
 
-## Pairs that differ by definition (6)
+## Pairs that differ by definition (8)
 
 Matched rightly, but Cottereau and Cliopatria draw different things under the name; checked by hand against the frames and Cliopatria's records (`differences.mjs`). The borders' quality report keeps them apart from its IoU summary.
 
@@ -764,6 +764,8 @@ Matched rightly, but Cottereau and Cliopatria draw different things under the na
 | Russian | Russian Empire | 1799–1867 | Russian America: Cliopatria's Russian Empire stops at the Bering Strait, without Alaska, which Cottereau fills in its own colour. |
 | Nejd | Emirate of Nejd | 1895–1904 | Cliopatria's Emirate of Nejd of 1895–1904 is a record of 53 km² (40.5° E, 28.8° N); Cottereau draws the emirate's land. |
 | Zhou | Later Zhou | 750 BC–257 BC | Cliopatria's Later Zhou (the Eastern Zhou) is the royal domain at Luoyang, 4,000 to 10,000 km²; Cottereau's Zhou covers the plain to the east. |
+| Qin | Zhai | 206 BC–204 BC | Cliopatria's Zhai records carry the Qin dynasty's Wikipedia title and Wikidata, so "Qin" is matched to them by name; in 206–204 BC Zhai is the kingdom of Zhai, 25,977 km² in northern Shaanxi, while Cottereau's Qin of 206 BC lies south of it, about 284,000 km². |
+| Prussia | Kingdom of Prussia | 1807–1863 | Cliopatria's Kingdom of Prussia records after 1807 are exclaves of 87 to 1,787 km² (1,067 km² in 1834–47); Prussia's land is in its German Confederation record, 281,000 km². |
 | Zagwe | Zagwe dynasty | 947–1271 | Cliopatria's Zagwe dynasty is the Lasta highlands, 14,454 km²; Cottereau draws it from the highlands to the Red Sea coast, about 275,000 km². |
 | Volga Bulgaria | Volga Bulgaria | 674–1235 | Cottereau's Volga Bulgaria lies north-west of Cliopatria's (56–59° N against 54.5–56.6° N). Kazan, drawn in the same framing, overlaps Cliopatria's at 0.5, so the framing is not the cause. |
 

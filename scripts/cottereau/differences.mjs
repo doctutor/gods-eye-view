@@ -43,6 +43,20 @@ export const DIFFERENCES = Object.freeze([
     why: "Cliopatria's Later Zhou (the Eastern Zhou) is the royal domain at Luoyang, 4,000 to 10,000 km²; Cottereau's Zhou covers the plain to the east.",
   },
   {
+    label: 'Qin',
+    cliopatria: 'Zhai',
+    from: -206,
+    to: -204,
+    why: "Cliopatria's Zhai records carry the Qin dynasty's Wikipedia title and Wikidata, so \"Qin\" is matched to them by name; in 206–204 BC Zhai is the kingdom of Zhai, 25,977 km² in northern Shaanxi, while Cottereau's Qin of 206 BC lies south of it, about 284,000 km².",
+  },
+  {
+    label: 'Prussia',
+    cliopatria: 'Kingdom of Prussia',
+    from: 1807,
+    to: 1863,
+    why: "Cliopatria's Kingdom of Prussia records after 1807 are exclaves of 87 to 1,787 km² (1,067 km² in 1834–47); Prussia's land is in its German Confederation record, 281,000 km².",
+  },
+  {
     label: 'Zagwe',
     cliopatria: 'Zagwe dynasty',
     from: 947,
