@@ -1,16 +1,24 @@
 // Personal fork: the Administrative boundaries layer's COUNTRIES (and AUTO
-// from orbit) from the local Overture country lines, and LSIB without them.
+// from orbit) from the local Overture country lines, and LSIB without them;
+// REGIONS and DISTRICTS from Overture's region and county lines below their
+// heights where Overture has the level, FAO GAUL elsewhere.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 
-import { EARTH_ENGINE_LAYERS } from '../../data/earthEngineLayers.js';
+import {
+  EARTH_ENGINE_LAYERS,
+  OVERTURE_DISTRICTS_BELOW_M,
+  OVERTURE_REGIONS_BELOW_M,
+} from '../../data/earthEngineLayers.js';
 import { OVERTURE_BOUNDARIES_CREDIT } from '../../data/dataCredits.js';
 import { LEVEL_STORAGE_PREFIX, createEarthEngineLayer } from './index.js';
 import { createEarthEngineSource } from './source.js';
 import {
   STATUS_TTL_MS,
+  coverageCellKey,
   createOvertureBoundariesSource,
+  overtureBoundariesCover,
   overtureBoundariesImageryOptions,
   overtureBoundariesReady,
   toOvertureBoundariesStatus,
@@ -29,12 +37,13 @@ const BUILT = {
   versions: { light: '0123456789ab', dark: 'ba9876543210' },
 };
 
-function fakeViewer(height) {
+function fakeViewer(height, lon = 77, lat = 34) {
   const layers = [];
   const listeners = [];
   return {
     layers,
     setHeight: (h) => (height = h),
+    setPlace: (x, y) => ((lon = x), (lat = y)),
     settle: () => listeners.forEach((fn) => fn()),
     viewer: {
       imageryLayers: {
@@ -47,7 +56,7 @@ function fakeViewer(height) {
       },
       camera: {
         get positionCartographic() {
-          return Cesium.Cartographic.fromDegrees(77, 34, height);
+          return Cesium.Cartographic.fromDegrees(lon, lat, height);
         },
         moveEnd: {
           addEventListener(fn) {
@@ -276,5 +285,169 @@ test('the country lines draw without Earth Engine set up', async () => {
     .chips.find((c) => c.id === 'level-level1')
     .onClick();
   assert.equal(fake.layers.length, 0);
+  layer.destroy();
+});
+
+/** The z 6 cell key of a place, as the build writes it. */
+const cellOf = (lat, lon) => {
+  const { x, y } = coverageCellKey(lat, lon, 6);
+  return y * 64 + x;
+};
+/** A build with region and county lines: Baltimore's cell covered, Brazil's not. */
+const WITH_SETS = {
+  ...BUILT,
+  attribution:
+    'Boundary lines: © OpenStreetMap contributors, Overture Maps Foundation (ODbL)',
+  coverage: { gridZoom: 6 },
+  sets: {
+    regions: {
+      versions: { light: 'aaaaaaaaaaaa', dark: 'bbbbbbbbbbbb' },
+      cells: [cellOf(39.29, -76.61), cellOf(-15.8, -47.9)],
+    },
+    districts: {
+      versions: { light: 'cccccccccccc', dark: 'dddddddddddd' },
+      cells: [cellOf(39.29, -76.61)],
+    },
+  },
+};
+
+test('the region and district sets: their versions, their cells, and where they cover', () => {
+  const status = toOvertureBoundariesStatus({
+    ...WITH_SETS,
+    sets: {
+      ...WITH_SETS.sets,
+      districts: {
+        ...WITH_SETS.sets.districts,
+        cells: [cellOf(39.29, -76.61), -1, 'x', 1.5],
+      },
+      towns: { versions: { light: 'eeeeeeeeeeee' }, cells: [1] },
+    },
+  });
+  assert.deepEqual(Object.keys(status.sets), ['regions', 'districts']);
+  assert.equal(status.sets.districts.cells.size, 1, 'only cell keys');
+  assert.equal(status.coverageZoom, 6);
+  assert.equal(overtureBoundariesReady(status, 'light', 'districts'), true);
+  assert.equal(overtureBoundariesReady(status, 'light', 'towns'), false);
+  assert.equal(
+    overtureBoundariesReady(
+      toOvertureBoundariesStatus(BUILT),
+      'light',
+      'regions',
+    ),
+    false,
+    'a country-only build',
+  );
+  assert.equal(
+    overtureBoundariesImageryOptions(status, 'dark', 'districts').url,
+    '/api/boundaries/countries/tile/districts/dark/{z}/{x}/{y}?v=dddddddddddd',
+  );
+  // Baltimore, and a view a cell away (its neighbours count); Rio and the
+  // open Atlantic not.
+  assert.equal(
+    overtureBoundariesCover(status, 'districts', 39.29, -76.61),
+    true,
+  );
+  assert.equal(
+    overtureBoundariesCover(status, 'districts', 39.29, -76.61 + 5.6),
+    true,
+  );
+  assert.equal(
+    overtureBoundariesCover(status, 'districts', -22.9, -43.2),
+    false,
+  );
+  assert.equal(overtureBoundariesCover(status, 'districts', 35, -40), false);
+  assert.equal(
+    overtureBoundariesCover(status, 'regions', -15.8, -47.9),
+    true,
+    'Brazil has regions',
+  );
+  assert.equal(overtureBoundariesCover(status, 'countries', 35, -40), true);
+  assert.equal(
+    overtureBoundariesCover(
+      toOvertureBoundariesStatus(BUILT),
+      'regions',
+      39.29,
+      -76.61,
+    ),
+    false,
+  );
+  // The antimeridian wraps.
+  const fiji = toOvertureBoundariesStatus({
+    ...WITH_SETS,
+    sets: {
+      regions: {
+        versions: WITH_SETS.sets.regions.versions,
+        cells: [cellOf(-17, 179.9)],
+      },
+    },
+  });
+  assert.equal(overtureBoundariesCover(fiji, 'regions', -17, -179.9), true);
+});
+
+test('REGIONS and DISTRICTS draw Overture below their heights where it has the level, GAUL above and elsewhere', async () => {
+  assert.ok(OVERTURE_DISTRICTS_BELOW_M < OVERTURE_REGIONS_BELOW_M);
+  const fake = fakeViewer(3_000_000, -76.61, 39.29);
+  const registered = [];
+  const layer = createEarthEngineLayer({
+    record: RECORD,
+    source: earthEngine(),
+    storage: memoryStorage(),
+    credits: { register: (_viewer, credit) => registered.push(credit.key) },
+    countriesSource: statusOf(toOvertureBoundariesStatus(WITH_SETS)),
+    countriesCredit: OVERTURE_BOUNDARIES_CREDIT,
+  });
+  layer.init(fake.viewer);
+  layer.enable(fake.viewer);
+  await flush();
+  const url = () => fake.layers[0]?.imageryProvider.url || '';
+  // AUTO over Baltimore at 3,000 km: regions, Overture's.
+  assert.equal(layer._state().variant, 'level1');
+  assert.equal(
+    url(),
+    '/api/boundaries/countries/tile/regions/light/{z}/{x}/{y}?v=aaaaaaaaaaaa',
+  );
+  assert.ok(registered.includes('overture-boundaries'), 'its credit');
+  // Below 800 km: districts, Overture's.
+  fake.setHeight(500_000);
+  fake.settle();
+  assert.equal(layer._state().variant, 'level2');
+  assert.match(url(), /\/tile\/districts\/light\//);
+  // Over Rio: no county lines there, so GAUL's districts.
+  fake.setPlace(-43.2, -22.9);
+  fake.settle();
+  assert.match(
+    url(),
+    /\/api\/earth-engine\/tile\/ee-admin-boundaries\/level2\/light\//,
+  );
+  // DISTRICTS forced from 2,000 km over Baltimore: GAUL (counties start at z 7).
+  const chip = (id) => layer.getRowControls().chips.find((c) => c.id === id);
+  chip('level-level2').onClick();
+  fake.setPlace(-76.61, 39.29);
+  fake.setHeight(2_000_000);
+  fake.settle();
+  assert.equal(layer._state().variant, 'level2');
+  assert.match(
+    url(),
+    /\/api\/earth-engine\/tile\/ee-admin-boundaries\/level2\//,
+  );
+  fake.setHeight(OVERTURE_DISTRICTS_BELOW_M - 1);
+  fake.settle();
+  assert.match(url(), /\/tile\/districts\/light\//);
+  // REGIONS forced from above 5,000 km: GAUL; below, Overture's, in the ink.
+  chip('level-level1').onClick();
+  fake.setHeight(OVERTURE_REGIONS_BELOW_M + 1);
+  fake.settle();
+  assert.match(
+    url(),
+    /\/api\/earth-engine\/tile\/ee-admin-boundaries\/level1\//,
+  );
+  fake.setHeight(OVERTURE_REGIONS_BELOW_M - 1);
+  fake.settle();
+  chip('ink-dark').onClick();
+  assert.equal(fake.layers.length, 1, 'one imagery layer at a time');
+  assert.equal(
+    url(),
+    '/api/boundaries/countries/tile/regions/dark/{z}/{x}/{y}?v=bbbbbbbbbbbb',
+  );
   layer.destroy();
 });

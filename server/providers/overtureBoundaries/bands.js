@@ -2,7 +2,10 @@
 // Overture country lines (server/providers/overtureBoundaries.js). Not part
 // of upstream God's Eye View.
 import crypto from 'node:crypto';
-import { BOUNDARY_INKS } from '../../../src/data/overtureBoundaries.js';
+import {
+  BOUNDARY_INKS,
+  BOUNDARY_SETS,
+} from '../../../src/data/overtureBoundaries.js';
 
 /**
  * Zoom bands: each zoom draws from a level simplified to half a pixel at
@@ -63,29 +66,35 @@ export const DASH_OFF = 3;
 
 /** The inks: the Administrative boundaries layer's light and dark. */
 export const INKS = BOUNDARY_INKS;
+/** The tile sets and the subtypes each draws. */
+export const SETS = BOUNDARY_SETS;
 
 /** Bump to invalidate every rendered tile when the renderer changes. */
 export const RENDERER_VERSION = 1;
 
-/** What a tile in an ink looks like, as data (hashed into its version). */
-export function styleSpec(ink) {
+/** What a tile in an ink and of a set looks like, as data (hashed into its version). */
+export function styleSpec(ink, set = 'countries') {
   return {
     renderer: RENDERER_VERSION,
     ink: INKS[ink],
     tileSize: 256,
     bands: BANDS,
     dash: [DASH_ON, DASH_OFF],
+    // The country set's style is as it was: its tiles keep their version.
+    ...(set === 'countries' ? {} : { subtypes: SETS[set] }),
   };
 }
 
 /**
- * A tile version: the hash of the style in an ink and of the data build,
- * so neither a style change nor a rebuild serves an old tile.
+ * A tile version: the hash of the style in an ink (and set) and of the
+ * data build, so neither a style change nor a rebuild serves an old tile.
  */
-export function tileVersion(ink, buildId) {
+export function tileVersion(ink, buildId, set = 'countries') {
   return crypto
     .createHash('sha256')
-    .update(JSON.stringify({ style: styleSpec(ink), build: String(buildId) }))
+    .update(
+      JSON.stringify({ style: styleSpec(ink, set), build: String(buildId) }),
+    )
     .digest('hex')
     .slice(0, 12);
 }

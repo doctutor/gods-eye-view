@@ -67,8 +67,9 @@ import {
  * build/<buildId>/, then points build/current.json at it. An unchanged
  * input and rule set is skipped unless --force.
  *
- * `boundaries` builds the country lines of the Administrative boundaries
- * layer from the release's division_boundary file, already downloaded
+ * `boundaries` builds the country, region and county lines of the
+ * Administrative boundaries layer from the release's division_boundary
+ * file, already downloaded
  * into raw/<release>/divisions/division_boundary/ (or --input), into
  * build/boundaries/ (scripts/overture/boundaries.mjs).
  *
@@ -95,7 +96,7 @@ export const roadsDirFor = (dir, env = process.env) =>
     ? overtureRoadsDir(env, ROOT)
     : path.join(dir, 'roads');
 
-/** The country lines' build: build/boundaries in the Overture cache. */
+/** The boundary lines' build: build/boundaries in the Overture cache. */
 export const boundariesDirFor = (dir) => path.join(dir, 'build', 'boundaries');
 
 /** A file's path for the manifest: relative inside the cache, else absolute. */
@@ -624,7 +625,8 @@ async function main() {
     await relevelBuildings({ dir, workers: flags.workers || 2 });
     return;
   }
-  // Personal fork: the Administrative boundaries layer's country lines.
+  // Personal fork: the Administrative boundaries layer's country, region
+  // and county lines.
   if (flags.command === 'boundaries') {
     const inputs = flags.input
       ? [
@@ -693,10 +695,15 @@ async function main() {
         : 'Overture roads: not built. Run npm run overture:build -- --roads.',
     );
     const { boundaries } = answer;
+    const subtypes = boundaries.bySubtype
+      ? ` (${Object.entries(boundaries.bySubtype)
+          .map(([name, { lines }]) => `${lines.toLocaleString('en')} ${name}`)
+          .join(', ')})`
+      : ' (country lines only: run npm run overture:boundaries -- --force for the region and county lines)';
     console.log(
       boundaries.built
-        ? `Overture country lines ${boundaries.release} of ${boundaries.builtAt}: ${boundaries.lines.toLocaleString('en')} lines (${boundaries.disputed} disputed), ${(boundaries.bytes / 1e6).toFixed(1)} MB`
-        : 'Overture country lines: not built. Run npm run overture:boundaries.',
+        ? `Overture boundary lines ${boundaries.release} of ${boundaries.builtAt}: ${boundaries.lines.toLocaleString('en')} lines${subtypes}, ${boundaries.disputed} disputed, ${(boundaries.bytes / 1e6).toFixed(1)} MB`
+        : 'Overture boundary lines: not built. Run npm run overture:boundaries.',
     );
     return;
   }
