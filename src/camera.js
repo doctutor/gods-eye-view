@@ -1,10 +1,38 @@
 import * as Cesium from 'cesium';
 
 /**
+ * Personal fork: where the app opens when there is no share link. Baltimore's
+ * Inner Harbor: the fly-in starts straight down over the harbour, then the
+ * camera settles over Federal Hill park looking north-northwest across the
+ * harbour basin to downtown (the view's middle lands on the basin about a
+ * kilometre ahead, the skyline beyond it).
+ */
+export const DEFAULT_VIEW = Object.freeze({
+  /** The harbour: where the fly-in starts, straight down from `approachHeight`. */
+  target: Object.freeze({ lon: -76.6131, lat: 39.2858 }),
+  approachHeight: 25_000,
+  /** Where the camera ends, and how it looks. */
+  camera: Object.freeze({ lon: -76.6085, lat: 39.2735, height: 450 }),
+  heading: 345,
+  pitch: -25,
+});
+
+/**
  * Camera presets for notable locations.
- * Phase 1 default: fly to Austin, TX on load.
  */
 export const CAMERA_PRESETS = {
+  baltimore: {
+    destination: Cesium.Cartesian3.fromDegrees(
+      DEFAULT_VIEW.camera.lon,
+      DEFAULT_VIEW.camera.lat,
+      DEFAULT_VIEW.camera.height,
+    ),
+    orientation: {
+      heading: Cesium.Math.toRadians(DEFAULT_VIEW.heading),
+      pitch: Cesium.Math.toRadians(DEFAULT_VIEW.pitch),
+      roll: 0.0,
+    },
+  },
   austin: {
     destination: Cesium.Cartesian3.fromDegrees(-97.7431, 30.2672, 800),
     orientation: {
@@ -47,13 +75,17 @@ export function flyToPreset(viewer, presetName, duration = 3.0) {
 }
 
 /**
- * Set camera to Austin on load with a cinematic fly-in.
+ * The opening view (DEFAULT_VIEW) with a cinematic fly-in.
  * @returns {Function} Cancels the pending or active startup flight.
  */
-export function flyToAustin(viewer) {
+export function flyToDefault(viewer, view = DEFAULT_VIEW) {
   // Start from a high altitude, then fly down
   viewer.camera.setView({
-    destination: Cesium.Cartesian3.fromDegrees(-97.7431, 30.2672, 25000),
+    destination: Cesium.Cartesian3.fromDegrees(
+      view.target.lon,
+      view.target.lat,
+      view.approachHeight,
+    ),
     orientation: {
       heading: Cesium.Math.toRadians(0),
       pitch: Cesium.Math.toRadians(-90),
@@ -65,10 +97,14 @@ export function flyToAustin(viewer) {
   const timer = setTimeout(() => {
     if (viewer.isDestroyed()) return;
     viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(-97.7431, 30.2672, 600),
+      destination: Cesium.Cartesian3.fromDegrees(
+        view.camera.lon,
+        view.camera.lat,
+        view.camera.height,
+      ),
       orientation: {
-        heading: Cesium.Math.toRadians(15),
-        pitch: Cesium.Math.toRadians(-30),
+        heading: Cesium.Math.toRadians(view.heading),
+        pitch: Cesium.Math.toRadians(view.pitch),
         roll: 0.0,
       },
       duration: 4.0,
