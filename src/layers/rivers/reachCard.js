@@ -150,6 +150,7 @@ export function distanceText(downstream) {
  * @param {{upstream?: 'loading'|'failed'|null}} [state]
  */
 export function reachCardDetails(answer, { upstream = null } = {}) {
+  if (answer?.nameOnly) return nameOnlyCardDetails(answer);
   const props = answer?.reach?.properties || {};
   const lines = [];
   const place = [
@@ -193,6 +194,33 @@ export function reachCardDetails(answer, { upstream = null } = {}) {
         count: formatNumber(answer.upstream.reaches),
       }),
     );
+  return lines;
+}
+
+/**
+ * A name-only answer's lines: no HydroRIVERS reach lay within the click's
+ * tolerance, but OpenStreetMap names a waterway there, so the card gives
+ * the name and says nothing is traced.
+ */
+export function nameOnlyCardDetails(answer) {
+  const lines = [];
+  const toleranceM = Number(answer?.query?.toleranceM);
+  lines.push(
+    Number.isFinite(toleranceM)
+      ? t('Name only: no HydroRIVERS reach within {distance} m to trace', {
+          distance: formatNumber(toleranceM),
+        })
+      : t('Name only: no HydroRIVERS reach near enough to trace'),
+  );
+  const distanceM = Number(answer?.osmName?.distanceM);
+  if (Number.isFinite(distanceM))
+    lines.push(
+      t('The waterway is {distance} m from the click', {
+        distance: formatNumber(Math.round(distanceM)),
+      }),
+    );
+  const naming = osmNameSource(answer?.osmName);
+  if (naming) lines.push(naming);
   return lines;
 }
 

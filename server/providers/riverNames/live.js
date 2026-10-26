@@ -7,7 +7,12 @@ import {
   localProjector,
   matchReach,
 } from '../../../scripts/rivers/namesMatch.mjs';
-import { nearestRadiusM } from './index.js';
+import {
+  NEAREST_MAX_M,
+  OSM_RIVER_RADIUS_M,
+  distanceToLine,
+  nearestRadiusM,
+} from './index.js';
 
 /**
  * The Strahler order a v1 flow class stands for, roughly (RIV_ORD: 3 is
@@ -136,12 +141,59 @@ export function chooseWaterway(coordinates, elements, { toleranceM }) {
 }
 
 /**
+ * The named waterway at a point, when no HydroRIVERS reach is near enough
+ * to follow (`nameAt`): each named river, stream or canal sized as the
+ * sidecar sizes an OSM line without a reach (OSM_RIVER_RADIUS_M for a
+ * river, NEAREST_MAX_M for the rest), kept when it lies within that, the
+ * one nearest for its size winning. Returns {name, nameEn?, wikidata?,
+ * waterway, distanceM, radiusM} or null.
+ * @param {object[]} elements Overpass ways with `tags` and `geometry`
+ */
+export function chooseWaterwayAt(lat, lon, elements) {
+  let best = null;
+  for (const element of elements || []) {
+    const name = String(element?.tags?.name || '').trim();
+    const geometry = (element?.geometry || []).filter(
+      (p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lon),
+    );
+    if (!name || geometry.length < 2) continue;
+    const waterway = String(element.tags.waterway || '');
+    const radiusM = waterway === 'river' ? OSM_RIVER_RADIUS_M : NEAREST_MAX_M;
+    const d = distanceToLine(
+      lat,
+      lon,
+      geometry.flatMap((p) => [p.lon, p.lat]),
+    );
+    if (!(d <= radiusM)) continue;
+    const score = d / radiusM;
+    if (best && score >= best.score) continue;
+    const nameEn = String(element.tags['name:en'] || '').trim();
+    const wikidata = /^Q\d+$/.test(element.tags.wikidata || '')
+      ? element.tags.wikidata
+      : '';
+    best = {
+      score,
+      name,
+      ...(nameEn && nameEn !== name ? { nameEn } : {}),
+      ...(wikidata ? { wikidata } : {}),
+      waterway,
+      distanceM: Math.round(d),
+      radiusM,
+    };
+  }
+  if (!best) return null;
+  const { score: _score, ...chosen } = best;
+  return chosen;
+}
+
+/**
  * The live lookup: one request to the configured Overpass (OVERPASS_UPSTREAMS,
  * the local instance; never a public one), LIVE_TIMEOUT_MS at most.
  * `name(reach)` answers {status: 'named', osmName} (osmName as the
  * sidecar's, confidence 'live'), {status: 'none'} (an answer, no waterway
  * follows the reach: kept like a name), or {status: 'failed'} (no answer:
- * not kept, the card shows what it has).
+ * not kept, the card shows what it has). `nameAt({lat, lon})` answers
+ * the same for a point no reach is near (chooseWaterwayAt).
  * @param {{fetchPayload?: typeof fetchOverpassPayload, timeoutMs?: number,
  *   fetchImpl?: typeof fetch}} [options]
  */
@@ -158,35 +210,58 @@ export function createLiveRiverNames({
         ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)])
         : AbortSignal.timeout(timeoutMs),
     });
+  /** One Overpass request, its ways, or null when it gave no answer. */
+  async function ways(query) {
+    let timer = null;
+    try {
+      const payload = await Promise.race([
+        fetchPayload(`data=${encodeURIComponent(query)}`, MAX_ANSWER_BYTES, {
+          fetchImpl: timedFetch,
+          simplify: (body) => body,
+        }),
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('Overpass took too long')),
+            timeoutMs + 500,
+          );
+        }),
+      ]);
+      if (
+        payload?.status !== 200 ||
+        payload.rateLimited ||
+        payload.runtimeError
+      )
+        return null;
+      const elements = JSON.parse(payload.body)?.elements;
+      return Array.isArray(elements) ? elements : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   return {
+    async nameAt({ lat, lon }) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lon))
+        return { status: 'none' };
+      const elements = await ways(
+        liveNameQuery([[lon, lat]], OSM_RIVER_RADIUS_M),
+      );
+      if (!elements) return { status: 'failed' };
+      const chosen = chooseWaterwayAt(lat, lon, elements);
+      if (!chosen) return { status: 'none' };
+      return { status: 'named', osmName: { ...chosen, confidence: 'live' } };
+    },
+
     async name(reach) {
       const coordinates = reach?.geometry?.coordinates;
       if (!Array.isArray(coordinates) || coordinates.length < 2)
         return { status: 'none' };
       const toleranceM = liveToleranceM(reach.properties?.RIV_ORD);
-      let timer = null;
+      const elements = await ways(liveNameQuery(coordinates, toleranceM));
+      if (!elements) return { status: 'failed' };
       try {
-        const payload = await Promise.race([
-          fetchPayload(
-            `data=${encodeURIComponent(liveNameQuery(coordinates, toleranceM))}`,
-            MAX_ANSWER_BYTES,
-            { fetchImpl: timedFetch, simplify: (body) => body },
-          ),
-          new Promise((_, reject) => {
-            timer = setTimeout(
-              () => reject(new Error('Overpass took too long')),
-              timeoutMs + 500,
-            );
-          }),
-        ]);
-        if (
-          payload?.status !== 200 ||
-          payload.rateLimited ||
-          payload.runtimeError
-        )
-          return { status: 'failed' };
-        const elements = JSON.parse(payload.body)?.elements;
-        if (!Array.isArray(elements)) return { status: 'failed' };
         const chosen = chooseWaterway(coordinates, elements, { toleranceM });
         if (!chosen) return { status: 'none' };
         return {
@@ -195,8 +270,6 @@ export function createLiveRiverNames({
         };
       } catch {
         return { status: 'failed' };
-      } finally {
-        clearTimeout(timer);
       }
     },
   };

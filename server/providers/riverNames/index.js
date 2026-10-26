@@ -42,7 +42,7 @@ export function nearestRadiusM(strahler) {
   return NEAREST_MAX_M;
 }
 /** An OSM river with no v2 reach of its group nearby: a mid-size river's radius. */
-const OSM_RIVER_RADIUS_M = 400;
+export const OSM_RIVER_RADIUS_M = 400;
 /** The search reaches the largest radius. */
 export const NEAREST_SEARCH_M = 2000;
 

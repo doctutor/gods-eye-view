@@ -420,7 +420,9 @@ export function attachReachHighlight(
     upstreamState = null;
     draw();
     showAnswer();
-    if (upstream && !answer.upstream) await loadUpstream(mine, signal);
+    // A name-only answer has no reach to trace upstream from.
+    if (upstream && !answer.upstream && !answer.nameOnly)
+      await loadUpstream(mine, signal);
     return mine === token ? answer : null;
   }
 

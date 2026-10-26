@@ -11,6 +11,7 @@ import path from 'node:path';
 import {
   LIVE_TIMEOUT_MS,
   chooseWaterway,
+  chooseWaterwayAt,
   createLiveRiverNames,
   liveNameQuery,
   liveToleranceM,
@@ -247,3 +248,108 @@ test(
     }
   },
 );
+
+test('a point no reach is near: the named waterway within its radius, a stream 150 m, a river 400 m', () => {
+  const at = { lat: 39.3268, lon: -76.6268 };
+  // A north-south line `metres` east of the point.
+  const east = (metres) => {
+    const lon =
+      at.lon + metres / (111_320 * Math.cos((at.lat * Math.PI) / 180));
+    return [
+      [lon, at.lat - 0.005],
+      [lon, at.lat + 0.005],
+    ];
+  };
+  // Stony Run, 131 m off: named.
+  assert.deepEqual(
+    chooseWaterwayAt(at.lat, at.lon, [way('Stony Run', east(131))]),
+    {
+      name: 'Stony Run',
+      waterway: 'stream',
+      distanceM: 131,
+      radiusM: 150,
+    },
+  );
+  // A stream past 150 m names nothing; a river at 350 m does.
+  assert.equal(
+    chooseWaterwayAt(at.lat, at.lon, [way('Far Branch', east(200))]),
+    null,
+  );
+  const river = way('Jones Falls', east(350), {
+    waterway: 'river',
+    'name:en': 'Jones Falls',
+    wikidata: 'Q6275093',
+  });
+  assert.deepEqual(chooseWaterwayAt(at.lat, at.lon, [river]), {
+    name: 'Jones Falls',
+    wikidata: 'Q6275093',
+    waterway: 'river',
+    distanceM: 350,
+    radiusM: 400,
+  });
+  // Both: the one nearest for its size (131/150 = 0.87 against 350/400 = 0.88).
+  assert.equal(
+    chooseWaterwayAt(at.lat, at.lon, [river, way('Stony Run', east(131))]).name,
+    'Stony Run',
+  );
+  assert.equal(
+    chooseWaterwayAt(at.lat, at.lon, [river, way('Stony Run', east(140))]).name,
+    'Jones Falls',
+  );
+  // Unnamed or pointless ways are left out.
+  assert.equal(
+    chooseWaterwayAt(at.lat, at.lon, [
+      way('', east(10)),
+      { tags: { name: 'x' }, geometry: [] },
+    ]),
+    null,
+  );
+});
+
+test('the lookup at a point: one request around it, a name, none, or a failed Overpass', async () => {
+  const at = { lat: 39.3268, lon: -76.6268 };
+  const asked = [];
+  const lon = at.lon + 131 / (111_320 * Math.cos((at.lat * Math.PI) / 180));
+  const named = createLiveRiverNames({
+    fetchPayload: async (body) => {
+      asked.push(decodeURIComponent(body));
+      return overpassAnswer([
+        way('Stony Run', [
+          [lon, at.lat - 0.005],
+          [lon, at.lat + 0.005],
+        ]),
+      ]);
+    },
+  });
+  assert.deepEqual(await named.nameAt(at), {
+    status: 'named',
+    osmName: {
+      name: 'Stony Run',
+      waterway: 'stream',
+      distanceM: 131,
+      radiusM: 150,
+      confidence: 'live',
+    },
+  });
+  assert.equal(asked.length, 1);
+  assert.match(
+    asked[0],
+    /way\(around:400,39\.32680,-76\.62680\)/,
+    'around the point, a river’s radius',
+  );
+  assert.match(
+    asked[0],
+    /waterway"~"\^\(river\|stream\|canal\)\$"\]\["name"\]/,
+  );
+  const none = createLiveRiverNames({
+    fetchPayload: async () => overpassAnswer([]),
+  });
+  assert.deepEqual(await none.nameAt(at), { status: 'none' });
+  const failed = createLiveRiverNames({
+    fetchPayload: async () => ({ status: 504, body: '' }),
+  });
+  assert.deepEqual(await failed.nameAt(at), { status: 'failed' });
+  assert.deepEqual(await failed.nameAt({ lat: NaN, lon: 0 }), {
+    status: 'none',
+  });
+});

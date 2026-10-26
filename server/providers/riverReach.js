@@ -777,6 +777,8 @@ export function createRiverReachService({
   const limiter = createLimiter({ ...limits, now });
   /** A click's rounded place and rule → the reach id it found (or 0). */
   const clicks = new Map();
+  /** A click's rounded place → its live name at the point (or null). */
+  const pointNames = new Map();
   const inflight = new Map();
   let made = null;
 
@@ -915,6 +917,33 @@ export function createRiverReachService({
     });
   }
 
+  /**
+   * The name of a waterway at a click no reach is near: the sidecar's
+   * (its own radius by the river's size), else a live one from the local
+   * Overpass (liveNames.nameAt), kept by the rounded click; null when none.
+   */
+  async function nameAt({ lat, lon }) {
+    let osmName = null;
+    if (names)
+      try {
+        osmName = names.nearest({ lat, lon });
+      } catch (error) {
+        console.warn('[Rivers] name lookup failed:', error?.message);
+      }
+    if (osmName || !liveNames?.nameAt) return osmName;
+    const key = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+    if (pointNames.has(key)) return pointNames.get(key);
+    return once(`osmnameat:${key}`, async () => {
+      const found = await liveNames.nameAt({ lat, lon });
+      if (found.status === 'failed') return null;
+      const named = found.status === 'named' ? found.osmName : null;
+      pointNames.set(key, named);
+      if (pointNames.size > 1000)
+        pointNames.delete(pointNames.keys().next().value);
+      return named;
+    });
+  }
+
   const links = (id) => ({
     self: `${RIVER_REACH_ROUTE}/${V1_SOURCE.id}/${id}`,
     upstream: `${RIVER_REACH_ROUTE}/${V1_SOURCE.id}/${id}/upstream`,
@@ -1009,8 +1038,31 @@ export function createRiverReachService({
           clicks.set(key, id);
           if (clicks.size > 1000) clicks.delete(clicks.keys().next().value);
         }
-        if (!id)
+        if (!id) {
+          // No HydroRIVERS reach near enough: the waterway's name alone,
+          // when OpenStreetMap has one here (nothing to highlight).
+          let osmName = null;
+          try {
+            osmName = await nameAt({ lat, lon });
+          } catch (error) {
+            console.warn('[Rivers] name lookup failed:', error?.message);
+          }
+          if (osmName)
+            return answer(200, {
+              schema: RIVER_REACH_SCHEMA,
+              source: V1_SOURCE,
+              query,
+              nameOnly: true,
+              reach: null,
+              osmName,
+              downstream: null,
+              upstream: null,
+              links: null,
+              cached: false,
+              timing: { ms: now() - started, requests: tally.requests },
+            });
           return failure(404, `No river within ${toleranceM} m of this point`);
+        }
         return full(id, feature, {
           upstream,
           click: { lat, lon },
