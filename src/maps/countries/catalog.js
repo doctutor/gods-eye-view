@@ -1,5 +1,5 @@
-// Personal fork: the "Countries" basemap — MapChart-style world maps drawn
-// as Cesium geometry on a blank globe, in three styles and two themes. Pure
+// Personal fork: the "Countries" basemap — MapChart-style world maps
+// painted as a globe imagery layer, in three styles and two themes. Pure
 // data: the tray, the share-link codec and the voice vocabulary read it
 // without Cesium. The geometry comes from the bundled Natural Earth packs
 // (src/data/local_data/natural_earth/, public domain).
