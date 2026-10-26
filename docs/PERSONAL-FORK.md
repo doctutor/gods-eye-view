@@ -4317,16 +4317,16 @@ any note, and a row here.
 
 ## The Countries basemap (MAP SOURCE)
 
-MapChart-style world maps, drawn as Cesium geometry on a blank globe: six
-entries in the picker's **Countries** group, three styles in a dark and a
-light theme. They are map sources, not data layers, so a countries style
-is the ground everything else sits on.
+MapChart-style world maps, painted as a globe imagery layer: six entries
+in the picker's **Countries** group, three styles in a dark and a light
+theme. They are map sources, not data layers, so a countries style is the
+ground everything else sits on.
 
-| Style        | What it draws                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Simple       | Every country as one fill with a dark (light theme) or light (dark theme) outline, like MapChart's Simple map.                                                                                                                                                                                                                                                                                                                         |
-| Subdivisions | The simple map, plus the first-level units (states, provinces, regions) as thinner outlines once the camera is below 5,000 km. Only the units around the view are built, in a square six times the camera height across (at most 10,000 km), rebuilt when the view moves half way to its edge.                                                                                                                                         |
-| Hex          | Land as H3 cells at the resolution the camera height picks (see [H3 hexes](#h3-hexes-resolution-by-perspective)), each coloured by the country under its centre from a ten-colour palette: the "war games" look. Every cell of the resolution from orbit (resolutions 0 to 2), the disk of cells around the view nearer; a country with no cell centre on it still gets the cell of a point inside it, so Iceland is there from orbit. |
+| Style        | What it draws                                                                                                                                                                                                                                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Simple       | Every country as one fill with a dark (light theme) or light (dark theme) outline, like MapChart's Simple map.                                                                                                                                                                                                                 |
+| Subdivisions | The simple map, plus the first-level units (states, provinces, regions) as thinner outlines on tiles of level 4 and finer, which stand for camera heights under 5,000 km.                                                                                                                                                      |
+| Hex          | Land as H3 cells at the resolution the camera height picks (see [H3 hexes](#h3-hexes-resolution-by-perspective)), each coloured by the country under its centre from a ten-colour palette: the "war games" look. A country with no cell centre on it still gets the cell of a point inside it, so Iceland is there from orbit. |
 
 **Geometry.** The bundled Natural Earth packs
 (`src/data/local_data/natural_earth/countries.json`, 260 countries, and
@@ -4338,23 +4338,58 @@ already in the tree for the voice annotation resolver, simplified at
 asked for a download script and a `.gev-cache/natural-earth/` cache; the
 packs make both unnecessary.
 
-**Rendering** (`src/maps/countries/renderer.js`). Fills are
-`PolygonGeometry` instances with a per-instance colour in one `Primitive`
-(`PerInstanceColorAppearance`, flat), outlines `PolylineGeometry` instances
-in another. A countries style installs flat terrain
-(`EllipsoidTerrainProvider`), so the polygons at the ellipsoid are the
-ground; the next imagery stack restores its own terrain. The globe is
-painted the theme's ocean colour, like the blank basemaps, and the
-controller adds no imagery layer. The planet-wide group is rebuilt only
-when the style, theme, opacity or a country colour changes; the view-bound
-group (units, hexes) on `camera.moveEnd` when the view has moved far
-enough. A late pack load or build after the stack has moved on draws
-nothing.
+**Rendering** (`src/maps/countries/renderer.js`, `tiles.js`). The renderer
+adds one imagery layer at the bottom of `viewer.imageryLayers`, the slot a
+tile basemap's imagery takes, so every draped overlay (World history,
+Administrative boundaries, Rivers, the Earth Engine layers) lies over it,
+as over Toner. Until 2026-10-26 the countries were `PolygonGeometry` and
+`PolylineGeometry` primitives a little above the globe, and every draped
+overlay went under them: World history's fills at 1 AD were invisible on
+`countries-simple-dark`, only their names showing.
 
-**Draped overlays.** The Earth Engine imagery drapes on the shown globe as
-before (the imagery host is the globe), but Cesium draws primitives over
-the globe's imagery, so an opaque countries fill covers an overlay. Lower
-the fill opacity to see both:
+- **The tiles.** Its provider paints each 256 × 256 tile of the geographic
+  tiling (every longitude and both poles; Web Mercator would stop at
+  85°) on a canvas, as the World history painter does. Each tile gets:
+  - the parts whose box crosses it, filled one path per colour (even-odd,
+    so holes are cut) at the basemap's opacity;
+  - on the subdivisions style, the first-level units' outlines;
+  - the country outlines over the fills, solid.
+    The ocean is the globe's base colour showing through.
+- **Levels and heights.** A level-z tile pixel matches a camera height of
+  54,800 km / 2^z (one pixel of a level-z tile is 78.3 km / 2^z, a screen
+  pixel height / 700 m looking down). So the 5,000 km ceiling of the
+  first-level units is level 4.
+- **Hexes.** One resolution for the whole screen, the camera height's: by
+  tile level, tiles of several levels side by side mixed hexes of several
+  sizes, with a seam where they met. A camera move that changes the
+  resolution swaps the layer. A tile on which the hexes would be under
+  8 px (towards the horizon) paints the countries in their hex colours
+  instead of thousands of hexes too small to see. The land of a cell, the
+  small countries' own cells and the cells' rings are cached across tiles.
+- **The antimeridian and the poles.** Natural Earth cuts its rings at ±180°,
+  so no fill runs across a tile. A hex ring runs on past ±180° and is drawn
+  shifted by a turn on the far tile. The edges of the cuts (along ±180°, or
+  along a pole) are left out of the outlines, so no line runs down the
+  antimeridian through Chukotka or up a meridian from the south pole.
+- **Changes.** Imagery tiles cannot be repainted in place: a change of
+  style, theme, opacity, a country's colour or a cell's colour swaps in a
+  new provider and layer at the same index. A late pack load after the
+  stack has moved on draws nothing.
+- **Measured** on 2026-10-26 in headless Chrome (Cesium 1.138, ANGLE
+  D3D11, 1280 × 800):
+
+  | View                        | Tiles | Paint per tile                                      |
+  | --------------------------- | ----- | --------------------------------------------------- |
+  | Global (20,000 km)          | 15–17 | 4.1–4.9 ms (simple, subdivisions); 0.2–0.4 ms (hex) |
+  | Regional (2,500 km, Europe) | 34–49 | 0.7–1.9 ms (simple, subdivisions); 1.6 ms (hex)     |
+
+  The hex style's first resolution 3 view also pays 171 ms once for the
+  small countries' cells. Painting runs on the main thread inside
+  `requestImage`, at most a few ms a tile, so no worker or OffscreenCanvas
+  was needed.
+
+**Draped overlays.** They lie over the countries at any opacity. The fill
+opacity is still the basemap's own:
 
 ```js
 const { countriesBasemap } =
@@ -4384,13 +4419,22 @@ which replaced the fork's first home-made equal-area lattice: one
 consistent cell hierarchy over the whole globe, no polar stretching, and
 cells any data can be joined to by index.
 
-**Tests** (`src/maps/countries/countries.test.mjs`) run on a fake viewer
-and a fake Cesium against the committed fixture
-`src/data/fixtures/countries-basemap.json`: Iceland, Lesotho, South Africa
-and Switzerland with the first-level units of the first two, cut from the
-packs. The wiring (share links, voice enum and aliases such as "hex map",
-"countries", "subdivisions"; cable classification; the first-key hash
-strip) follows the keyless basemaps' lists.
+**Tests** (`src/maps/countries/countries.test.mjs`) paint tiles on a
+recording canvas and run the renderer on a fake layer stack:
+
+- against the committed packs: France at level 3 (Paris filled, the North
+  Sea not), Fiji on both sides of the antimeridian with no ring across a
+  tile, Chukotka's outline without the cut, Antarctica to the pole;
+- against the committed fixture `src/data/fixtures/countries-basemap.json`
+  (Iceland, Lesotho, South Africa and Switzerland, with the first-level
+  units of the first two, cut from the packs): Iceland's hex at level 0, a
+  cell colour winning, the coarse-tile fallback;
+- the layer at index 0 under overlays added before and after it, a fresh
+  layer at the same index for a theme, opacity, country or cell colour,
+  the subdivisions from level 4, one hex resolution by camera height, and
+  a failed or late pack load. The wiring (share links, voice enum and aliases such as "hex map",
+  "countries", "subdivisions"; cable classification; the first-key hash
+  strip) follows the keyless basemaps' lists.
 
 ## Localities (REFERENCE)
 

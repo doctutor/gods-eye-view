@@ -1,8 +1,9 @@
 // Personal fork: the Countries basemap's map-source entries and its
 // attachment to the map stack controller. A countries style is a globe
-// stack with no imagery (the globe painted the theme's ocean colour) and
-// flat terrain, so the geometry lies on the ellipsoid; the renderer draws
-// and clears it as the controller settles on and off the style.
+// stack whose ocean is the globe painted the theme's colour, with flat
+// terrain; the renderer adds its own painted imagery layer at the bottom
+// of the imagery layers (renderer.js) and clears it as the controller
+// settles on and off the style.
 
 import * as Cesium from 'cesium';
 import { countriesBasemapRecord } from './catalog.js';
@@ -23,11 +24,12 @@ export function countriesBasemapSource(descriptor, { cesium = Cesium } = {}) {
     descriptor,
     available: true,
     unavailableReason: null,
-    // No imagery: the controller paints the globe and adds no layer.
+    // No imagery of the controller's: it paints the globe the ocean colour,
+    // and the renderer adds the painted countries layer under the overlays.
     imagery: async () => null,
     globeBaseColor: cesium.Color.fromCssColorString(theme.ocean),
-    // Flat terrain, shared by every countries style, so polygons at the
-    // ellipsoid are the ground; the next imagery stack restores its own.
+    // Flat terrain, shared by every countries style, as before; the next
+    // imagery stack restores its own.
     terrain: {
       id: 'flat',
       create: async () => ({ provider: new cesium.EllipsoidTerrainProvider() }),

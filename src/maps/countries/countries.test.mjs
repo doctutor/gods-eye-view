@@ -1,6 +1,6 @@
 // Personal fork: the Countries basemap — its records and wiring, the pack
-// geometry, the equal-area hex grid, the palette hook, and the renderer's
-// lifecycle on a fake viewer. No network: the geometry comes from the
+// geometry, the palette hook, the tiles it paints (on a recording canvas),
+// and the renderer's imagery layer on a fake viewer. No network: the geometry comes from the
 // committed fixture (src/data/fixtures/countries-basemap.json).
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,9 +23,9 @@ import {
   featureContains,
   featuresInRectangle,
   partsInRectangle,
+  pointInRing,
 } from './geometry.js';
 import { latLngToCell } from 'h3-js';
-import { cellCentre } from '../h3Cells.js';
 import {
   COUNTRY_FILL_OVERRIDES,
   COUNTRY_THEMES,
@@ -38,8 +38,20 @@ import {
   NATURAL_EARTH_CREDIT,
   OPACITY_STORAGE_KEY,
   readOpacity,
-  viewRectangleDegrees,
 } from './renderer.js';
+import {
+  LEVEL0_HEIGHT_M,
+  MIN_HEX_PX,
+  TILE_SIZE,
+  createHexLand,
+  hexResolutionForLevel,
+  levelHeightM,
+  paintCountriesTile,
+  paintHexTile,
+  seamEdge,
+  subdivisionsAtLevel,
+  withAlpha,
+} from './tiles.js';
 import { attachCountriesBasemap, countriesBasemapSource } from './index.js';
 
 const fixture = JSON.parse(
@@ -163,7 +175,7 @@ test('the palette: one fill for simple maps, a stable varied fill for hexes, and
   assert.equal(COUNTRY_FILL_OVERRIDES.size, 0);
 });
 
-test('the registry entries: no imagery, a painted ocean, flat terrain, a Natural Earth credit', async () => {
+test('the registry entries: no controller imagery, a painted ocean, flat terrain, a Natural Earth credit', async () => {
   const registry = createDefaultMapSources();
   for (const record of COUNTRIES_BASEMAPS) {
     const source = registry.sources.find((s) => s.descriptor.id === record.id);
@@ -198,142 +210,323 @@ test('the registry entries: no imagery, a painted ocean, flat terrain, a Natural
   );
 });
 
-test('opacity is read from storage and clamped; the view rectangle wraps at the antimeridian', () => {
+test('opacity is read from storage and clamped', () => {
   assert.equal(readOpacity({ getItem: () => '0.4' }), 0.4);
   assert.equal(readOpacity({ getItem: () => '7' }), 1);
   assert.equal(readOpacity({ getItem: () => 'abc' }), 1);
   assert.equal(readOpacity({ getItem: () => null }), 1);
   assert.equal(readOpacity(null), 1);
-  const near = viewRectangleDegrees(64, -20, 1e5);
-  assert.ok(
-    near.west > -27 && near.east < -13 && near.south > 61 && near.north < 67,
-  );
-  const wide = viewRectangleDegrees(60, 179, 2e6);
-  assert.ok(wide.west > wide.east, 'crosses the antimeridian');
-  const capped = viewRectangleDegrees(0, 0, 1e8);
-  assert.ok(
-    capped.west > -46 && capped.east < 46,
-    'the square caps at 10,000 km',
-  );
-  assert.deepEqual(viewRectangleDegrees(85, 0, 2e6), {
-    west: -180,
-    east: 180,
-    south: -90,
-    north: 90,
-  });
 });
 
-/** Cesium stand-in: records every geometry instance and primitive. */
-function fakeCesium() {
-  const toRad = (d) => (d * Math.PI) / 180;
-  const Color = {
-    fromCssColorString: (css) => ({
-      css,
-      alpha: 1,
-      withAlpha(alpha) {
-        return { css, alpha, withAlpha: this.withAlpha };
-      },
-    }),
+/** A context that records each subpath (in tile pixels) and what was filled or stroked. */
+function recordingContext() {
+  const ctx = {
+    subpaths: [],
+    fills: [],
+    strokes: [],
+    current: [],
+    path: [],
+    fillStyle: null,
+    strokeStyle: null,
+    lineWidth: 1,
+    lineJoin: 'miter',
+    beginPath() {
+      this.path = [];
+      this.current = [];
+    },
+    moveTo(x, y) {
+      // An open subpath (an outline broken at a seam) ends here.
+      if (this.current.length > 1) this.path.push(this.current);
+      this.current = [[x, y]];
+    },
+    lineTo(x, y) {
+      this.current.push([x, y]);
+    },
+    closePath() {
+      this.path.push(this.current);
+      this.subpaths.push(this.current);
+      this.current = [];
+    },
+    fill(rule) {
+      this.fills.push({ style: this.fillStyle, rule, rings: [...this.path] });
+    },
+    stroke() {
+      if (this.current.length > 1) this.path.push(this.current);
+      this.current = [];
+      this.strokes.push({
+        style: this.strokeStyle,
+        width: this.lineWidth,
+        rings: [...this.path],
+      });
+    },
   };
-  class Primitive {
-    constructor(options) {
-      this.options = options;
-      this.instances = options.geometryInstances;
+  return ctx;
+}
+
+function recordingCanvas(width, height) {
+  const context = recordingContext();
+  return { width, height, context, getContext: () => context };
+}
+
+const toDegrees = (radians) => (radians * 180) / Math.PI;
+/** A tile's rectangle in degrees (geographic tiling). */
+function tileRect(x, y, level) {
+  const r = new Cesium.GeographicTilingScheme().tileXYToRectangle(x, y, level);
+  return {
+    west: toDegrees(r.west),
+    south: toDegrees(r.south),
+    east: toDegrees(r.east),
+    north: toDegrees(r.north),
+  };
+}
+/** A lon/lat point in a tile's pixels. */
+function pixelOf(rect, lon, lat) {
+  return [
+    ((lon - rect.west) / (rect.east - rect.west)) * TILE_SIZE,
+    ((rect.north - lat) / (rect.north - rect.south)) * TILE_SIZE,
+  ];
+}
+const filledAt = (fill, [x, y]) =>
+  fill.rings.filter((ring) => pointInRing(ring, x, y)).length % 2 === 1;
+
+const realPack = (name) =>
+  decodePack(
+    JSON.parse(
+      readFileSync(
+        new URL(`../../data/local_data/natural_earth/${name}`, import.meta.url),
+        'utf8',
+      ),
+    ),
+  );
+
+test('the level a tile stands for: subdivisions from level 4, hex resolutions by level', () => {
+  assert.equal(levelHeightM(0), LEVEL0_HEIGHT_M);
+  assert.equal(subdivisionsAtLevel(3), false, '6,850 km: above the ceiling');
+  assert.equal(subdivisionsAtLevel(4), true, '3,425 km: below it');
+  assert.deepEqual(
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12].map(hexResolutionForLevel),
+    [0, 0, 1, 2, 3, 3, 4, 5, 6, 6, 7, 7],
+  );
+  assert.equal(withAlpha('#2f3a47', 0.5), 'rgba(47, 58, 71, 0.5)');
+});
+
+test('a tile over France at level 3: the country filled in the theme colour, outlined, Paris inside', () => {
+  const features = realPack('countries.json');
+  const rect = tileRect(8, 1, 3); // 0–22.5° E, 45–67.5° N
+  assert.deepEqual(rect, { west: 0, south: 45, east: 22.5, north: 67.5 });
+  const context = recordingContext();
+  const painted = paintCountriesTile(context, {
+    features,
+    rect,
+    level: 3,
+    theme: 'dark',
+    style: 'simple',
+    opacity: 1,
+  });
+  assert.ok(painted > 10, `${painted} parts`);
+  assert.equal(context.fills.length, 1, 'one fill for the one colour');
+  const [fill] = context.fills;
+  assert.equal(fill.rule, 'evenodd');
+  assert.equal(fill.style, withAlpha(COUNTRY_THEMES.dark.fill, 1));
+  assert.ok(filledAt(fill, pixelOf(rect, 2.35, 48.86)), 'Paris is land');
+  assert.ok(!filledAt(fill, pixelOf(rect, 3, 54.5)), 'the North Sea is not');
+  assert.equal(context.strokes.length, 1, 'the outlines, over the fills');
+  assert.equal(context.strokes[0].style, COUNTRY_THEMES.dark.outline);
+  assert.equal(context.strokes[0].width, COUNTRY_THEMES.dark.outlineWidth);
+  // Simple: no first-level units, even this deep.
+  const units = realPack('states_provinces.json');
+  const deeper = recordingContext();
+  paintCountriesTile(deeper, {
+    features,
+    units,
+    rect: tileRect(32, 6, 5),
+    level: 5,
+    theme: 'light',
+    style: 'simple',
+    opacity: 0.4,
+  });
+  assert.equal(deeper.strokes.length, 1);
+  assert.equal(
+    deeper.fills[0].style,
+    withAlpha(COUNTRY_THEMES.light.fill, 0.4),
+  );
+});
+
+test('Fiji across the antimeridian: each side painted on its own tile, nothing smeared across', () => {
+  const features = realPack('countries.json');
+  for (const [x, y] of [
+    [15, 4],
+    [0, 4],
+  ]) {
+    const rect = tileRect(x, y, 3); // 157.5–180° E or 180–157.5° W, 0–22.5° S
+    const context = recordingContext();
+    assert.ok(
+      paintCountriesTile(context, {
+        features,
+        rect,
+        level: 3,
+        theme: 'dark',
+        style: 'simple',
+        opacity: 1,
+      }) > 0,
+    );
+    const fiji = pixelOf(rect, x === 15 ? 178.4 : -179.9, -17.8);
+    assert.ok(
+      context.fills.some((fill) => filledAt(fill, fiji)) ||
+        context.subpaths.some(
+          (ring) =>
+            ring.some(([px]) => Math.abs(px - fiji[0]) < 3) &&
+            ring.some(([, py]) => Math.abs(py - fiji[1]) < 12),
+        ),
+      `Fiji on tile ${x}`,
+    );
+    for (const ring of context.subpaths) {
+      const xs = ring.map(([px]) => px);
+      assert.ok(
+        Math.max(...xs) - Math.min(...xs) < TILE_SIZE * 0.9,
+        'no ring runs across the tile',
+      );
     }
   }
-  class EllipsoidTerrainProvider {}
+  // The cuts Natural Earth makes at ±180° and along the pole are no border.
+  assert.equal(seamEdge([180, 66], [180, 64]), true);
+  assert.equal(seamEdge([-180, -89], [-180, -90]), true);
+  assert.equal(seamEdge([-170, -90], [170, -90]), true);
+  assert.equal(seamEdge([179, 66], [180, 64]), false);
+  const russia = features.find((f) => f.iso2 === 'RU');
+  const chukotka = tileRect(0, 1, 3); // 180–157.5° W, 45–67.5° N
+  const russiaOnly = recordingContext();
+  paintCountriesTile(russiaOnly, {
+    features: [russia],
+    rect: chukotka,
+    level: 3,
+    theme: 'dark',
+    style: 'simple',
+    opacity: 1,
+  });
+  const pieces = russiaOnly.strokes[0].rings;
+  assert.ok(pieces.flat().length > 20, 'Chukotka is outlined');
+  for (const piece of pieces)
+    for (let i = 1; i < piece.length; i++) {
+      const [ax, ay] = piece[i - 1];
+      const [bx, by] = piece[i];
+      assert.ok(
+        !(ax < 0.5 && bx < 0.5 && Math.abs(ay - by) > 2),
+        'no outline runs down the antimeridian',
+      );
+    }
+  // Antarctica reaches the south pole on the bottom row.
+  const pole = recordingContext();
+  paintCountriesTile(pole, {
+    features,
+    rect: tileRect(0, 1, 1),
+    level: 1,
+    theme: 'dark',
+    style: 'simple',
+    opacity: 1,
+  });
+  assert.ok(filledAt(pole.fills[0], pixelOf(tileRect(0, 1, 1), -135, -89)));
+});
+
+test("Iceland's hex at level 0, by the cell of a point inside it; a cell fill wins; a hex across ±180 lands on both tiles", () => {
+  const countries = decodePack(fixture.countries);
+  const land = createHexLand(countries);
+  const rect = tileRect(0, 0, 0); // the western hemisphere
+  const context = recordingContext();
+  const iceland = latLngToCell(64.9, -18.5, 0);
+  const cells = paintHexTile(context, {
+    land,
+    rect,
+    level: 0,
+    theme: 'light',
+    opacity: 1,
+    cellFills: new Map([[iceland, '#abcdef']]),
+  });
+  assert.ok(cells >= 1, `${cells} cells`);
+  const reykjavik = pixelOf(rect, ...REYKJAVIK);
+  const hit = context.fills.find((fill) => filledAt(fill, reykjavik));
+  assert.ok(hit, 'Reykjavík lies in a painted hex');
+  assert.equal(hit.style, withAlpha('#abcdef', 1), 'the cell fill wins');
+  assert.equal(context.strokes[0].style, COUNTRY_THEMES.light.hexOutline);
+  assert.equal(land.extrasAt(0).get(iceland)?.name, 'Iceland');
+  // Resolution 3 on a level 0 tile: hexes of 2 px. The countries are
+  // painted in their hex colours instead, without the hex outlines.
+  const coarse = recordingContext();
+  assert.ok(
+    paintHexTile(coarse, {
+      land,
+      rect,
+      level: 0,
+      res: 3,
+      theme: 'light',
+      opacity: 1,
+    }) > 0,
+  );
+  assert.equal(coarse.strokes.length, 0);
+  const icelandFill = coarse.fills.find((fill) => filledAt(fill, reykjavik));
+  assert.equal(
+    icelandFill.style,
+    withAlpha(fillFor(countries[0], { theme: 'light', style: 'hex' }), 1),
+  );
+  assert.ok(MIN_HEX_PX >= 4);
+
+  // A real-pack cell on the antimeridian (Fiji's, resolution 2) lands on both sides.
+  const features = realPack('countries.json');
+  const fijiLand = createHexLand(features);
+  const sides = [tileRect(15, 4, 3), tileRect(0, 4, 3)].map((r) => {
+    const c = recordingContext();
+    paintHexTile(c, {
+      land: fijiLand,
+      rect: r,
+      level: 3,
+      theme: 'dark',
+      opacity: 1,
+    });
+    return c.subpaths.length;
+  });
+  assert.ok(
+    sides.every((n) => n > 0),
+    `cells on each side: ${sides}`,
+  );
+});
+
+/** A Cesium stand-in: the real tiling scheme and events, a layer that keeps its provider. */
+function fakeCesium() {
+  class ImageryLayer {
+    constructor(provider) {
+      this.imageryProvider = provider;
+    }
+  }
   return {
-    Primitive,
-    EllipsoidTerrainProvider,
-    Color,
-    Cartesian2: class {
-      constructor(x, y) {
-        Object.assign(this, { x, y });
-      }
-    },
-    Cartesian3: { fromDegreesArray: (flat) => flat },
-    Cartographic: { fromCartesian: (value) => value },
-    Math: {
-      toDegrees: (radians) => (radians * 180) / Math.PI,
-      toRadians: toRad,
-    },
-    GeometryInstance: class {
-      constructor(options) {
-        Object.assign(this, options);
-      }
-    },
-    PolygonGeometry: class {
-      constructor(options) {
-        Object.assign(this, { kind: 'polygon', ...options });
-      }
-    },
-    PolygonHierarchy: class {
-      constructor(positions, holes = []) {
-        Object.assign(this, { positions, holes });
-      }
-    },
-    PolylineGeometry: class {
-      constructor(options) {
-        Object.assign(this, { kind: 'polyline', ...options });
-      }
-    },
-    PerInstanceColorAppearance: Object.assign(
-      class {
-        constructor(options) {
-          Object.assign(this, { kind: 'fill', ...options });
-        }
-      },
-      { VERTEX_FORMAT: 'fill-format' },
-    ),
-    PolylineColorAppearance: class {
-      constructor(options) {
-        Object.assign(this, { kind: 'line', ...options });
-      }
-    },
-    ColorGeometryInstanceAttribute: { fromColor: (color) => color },
-    ArcType: { GEODESIC: 'geodesic' },
+    ...Cesium,
+    ImageryLayer,
+    Color: Cesium.Color,
+    GeographicTilingScheme: Cesium.GeographicTilingScheme,
+    Event: Cesium.Event,
   };
 }
 
-function fakeViewer({ lon, lat, heightM }) {
-  const toRad = (d) => (d * Math.PI) / 180;
-  const primitives = [];
+function fakeViewer() {
+  const list = [];
   const removed = [];
-  const moveListeners = new Set();
-  const viewer = {
-    scene: {
-      primitives: {
-        add: (p) => primitives.push(p),
-        remove: (p) => {
-          const at = primitives.indexOf(p);
-          if (at >= 0) primitives.splice(at, 1);
-          removed.push(p);
-        },
-      },
+  const imageryLayers = {
+    add(layer, index) {
+      if (index === undefined || index >= list.length) list.push(layer);
+      else list.splice(Math.max(0, index), 0, layer);
     },
-    camera: {
-      positionCartographic: {
-        longitude: toRad(lon),
-        latitude: toRad(lat),
-        height: heightM,
-      },
-      moveEnd: {
-        addEventListener(fn) {
-          moveListeners.add(fn);
-          return () => moveListeners.delete(fn);
-        },
-      },
+    remove(layer) {
+      const at = list.indexOf(layer);
+      if (at >= 0) list.splice(at, 1);
+      removed.push(layer);
+      return at >= 0;
+    },
+    indexOf: (layer) => list.indexOf(layer),
+    get: (i) => list[i],
+    get length() {
+      return list.length;
     },
   };
-  const moveTo = ({ lon: nlon, lat: nlat, heightM: h }) => {
-    viewer.camera.positionCartographic = {
-      longitude: toRad(nlon),
-      latitude: toRad(nlat),
-      height: h,
-    };
-    for (const fn of [...moveListeners]) fn();
-  };
-  return { viewer, primitives, removed, moveTo, moveListeners };
+  return { viewer: { imageryLayers, scene: {} }, list, removed };
 }
 
 function fakeController() {
@@ -361,448 +554,298 @@ function fakeStorage() {
   };
 }
 
-function attach(view, { storage = fakeStorage(), loads = [] } = {}) {
-  const env = fakeViewer(view);
+function attach({ storage = fakeStorage(), loads = [], loadPack } = {}) {
+  const env = fakeViewer();
   const controller = fakeController();
   const renders = [];
   const basemap = attachCountriesBasemap(controller, env.viewer, {
     cesium: fakeCesium(),
-    loadPack: async (name) => {
-      loads.push(name);
-      return fixture[name];
-    },
+    loadPack:
+      loadPack ||
+      (async (name) => {
+        loads.push(name);
+        return fixture[name];
+      }),
     storage,
+    createCanvas: recordingCanvas,
     requestRender: (reason) => renders.push(reason),
   });
   return { ...env, controller, basemap, renders, storage, loads };
 }
 
-const fills = (primitive) =>
-  primitive.instances.filter((i) => i.geometry.kind === 'polygon');
-const lines = (primitive) =>
-  primitive.instances.filter((i) => i.geometry.kind === 'polyline');
+const providerOf = (layer) => layer.imageryProvider;
+/** Paint a tile of the layer's provider on a recording canvas. */
+async function tile(layer, x, y, level) {
+  const canvas = await providerOf(layer).requestImage(x, y, level);
+  return canvas.context || null;
+}
 
-test('the simple style draws every country once, redraws for a theme or opacity change, and clears when the stack leaves', async () => {
-  const env = attach({ lon: -19, lat: 65, heightM: 1e7 });
-  const { controller, basemap, primitives, removed, loads } = env;
-  assert.equal(primitives.length, 0, 'nothing until a countries style settles');
+test('a countries style is one imagery layer at the bottom: overlays before and after it lie over it', async () => {
+  const env = attach();
+  const { controller, basemap, list, loads } = env;
+  const before = { name: 'world history (added first)' };
+  env.viewer.imageryLayers.add(before);
+  assert.equal(list.length, 1, 'nothing until a countries style settles');
 
   controller.emit('countries-simple-dark');
   await basemap.settled();
   assert.deepEqual(loads, ['countries'], 'the admin-1 pack is not loaded');
-  assert.equal(
-    primitives.length,
-    2,
-    'one fill primitive, one outline primitive',
-  );
-  const [fillPrimitive, linePrimitive] = primitives;
-  assert.equal(
-    fills(fillPrimitive).length,
-    5,
-    'Iceland, Lesotho, South Africa ×2, Switzerland',
-  );
-  assert.equal(lines(linePrimitive).length, 5);
-  assert.equal(fillPrimitive.options.appearance.kind, 'fill');
-  assert.equal(fillPrimitive.options.appearance.flat, true);
-  assert.equal(fillPrimitive.options.appearance.translucent, false);
-  assert.equal(fillPrimitive.options.allowPicking, false);
-  assert.ok(
-    fills(fillPrimitive).every(
-      (i) =>
-        i.attributes.color.css === COUNTRY_THEMES.dark.fill &&
-        i.attributes.color.alpha === 1,
-    ),
-  );
-  const southAfrica = fills(fillPrimitive).find((i) => i.id === 'ZAF/0');
-  assert.equal(
-    southAfrica.geometry.polygonHierarchy.holes.length,
-    1,
-    'Lesotho is a hole',
-  );
-  assert.ok(
-    lines(linePrimitive).every(
-      (i) =>
-        i.geometry.width === COUNTRY_THEMES.dark.outlineWidth &&
-        i.attributes.color.css === COUNTRY_THEMES.dark.outline,
-    ),
-  );
-  assert.ok(
-    lines(linePrimitive).every(
-      (i) => i.geometry.positions.at(-1) === i.geometry.positions[1],
-    ),
-    'rings close',
-  );
+  const layer = basemap.renderer.getLayer();
+  assert.equal(list[0], layer, 'the basemap slot: index 0');
+  assert.equal(list[1], before);
+  const after = { name: 'rivers (added later)' };
+  env.viewer.imageryLayers.add(after);
+  assert.deepEqual(list, [layer, before, after]);
   const state = basemap.getState();
   assert.equal(state.activeId, 'countries-simple-dark');
-  assert.deepEqual(state.world, { fills: true, outlines: true });
-  assert.deepEqual(state.local, {
-    fills: false,
-    outlines: false,
-    admin1: false,
-  });
-  assert.equal(state.hex, null);
+  assert.equal(state.layer, true);
+  assert.equal(state.layerIndex, 0);
   assert.ok(env.renders.includes('countries-basemap'));
 
-  // The same style again: nothing is rebuilt.
+  const provider = providerOf(layer);
+  assert.ok(provider.tilingScheme instanceof Cesium.GeographicTilingScheme);
+  assert.equal(provider.tileWidth, 256);
+  assert.equal(provider.hasAlphaChannel, true, 'the ocean shows through');
+  // The southern-hemisphere tile holds Lesotho as South Africa's hole.
+  const south = await tile(layer, 2, 1, 1);
+  const rect = tileRect(2, 1, 1);
+  assert.ok(filledAt(south.fills[0], pixelOf(rect, ...PRETORIA)));
+  assert.ok(
+    filledAt(south.fills[0], pixelOf(rect, ...MASERU)),
+    "Lesotho is land too: South Africa's hole, filled as its own country",
+  );
+  // An empty tile is a 1 × 1 blank.
+  const blank = await providerOf(layer).requestImage(0, 1, 1);
+  assert.equal(blank.width, 1);
+
+  // The same style again: the layer stays.
   controller.emit('countries-simple-dark');
   await basemap.settled();
-  assert.equal(primitives[0], fillPrimitive);
-  assert.equal(removed.length, 0);
+  assert.equal(basemap.renderer.getLayer(), layer);
 
-  // The light theme: rebuilt with its colours.
-  controller.emit('countries-simple-light');
-  await basemap.settled();
-  assert.equal(removed.length, 2);
-  assert.equal(primitives.length, 2);
-  assert.equal(
-    fills(primitives[0])[0].attributes.color.css,
-    COUNTRY_THEMES.light.fill,
-  );
-
-  // Opacity: stored, applied as alpha, the appearance turns translucent.
-  basemap.setOpacity(0.5);
-  await basemap.settled();
-  assert.equal(env.storage.map.get(OPACITY_STORAGE_KEY), '0.5');
-  assert.equal(basemap.getOpacity(), 0.5);
-  assert.equal(primitives[0].options.appearance.translucent, true);
-  assert.ok(
-    fills(primitives[0]).every((i) => i.attributes.color.alpha === 0.5),
-  );
-  assert.equal(
-    lines(primitives[1])[0].attributes.color.alpha,
-    1,
-    'outlines stay solid',
-  );
-
-  // A per-country colour repaints.
-  basemap.setCountryFill('CH', '#123456');
-  await basemap.settled();
-  assert.equal(
-    fills(primitives[0]).find((i) => i.id === 'CHE/0').attributes.color.css,
-    '#123456',
-  );
-  basemap.setCountryFill('CH', null);
-
-  // Another stack: everything is cleared.
+  // Another stack: the layer goes, the overlays stay.
   controller.emit('osm');
   await basemap.settled();
-  assert.equal(primitives.length, 0);
-  assert.equal(basemap.getState().activeId, null);
-  assert.equal(env.moveListeners.size, 0, 'the camera listener is released');
+  assert.deepEqual(list, [before, after]);
+  assert.equal(basemap.getState().layer, false);
 
   basemap.destroy();
   assert.equal(controller.size, 0, 'unsubscribed from the controller');
   controller.emit('countries-simple-dark');
   await basemap.settled();
-  assert.equal(primitives.length, 0, 'a destroyed renderer draws nothing');
+  assert.deepEqual(list, [before, after], 'a destroyed renderer draws nothing');
+});
+
+test('a theme, opacity, country colour or cell colour change swaps in a fresh layer at the same index', async () => {
+  const env = attach();
+  const { controller, basemap, list } = env;
+  controller.emit('countries-simple-dark');
+  await basemap.settled();
+  const overlay = { name: 'overlay' };
+  env.viewer.imageryLayers.add(overlay);
+  const first = basemap.renderer.getLayer();
+
+  controller.emit('countries-simple-light');
+  await basemap.settled();
+  const light = basemap.renderer.getLayer();
+  assert.notEqual(light, first);
+  assert.deepEqual(
+    list,
+    [light, overlay],
+    'the old layer removed, the new one at 0',
+  );
+  const rect = tileRect(1, 0, 0);
+  let painted = await tile(light, 1, 0, 0);
+  assert.equal(painted.fills[0].style, withAlpha(COUNTRY_THEMES.light.fill, 1));
+
+  basemap.setOpacity(0.5);
+  await basemap.settled();
+  assert.equal(env.storage.map.get(OPACITY_STORAGE_KEY), '0.5');
+  assert.equal(basemap.getOpacity(), 0.5);
+  const half = basemap.renderer.getLayer();
+  assert.notEqual(half, light);
+  assert.equal(list[0], half);
+  painted = await tile(half, 1, 0, 0);
+  assert.equal(
+    painted.fills[0].style,
+    withAlpha(COUNTRY_THEMES.light.fill, 0.5),
+  );
+  assert.equal(
+    painted.strokes[0].style,
+    COUNTRY_THEMES.light.outline,
+    'outlines stay solid',
+  );
+
+  basemap.setCountryFill('CH', '#123456');
+  await basemap.settled();
+  painted = await tile(basemap.renderer.getLayer(), 1, 0, 0);
+  const swiss = painted.fills.find(
+    (fill) => fill.style === withAlpha('#123456', 0.5),
+  );
+  assert.ok(
+    swiss && filledAt(swiss, pixelOf(rect, 8.2, 46.8)),
+    'Switzerland repainted',
+  );
+  basemap.setCountryFill('CH', null);
+  await basemap.settled();
+
+  controller.emit('countries-hex-light');
+  await basemap.settled();
+  const hex = basemap.renderer.getLayer();
+  const cell = latLngToCell(64.9, -18.5, 0);
+  basemap.setCellFills({ [cell.toUpperCase()]: '#abcdef' });
+  await basemap.settled();
+  assert.notEqual(basemap.renderer.getLayer(), hex);
+  painted = await tile(basemap.renderer.getLayer(), 0, 0, 0);
+  assert.ok(
+    painted.fills.some((fill) => fill.style === withAlpha('#abcdef', 0.5)),
+  );
+  assert.equal(list.length, 2, 'never two countries layers');
+  basemap.destroy();
+  assert.deepEqual(list, [overlay]);
 });
 
 test('the stored opacity is read at attach time', async () => {
   const storage = fakeStorage();
   storage.setItem(OPACITY_STORAGE_KEY, '0.25');
-  const env = attach({ lon: -19, lat: 65, heightM: 1e7 }, { storage });
+  const env = attach({ storage });
   assert.equal(env.basemap.getOpacity(), 0.25);
   env.controller.emit('countries-simple-dark');
   await env.basemap.settled();
-  assert.ok(
-    fills(env.primitives[0]).every((i) => i.attributes.color.alpha === 0.25),
+  const painted = await tile(env.basemap.renderer.getLayer(), 1, 0, 0);
+  assert.equal(
+    painted.fills[0].style,
+    withAlpha(COUNTRY_THEMES.dark.fill, 0.25),
   );
   env.basemap.destroy();
 });
 
-test('subdivisions draw first-level units only below the ceiling and only around the view', async () => {
-  const env = attach({ lon: -19, lat: 65, heightM: 1e7 });
-  const { controller, basemap, primitives, loads } = env;
+test('subdivisions: first-level units on tiles from level 4, none coarser', async () => {
+  const env = attach();
+  const { controller, basemap, loads } = env;
   controller.emit('countries-subdivisions-dark');
   await basemap.settled();
   assert.deepEqual(loads, ['countries', 'admin1']);
+  const layer = basemap.renderer.getLayer();
+  const admin1Strokes = (context) =>
+    context.strokes.filter(
+      (s) => s.style === COUNTRY_THEMES.dark.admin1Outline,
+    );
+  // Iceland at level 3 (6,850 km): countries only.
+  let painted = await tile(layer, 7, 1, 3);
+  assert.equal(admin1Strokes(painted).length, 0);
+  assert.equal(painted.strokes.at(-1).style, COUNTRY_THEMES.dark.outline);
+  // Level 4: Iceland's units, under the country outline.
+  painted = await tile(layer, 14, 2, 4);
+  const units = admin1Strokes(painted);
+  assert.equal(units.length, 1);
+  assert.ok(units[0].rings.length >= 9, `${units[0].rings.length} unit rings`);
+  assert.equal(units[0].width, COUNTRY_THEMES.dark.admin1OutlineWidth);
   assert.equal(
-    primitives.length,
-    2,
-    'country fills and outlines only, from orbit',
-  );
-  assert.equal(basemap.getState().local.admin1, false);
-
-  env.moveTo({ lon: -19, lat: 65, heightM: 2e6 });
-  await basemap.settled();
-  assert.equal(primitives.length, 3);
-  const iceland = primitives[2];
-  assert.ok(
-    lines(iceland).length >= 9,
-    `${lines(iceland).length} Icelandic unit outlines`,
-  );
-  assert.ok(lines(iceland).every((i) => i.id.startsWith('IS-')));
-  assert.ok(
-    lines(iceland).every(
-      (i) =>
-        i.geometry.width === COUNTRY_THEMES.dark.admin1OutlineWidth &&
-        i.attributes.color.css === COUNTRY_THEMES.dark.admin1Outline,
-    ),
-  );
-  assert.equal(basemap.getState().local.admin1, true);
-  const worldFills = primitives[0];
-
-  // A small move keeps the units; a move to Lesotho swaps them.
-  env.moveTo({ lon: -18, lat: 64.5, heightM: 2e6 });
-  await basemap.settled();
-  assert.equal(primitives[2], iceland);
-  env.moveTo({ lon: 27.5, lat: -29.3, heightM: 2e6 });
-  await basemap.settled();
-  assert.equal(primitives.length, 3);
-  assert.notEqual(primitives[2], iceland);
-  assert.equal(primitives[0], worldFills, 'the world group survives the move');
-  assert.ok(lines(primitives[2]).every((i) => i.id.startsWith('LS-')));
-  assert.equal(
-    new Set(lines(primitives[2]).map((i) => i.id)).size,
-    10,
-    'the ten districts (one of them in two parts)',
-  );
-
-  // Back above the ceiling: the units go, the countries stay.
-  env.moveTo({ lon: 27.5, lat: -29.3, heightM: 8e6 });
-  await basemap.settled();
-  assert.equal(primitives.length, 2);
-  assert.equal(basemap.getState().local.admin1, false);
-  basemap.destroy();
-});
-
-test("the hex style draws H3 land cells at the camera's resolution: every country from orbit, a window nearer, rebuilt on far moves", async () => {
-  const countries = decodePack(fixture.countries);
-  const env = attach({ lon: 0, lat: 0, heightM: 2.2e7 });
-  const { controller, basemap, primitives } = env;
-  controller.emit('countries-hex-light');
-  await basemap.settled();
-  assert.equal(
-    primitives.length,
-    2,
-    'hex fills and hex outlines, no country polygons',
-  );
-  let state = basemap.getState();
-  assert.deepEqual(state.world, { fills: false, outlines: false });
-  assert.deepEqual(
-    { res: state.hex.res, scope: state.hex.scope },
-    { res: 0, scope: 'global' },
-    'orbit: resolution 0, planet-wide',
-  );
-  // Resolution 0 cells are 2,200 km across: no centre lands on any of the
-  // four countries, yet each gets the cell of a point inside it (Lesotho
-  // and South Africa share one), so Iceland is there from orbit.
-  assert.equal(state.hex.cells, 3, 'Iceland, Switzerland, southern Africa');
-  assert.equal(fills(primitives[0]).length, 3);
-  assert.equal(lines(primitives[1]).length, 3);
-  const ids = fills(primitives[0]).map((i) => i.id);
-  assert.ok(
-    ids.every((id) => /^[0-9a-f]{15}$/.test(id)),
-    'H3 indexes',
-  );
-  assert.ok(ids.includes(latLngToCell(64.9, -18.5, 0)), "Iceland's cell");
-  assert.ok(ids.includes(latLngToCell(46.8, 8.2, 0)), "Switzerland's cell");
-  assert.ok(
-    fills(primitives[0]).every((i) =>
-      COUNTRY_THEMES.light.varied.includes(i.attributes.color.css),
-    ),
-  );
-  assert.ok(
-    lines(primitives[1]).every(
-      (i) => i.attributes.color.css === COUNTRY_THEMES.light.hexOutline,
-    ),
-  );
-  assert.ok(
-    fills(primitives[0]).every(
-      (i) =>
-        i.geometry.polygonHierarchy.positions.length === 12 ||
-        i.geometry.polygonHierarchy.positions.length === 10,
-    ),
-    "six (or a pentagon's five) corners, flattened",
-  );
-
-  // Closer, still planet-wide: resolution 2 has centres on land too.
-  env.moveTo({ lon: 10, lat: 30, heightM: 8e6 });
-  await basemap.settled();
-  state = basemap.getState();
-  assert.deepEqual(
-    { res: state.hex.res, scope: state.hex.scope },
-    { res: 2, scope: 'global' },
-  );
-  assert.ok(state.hex.cells > 10, `${state.hex.cells} land cells`);
-  const southAfrica = countries[2];
-  const centred = fills(primitives[0]).filter((i) => {
-    const [lon, lat] = cellCentre(i.id);
-    return featureContains(southAfrica, lon, lat);
-  });
-  assert.ok(
-    centred.length >= 8,
-    `${centred.length} cells centred in South Africa`,
-  );
-  const globalFills = primitives[0];
-  env.moveTo({ lon: 100, lat: 30, heightM: 6e6 });
-  await basemap.settled();
-  assert.equal(primitives[0], globalFills, 'the same resolution keeps the set');
-
-  // Nearer: a window around the view at resolution 3.
-  env.moveTo({ lon: -19, lat: 65, heightM: 3e6 });
-  await basemap.settled();
-  state = basemap.getState();
-  assert.deepEqual(
-    { res: state.hex.res, scope: state.hex.scope },
-    { res: 3, scope: 'window' },
-  );
-  assert.notEqual(primitives[0], globalFills);
-  assert.ok(state.hex.cells > 5);
-  assert.deepEqual(state.madeFor, {
-    lon: -19,
-    lat: 65,
-    heightM: 3e6,
-    res: 3,
-    scope: 'window',
-  });
-  // The 10,000 km window reaches Switzerland too; every cell is centred on
-  // land except a representative cell or two.
-  const onLand = fills(primitives[0]).filter((i) => {
-    const [lon, lat] = cellCentre(i.id);
-    return featureAt(countries, lon, lat) !== null;
-  });
-  assert.ok(onLand.length >= fills(primitives[0]).length - 4);
-  const iceland = countries[0];
-  assert.ok(
-    onLand.some((i) => featureContains(iceland, ...cellCentre(i.id))),
-    'Iceland has centred cells at resolution 3',
-  );
-  const localFills = primitives[0];
-  env.moveTo({ lon: -18, lat: 64, heightM: 3e6 });
-  await basemap.settled();
-  assert.equal(primitives[0], localFills, 'a small move keeps the set');
-  env.moveTo({ lon: 27, lat: -29, heightM: 3e6 });
-  await basemap.settled();
-  assert.notEqual(primitives[0], localFills, 'a far move remakes it');
-  assert.equal(primitives.length, 2);
-
-  // Per-cell fills: the data hook colours named cells over the palette.
-  const target = fills(primitives[0])[0].id;
-  basemap.setCellFills(new Map([[target.toUpperCase(), '#abcdef']]));
-  await basemap.settled();
-  assert.equal(
-    fills(primitives[0]).find((i) => i.id === target).attributes.color.css,
-    '#abcdef',
-  );
-  assert.ok(
-    fills(primitives[0])
-      .filter((i) => i.id !== target)
-      .every((i) =>
-        COUNTRY_THEMES.light.varied.includes(i.attributes.color.css),
-      ),
-  );
-  basemap.setCellFills(null);
-  await basemap.settled();
-  assert.ok(
-    fills(primitives[0]).every((i) =>
-      COUNTRY_THEMES.light.varied.includes(i.attributes.color.css),
-    ),
-  );
-
-  // The dark theme redraws with its palette; nothing from the light one stays.
-  controller.emit('countries-hex-dark');
-  await basemap.settled();
-  assert.equal(primitives.length, 2);
-  assert.ok(
-    fills(primitives[0]).every((i) =>
-      COUNTRY_THEMES.dark.varied.includes(i.attributes.color.css),
-    ),
+    painted.strokes.at(-1).style,
+    COUNTRY_THEMES.dark.outline,
+    'countries on top',
   );
   basemap.destroy();
-  assert.equal(primitives.length, 0);
 });
 
 test('a pack that fails to load is retried on the next activation, and a late load cannot draw a left stack', async () => {
   let fail = true;
   const loads = [];
-  const env = fakeViewer({ lon: 0, lat: 0, heightM: 1e7 });
-  const controller = fakeController();
   const warnings = [];
   const originalWarn = console.warn;
   console.warn = (...args) => warnings.push(args.join(' '));
   try {
-    const basemap = attachCountriesBasemap(controller, env.viewer, {
-      cesium: fakeCesium(),
+    const env = attach({
       loadPack: async (name) => {
         loads.push(name);
         if (fail) throw new Error('offline');
         return fixture[name];
       },
-      storage: fakeStorage(),
     });
-    controller.emit('countries-simple-dark');
-    await basemap.settled();
-    assert.equal(env.primitives.length, 0);
+    env.controller.emit('countries-simple-dark');
+    await env.basemap.settled();
+    assert.equal(env.list.length, 0);
     assert.match(warnings.join('\n'), /could not draw/);
     fail = false;
-    controller.emit('countries-simple-light');
-    await basemap.settled();
+    env.controller.emit('countries-simple-light');
+    await env.basemap.settled();
     assert.deepEqual(loads, ['countries', 'countries']);
-    assert.equal(env.primitives.length, 2);
+    assert.equal(env.list.length, 1);
 
-    // Leave while a slow (re)build is pending: nothing lands afterwards.
+    // Leave while a slow build is pending: nothing lands afterwards.
     let release;
-    const slow = attachCountriesBasemap(
-      fakeController(),
-      fakeViewer({ lon: 0, lat: 0, heightM: 1e7 }).viewer,
-      {
-        cesium: fakeCesium(),
-        loadPack: () =>
-          new Promise(
-            (resolve) => (release = () => resolve(fixture.countries)),
-          ),
-        storage: fakeStorage(),
-      },
-    );
-    slow.renderer.show(countriesBasemapRecord('countries-simple-dark'));
-    slow.renderer.hide();
+    const slow = attach({
+      loadPack: () =>
+        new Promise((resolve) => (release = () => resolve(fixture.countries))),
+    });
+    slow.basemap.renderer.show(countriesBasemapRecord('countries-simple-dark'));
+    slow.basemap.renderer.hide();
     for (let i = 0; i < 5 && !release; i++) await Promise.resolve();
     release();
-    await slow.settled();
-    assert.equal(slow.getState().activeId, null);
-    assert.deepEqual(slow.getState().world, { fills: false, outlines: false });
-    slow.destroy();
-    basemap.destroy();
+    await slow.basemap.settled();
+    assert.equal(slow.basemap.getState().activeId, null);
+    assert.equal(slow.list.length, 0);
+    // A style switch while a build is pending: the last style wins, once.
+    const quick = attach();
+    quick.controller.emit('countries-simple-dark');
+    quick.controller.emit('countries-hex-dark');
+    await quick.basemap.settled();
+    assert.equal(quick.list.length, 1);
+    assert.equal(providerOf(quick.list[0]).record.style, 'hex');
+    quick.basemap.destroy();
+    slow.basemap.destroy();
+    env.basemap.destroy();
   } finally {
     console.warn = originalWarn;
   }
 });
 
-test('a camera move that supersedes a style switch still clears the old style (seen in headless Chrome)', async () => {
-  // Switching to a countries style fires a moveEnd in the app; the move's
-  // view-group build used to win the race and leave the previous style's
-  // planet-wide polygons on the globe under the new hexes.
-  const env = attach({ lon: 10, lat: 30, heightM: 2.2e7 });
-  const { controller, basemap, primitives } = env;
-  controller.emit('countries-simple-dark');
-  await basemap.settled();
-  assert.equal(primitives.length, 2);
-
-  controller.emit('countries-hex-dark');
-  env.moveTo({ lon: 10, lat: 30, heightM: 2.2e7 }); // before the switch settles
-  await basemap.settled();
-  let state = basemap.getState();
-  assert.deepEqual(state.world, { fills: false, outlines: false });
-  assert.deepEqual(state.local, { fills: true, outlines: true, admin1: false });
-  assert.equal(primitives.length, 2, 'hex fills and outlines only');
-  assert.ok(
-    fills(primitives[0]).every((i) => /^[0-9a-f]{15}$/.test(i.id)),
-    'H3 cell ids',
-  );
-
-  controller.emit('countries-subdivisions-light');
-  env.moveTo({ lon: 10, lat: 50, heightM: 2.5e6 });
-  await basemap.settled();
-  state = basemap.getState();
-  assert.deepEqual(state.world, { fills: true, outlines: true });
-  assert.equal(state.local.admin1, true);
-  assert.equal(primitives.length, 3);
-  assert.ok(
-    fills(primitives[0]).every(
-      (i) => i.attributes.color.css === COUNTRY_THEMES.light.fill,
-    ),
-    'the light fills, not the dark ones',
-  );
-  basemap.destroy();
+test('the hex style paints one resolution on every tile, the camera height’s, and repaints when a move changes it', async () => {
+  const env = attach();
+  const moves = new Set();
+  env.viewer.camera = {
+    positionCartographic: { longitude: 0, latitude: 0, height: 2.2e7 },
+    moveEnd: {
+      addEventListener(fn) {
+        moves.add(fn);
+        return () => moves.delete(fn);
+      },
+    },
+  };
+  const moveTo = (height) => {
+    env.viewer.camera.positionCartographic = {
+      longitude: 0,
+      latitude: 0,
+      height,
+    };
+    for (const fn of [...moves]) fn();
+  };
+  env.controller.emit('countries-hex-dark');
+  await env.basemap.settled();
+  assert.equal(env.basemap.getState().hexRes, 0, 'orbit: resolution 0');
+  const orbit = env.basemap.renderer.getLayer();
+  // Level 3 and level 0 tiles alike paint resolution 0 cells: Iceland's
+  // cell is eight times as many pixels across on the level 3 tile.
+  const icelandRing = async (x, y, level) => {
+    const context = await tile(orbit, x, y, level);
+    const at = pixelOf(tileRect(x, y, level), ...REYKJAVIK);
+    const ring = context.subpaths.find((r) => pointInRing(r, ...at));
+    const xs = ring.map(([px]) => px);
+    return Math.max(...xs) - Math.min(...xs);
+  };
+  const ratio = (await icelandRing(7, 1, 3)) / (await icelandRing(0, 0, 0));
+  assert.ok(Math.abs(ratio - 8) < 0.5, `${ratio.toFixed(2)} times`);
+  moveTo(1.8e7); // still resolution 0
+  await env.basemap.settled();
+  assert.equal(env.basemap.renderer.getLayer(), orbit, 'no repaint');
+  moveTo(8e6); // resolution 2
+  await env.basemap.settled();
+  assert.equal(env.basemap.getState().hexRes, 2);
+  assert.notEqual(env.basemap.renderer.getLayer(), orbit);
+  assert.equal(env.list.length, 1);
+  env.controller.emit('osm');
+  await env.basemap.settled();
+  assert.equal(moves.size, 0, 'the camera listener is released');
+  env.basemap.destroy();
 });
