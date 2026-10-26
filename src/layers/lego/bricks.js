@@ -6,9 +6,14 @@
 // neighbour does not hide. `LegoBrickPrimitive` uploads it once and draws
 // it with a shader that makes the box a stack of bricks: a seam at every
 // brick height, four studs on the top face, bevelled edges, matte plastic.
+// Each vertex also carries its longitude and latitude (from the window's
+// centre; a side's, its column's centre), so the tops can be textured with
+// satellite imagery in Web Mercator (setTopTexture, topTexture.js), the
+// sides either kept in colour or tinted from their top.
 
 import * as Cesium from 'cesium';
 import { brickHeightM } from './model.js';
+import { SIDE_TINT } from './topTexture.js';
 
 /** Bytes per vertex: position (3 float), normal (3 byte + pad), colour (4 ubyte), face (4 ubyte), brick height (float). */
 export const VERTEX_STRIDE = 28;
@@ -54,7 +59,9 @@ export function enuAxes(lonDeg, latDeg) {
  *   centerLon: number, centerLat: number}} frame
  * @returns {{vertices: ArrayBuffer, indices: Uint32Array, vertexCount: number,
  *   radius: number, center: number[], axes: object, boxes: Float64Array}}
- *   `boxes`: per column [baseM, topM] (picking).
+ *   `boxes`: per column [baseM, topM] (picking); `lonLat`: per vertex
+ *   its longitude and latitude less the centre's (degrees; a side's, its
+ *   column's centre), for the textured tops.
  */
 export function buildBrickMesh(columns, frame) {
   const brick = brickHeightM(frame.cellSizeM);
@@ -107,6 +114,7 @@ export function buildBrickMesh(columns, frame) {
   const i8 = new Int8Array(vertices);
   const u8 = new Uint8Array(vertices);
   const indices = new Uint32Array(faces * 6);
+  const lonLat = new Float32Array(faces * 4 * 2);
   let v = 0;
   let k = 0;
   let radius = 0;
@@ -129,7 +137,9 @@ export function buildBrickMesh(columns, frame) {
   };
   const q = [0, 0, 0];
   const n = [0, 0, 0];
-  function vertex(lon, lat, height, normal, rgb, u, w, face, bricks) {
+  function vertex(lon, lat, height, normal, rgb, u, w, face, bricks, at) {
+    lonLat[v * 2] = (at ? at[0] : lon) - centerLon;
+    lonLat[v * 2 + 1] = (at ? at[1] : lat) - centerLat;
     ecef(lon, lat, height, p);
     toLocal(p[0], p[1], p[2], q);
     const o = v * (VERTEX_STRIDE / 4);
@@ -196,11 +206,12 @@ export function buildBrickMesh(columns, frame) {
       dirLocal(axis, n);
       const normal = [n[0] * sign, n[1] * sign, n[2] * sign];
       const h0 = (from - baseM) / brick;
+      const mid = [midLon, midLat];
       quad(
-        vertex(a[0], a[1], from, normal, rgb, 0, 0, 0, h0),
-        vertex(b[0], b[1], from, normal, rgb, 255, 0, 0, h0),
-        vertex(b[0], b[1], top, normal, rgb, 255, 0, 0, column.bricks),
-        vertex(a[0], a[1], top, normal, rgb, 0, 0, 0, column.bricks),
+        vertex(a[0], a[1], from, normal, rgb, 0, 0, 0, h0, mid),
+        vertex(b[0], b[1], from, normal, rgb, 255, 0, 0, h0, mid),
+        vertex(b[0], b[1], top, normal, rgb, 255, 0, 0, column.bricks, mid),
+        vertex(a[0], a[1], top, normal, rgb, 0, 0, 0, column.bricks, mid),
       );
     });
   });
@@ -213,6 +224,9 @@ export function buildBrickMesh(columns, frame) {
     center,
     axes,
     boxes,
+    lonLat,
+    centerLon,
+    centerLat,
   };
 }
 
@@ -227,13 +241,28 @@ in vec3 normal;
 in vec4 color;
 in vec4 face;
 in float brick;
+in vec2 lonLat;
+uniform float u_texMode;
+uniform vec4 u_merc;
+uniform vec3 u_origin;
 out vec3 v_normalEC;
 out vec3 v_positionEC;
 out vec4 v_color;
 out vec4 v_face;
 out float v_brick;
+out vec2 v_uv;
 void main() {
   vec4 p = vec4(position, 1.0);
+  v_uv = vec2(0.0);
+  if (u_texMode > 0.5) {
+    // Web Mercator, as the tiles are: x east from 180 W, y down from the north.
+    float lon = u_origin.x + lonLat.x;
+    if (lon < u_origin.z) lon += 360.0;
+    float lat = clamp(u_origin.y + lonLat.y, -85.0511, 85.0511);
+    float x = (lon + 180.0) / 360.0;
+    float y = 0.5 - log(tan(czm_piOverFour + radians(lat) * 0.5)) / czm_twoPi;
+    v_uv = vec2((x - u_merc.x) / u_merc.z, (y - u_merc.y) / u_merc.w);
+  }
   v_positionEC = (czm_modelView * p).xyz;
   v_normalEC = czm_normal * normal;
   v_color = color;
@@ -250,12 +279,22 @@ in vec3 v_positionEC;
 in vec4 v_color;
 in vec4 v_face;
 in float v_brick;
+in vec2 v_uv;
 uniform float u_studRadius;
+uniform float u_texMode;
+uniform float u_tint;
+uniform sampler2D u_topTexture;
 void main() {
   vec3 n = normalize(v_normalEC);
   vec3 L = normalize(czm_lightDirectionEC);
   vec3 V = normalize(-v_positionEC);
   vec3 base = v_color.rgb;
+  // Textured: the top its cell's patch of imagery; the sides tinted from
+  // their column's centre (mode 2), or left in colour (mode 1).
+  if (u_texMode > 0.5 && (v_face.z > 0.5 || u_texMode > 1.5)) {
+    vec3 photo = texture(u_topTexture, vec2(v_uv.x, 1.0 - v_uv.y)).rgb;
+    base = v_face.z > 0.5 ? photo : photo * u_tint;
+  }
   float diffuse = max(dot(n, L), 0.0);
   // Matte ABS: a soft key light, a sky fill and a faint, broad highlight.
   float fill = 0.5 + 0.5 * n.z;
@@ -300,6 +339,7 @@ const ATTRIBUTES = Object.freeze({
   color: 2,
   face: 3,
   brick: 4,
+  lonLat: 5,
 });
 
 /**
@@ -320,6 +360,63 @@ export class LegoBrickPrimitive {
     this._boundingSphere = new C.BoundingSphere(center, mesh.radius + 1);
     this.vertexCount = mesh.vertexCount;
     this.faceCount = mesh.faces;
+    // The textured tops (setTopTexture): the canvas waiting to upload, the
+    // texture, and how it is mapped.
+    this._topSource = null;
+    this._topTexture = null;
+    this._topMode = 0;
+    this._topMerc = [0, 0, 1, 1];
+    this._topWest = -180;
+    this.topTextureBytes = 0;
+  }
+
+  /**
+   * Texture the tops with a stitched canvas (topTexture.js: `plan` its
+   * mercator extent), the sides 'tint' (darkened from the top) or
+   * 'colour'; null takes it off. Uploaded on the next update.
+   */
+  setTopTexture(canvas, plan = null, { sides = 'tint', west = -180 } = {}) {
+    this._topSource = canvas || null;
+    this._topPending = true;
+    this._topMode = canvas ? (sides === 'colour' ? 1 : 2) : 0;
+    if (plan)
+      this._topMerc = [plan.merc.x0, plan.merc.y0, plan.merc.w, plan.merc.h];
+    this._topWest = west;
+  }
+
+  /** Whether the tops are textured now. */
+  get textured() {
+    return Boolean(this._topTexture) && this._topMode > 0;
+  }
+
+  _uploadTop(frameState) {
+    if (!this._topPending) return;
+    this._topPending = false;
+    const C = this._cesium;
+    this._topTexture?.destroy?.();
+    this._topTexture = null;
+    this.topTextureBytes = 0;
+    const source = this._topSource;
+    this._topSource = null;
+    if (!source) return;
+    const context = frameState.context;
+    const mipmaps = Boolean(context.webgl2);
+    this._topTexture = new C.Texture({
+      context,
+      source,
+      sampler: new C.Sampler({
+        wrapS: C.TextureWrap.CLAMP_TO_EDGE,
+        wrapT: C.TextureWrap.CLAMP_TO_EDGE,
+        minificationFilter: mipmaps
+          ? C.TextureMinificationFilter.LINEAR_MIPMAP_LINEAR
+          : C.TextureMinificationFilter.LINEAR,
+        magnificationFilter: C.TextureMagnificationFilter.LINEAR,
+      }),
+    });
+    if (mipmaps) this._topTexture.generateMipmap();
+    const w = source.width;
+    const h = source.height;
+    this.topTextureBytes = Math.round(w * h * 4 * (mipmaps ? 4 / 3 : 1));
   }
 
   _create(frameState) {
@@ -329,6 +426,12 @@ export class LegoBrickPrimitive {
     const vertexBuffer = C.Buffer.createVertexBuffer({
       context,
       typedArray: new Uint8Array(mesh.vertices),
+      usage: C.BufferUsage.STATIC_DRAW,
+    });
+    const lonLatBuffer = C.Buffer.createVertexBuffer({
+      context,
+      typedArray:
+        mesh.lonLat || new Float32Array(Math.max(1, mesh.vertexCount) * 2),
       usage: C.BufferUsage.STATIC_DRAW,
     });
     const indexBuffer = C.Buffer.createIndexBuffer({
@@ -366,11 +469,20 @@ export class LegoBrickPrimitive {
           20,
         ),
         attribute(ATTRIBUTES.brick, 1, C.ComponentDatatype.FLOAT, false, 24),
+        {
+          index: ATTRIBUTES.lonLat,
+          vertexBuffer: lonLatBuffer,
+          componentsPerAttribute: 2,
+          componentDatatype: C.ComponentDatatype.FLOAT,
+          normalize: false,
+          offsetInBytes: 0,
+          strideInBytes: 8,
+        },
       ],
       indexBuffer,
     });
     // The arrays live on the GPU now.
-    this._mesh = { ...mesh, vertices: null, indices: null };
+    this._mesh = { ...mesh, vertices: null, indices: null, lonLat: null };
     this._vertexArray = vertexArray;
     this._renderState = C.RenderState.fromCache({
       depthTest: { enabled: true },
@@ -386,7 +498,20 @@ export class LegoBrickPrimitive {
       boundingVolume: this._boundingSphere,
       pass: C.Pass.OPAQUE,
       primitiveType: C.PrimitiveType.TRIANGLES,
-      uniformMap: { u_studRadius: () => 0.3 },
+      uniformMap: {
+        u_studRadius: () => 0.3,
+        u_texMode: () => (this._topTexture ? this._topMode : 0),
+        u_tint: () => SIDE_TINT,
+        u_merc: () => new C.Cartesian4(...this._topMerc),
+        u_origin: () =>
+          new C.Cartesian3(
+            mesh.centerLon || 0,
+            mesh.centerLat || 0,
+            this._topWest,
+          ),
+        u_topTexture: () =>
+          this._topTexture || frameState.context.defaultTexture,
+      },
       owner: this,
     });
   }
@@ -411,6 +536,7 @@ export class LegoBrickPrimitive {
     if (!this.show || this._destroyed) return;
     if (!this._command) this._create(frameState);
     else this._buildShader(frameState);
+    this._uploadTop(frameState);
     frameState.commandList.push(this._command);
   }
 
@@ -423,6 +549,9 @@ export class LegoBrickPrimitive {
     this._destroyed = true;
     this._vertexArray?.destroy?.();
     this._shaderProgram?.destroy?.();
+    this._topTexture?.destroy?.();
+    this._topTexture = null;
+    this.topTextureBytes = 0;
     this._command = null;
     return undefined;
   }

@@ -7,6 +7,7 @@ import {
 import { createLegoHeadingControl } from '../layers/lego/presentation.js';
 import { ensureGeoidReady, geoidHeight } from '../data/geoid.js';
 import { governorRequestRender } from '../renderGovernor.js';
+import { registerDynamicCredit } from '../data/dataCredits.js';
 import { layerNameForId } from '../ui/layerNames.js';
 import { overlayHost } from './layers/overlayHost.js';
 
@@ -41,6 +42,8 @@ export function createApplicationLego({
     mapStackController,
     store,
     geoid: { ready: ensureGeoidReady, height: geoidHeight },
+    // The textured tops' imagery credit, in the data popover too.
+    registerCredit: (credit) => registerDynamicCredit(viewer, credit),
     requestRender: governorRequestRender,
   });
   // A link asking for the bricks turns Lego on, and the elevation layer

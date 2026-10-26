@@ -49,18 +49,60 @@ function windowHeader(lat, lon, halfM, cells = 447) {
   };
 }
 
-test('lp: relief ×1/2/3/5 and the bricks, round-tripped; anything else is off', () => {
-  assert.deepEqual(defaultPhotorealState(), { relief: 1, bricks: false });
+test('lp: relief ×1/2/3/5, the bricks, their mode and sides, round-tripped; old links read as before', () => {
+  assert.deepEqual(defaultPhotorealState(), {
+    relief: 1,
+    bricks: false,
+    mode: 'auto',
+    sides: 'tint',
+  });
   assert.deepEqual(RELIEF_FACTORS, [1, 2, 3, 5]);
   for (const relief of RELIEF_FACTORS)
-    for (const bricks of [false, true]) {
-      const value = encodePhotorealParam({ relief, bricks });
-      assert.match(value, relief === 1 && !bricks ? /^$/ : /^[1235](\.b)?$/);
-      assert.deepEqual(decodePhotorealParam(value), { relief, bricks });
-    }
-  assert.equal(encodePhotorealParam({ relief: 3, bricks: true }), '3.b');
+    for (const bricks of [false, true])
+      for (const mode of ['auto', 'lift', 'texture'])
+        for (const sides of ['tint', 'colour']) {
+          const state = { relief, bricks, mode, sides };
+          const value = encodePhotorealParam(state);
+          const back = decodePhotorealParam(value);
+          if (bricks) assert.deepEqual(back, state, value);
+          else
+            assert.deepEqual(
+              back,
+              { ...defaultPhotorealState(), relief },
+              'the bricks off keep no mode',
+            );
+          assert.doesNotMatch(value, /[~*!&=#]/);
+        }
+  // Links from before the modes: `.b` is the bricks, now by height (AUTO).
+  assert.deepEqual(decodePhotorealParam('1.b'), {
+    ...defaultPhotorealState(),
+    bricks: true,
+  });
+  assert.deepEqual(decodePhotorealParam('3.b'), {
+    ...defaultPhotorealState(),
+    relief: 3,
+    bricks: true,
+  });
+  assert.deepEqual(decodePhotorealParam('3'), {
+    ...defaultPhotorealState(),
+    relief: 3,
+  });
+  assert.equal(
+    encodePhotorealParam({ relief: 3, bricks: true }),
+    '3.b',
+    'AUTO and tint add nothing',
+  );
+  assert.equal(
+    encodePhotorealParam({
+      relief: 1,
+      bricks: true,
+      mode: 'texture',
+      sides: 'colour',
+    }),
+    '1.btc',
+  );
   assert.equal(encodePhotorealParam({ relief: 4 }), '', 'not a choice: off');
-  for (const junk of ['', 'x', '4', '3.c', '3b', null, '33'])
+  for (const junk of ['', 'x', '4', '3.c', '3b', null, '33', '3.bx', '3.btl'])
     assert.deepEqual(
       decodePhotorealParam(junk),
       defaultPhotorealState(),
@@ -74,16 +116,22 @@ test('lp: relief ×1/2/3/5 and the bricks, round-tripped; anything else is off',
   store.setRelief(4);
   store.setRelief(1);
   store.setBricks(true);
+  store.setMode('far');
+  store.setSides('stripes');
   assert.equal(heard, 0, 'nothing changed: nothing heard');
   store.setRelief(5);
+  store.setMode('texture');
+  store.setSides('colour');
+  assert.equal(heard, 3);
+  assert.equal(store.param(), '5.btc');
   store.setBricks(false);
-  assert.equal(heard, 2);
   assert.equal(store.param(), '5');
   const params = new URLSearchParams();
   params.set('lp', store.param());
-  assert.deepEqual(
-    decodePhotorealParam(new URLSearchParams(params.toString()).get('lp')),
-    store.get(),
+  assert.equal(
+    decodePhotorealParam(new URLSearchParams(params.toString()).get('lp'))
+      .relief,
+    5,
   );
   assert.equal(
     createPhotorealStore({
@@ -438,6 +486,8 @@ function fixture({ bricks = true, relief = 1, mode = 'lego' } = {}) {
     store,
     cesium,
     geoid: { ready: () => Promise.resolve(), height: () => -20 },
+    // Far out AUTO textures the tops: here a build that never ends.
+    buildTexture: () => new Promise(() => {}),
   });
   return {
     cesium,

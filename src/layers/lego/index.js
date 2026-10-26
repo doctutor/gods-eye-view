@@ -487,6 +487,8 @@ export function createLegoController({
      * null: what "Photoreal on bricks" (photoreal.js) lifts the tiles by.
      */
     getBuilt: () => _built,
+    /** The bricks drawn now (bricks.js LegoBrickPrimitive), or null. */
+    getPrimitive: () => _primitive,
     subscribe(listener) {
       _listeners.add(listener);
       return () => _listeners.delete(listener);

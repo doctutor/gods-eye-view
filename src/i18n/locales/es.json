@@ -3855,5 +3855,16 @@
   "No county in Overture here": "Overture no tiene condado aquí",
   "Fill each region or county in its own colour (Overture division areas)": "Rellenar cada región o condado con su propio color (áreas de división de Overture)",
   "COASTS": "COSTAS",
-  "Draw the countries' coasts with their Overture lines (island countries' outlines)": "Dibujar las costas de los países con sus líneas de Overture (contornos de los países insulares)"
+  "Draw the countries' coasts with their Overture lines (island countries' outlines)": "Dibujar las costas de los países con sus líneas de Overture (contornos de los países insulares)",
+  "Bricks: AUTO": "Ladrillos: AUTO",
+  "Bricks: LIFT": "Ladrillos: ELEVAR",
+  "Bricks: TEXTURE": "Ladrillos: TEXTURA",
+  "Sides: tint": "Lados: tinte",
+  "Sides: colour": "Lados: color",
+  "Fetching the imagery for the brick tops…": "Descargando las imágenes para las caras superiores…",
+  "The brick tops’ imagery could not be fetched: the tiles stay lifted": "No se pudieron descargar las imágenes de las caras superiores: las teselas siguen elevadas",
+  "Brick tops: {size} px of Esri imagery": "Caras superiores: {size} px de imágenes de Esri",
+  "How the Google 3D tiles meet the bricks": "Cómo se unen las teselas de Google 3D a los ladrillos",
+  "AUTO: the tiles lifted onto the bricks close in, the bricks’ tops textured with imagery far out (above 20 km). LIFT and TEXTURE: always one way": "AUTO: las teselas elevadas sobre los ladrillos de cerca, y las caras superiores con imágenes de lejos (por encima de 20 km). ELEVAR y TEXTURA: siempre de una forma",
+  "The textured bricks’ sides": "Los lados de los ladrillos con textura"
 }

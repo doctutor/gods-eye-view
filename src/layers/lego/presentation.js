@@ -32,8 +32,32 @@ export function columnCardDetails(column, header, { sourceName = '' } = {}) {
   ];
 }
 
+/** B's modes as the drop-down says them. */
+export const BRICK_MODE_LABELS = Object.freeze({
+  auto: msg('Bricks: AUTO'),
+  lift: msg('Bricks: LIFT'),
+  texture: msg('Bricks: TEXTURE'),
+});
+/** The textured bricks' sides as the drop-down says them. */
+export const SIDE_LABELS = Object.freeze({
+  tint: msg('Sides: tint'),
+  colour: msg('Sides: colour'),
+});
+
 /** What Photoreal on bricks says when it is asked for but not lifting. */
 export function photorealStatusText(status) {
+  if (status?.bricks === 'on' && status.representation === 'texture') {
+    if (status.texture === 'loading')
+      return t('Fetching the imagery for the brick tops…');
+    if (status.texture === 'failed')
+      return t(
+        'The brick tops’ imagery could not be fetched: the tiles stay lifted',
+      );
+    if (status.texture === 'ready')
+      return t('Brick tops: {size} px of Esri imagery', {
+        size: status.textureSize,
+      });
+  }
   switch (status?.bricks === 'waiting' ? status.reason : '') {
     case 'no-photoreal':
       return t('Photoreal on bricks needs the Google 3D map');
@@ -115,6 +139,8 @@ export function createLegoHeadingControl(doc, lego, photoreal = null) {
   let relief = null;
   let bricks = null;
   let bricksLabel = null;
+  let brickMode = null;
+  let sides = null;
   if (photoreal) {
     relief = doc.createElement('select');
     relief.className = 'lego-relief-select';
@@ -140,7 +166,31 @@ export function createLegoHeadingControl(doc, lego, photoreal = null) {
       bricks,
       doc.createTextNode(` ${t('Photoreal on bricks')}`),
     );
-    wrap.append(relief, bricksLabel);
+    brickMode = doc.createElement('select');
+    brickMode.className = 'lego-brick-mode-select';
+    brickMode.setAttribute(
+      'aria-label',
+      t('How the Google 3D tiles meet the bricks'),
+    );
+    brickMode.title = t(
+      'AUTO: the tiles lifted onto the bricks close in, the bricks’ tops textured with imagery far out (above 20 km). LIFT and TEXTURE: always one way',
+    );
+    for (const key of Object.keys(BRICK_MODE_LABELS)) {
+      const option = doc.createElement('option');
+      option.value = key;
+      option.textContent = t(BRICK_MODE_LABELS[key]);
+      brickMode.appendChild(option);
+    }
+    sides = doc.createElement('select');
+    sides.className = 'lego-sides-select';
+    sides.setAttribute('aria-label', t('The textured bricks’ sides'));
+    for (const key of Object.keys(SIDE_LABELS)) {
+      const option = doc.createElement('option');
+      option.value = key;
+      option.textContent = t(SIDE_LABELS[key]);
+      sides.appendChild(option);
+    }
+    wrap.append(relief, bricksLabel, brickMode, sides);
   }
   wrap.append(status);
 
@@ -155,6 +205,10 @@ export function createLegoHeadingControl(doc, lego, photoreal = null) {
       relief.value = String(state.relief);
       bricks.checked = state.bricks;
       bricksLabel.hidden = lego.getMode() !== 'lego';
+      brickMode.value = state.mode || 'auto';
+      sides.value = state.sides || 'tint';
+      brickMode.hidden = bricksLabel.hidden || !state.bricks;
+      sides.hidden = brickMode.hidden || state.mode === 'lift';
       const waiting =
         lego.getMode() === 'lego'
           ? photorealStatusText(photoreal.getStatus())
@@ -166,8 +220,12 @@ export function createLegoHeadingControl(doc, lego, photoreal = null) {
   const onMode = () => lego.setMode(mode.value);
   const onRelief = () => photoreal?.setRelief(Number(relief.value));
   const onBricks = () => photoreal?.setBricks(bricks.checked);
+  const onBrickMode = () => photoreal?.setBrickMode?.(brickMode.value);
+  const onSides = () => photoreal?.setSides?.(sides.value);
   relief?.addEventListener('change', onRelief);
   bricks?.addEventListener('change', onBricks);
+  brickMode?.addEventListener('change', onBrickMode);
+  sides?.addEventListener('change', onSides);
   const unsubscribePhotoreal = photoreal?.subscribe?.(sync);
   const onExaggeration = () => lego.setExaggeration(Number(exaggeration.value));
   mode.addEventListener('change', onMode);
@@ -184,6 +242,8 @@ export function createLegoHeadingControl(doc, lego, photoreal = null) {
       unsubscribePhotoreal?.();
       relief?.removeEventListener('change', onRelief);
       bricks?.removeEventListener('change', onBricks);
+      brickMode?.removeEventListener('change', onBrickMode);
+      sides?.removeEventListener('change', onSides);
       mode.removeEventListener('change', onMode);
       exaggeration.removeEventListener('change', onExaggeration);
       wrap.removeEventListener('click', stop);

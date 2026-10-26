@@ -19,6 +19,13 @@
 import * as Cesium from 'cesium';
 import { brickHeightM } from './model.js';
 import { ecef, enuAxes } from './bricks.js';
+import {
+  BRICK_MODES,
+  ESRI_TOPS_CREDIT_HTML,
+  SIDE_MODES,
+  brickRepresentation,
+  buildTopTexture,
+} from './topTexture.js';
 
 export const LEGO_PHOTOREAL_PARAM = 'lp';
 /** Relief ×N choices (1 is off). */
@@ -39,24 +46,51 @@ const RAD = Math.PI / 180;
 
 // ── The URL ─────────────────────────────────────────────────────────────
 
-/** {relief: 1|2|3|5, bricks: boolean}, both off. */
-export const defaultPhotorealState = () => ({ relief: 1, bricks: false });
+/**
+ * {relief: 1|2|3|5, bricks: boolean, mode: 'auto'|'lift'|'texture', sides:
+ * 'tint'|'colour'}: the relief and the bricks off; the bricks, when on, by
+ * camera height (AUTO), their sides tinted from their tops.
+ */
+export const defaultPhotorealState = () => ({
+  relief: 1,
+  bricks: false,
+  mode: 'auto',
+  sides: 'tint',
+});
 
 /**
  * The state as `lp`'s value: the relief factor, and `.b` when Photoreal on
- * bricks is on (`3`, `3.b`, `1.b`); '' when both are off.
+ * bricks is on, then `l` (LIFT) or `t` (TEXTURE) when not AUTO and `c`
+ * when the sides keep their colour: `3`, `3.b`, `1.bt`, `1.blc`. ''
+ * when all is off. Links from before the modes (`1.b`, `3.b`) read as
+ * AUTO with tinted sides.
  */
-export function encodePhotorealParam({ relief = 1, bricks = false } = {}) {
+export function encodePhotorealParam({
+  relief = 1,
+  bricks = false,
+  mode = 'auto',
+  sides = 'tint',
+} = {}) {
   const factor = RELIEF_FACTORS.includes(relief) ? relief : 1;
   if (factor === 1 && !bricks) return '';
-  return bricks ? `${factor}.b` : String(factor);
+  if (!bricks) return String(factor);
+  const letter = mode === 'lift' ? 'l' : mode === 'texture' ? 't' : '';
+  return `${factor}.b${letter}${sides === 'colour' ? 'c' : ''}`;
 }
 
 /** `lp`'s value back; anything unknown is off. */
 export function decodePhotorealParam(value) {
-  const match = /^([1235])(\.b)?$/.exec(String(value ?? '').trim());
+  const match = /^([1235])(?:\.b([lt])?(c)?)?$/.exec(
+    String(value ?? '').trim(),
+  );
   if (!match) return defaultPhotorealState();
-  return { relief: Number(match[1]), bricks: Boolean(match[2]) };
+  const bricks = /\.b/.test(String(value));
+  return {
+    relief: Number(match[1]),
+    bricks,
+    mode: match[2] === 'l' ? 'lift' : match[2] === 't' ? 'texture' : 'auto',
+    sides: match[3] ? 'colour' : 'tint',
+  };
 }
 
 function hashStateNow() {
@@ -81,7 +115,7 @@ export function createPhotorealStore({ initial = hashStateNow() } = {}) {
   const listeners = new Set();
   const set = (patch) => {
     const next = { ...state, ...patch };
-    if (next.relief === state.relief && next.bricks === state.bricks) return;
+    if (Object.keys(next).every((key) => next[key] === state[key])) return;
     state = next;
     for (const listener of [...listeners]) {
       try {
@@ -98,6 +132,8 @@ export function createPhotorealStore({ initial = hashStateNow() } = {}) {
       RELIEF_FACTORS.includes(Number(relief)) &&
       set({ relief: Number(relief) }),
     setBricks: (bricks) => set({ bricks: bricks === true }),
+    setMode: (mode) => BRICK_MODES.includes(mode) && set({ mode }),
+    setSides: (sides) => SIDE_MODES.includes(sides) && set({ sides }),
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -306,9 +342,12 @@ export function worldToWindowMatrix(frame) {
  * model-view), into the window's ENU frame by u_ecToWindow (updated each
  * frame), to its cell as enuToLatLon does; the cell's lift from u_lift,
  * faded to 0 over u_edgeBand of a cell at its edges, added along the
- * window's up vector in model coordinates. The fragment stage only paints
- * when u_debug is set: a triangle whose corners were lifted differently (a
- * "curtain") red, the rest blue, for measuring.
+ * window's up vector in model coordinates. With u_hide (the tops textured,
+ * topTexture.js) nothing is lifted and the fragment stage cuts the tiles
+ * away inside every cell that has a brick, so the bricks stand alone there.
+ * The fragment stage also paints when u_debug is set: a triangle whose
+ * corners were lifted differently (a "curtain") red, the rest blue, for
+ * measuring.
  */
 export const LIFT_VERTEX_SHADER = `
 void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput) {
@@ -334,13 +373,22 @@ void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput) {
       }
     }
   }
+  lift *= 1.0 - u_hide;
   v_lift = lift;
+  v_cellUv = uv;
   vsOutput.positionMC += mat3(czm_inverseModel) * (u_upWorld * lift);
 }
 `;
 
 export const LIFT_FRAGMENT_SHADER = `
 void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+  if (u_hide > 0.5) {
+    vec2 uv = v_cellUv;
+    if (uv.x >= 0.0 && uv.x < 1.0 && uv.y >= 0.0 && uv.y < 1.0) {
+      vec4 texel = texture(u_lift, (floor(uv * u_cells) + 0.5) / u_cells);
+      if (texel.a > 0.5) discard;
+    }
+  }
   if (u_debug > 0.5) {
     bool curtain = fwidth(v_lift) > 0.05;
     material.diffuse = curtain ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0);
@@ -372,10 +420,16 @@ export function frameUniforms(frame, { edgeBand = DEFAULT_EDGE_BAND } = {}) {
  *   (not a flat map) and the geoid is known, the tileset carries the lift
  *   shader with the window's lifts; anything else takes it off (and gives
  *   back a custom shader the tileset had).
+ * - Far out (TEXTURE, or AUTO above AUTO_TEXTURE_HEIGHT_M): the window's
+ *   imagery is fetched and stitched (topTexture.js buildTopTexture, async;
+ *   a new window cancels the build before); until it is in the tiles stay
+ *   lifted, then the bricks' tops carry it, the shader cuts the tiles away
+ *   under the bricks, and the imagery's credit shows.
  * @param {{viewer: object, lego: object, mapStackController: object,
  *   store?: object, cesium?: object, geoid?: {ready: () => Promise<void>,
  *   height: (lat: number, lon: number) => number}, edgeBand?: number,
- *   requestRender?: Function, debug?: boolean}} options
+ *   requestRender?: Function, debug?: boolean, buildTexture?: Function,
+ *   credits?: {show: Function, hide: Function}|null}} options
  */
 export function createPhotorealController({
   viewer,
@@ -387,8 +441,39 @@ export function createPhotorealController({
   edgeBand = DEFAULT_EDGE_BAND,
   requestRender = () => {},
   debug = false,
+  buildTexture = buildTopTexture,
+  credits = null,
+  // The data popover's list (dataCredits.js registerDynamicCredit), once shown.
+  registerCredit = null,
 }) {
   const scene = viewer?.scene;
+  /** 'lift' or 'texture': what B draws now (brickRepresentation). */
+  let representation = 'lift';
+  /** The window's stitched imagery: {key, canvas, plan, result}. */
+  let texture = null;
+  /** The build in flight: {key, abort: AbortController}. */
+  let building = null;
+  /** A window whose build failed: not asked for again until the window moves. */
+  let failedKey = '';
+  /** The primitive the texture is on, and with which sides. */
+  let texturedPrimitive = null;
+  let texturedSides = '';
+  let creditShown = false;
+  let topsCredit = null;
+  const statusListeners = new Set();
+  let lastStatus = '';
+  const tellStatus = () => {
+    const now = JSON.stringify(status);
+    if (now === lastStatus) return;
+    lastStatus = now;
+    for (const listener of [...statusListeners]) {
+      try {
+        listener(store.get());
+      } catch {
+        /* the control's problem */
+      }
+    }
+  };
   const removers = [];
   let anchor = null; // {lat, lon, heightM, cameraM}
   let shader = null;
@@ -401,7 +486,16 @@ export function createPhotorealController({
   let geoidReady = false;
   let destroyed = false;
   let preRenderOff = null;
-  const status = { relief: 1, bricks: 'off', reason: '' };
+  const status = {
+    relief: 1,
+    bricks: 'off',
+    reason: '',
+    representation: 'lift',
+    texture: '',
+    textureSize: '',
+    textureBytes: 0,
+    tiles: 0,
+  };
 
   const tileset = () => mapStackController?.getImageryHostTileset?.() || null;
 
@@ -472,7 +566,134 @@ export function createPhotorealController({
     syncBricks();
   }
 
+  // ── The textured tops ─────────────────────────────────────────────
+
+  const windowKey = (built) => {
+    const h = built.header;
+    return [h.west, h.south, h.east, h.north, h.cols, h.rows].join(',');
+  };
+
+  function showCredit(on) {
+    if (on === creditShown) return;
+    creditShown = on;
+    if (on)
+      registerCredit?.({ key: 'lego-brick-tops', html: ESRI_TOPS_CREDIT_HTML });
+    if (credits) return on ? credits.show?.() : credits.hide?.();
+    const display = scene?.frameState?.creditDisplay;
+    if (!display || !cesium.Credit) return;
+    topsCredit ||= new cesium.Credit(ESRI_TOPS_CREDIT_HTML, true);
+    try {
+      if (on) display.addStaticCredit(topsCredit);
+      else display.removeStaticCredit(topsCredit);
+    } catch {
+      /* the display is gone */
+    }
+  }
+
+  function cancelBuild() {
+    building?.abort.abort();
+    building = null;
+  }
+
+  /** Take the texture off the bricks (it stays kept for the window). */
+  function untexture() {
+    if (texturedPrimitive && !texturedPrimitive.isDestroyed?.())
+      texturedPrimitive.setTopTexture?.(null);
+    texturedPrimitive = null;
+    texturedSides = '';
+    shader?.setUniform('u_hide', 0);
+    showCredit(false);
+  }
+
+  function dropTextures() {
+    cancelBuild();
+    untexture();
+    texture = null;
+    status.texture = '';
+    status.textureSize = '';
+    status.textureBytes = 0;
+    status.tiles = 0;
+  }
+
+  /** Start (or keep) the window's build; true once it is in. */
+  function ensureTexture(built) {
+    const key = windowKey(built);
+    if (texture?.key === key) return true;
+    if (building?.key === key || failedKey === key) return false;
+    // A new window: the build before is cancelled.
+    cancelBuild();
+    const abort = new AbortController();
+    building = { key, abort };
+    status.texture = 'loading';
+    const h = built.header;
+    Promise.resolve(
+      buildTexture({
+        box: { west: h.west, south: h.south, east: h.east, north: h.north },
+        cells: Math.max(h.cols, h.rows),
+        signal: abort.signal,
+      }),
+    ).then(
+      (result) => {
+        if (building?.key !== key || abort.signal.aborted) return;
+        building = null;
+        texture = { key, canvas: result.canvas, plan: result.plan, result };
+        status.texture = 'ready';
+        status.textureSize = `${result.canvas.width}×${result.canvas.height}`;
+        status.textureBytes = result.bytes;
+        status.tiles = result.fetched;
+        syncBricks();
+      },
+      (error) => {
+        if (building?.key !== key) return;
+        building = null;
+        if (error?.name === 'AbortError') return;
+        failedKey = key;
+        status.texture = 'failed';
+        console.warn('[Lego] brick tops not textured:', error?.message);
+        syncBricks();
+      },
+    );
+    return false;
+  }
+
+  /** The textured tops on the bricks drawn now, or off: per the representation. */
+  function syncTexture(built) {
+    const height = viewer?.camera?.positionCartographic?.height;
+    representation = brickRepresentation(
+      store.get().mode,
+      height,
+      representation,
+    );
+    status.representation = representation;
+    if (representation !== 'texture') {
+      untexture();
+      cancelBuild();
+      return;
+    }
+    if (!ensureTexture(built)) {
+      // Until the imagery is in, the tiles stay lifted.
+      untexture();
+      return;
+    }
+    const primitive = lego?.getPrimitive?.();
+    const sides = store.get().sides;
+    if (!primitive) return;
+    if (primitive !== texturedPrimitive || sides !== texturedSides) {
+      if (texturedPrimitive && texturedPrimitive !== primitive)
+        texturedPrimitive.setTopTexture?.(null);
+      primitive.setTopTexture?.(texture.canvas, texture.plan, {
+        sides,
+        west: built.header.west,
+      });
+      texturedPrimitive = primitive;
+      texturedSides = sides;
+    }
+    shader?.setUniform('u_hide', 1);
+    showCredit(true);
+  }
+
   function removeShader() {
+    dropTextures();
     if (preRenderOff) {
       preRenderOff();
       preRenderOff = null;
@@ -549,8 +770,12 @@ export function createPhotorealController({
         u_edgeBand: { type: U.FLOAT, value: values.u_edgeBand },
         u_ecToWindow: { type: U.MAT4, value: new cesium.Matrix4() },
         u_debug: { type: U.FLOAT, value: debug ? 1 : 0 },
+        u_hide: { type: U.FLOAT, value: 0 },
       },
-      varyings: { v_lift: cesium.VaryingType.FLOAT },
+      varyings: {
+        v_lift: cesium.VaryingType.FLOAT,
+        v_cellUv: cesium.VaryingType.VEC2,
+      },
       // The debug colours unlit, so they can be counted.
       ...(debug ? { lightingModel: cesium.LightingModel.UNLIT } : {}),
       vertexShaderText: LIFT_VERTEX_SHADER,
@@ -577,6 +802,7 @@ export function createPhotorealController({
     if (reason) {
       status.bricks = reason === 'off' ? 'off' : 'waiting';
       if (shader) removeShader();
+      tellStatus();
       requestRender('lego-photoreal');
       return;
     }
@@ -592,6 +818,9 @@ export function createPhotorealController({
       liftKey === key
     ) {
       status.bricks = 'on';
+      syncTexture(built);
+      tellStatus();
+      requestRender('lego-photoreal');
       return;
     }
     const nextFrame = liftFrame(built.header);
@@ -635,6 +864,8 @@ export function createPhotorealController({
     liftedFor = built;
     updateEyeTransform();
     status.bricks = 'on';
+    syncTexture(built);
+    tellStatus();
     requestRender('lego-photoreal');
   }
 
@@ -670,7 +901,17 @@ export function createPhotorealController({
     getState: () => store.get(),
     setRelief: (relief) => store.setRelief(relief),
     setBricks: (bricks) => store.setBricks(bricks),
-    subscribe: (listener) => store.subscribe(listener),
+    setBrickMode: (mode) => store.setMode(mode),
+    setSides: (sides) => store.setSides(sides),
+    /** Hear the store's changes and the status's (the texture's progress). */
+    subscribe(listener) {
+      const off = store.subscribe(listener);
+      statusListeners.add(listener);
+      return () => {
+        off();
+        statusListeners.delete(listener);
+      };
+    },
     /**
      * A picked height under the bricks' lift back to the tiles' own (a
      * depth pick reads the lifted surface); NaN outside the window.
@@ -684,7 +925,18 @@ export function createPhotorealController({
       return Number.isFinite(lift) ? heightM - lift : heightM;
     },
     /** For tests and the harness. */
-    _state: () => ({ shader, shaderTileset, frame, lifts, anchor, liftedFor }),
+    _state: () => ({
+      shader,
+      shaderTileset,
+      frame,
+      lifts,
+      anchor,
+      liftedFor,
+      representation,
+      texture,
+      building,
+      texturedPrimitive,
+    }),
     destroy() {
       destroyed = true;
       for (const remove of removers.splice(0)) {

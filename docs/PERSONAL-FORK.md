@@ -5595,7 +5595,8 @@ set beside the Render drop-down under the **ANALYSIS** heading, and kept
 in the share link as `lp`:
 
 - `lp=3` is Relief ×3;
-- `lp=1.b` is Photoreal on bricks;
+- `lp=1.b` is Photoreal on bricks (AUTO; `1.bl` LIFT, `1.bt` TEXTURE, a
+  trailing `c` the sides in colour);
 - `lp=3.b` is both.
 
 A link with `.b` turns Lego mode on. Once the layers are restored it also
@@ -5752,7 +5753,110 @@ summit); all looking north at −35°, with `lp=3`, `lp=1.b` or `lp=3.b`:
 #lat=46.5879&lon=-121.7603&alt=25000&heading=0&pitch=-35&roll=0&map=photoreal&lp=3.b
 ```
 
-Tests (`src/layers/lego/photoreal.test.mjs`):
+**Far out: textured brick tops** (`src/layers/lego/topTexture.js`). The
+lift reads at city scale. Far out, Google's triangles grow while the
+cells don't, and the frame is mostly curtains (above). So beyond a camera
+height each brick's top is textured with its cell's patch of satellite
+imagery instead, and the photoreal tiles are cut away under the bricks.
+
+- **Three modes,** in a drop-down beside the checkbox:
+  - **AUTO** (the default) lifts the tiles close in and textures the tops
+    above 20 km (`AUTO_TEXTURE_HEIGHT_M`). It switches at 22 km on the
+    way up and 18 km on the way down, so hovering at the threshold
+    doesn't flap. The threshold is where the measured curtains pass 30%
+    of the frame with the bricks drawn: 24% at 2 km, 29% at 20 km and 38%
+    at 50 km put 30% at about 22 km.
+  - **LIFT** and **TEXTURE** always draw one way.
+  - Re-decided when the camera settles.
+- **The sides,** in TEXTURE: **tint** (the default) is the top's imagery
+  at the column's centre at 0.55 of its brightness; **colour** keeps the
+  layer's own colour. Both are measured below.
+- **The imagery:** Esri World Imagery, the imagery the app's map stacks
+  already use (`src/maps/imagery.js`). No Google 2D satellite session
+  exists in the app, so the first choice in the brief wasn't available.
+  Esri's public Web Mercator tiles need no key, and the page fetches
+  them with CORS. An offscreen top-down render of the Google tiles wasn't
+  needed.
+  - **The zoom:** the one that gives about 6 texels a cell (`zoomForWindow`),
+    lowered until the window fits 4,096 px a side, at most Esri's z 18.
+  - **The stitching** (`stitchPlan`): the tiles covering the window go
+    into one canvas cropped to the window's mercator box. A window across
+    the antimeridian unwraps, and its tile x wraps.
+  - **Fetching:** six tiles at a time (`buildTopTexture`). A tile that
+    fails is left blank, and the build is async and cancellable: a moved
+    window aborts the build before it, and a build that lands late is
+    dropped. Until the imagery is in, the tiles stay lifted. A failed
+    window is not asked for again until the window moves.
+- **On the bricks:**
+  - Every brick vertex carries its longitude and latitude less the
+    window's centre (a side's, its column's centre), in a second vertex
+    buffer (`lonLat`).
+  - The brick shader turns that into Web Mercator, the canvas's UV
+    (`u_merc`), and samples the texture: RGBA8 with mipmaps (WebGL2),
+    CLAMP_TO_EDGE.
+  - The studs and bevels shade on top of the imagery.
+  - A new Lego build (a new primitive, same window) gets the kept texture
+    again without a fetch.
+- **The tiles under the bricks:** the tile shader's `u_hide` stops the
+  lift and discards every fragment in a cell that has a brick. The tiles
+  stay outside the window and in cells without one.
+- **Credit:** while the textured tops draw, "Powered by Esri — Source:
+  Esri, Maxar, Earthstar Geographics, and the GIS User Community" shows
+  in the on-screen credits, and the data popover lists it.
+- **The `lp` URL:** backward compatible.
+  - `.b` is the bricks, by height (AUTO) with tinted sides, so the links
+    from before (`1.b`, `3.b`) read so.
+  - `.bl` is LIFT and `.bt` is TEXTURE.
+  - A trailing `c` keeps the sides in colour (`1.btc`, `1.bc`).
+
+**Measured** (2026-10-25, the same headless Chrome on the GTX 1080 Ti,
+1280 × 800, the synthetic stand-ins, the camera north at −45°). The
+imagery tiles were drawn in the page (no network), so the build time
+below is stitching and upload only. Live, it is the fetch of the tiles
+listed, six at a time.
+
+| View                  | Window cells  | Texture     | Tiles (zoom) | GPU, with mipmaps | Stitch | Lifted    | Textured, tint | Textured, colour |
+| --------------------- | ------------- | ----------- | ------------ | ----------------- | ------ | --------- | -------------- | ---------------- |
+| Rainier, 25 km        | 447² of 140 m | 2395 × 2395 | 110 (z 12)   | 30.6 MB           | 19 ms  | 0.4 / 1.0 | 0.2 / 0.3      | 0.2 / 0.3        |
+| Rainier, 50 km        | 447² of 280 m | 2395 × 2395 | 110 (z 11)   | 30.6 MB           | 21 ms  | 0.2 / 0.4 | 0.2 / 0.3      | 0.2 / 0.3        |
+| Patapsco valley, 8 km | 447² of 45 m  | 2709 × 2708 | 121 (z 14)   | 39.1 MB           | 22 ms  | 0.2 / 0.5 | 0.2 / 0.3      | 0.2 / 0.3        |
+| Grand Canyon, 40 km   | 447² of 224 m | 3243 × 3243 | 182 (z 12)   | 56.1 MB           | 40 ms  | 0.2 / 0.5 | 0.2 / 0.3      | 0.2 / 0.3        |
+
+Frame times are median / 95th percentile in ms, 240 frames. Bricks
+alone were 0.2 / 0.3 at every view, and tiles alone 0.3–0.4 medians.
+The texture costs no frame time measurable here. The window's texture is
+the one GPU cost of note: 31 to 56 MB (5.4 to 7.3 texels a cell), freed
+when it comes off.
+
+The textured tops have no curtains: the imagery runs on across the
+stepped tops, and the brick sides carry the relief.
+
+- **Its limits:**
+  - The tops are flat: no 3D buildings or trees in the window, only the
+    imagery's 2D view of them.
+  - Esri's imagery is not Google's: colours and dates differ at the
+    window's edge, where the tiles start again.
+  - The tiles are fetched from Esri for every new window: 110 to 182 at
+    the four views.
+
+**AUTO links for a look,** all looking north at −35° from south of the
+place:
+
+- Mount Rainier from 25 km (29.4 km south of the summit) and from 50 km
+  (65.1 km south): both textured;
+- the Patapsco valley from 8 km: AUTO lifts there (`lp=1.bt` forces the
+  texture);
+- the Grand Canyon from 40 km (54.1 km south of 36.10° N, 112.10° W):
+  textured.
+
+```
+#lat=46.5879&lon=-121.7603&alt=25000&heading=0&pitch=-35&roll=0&map=photoreal&lp=1.b
+#lat=46.2672&lon=-121.7603&alt=50000&heading=0&pitch=-35&roll=0&map=photoreal&lp=1.b
+#lat=39.1374&lon=-76.7500&alt=8000&heading=0&pitch=-35&roll=0&map=photoreal&lp=1.b
+#lat=35.6138&lon=-112.1000&alt=40000&heading=0&pitch=-35&roll=0&map=photoreal&lp=1.b
+```
+
+Tests (`src/layers/lego/photoreal.test.mjs`, `src/layers/lego/topTexture.test.mjs`):
 
 - the `lp` round trip;
 - the lift, with the geoid and the relief;
@@ -5762,7 +5866,17 @@ Tests (`src/layers/lego/photoreal.test.mjs`):
 - the uniforms and the world-to-window matrix;
 - the lifecycle on stubs: on, a window move, Lego off, a map switch, a
   globe map, a flat map, the switch off, destroy;
-- the relief's anchor, re-anchoring and reset.
+- the relief's anchor, re-anchoring and reset;
+- the tile zoom at real windows (4 to 8 texels a cell, at most 4,096 px), the
+  stitching (one tile, across tile boundaries, at and across the
+  antimeridian), the mercator UVs, the mesh's per-vertex places;
+- the AUTO switch and its hysteresis, LIFT and TEXTURE;
+- the build: tiles placed, a failed tile left blank, a cancel stopping it;
+- the textured lifecycle on stubs: lifted until the imagery is in, then
+  textured with the tiles cut away and the credit shown, the sides
+  switched, a new primitive given the kept texture, a window move
+  cancelling the build before, coming down lifting again, a failed window
+  not retried, off taking it all off.
 
 ## Colour scales: palettes and a window per layer
 

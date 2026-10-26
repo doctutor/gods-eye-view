@@ -3948,5 +3948,16 @@
   "No county in Overture here": "Здесь у Overture нет округа",
   "Fill each region or county in its own colour (Overture division areas)": "Залить каждый регион или округ своим цветом (области Overture)",
   "COASTS": "ПОБЕРЕЖЬЯ",
-  "Draw the countries' coasts with their Overture lines (island countries' outlines)": "Рисовать побережья стран вместе с их линиями Overture (контуры островных стран)"
+  "Draw the countries' coasts with their Overture lines (island countries' outlines)": "Рисовать побережья стран вместе с их линиями Overture (контуры островных стран)",
+  "Bricks: AUTO": "Кирпичи: АВТО",
+  "Bricks: LIFT": "Кирпичи: ПОДЪЁМ",
+  "Bricks: TEXTURE": "Кирпичи: ТЕКСТУРА",
+  "Sides: tint": "Бока: оттенок",
+  "Sides: colour": "Бока: цвет",
+  "Fetching the imagery for the brick tops…": "Загрузка снимков для верха кирпичей…",
+  "The brick tops’ imagery could not be fetched: the tiles stay lifted": "Не удалось загрузить снимки для верха кирпичей: тайлы остаются поднятыми",
+  "Brick tops: {size} px of Esri imagery": "Верх кирпичей: {size} px снимков Esri",
+  "How the Google 3D tiles meet the bricks": "Как тайлы Google 3D сочетаются с кирпичами",
+  "AUTO: the tiles lifted onto the bricks close in, the bricks’ tops textured with imagery far out (above 20 km). LIFT and TEXTURE: always one way": "АВТО: вблизи тайлы подняты на кирпичи, издали верх кирпичей покрыт снимками (выше 20 км). ПОДЪЁМ и ТЕКСТУРА: всегда одним способом",
+  "The textured bricks’ sides": "Бока кирпичей с текстурой"
 }
