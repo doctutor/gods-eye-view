@@ -368,7 +368,11 @@ test('a click draws the reach and its path to the sea on the ground, then the ne
   ]);
   // The card stands on the reach, not at the click.
   const at = Cesium.Cartographic.fromCartesian(card.position);
-  assert.ok(Math.abs(Cesium.Math.toDegrees(at.longitude) + 90.49) < 1e-6);
+  const lon = Cesium.Math.toDegrees(at.longitude);
+  const lat = Cesium.Math.toDegrees(at.latitude);
+  // On the line from (-90.5, 38.55) to (-90.49, 38.551).
+  assert.ok(Math.abs(lat - (38.55 + (lon + 90.5) * 0.1)) < 1e-7);
+  assert.ok(lat > 38.5501 + 5e-4, 'north of the click, on the reach');
   assert.equal(entries[1].title, 'Mouth');
 });
 
@@ -625,22 +629,73 @@ test('the card speaks plainly, and in Spanish and Russian too', () => {
 });
 
 test('helpers: the nearest point and upstream widths', () => {
+  // On the line between its vertices, and at an end beyond them.
+  const [x, y] = nearestPoint(
+    [
+      [0, 0],
+      [0, 1],
+      [0, 2],
+    ],
+    0.3,
+    1.4,
+  );
+  assert.ok(Math.abs(x) < 1e-12 && Math.abs(y - 1.4) < 1e-12);
   assert.deepEqual(
     nearestPoint(
       [
         [0, 0],
-        [1, 1],
-        [2, 2],
+        [0, 1],
       ],
-      1.2,
-      0.9,
+      0.1,
+      3,
     ),
-    [1, 1],
+    [0, 1],
   );
+  assert.deepEqual(nearestPoint([[5, 6]], 0, 0), [5, 6]);
   assert.equal(nearestPoint([], 0, 0), null);
   assert.equal(upstreamWidth(5, 5), 3);
   assert.ok(upstreamWidth(7, 5) < upstreamWidth(6, 5));
   assert.equal(upstreamWidth(10, 1), 1.5);
+});
+
+test('the card stands on the reach near the click, not at a vertex half a kilometre off', async () => {
+  // Stony Run, Baltimore, as the live server answered 2026-10-26: reach
+  // 7616601 passes 245 m from the click, but its nearest vertex is 430 m
+  // off. Anchored there, from 1,500 m up the card sat under the command
+  // dock, or off a smaller screen, where the overlay culls it: no card.
+  const click = { lat: 39.3268, lon: -76.6268 };
+  const STONY_RUN = {
+    ...ANSWER,
+    query: { ...click, heightM: 1500, toleranceM: 400, maxOrder: 10 },
+    reach: {
+      ...ANSWER.reach,
+      id: 7616601,
+      distanceM: 245,
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [-76.62083, 39.32917],
+          [-76.62708, 39.32292],
+          [-76.63125, 39.32292],
+        ],
+      },
+    },
+  };
+  const s = setup({
+    routes: [
+      [/\/upstream$/, () => json(200, UPSTREAM)],
+      [/\?lat=/, () => json(200, STONY_RUN)],
+    ],
+  });
+  await s.highlight.select(click.lat, click.lon, 1500);
+  const [card] = s.overlays.sources.get(REACH_OVERLAY_SOURCE);
+  const at = Cesium.Cartographic.fromCartesian(card.position);
+  const metres = new Cesium.EllipsoidGeodesic(
+    Cesium.Cartographic.fromDegrees(click.lon, click.lat),
+    new Cesium.Cartographic(at.longitude, at.latitude),
+  ).surfaceDistance;
+  assert.ok(metres < 260, `the card is ${Math.round(metres)} m from the click`);
+  assert.ok(metres > 200, 'on the reach, not at the click');
 });
 
 test('a name-only answer: the waterway’s name on the card at the click, nothing drawn or traced', async () => {
