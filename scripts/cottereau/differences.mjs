@@ -47,14 +47,14 @@ export const DIFFERENCES = Object.freeze([
     cliopatria: 'Qin',
     from: -350,
     to: -328,
-    why: "Cottereau's Qin of the mid-4th century BC lies in the far west (Gansu, 101–110° E), Cliopatria's in the Wei valley (108–112° E); his Wei and Han sit west of theirs likewise, and his \"Zhou\" covers Shandong.",
+    why: 'Cottereau\'s Qin of the mid-4th century BC lies in the far west (Gansu, 101–110° E), Cliopatria\'s in the Wei valley (108–112° E); his Wei and Han sit west of theirs likewise, and his "Zhou" covers Shandong.',
   },
   {
     label: 'Wei',
     cliopatria: 'Wei',
     from: -401,
     to: -229,
-    why: "Cottereau's Wei (\"Weic\" to the OCR) is drawn west of Han, around 107–111° E; Cliopatria's Wei lies east of it, on the Yellow River plain.",
+    why: 'Cottereau\'s Wei ("Weic" to the OCR) is drawn west of Han, around 107–111° E; Cliopatria\'s Wei lies east of it, on the Yellow River plain.',
   },
   {
     label: 'Balhae',
