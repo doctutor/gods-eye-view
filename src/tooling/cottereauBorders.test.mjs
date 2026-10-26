@@ -552,6 +552,11 @@ test('the build is keyed on the declared extractor version; samples an older one
     false,
     '4 → 5 separates regions in nearly every frame: none carries over',
   );
+  assert.equal(
+    carriesOver({ ...map, extractor: 5 }, 6),
+    false,
+    '5 → 6 can change any black label’s box: none carries over',
+  );
 });
 
 test('the manifest’s samples leave out the skipped (no map), so a year shows the last real map', () => {

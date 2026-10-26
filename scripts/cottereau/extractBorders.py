@@ -67,6 +67,7 @@ import math
 import os
 import sys
 import time
+import unicodedata
 
 import cv2
 import numpy as np
@@ -88,8 +89,11 @@ FORMAT = 1
 # 5: border lines through a label's box are kept, lines darker in one
 # channel and fills meeting over three pixels separate, fades are skipped,
 # one label's two lines are one label, and the labels of one matched polity
-# in one fill are not split from each other.
-EXTRACTOR_VERSION = 5
+# in one fill are not split from each other. 6: a letter is its strokes
+# (3 px and more), so a dark border line by black letters stays; and a
+# label that names its matched polity never takes, beside it, a region
+# wholly outside that polity.
+EXTRACTOR_VERSION = 6
 MOSTLY_OWN = 0.5  # a region this much inside a label's matched polity is that label's side
 SOME_OWN = 0.1  # a region this much inside it comes before one wholly outside
 MAX_CLAIM = 6  # a beside or joined claim over 6x the matched polity is another polity's (none with IoU >= 0.2 above it)
@@ -104,6 +108,7 @@ LINE_BLACKHAT_CHANNEL = 32  # the same in any one channel (a crimson's darker li
 LINE_MARGIN = 10  # how far outside a label's box a border line is looked for
 LINE_OUTSIDE_PX = 8  # a line with this many pixels outside the box runs on: a border, not a letter
 LINE_KEEP_PX = 2  # a letter's rim this close to a border line through its box stays
+STROKE_LABEL_PX = 28  # a label this tall (px) has strokes of 3 px and more; a smaller one's are a line's width
 COLOUR_EDGE = 24  # a jump in a channel between neighbours: two fills meeting
 TEXT_DIFF = 20  # a text pixel's distance from its box's background (strokes and rims)
 MIN_REGION_PX = 25  # crumbs smaller than this are separators
@@ -224,8 +229,16 @@ def paint_out_text(frame, boxes, sea, lines=None):
             # whichever the box has more of: a dark line under white letters
             # is a line), nor the fill between white letters (darker than
             # both sides, so a black-hat line, but the fill's own colour).
+            # In a label of STROKE_LABEL_PX or more, a letter is its strokes,
+            # 3 px and more across (what an opening keeps): a dark border
+            # line, 1 or 2 px, by black letters is a line all the same. A
+            # smaller label's strokes are as thin as a line.
             dark = far & (gray < 80)
-            letters = far & light if (far & light).sum() > dark.sum() else dark
+            shade = far & light if (far & light).sum() > dark.sum() else dark
+            letters = shade
+            if boxes[k][3] >= STROKE_LABEL_PX:
+                strokes = cv2.morphologyEx(shade.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+                letters = cv2.dilate(strokes, np.ones((3, 3), np.uint8)) > 0
             border = border_lines(lines, (x0, y0, x1, y1), (height, width), letters | ~far)
             if border.any():
                 text &= ~(cv2.dilate(border.astype(np.uint8), keep_kernel) > 0)
@@ -458,6 +471,29 @@ def beside_candidates(comp, table, label):
     return [cand for _, cand in first + rest]
 
 
+GENERIC_WORDS = frozenset(
+    'the of and kingdom kingdoms empire sultanate caliphate dynasty khanate khaganate state states republic '
+    'principality duchy grand emirate confederation league tribe tribes people realm county new great'.split()
+)
+
+
+def name_words(text):
+    """A name's words, accents folded ("Đại Việt" → dai, viet), less the generic ones."""
+    folded = unicodedata.normalize('NFKD', str(text or '').replace('Đ', 'D').replace('đ', 'd'))
+    plain = ''.join(ch for ch in folded if not unicodedata.combining(ch)).lower()
+    words = ''.join(ch if ch.isalpha() else ' ' for ch in plain).split()
+    return [w for w in words if w not in GENERIC_WORDS]
+
+
+def names_alike(label, name):
+    """Whether a label names its matched polity: a word of each (four letters
+    or more) begins alike ("Liberia", "Republic of Liberia"; "Gold Coast",
+    "Dutch Gold Coast"). By place a match shares none ("Taiwan", "Japan")."""
+    ours = {w[:4] for w in name_words(label) if len(w) >= 4}
+    theirs = {w[:4] for w in name_words(name) if len(w) >= 4}
+    return bool(ours & theirs)
+
+
 def merge_lines(comp, table, labels):
     """The labels with one label's lines read as one ("Russian" over
     "America"): two labels in one region, one above the other (the gap
@@ -572,7 +608,14 @@ def name_regions(comp, table, labels, hint=None, claim=None):
         shares = {c: float(inside(c)) for c in candidates} if inside else {}
         own = [c for c in candidates if shares.get(c, 0) >= MOSTLY_OWN]
         some = [c for c in candidates if SOME_OWN <= shares.get(c, 0) < MOSTLY_OWN]
-        plans.append((i, own, own + some + [c for c in candidates if c not in own and c not in some]))
+        rest = [c for c in candidates if c not in own and c not in some]
+        # A label that names its matched polity (alive that year) never
+        # takes a region wholly outside it: Liberia, left white in 1885,
+        # took French Ivory Coast. One matched by place alone may (Taiwan,
+        # matched to Japan, is its island all the same).
+        if inside and names_alike(labels[i].get('text'), labels[i].get('cliopatria')):
+            rest = [c for c in rest if shares[c] > 0]
+        plans.append((i, own, own + some + rest))
 
     def take(i, candidates):
         for cid in candidates:
