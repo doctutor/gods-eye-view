@@ -493,3 +493,81 @@ test('the Titles row sits above the first group and flips the overlay host', asy
     globalThis.document = previousDocument;
   }
 });
+
+test('a toggle acts on what it shows: a layer turned on while the page was hidden reads OFF, and the first click leaves it on', async () => {
+  const { LayerPanel } = await import('./layerPanel.js');
+  const { railFixture } = await import('./railTestFixture.mjs');
+  const f = railFixture();
+  const previousDocument = globalThis.document;
+  globalThis.document = f.document;
+  const rivers = {
+    id: 'ee-rivers',
+    name: 'Rivers',
+    icon: '~',
+    source: 'HydroSHEDS',
+    enabled: false,
+    showInTogglePanel: true,
+    stats: {},
+  };
+  const calls = [];
+  let hiddenRefreshes = 0;
+  const panel = new LayerPanel({
+    getLayers: () => [rivers],
+    isEnabled: () => rivers.enabled,
+    setEnabled: async (id, enabled, options) => {
+      calls.push([id, enabled, options.origin]);
+      rivers.enabled = enabled;
+      return true;
+    },
+    setLayerParams: () => {},
+    getRowControls: () => null,
+    hasRowControls: () => false,
+    subscribeRowControls: () => {},
+    onHiddenRefresh: () => hiddenRefreshes++,
+  });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  try {
+    panel.mount(f.container);
+    const button = () =>
+      f
+        .find((n) => n.dataset.layerId === 'ee-rivers')
+        .querySelector('.data-toggle-btn');
+    assert.equal(button().textContent, 'OFF');
+    // Visible and in step: an ordinary first click turns it on, the next off.
+    button().click();
+    await settle();
+    assert.deepEqual(calls, [['ee-rivers', true, 'user']]);
+    assert.equal(button().textContent, 'ON');
+    button().click();
+    await settle();
+    assert.deepEqual(calls.at(-1), ['ee-rivers', false, 'user']);
+    assert.equal(button().textContent, 'OFF');
+    calls.length = 0;
+    // The share link turns Rivers on while the page is hidden: the panel's
+    // repaint is put off, so the button still reads OFF.
+    f.document.hidden = true;
+    rivers.enabled = true;
+    panel._refreshTogglePanel();
+    assert.equal(hiddenRefreshes, 1);
+    assert.equal(button().textContent, 'OFF', 'stale while hidden');
+    // The first click means ON: nothing to change, the button catches up.
+    button().click();
+    await settle();
+    assert.deepEqual(calls, [], 'not switched off behind the user');
+    assert.equal(rivers.enabled, true);
+    assert.equal(button().textContent, 'ON');
+    assert.ok(button().classList.contains('active'));
+    // From there each click toggles as shown.
+    button().click();
+    await settle();
+    assert.deepEqual(calls, [['ee-rivers', false, 'user']]);
+    assert.equal(button().textContent, 'OFF');
+    button().click();
+    await settle();
+    assert.deepEqual(calls.at(-1), ['ee-rivers', true, 'user']);
+    assert.equal(button().textContent, 'ON');
+  } finally {
+    panel.destroy();
+    globalThis.document = previousDocument;
+  }
+});
