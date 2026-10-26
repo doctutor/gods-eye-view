@@ -415,12 +415,22 @@ export class LayerPanel {
           toggle.getAttribute('aria-disabled') === 'true'
         )
           return;
+        // Act on what the button shows. While the document is hidden the
+        // panel does not repaint (_refreshTogglePanel), so a layer turned on
+        // meanwhile (a share link's, restored in a background tab or a hidden
+        // automation pane) can still read OFF: a click on that OFF means ON,
+        // and finds it on already. Toggling the hidden state instead turned
+        // the layer off, so the first click seemed to do nothing.
+        const wanted = toggle.dataset.enabled !== 'true';
+        if (wanted === Boolean(this.isEnabled(layer.id))) {
+          const current = this.getAll().find(({ id }) => id === layer.id);
+          if (current) this._syncToggleButton(toggle, current);
+          return;
+        }
         toggle.setAttribute('aria-disabled', 'true');
         toggle.setAttribute('aria-busy', 'true');
         try {
-          await this.setEnabled(layer.id, !this.isEnabled(layer.id), {
-            origin: 'user',
-          });
+          await this.setEnabled(layer.id, wanted, { origin: 'user' });
         } catch (error) {
           console.warn(`[Data] ${layer.id} toggle error:`, error);
         } finally {
@@ -879,6 +889,8 @@ export class LayerPanel {
       layer.lifecycleState === 'disabling';
     const uncertain = Boolean(layer.lifecycleUncertain);
     button.classList.toggle('active', layer.enabled);
+    // What the button shows, which a click acts on (see the toggle's click).
+    button.dataset.enabled = String(Boolean(layer.enabled));
     button.classList.toggle('transitioning', transitioning);
     button.classList.toggle('enabling', layer.lifecycleState === 'enabling');
     button.classList.toggle('disabling', layer.lifecycleState === 'disabling');
