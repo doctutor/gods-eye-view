@@ -49,16 +49,41 @@ export function upstreamWidth(order, clickedOrder) {
   return Math.max(1.5, REACH_STYLE.upstream.width - step * 0.75);
 }
 
-/** The point of a line nearest a place: where the card stands. */
+/**
+ * The point of a line nearest a place: where the card stands. On the line,
+ * not at its nearest vertex: HydroRIVERS' vertices are a grid cell or more
+ * apart, so a reach that passes 245 m from a click can have no vertex closer
+ * than 430 m, and from 1,500 m up that put the card under the command dock
+ * or off the screen.
+ */
 export function nearestPoint(coordinates, lon, lat) {
-  let best = null;
-  let bestD = Infinity;
+  const points = (coordinates || []).filter(
+    (point) => Number.isFinite(point?.[0]) && Number.isFinite(point?.[1]),
+  );
+  if (!points.length) return null;
   const kx = Math.cos((lat * Math.PI) / 180);
-  for (const point of coordinates || []) {
-    const d = ((point[0] - lon) * kx) ** 2 + (point[1] - lat) ** 2;
+  let best = [points[0][0], points[0][1]];
+  let bestD = Infinity;
+  for (let i = 0; i < points.length; i++) {
+    const [ax, ay] = points[i];
+    const [bx, by] = points[Math.min(i + 1, points.length - 1)];
+    // Along the segment, in metres-shaped degrees about the place.
+    const dx = (bx - ax) * kx;
+    const dy = by - ay;
+    const length2 = dx * dx + dy * dy;
+    const t =
+      length2 > 0
+        ? Math.max(
+            0,
+            Math.min(1, ((lon - ax) * kx * dx + (lat - ay) * dy) / length2),
+          )
+        : 0;
+    const x = ax + (bx - ax) * t;
+    const y = ay + (by - ay) * t;
+    const d = ((x - lon) * kx) ** 2 + (y - lat) ** 2;
     if (d < bestD) {
       bestD = d;
-      best = point;
+      best = [x, y];
     }
   }
   return best;
