@@ -34,7 +34,17 @@
  *     },
  *     links: {self, upstream},    // same-site paths for this reach
  *     cached, timing: {ms, requests},
+ *     // Personal fork: asked with v2=1 where the Rivers layer draws
+ *     // HydroSHEDS v2, the v2 line nearest the click, which the highlight
+ *     // draws in place of the reach's own line (v2 has no ids, links or
+ *     // properties: those, and the paths, stay the reach's).
+ *     visible?: {source: {id, name, attribution}, order, distanceM,
+ *                geometry: {type: 'LineString', coordinates}},
  *   }
+ *
+ * With no reach near enough but a name (OpenStreetMap) or a v2 line there,
+ * the answer is `nameOnly: true` with `reach`, `downstream` and `links`
+ * null.
  *
  * Coordinates run with the flow (source to mouth) and are rounded to 1e-5°.
  * A segment or line is one backbone river (a contiguous flow path).
@@ -145,6 +155,10 @@ export function parseReachQuery(params) {
   const upstream = params.get('upstream');
   if (upstream !== null && !['0', '1', 'true', 'false'].includes(upstream))
     return { error: 'upstream must be 0 or 1' };
+  // Personal fork: the client draws HydroSHEDS v2 here; answer its line.
+  const v2 = params.get('v2');
+  if (v2 !== null && !['0', '1'].includes(v2))
+    return { error: 'v2 must be 0 or 1' };
   const heightM = height ?? DEFAULT_HEIGHT_M;
   return {
     lat,
@@ -152,6 +166,7 @@ export function parseReachQuery(params) {
     heightM,
     maxOrder: order ?? maxOrderForHeight(heightM),
     upstream: upstream === '1' || upstream === 'true',
+    v2: v2 === '1',
   };
 }
 

@@ -1262,7 +1262,11 @@ export function createEarthEngineLayer({
       _countriesStatus = countriesSource?.last?.() || _countriesStatus;
       _areasStatus = areasSource?.last?.() || _areasStatus;
       names?.enable();
-      clicks?.enable(_viewer, { active: identifyActive });
+      clicks?.enable(_viewer, {
+        active: identifyActive,
+        // Personal fork: the Rivers' clicks highlight v2's line where it draws.
+        v2Drawn: () => _enabled && v2Drawn(wantedInk()),
+      });
       if (colourScales?.subscribe && !_offScales) {
         const off = colourScales.subscribe(onScaleChange);
         _offScales = typeof off === 'function' ? off : null;

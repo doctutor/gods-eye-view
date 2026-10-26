@@ -823,7 +823,7 @@ const v2Ready = () => ({
 /** A Rivers layer on a fake viewer with the real catalog and a v2 status. */
 async function riversLayer(
   t,
-  { v2 = v2Ready(), mode = 'network', lon = -90 } = {},
+  { v2 = v2Ready(), mode = 'network', lon = -90, clicks = null } = {},
 ) {
   const { body } = await riversCatalog(t);
   const source = createEarthEngineSource({
@@ -868,6 +868,7 @@ async function riversLayer(
       last: () => null,
     },
     v2Credit: { key: 'hydrosheds-v2', html: 'HydroSHEDS v2' },
+    clicks,
   });
   layer.init(viewer);
   layer.enable(viewer);
@@ -963,6 +964,34 @@ test('NETWORK in the Americas is HydroSHEDS v2 while it is built, with Earth Eng
   assert.equal(layers.length, 2);
   layer.disable();
   assert.equal(layers.length, 0);
+});
+
+test('clicks ask for v2’s line while NETWORK draws v2, and not in the other modes', async (t) => {
+  let options = null;
+  const clicks = {
+    enable: (_, given) => (options = given),
+    disable() {},
+  };
+  const { layer } = await riversLayer(t, { clicks });
+  assert.equal(options.v2Drawn(), true);
+  layer
+    .getRowControls()
+    .chips.find((chip) => chip.id === 'mode-pressure')
+    .onClick();
+  assert.equal(options.v2Drawn(), false);
+  layer.disable();
+  assert.equal(options.v2Drawn(), false, 'off: nothing drawn');
+  // And the clicks pass it on to the highlight.
+  let services = null;
+  const riverClicks = createRiverClicks({
+    attachHighlight: (given) => ((services = given), { detach() {} }),
+    attachClicks: () => () => {},
+  });
+  let drawn = true;
+  riverClicks.enable({ scene: {} }, { v2Drawn: () => drawn });
+  assert.equal(services.visibleLines(), true);
+  drawn = false;
+  assert.equal(services.visibleLines(), false);
 });
 
 test('without a v2 build (503) or its status, NETWORK is v1 everywhere, quietly', async (t) => {

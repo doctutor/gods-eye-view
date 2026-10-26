@@ -3866,6 +3866,32 @@ size winning, kept by the rounded click (`liveNames.nameAt`,
 `chooseWaterwayAt`). The answer is a 200 with `nameOnly: true`,
 `reach: null` and the `osmName`.
 
+**Where v2 is drawn, its line.** Over the Americas, NETWORK draws
+HydroSHEDS v2 (below), whose lines follow the valleys where HydroRIVERS
+v1's coarser ones can run a few hundred metres off: at Stony Run,
+Baltimore, v2's stream runs north to south 132 m from a click and v1's
+reach diagonally 245 m off. While the layer draws v2 there, a click asks
+with `v2=1`, and the answer adds `visible`: v2's line nearest the click
+within the same tolerance and order limit (`order`, `distanceM`,
+`geometry`). It is read from the build's level files
+(`server/providers/riversV2/nearest.js`): the level that holds every order
+the click may pick (z11 from city heights, coarser ones from higher up),
+the one to four cells within the tolerance, at most nine cells in all, in
+1 to 5 ms. v2's pieces carry an order and a line only (no id, downstream
+link, discharge or name), and a reach crossing cells is cut at them, each
+cell's run sharing the segments within the level's margin of the edge, so
+the runs are joined again by those shared segments (a confluence shares a
+point only, so two reaches are never joined). The amber line is then v2's,
+on its casing, with the card on it; v1's reach and its path to the sea
+are drawn faint and thin without a casing, and the upstream network
+fainter, as the way the water goes rather than the river clicked. The
+card's details stay v1's, and a line says so: "Line from HydroSHEDS v2;
+details and paths from HydroRIVERS v1" ("Line and details from
+HydroRIVERS v1" elsewhere). With no v1 reach near enough but a v2 line
+there, the answer is name-only with `visible`: the line is drawn, nothing
+traced ("No HydroRIVERS reach within 400 m to trace", "Line from
+HydroSHEDS v2"). A v2 read that fails leaves the answer v1's.
+
 **Data.** HydroRIVERS v1 with the Free-Flowing Rivers attributes (Grill et
 al. 2019, _Nature_ 569: 215), Earth Engine table
 `WWF/HydroSHEDS/v1/FreeFlowingRivers`, with the same service account as the
@@ -3880,7 +3906,7 @@ the Okavango and the Amu Darya end inland.
 `server/providers/local.js`, same-site, GET only):
 
 ```
-GET /api/rivers/reach?lat=&lon=&heightM=[&maxOrder=][&upstream=1]
+GET /api/rivers/reach?lat=&lon=&heightM=[&maxOrder=][&upstream=1][&v2=1]
 GET /api/rivers/reach/<source>/<id>[?upstream=1]
 GET /api/rivers/reach/<source>/<id>/upstream
 ```

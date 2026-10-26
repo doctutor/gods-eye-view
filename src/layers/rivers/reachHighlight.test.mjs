@@ -7,6 +7,7 @@ import * as Cesium from 'cesium';
 import {
   NOTICE_MS,
   REACH_OVERLAY_SOURCE,
+  REACH_STYLE,
   REACH_PICK_PREFIX,
   attachReachClicks,
   attachReachHighlight,
@@ -254,7 +255,12 @@ function fakeFetch(routes) {
   return { asked, impl };
 }
 
-function setup({ routes, viewer = fakeViewer(), options = {} } = {}) {
+function setup({
+  routes,
+  viewer = fakeViewer(),
+  options = {},
+  visibleLines,
+} = {}) {
   const overlays = fakeOverlays();
   const documentRef = fakeDocument();
   const timers = fakeTimers();
@@ -285,6 +291,7 @@ function setup({ routes, viewer = fakeViewer(), options = {} } = {}) {
       documentRef,
       setTimer: timers.setTimer,
       clearTimer: timers.clearTimer,
+      ...(visibleLines ? { visibleLines } : {}),
     },
     { debounceMs: 0, ...options },
   );
@@ -365,6 +372,7 @@ test('a click draws the reach and its path to the sea on the ground, then the ne
     'Free-flowing (connectivity 97%)',
     'Slight pressure: urban areas',
     '1,890 km to the sea',
+    'Line and details from HydroRIVERS v1',
   ]);
   // The card stands on the reach, not at the click.
   const at = Cesium.Cartographic.fromCartesian(card.position);
@@ -696,6 +704,110 @@ test('the card stands on the reach near the click, not at a vertex half a kilome
   ).surfaceDistance;
   assert.ok(metres < 260, `the card is ${Math.round(metres)} m from the click`);
   assert.ok(metres > 200, 'on the reach, not at the click');
+});
+
+// Stony Run as HydroSHEDS v2 draws it (server/providers/riversV2/
+// nearest.test.mjs has the piece), shortened: north to south, 132 m east.
+const STONY_RUN_V2 = {
+  source: { id: 'hydrosheds-v2', name: 'HydroSHEDS v2', attribution: '' },
+  order: 8,
+  distanceM: 132,
+  geometry: {
+    type: 'LineString',
+    coordinates: [
+      [-76.62513, 39.33848],
+      [-76.62528, 39.32681],
+      [-76.62792, 39.31931],
+    ],
+  },
+};
+
+test('where v2 is drawn, the amber line is v2’s and v1’s reach and path are faint', async () => {
+  const click = { lat: 39.3268, lon: -76.6268 };
+  const V2_ANSWER = {
+    ...ANSWER,
+    query: { ...click, heightM: 1500, toleranceM: 400, maxOrder: 10 },
+    visible: STONY_RUN_V2,
+  };
+  let drawn = true;
+  const s = setup({
+    visibleLines: () => drawn,
+    routes: [
+      [/\/upstream$/, () => json(200, UPSTREAM)],
+      [/\?lat=/, () => json(200, V2_ANSWER)],
+    ],
+  });
+  await s.highlight.select(click.lat, click.lon, 1500);
+  assert.match(s.fetch.asked[0], /&v2=1$/);
+  const [up, casing, path, amber] = s.viewer.scene.groundPrimitives.items;
+  // The amber line is v2's, alone on the casing.
+  assert.equal(instancesOf(amber).length, 1);
+  const amberPoints = Cesium.Ellipsoid.WGS84.cartesianArrayToCartographicArray(
+    instancesOf(amber)[0].geometry._positions,
+  );
+  assert.equal(amberPoints.length, 3);
+  assert.ok(
+    Math.abs(Cesium.Math.toDegrees(amberPoints[0].latitude) - 39.33848) < 1e-6,
+  );
+  assert.equal(instancesOf(casing).length, 1, 'only v2’s line is cased');
+  // v1's reach and its two segments to the sea: one faint, thin path.
+  assert.equal(instancesOf(path).length, 3);
+  const { width } = instancesOf(path)[0].geometry;
+  assert.ok(width < REACH_STYLE.downstream.width);
+  assert.ok(width < instancesOf(amber)[0].geometry.width / 2);
+  const alpha = instancesOf(path)[0].attributes.color.value[3] / 255;
+  assert.ok(alpha <= 0.5, `path alpha ${alpha}`);
+  // The network above, fainter too.
+  assert.ok(instancesOf(up).length > 0);
+  assert.ok(up.appearance.material.uniforms.color.alpha <= 0.5);
+  // The card stands on v2's line, and says where each part comes from.
+  const [card] = s.overlays.sources.get(REACH_OVERLAY_SOURCE);
+  const at = Cesium.Cartographic.fromCartesian(card.position);
+  const metres = new Cesium.EllipsoidGeodesic(
+    Cesium.Cartographic.fromDegrees(click.lon, click.lat),
+    new Cesium.Cartographic(at.longitude, at.latitude),
+  ).surfaceDistance;
+  assert.ok(metres > 120 && metres < 145, `${Math.round(metres)} m`);
+  assert.ok(
+    card.details.includes(
+      'Line from HydroSHEDS v2; details and paths from HydroRIVERS v1',
+    ),
+  );
+  // Where v2 is not drawn, v2 is not asked for.
+  drawn = false;
+  await s.highlight.select(click.lat, click.lon, 1500);
+  assert.doesNotMatch(s.fetch.asked.at(-2), /v2=/);
+});
+
+test('no v1 reach but v2’s line: the line drawn, nothing traced, and the card says so', async () => {
+  const click = { lat: 39.3268, lon: -76.6268 };
+  const ONLY_V2 = {
+    schema: RIVER_REACH_SCHEMA,
+    source: { id: 'hydrosheds-v1', name: 'HydroRIVERS', attribution: '' },
+    query: { ...click, heightM: 1500, toleranceM: 400, maxOrder: 10 },
+    nameOnly: true,
+    reach: null,
+    osmName: null,
+    visible: STONY_RUN_V2,
+    downstream: null,
+    upstream: null,
+    links: null,
+  };
+  const s = setup({
+    visibleLines: () => true,
+    routes: [[/\?lat=/, () => json(200, ONLY_V2)]],
+  });
+  await s.highlight.select(click.lat, click.lon, 1500);
+  const drawn = s.viewer.scene.groundPrimitives.items;
+  assert.equal(drawn.length, 2, 'v2’s line on its casing');
+  assert.equal(s.fetch.asked.length, 1, 'no upstream asked for');
+  const [card] = s.overlays.sources.get(REACH_OVERLAY_SOURCE);
+  assert.equal(card.title, 'Unnamed river');
+  assert.deepEqual(card.details, [
+    'Brook',
+    'No HydroRIVERS reach within 400 m to trace',
+    'Line from HydroSHEDS v2',
+  ]);
 });
 
 test('a name-only answer: the waterway’s name on the card at the click, nothing drawn or traced', async () => {
