@@ -183,6 +183,7 @@ export function reachCardDetails(answer, { upstream = null } = {}) {
     );
   const distance = distanceText(answer?.downstream);
   if (distance) lines.push(distance);
+  lines.push(lineSourceText(answer));
   const naming = osmNameSource(answer?.osmName, props.BB_NAME);
   if (naming) lines.push(naming);
   if (upstream === 'loading') lines.push(t('Tracing the rivers upstream…'));
@@ -198,20 +199,44 @@ export function reachCardDetails(answer, { upstream = null } = {}) {
 }
 
 /**
+ * Personal fork: which dataset the highlighted line is: HydroSHEDS v2's,
+ * the line the Rivers layer draws over the Americas, or HydroRIVERS v1's,
+ * whose reach gives the card's details and the paths up and down stream.
+ */
+export function lineSourceText(answer) {
+  if (answer?.visible?.geometry && answer?.reach)
+    return t('Line from HydroSHEDS v2; details and paths from HydroRIVERS v1');
+  if (answer?.visible?.geometry) return t('Line from HydroSHEDS v2');
+  return t('Line and details from HydroRIVERS v1');
+}
+
+/**
  * A name-only answer's lines: no HydroRIVERS reach lay within the click's
- * tolerance, but OpenStreetMap names a waterway there, so the card gives
- * the name and says nothing is traced.
+ * tolerance, but OpenStreetMap names a waterway there, or HydroSHEDS v2
+ * draws one, so the card gives what there is and says nothing is traced.
  */
 export function nameOnlyCardDetails(answer) {
   const lines = [];
   const toleranceM = Number(answer?.query?.toleranceM);
-  lines.push(
-    Number.isFinite(toleranceM)
-      ? t('Name only: no HydroRIVERS reach within {distance} m to trace', {
-          distance: formatNumber(toleranceM),
-        })
-      : t('Name only: no HydroRIVERS reach near enough to trace'),
-  );
+  const visible = answer?.visible?.geometry ? answer.visible : null;
+  if (visible) lines.push(sizeClass(visible.order));
+  if (visible)
+    lines.push(
+      Number.isFinite(toleranceM)
+        ? t('No HydroRIVERS reach within {distance} m to trace', {
+            distance: formatNumber(toleranceM),
+          })
+        : t('No HydroRIVERS reach near enough to trace'),
+      lineSourceText(answer),
+    );
+  else
+    lines.push(
+      Number.isFinite(toleranceM)
+        ? t('Name only: no HydroRIVERS reach within {distance} m to trace', {
+            distance: formatNumber(toleranceM),
+          })
+        : t('Name only: no HydroRIVERS reach near enough to trace'),
+    );
   const distanceM = Number(answer?.osmName?.distanceM);
   if (Number.isFinite(distanceM))
     lines.push(

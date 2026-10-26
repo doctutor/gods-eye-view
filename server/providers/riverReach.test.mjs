@@ -9,6 +9,7 @@ import path from 'node:path';
 import {
   CACHE_VERSION,
   FFR_TABLE,
+  V2_LINE_SOURCE,
   V1_SOURCE,
   clickDistances,
   createLimiter,
@@ -48,9 +49,11 @@ test('a click needs a place on the globe; height, size limit and upstream are ch
     heightM: 5000,
     maxOrder: 10,
     upstream: false,
+    v2: false,
   });
   assert.equal(q('lat=1&lon=2').heightM, DEFAULT_HEIGHT_M);
   assert.equal(q('lat=1&lon=2&upstream=1').upstream, true);
+  assert.equal(q('lat=1&lon=2&v2=1').v2, true);
   assert.equal(q('lat=1&lon=2&heightM=1000000').maxOrder, 5);
   assert.equal(q('lat=1&lon=2&heightM=1000000&maxOrder=7').maxOrder, 7);
   for (const bad of [
@@ -67,6 +70,7 @@ test('a click needs a place on the globe; height, size limit and upstream are ch
     'lat=0&lon=0&maxOrder=11',
     'lat=0&lon=0&maxOrder=2.5',
     'lat=0&lon=0&upstream=yes',
+    'lat=0&lon=0&v2=true',
   ])
     assert.ok(q(bad).error, bad);
   assert.equal(parseReachId('7635839'), 7635839);
@@ -1012,6 +1016,96 @@ test('no reach within the tolerance, a named waterway there: the name alone, not
   const miss = await unnamed.atPoint({ ...STONY_RUN, heightM: 3_000 });
   assert.equal(miss.status, 404);
   assert.match(miss.body.error, /No river within 400 m/);
+});
+
+// Stony Run's line as HydroSHEDS v2 draws it (riversV2/nearest.test.mjs
+// has the piece), shortened: north to south, 132 m from the click.
+const STONY_RUN_V2 = {
+  order: 8,
+  distanceM: 132,
+  level: 'z11',
+  cells: 1,
+  geometry: {
+    type: 'LineString',
+    coordinates: [
+      [-76.62513, 39.33848],
+      [-76.62471, 39.32681],
+      [-76.62792, 39.31931],
+    ],
+  },
+};
+
+test('where the client draws v2, the answer carries the v2 line at the click', async (t) => {
+  const root = await tempRoot(t);
+  const asked = [];
+  const visibleLines = {
+    nearestLine: (query) => {
+      asked.push(query);
+      return STONY_RUN_V2;
+    },
+  };
+  const service = createRiverReachService({
+    sourceRoot: root,
+    backend: fakeEngine(),
+    visibleLines,
+  });
+  const click = { ...STONY_RUN, heightM: 1_500 };
+  const drawn = await service.atPoint({ ...click, v2: true });
+  assert.equal(drawn.status, 200);
+  assert.equal(drawn.body.reach.id, 11, 'v1 still gives the reach');
+  assert.ok(drawn.body.downstream, 'and its path');
+  assert.deepEqual(drawn.body.visible, {
+    source: V2_LINE_SOURCE,
+    order: 8,
+    distanceM: 132,
+    geometry: STONY_RUN_V2.geometry,
+  });
+  assert.deepEqual(asked, [
+    { lat: STONY_RUN.lat, lon: STONY_RUN.lon, toleranceM: 400, maxOrder: 10 },
+  ]);
+  // Not asked for (v2 not drawn there): v1 alone, v2 not read.
+  const plain = await service.atPoint(click);
+  assert.equal(plain.body.visible, undefined);
+  assert.equal(asked.length, 1);
+  // The v1 answer kept on disk has no v2 line in it.
+  const stored = JSON.parse(
+    await fs.readFile(
+      path.join(root, '.gev-cache', 'rivers', 'reach', '11.json'),
+      'utf8',
+    ),
+  );
+  assert.equal(stored.visible, undefined);
+});
+
+test('no v1 reach near enough, but v2 draws a line there: the line, nothing to trace', async (t) => {
+  const root = await tempRoot(t);
+  const service = createRiverReachService({
+    sourceRoot: root,
+    backend: fakeEngine({ nearest: 0 }),
+    names: { nearest: () => null },
+    visibleLines: { nearestLine: () => STONY_RUN_V2 },
+  });
+  const click = { ...STONY_RUN, heightM: 1_500, v2: true };
+  const answer = await service.atPoint(click);
+  assert.equal(answer.status, 200);
+  assert.equal(answer.body.nameOnly, true);
+  assert.equal(answer.body.reach, null);
+  assert.equal(answer.body.osmName, null);
+  assert.equal(answer.body.visible.order, 8);
+  // A failed v2 read leaves v1's answer: here, a miss.
+  const broken = createRiverReachService({
+    sourceRoot: root,
+    backend: fakeEngine({ nearest: 0 }),
+    names: { nearest: () => null },
+    visibleLines: {
+      nearestLine: () => {
+        throw new Error('level file gone');
+      },
+    },
+  });
+  const warn = t.mock.method(console, 'warn', () => {});
+  assert.equal((await broken.atPoint(click)).status, 404);
+  assert.match(String(warn.mock.calls[0].arguments[1]), /level file gone/);
 });
 
 test('no sidecar: the live name at the point, asked once a click; a failed lookup is a 404 and asked again', async (t) => {

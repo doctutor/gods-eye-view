@@ -30,6 +30,13 @@ import {
  * clicked reach thick amber, the downstream path a cyan line, both on a
  * dark casing so they read on light and dark maps; the upstream network
  * thin pale dashes, thinner for smaller rivers.
+ *
+ * Where the Rivers layer draws HydroSHEDS v2 (`visibleLines()`), the
+ * answer also has v2's line at the click (`visible`): the amber line is
+ * that one, the river the user sees, and v1's reach and paths, which are
+ * coarser and can run a few hundred metres off it, are drawn faint and
+ * thin without a casing (`trace`), so they read as the way the water
+ * goes rather than as the river clicked.
  */
 
 export const REACH_OVERLAY_SOURCE = 'river-reach';
@@ -39,6 +46,9 @@ export const REACH_STYLE = Object.freeze({
   downstream: Object.freeze({ color: '#4cc9f0', alpha: 0.95, width: 4.5 }),
   casing: Object.freeze({ color: '#0b1d2a', alpha: 0.6, extra: 3 }),
   upstream: Object.freeze({ color: '#d7f3ff', alpha: 0.85, width: 3 }),
+  // v1's reach and its path beside v2's line.
+  trace: Object.freeze({ color: '#4cc9f0', alpha: 0.45, width: 2.5 }),
+  upstreamTrace: Object.freeze({ color: '#d7f3ff', alpha: 0.5, width: 2 }),
 });
 /** A miss or a failure stays on screen this long. */
 export const NOTICE_MS = 3000;
@@ -120,6 +130,8 @@ export function attachReachHighlight(
     documentRef = globalThis.document ?? null,
     setTimer = (...args) => setTimeout(...args),
     clearTimer = (...args) => clearTimeout(...args),
+    // Whether the Rivers layer draws HydroSHEDS v2 here now (riverClicks.js).
+    visibleLines = () => false,
   },
   { endpoint = RIVER_REACH_ROUTE, upstream = true, debounceMs = 150 } = {},
 ) {
@@ -241,15 +253,20 @@ export function attachReachHighlight(
     if (!answer) return;
     const flat = groundless();
     const reachLine = answer.reach?.geometry?.coordinates || [];
+    // Personal fork: v2's line, the river drawn at the click, when there is one.
+    const seen = answer.visible?.geometry?.coordinates || [];
+    const v2 = seen.length >= 2;
     const down = (answer.downstream?.segments || []).filter(
       (segment) => segment.coordinates?.length >= 2,
     );
     const up = (answer.upstream?.lines || []).filter(
       (line) => line.coordinates?.length >= 2,
     );
-    const id = answer.reach?.id;
-    const clickedOrder = answer.reach?.properties?.RIV_ORD;
-    const { reach, downstream, casing } = REACH_STYLE;
+    const id = answer.reach?.id ?? 'v2';
+    const clickedOrder =
+      answer.reach?.properties?.RIV_ORD ?? answer.visible?.order;
+    const { reach, downstream, casing, trace } = REACH_STYLE;
+    const upStyle = v2 ? REACH_STYLE.upstreamTrace : REACH_STYLE.upstream;
     // The network above is extra: if it cannot be drawn, the path still is.
     try {
       if (up.length)
@@ -257,15 +274,15 @@ export function attachReachHighlight(
           up.map((line, i) =>
             instance(
               line.coordinates,
-              upstreamWidth(line.order, clickedOrder),
-              colour(REACH_STYLE.upstream),
+              Math.min(upStyle.width, upstreamWidth(line.order, clickedOrder)),
+              colour(upStyle),
               `${REACH_PICK_PREFIX}up:${id}:${i}`,
               flat,
             ),
           ),
           new cesium.PolylineMaterialAppearance({
             material: cesium.Material.fromType('PolylineDash', {
-              color: colour(REACH_STYLE.upstream),
+              color: colour(upStyle),
               dashLength: 12,
             }),
           }),
@@ -274,9 +291,17 @@ export function attachReachHighlight(
     } catch (error) {
       console.warn('[Rivers] upstream not drawn:', error?.message);
     }
+    // The amber line: v2's where it is drawn, else the reach's own.
+    const clicked = v2 ? seen : reachLine;
+    // Beside v2's line, v1's reach is part of the faint path it gives.
+    const path = [
+      ...(v2 && reachLine.length >= 2 ? [reachLine] : []),
+      ...down.map((segment) => segment.coordinates),
+    ];
+    const pathStyle = v2 ? trace : downstream;
     const cased = [
-      ...down.map((segment) => [segment.coordinates, downstream.width]),
-      ...(reachLine.length >= 2 ? [[reachLine, reach.width]] : []),
+      ...(v2 ? [] : path.map((coordinates) => [coordinates, pathStyle.width])),
+      ...(clicked.length >= 2 ? [[clicked, reach.width]] : []),
     ];
     add(
       cased.map(([coordinates, width], i) =>
@@ -292,11 +317,11 @@ export function attachReachHighlight(
       flat,
     );
     add(
-      down.map((segment, i) =>
+      path.map((coordinates, i) =>
         instance(
-          segment.coordinates,
-          downstream.width,
-          colour(downstream),
+          coordinates,
+          pathStyle.width,
+          colour(pathStyle),
           `${REACH_PICK_PREFIX}down:${id}:${i}`,
           flat,
         ),
@@ -304,11 +329,11 @@ export function attachReachHighlight(
       new cesium.PolylineColorAppearance(),
       flat,
     );
-    if (reachLine.length >= 2)
+    if (clicked.length >= 2)
       add(
         [
           instance(
-            reachLine,
+            clicked,
             reach.width,
             colour(reach),
             `${REACH_PICK_PREFIX}reach:${id}`,
@@ -325,7 +350,13 @@ export function attachReachHighlight(
   function publish(title, details = []) {
     if (!overlays || !click) return;
     const spot = answer
-      ? nearestPoint(answer.reach?.geometry?.coordinates, click.lon, click.lat)
+      ? nearestPoint(
+          answer.visible?.geometry?.coordinates?.length >= 2
+            ? answer.visible.geometry.coordinates
+            : answer.reach?.geometry?.coordinates,
+          click.lon,
+          click.lat,
+        )
       : null;
     const [lon, lat] = spot || [click.lon, click.lat];
     const entries = [
@@ -425,6 +456,12 @@ export function attachReachHighlight(
       heightM: String(Math.round(heightM)),
     });
     if (Number.isInteger(maxOrder)) params.set('maxOrder', String(maxOrder));
+    // Personal fork: the layer draws v2 here; the answer brings its line.
+    try {
+      if (visibleLines()) params.set('v2', '1');
+    } catch {
+      /* v1 alone */
+    }
     let result;
     try {
       result = await getJson(`${endpoint}?${params}`, signal);

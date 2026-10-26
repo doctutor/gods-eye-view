@@ -8,6 +8,8 @@ import { defaultSourceRoot } from './common/source-root.js';
 // Personal fork: the river names sidecar names a clicked reach.
 import { createRiverNamesIndex, riverNamesDir } from './riverNames/index.js';
 import { createLiveRiverNames } from './riverNames/live.js';
+// Personal fork: the HydroSHEDS v2 line drawn at a click.
+import { sharedRiversV2Service } from './riversV2.js';
 import {
   EE_API,
   createServiceAccountAuth,
@@ -68,6 +70,16 @@ export const V1_SOURCE = Object.freeze({
   name: 'HydroRIVERS v1 · Free-Flowing Rivers',
   attribution:
     'HydroSHEDS (Lehner et al. 2008), Free-Flowing Rivers (Grill et al. 2019) via Google Earth Engine',
+});
+/**
+ * Personal fork: where a clicked river's highlight comes from when the
+ * Rivers layer draws HydroSHEDS v2 there (riversV2/nearest.js).
+ */
+export const V2_LINE_SOURCE = Object.freeze({
+  id: 'hydrosheds-v2',
+  name: 'HydroSHEDS v2',
+  attribution:
+    'HydroSHEDS v2 (Lehner et al. 2022; WWF, DLR, Confluvio), CC BY 4.0',
 });
 /** The reach properties an answer carries. */
 export const REACH_PROPERTIES = Object.freeze([
@@ -772,6 +784,9 @@ export function createRiverReachService({
   // Personal fork: the live name from the local Overpass when the sidecar
   // has none (riverNames/live.js).
   liveNames = null,
+  // Personal fork: the HydroSHEDS v2 line drawn at a click
+  // (riversV2.js nearestLine), for a client that draws v2 there.
+  visibleLines = null,
 } = {}) {
   const dir = path.join(sourceRoot, CACHE_DIR);
   const limiter = createLimiter({ ...limits, now });
@@ -1010,18 +1025,48 @@ export function createRiverReachService({
     });
   }
 
+  /**
+   * The v2 line at a click, when the client draws v2 and asked for it:
+   * {source, order, distanceM, geometry}, or null. A local read of one to
+   * a few cells (a few ms); a failure only leaves the highlight v1's.
+   */
+  function visibleAt(wanted, { lat, lon, toleranceM, maxOrder }) {
+    if (!wanted || !visibleLines?.nearestLine) return null;
+    try {
+      const line = visibleLines.nearestLine({ lat, lon, toleranceM, maxOrder });
+      if (!line?.geometry?.coordinates?.length) return null;
+      return {
+        source: V2_LINE_SOURCE,
+        order: line.order,
+        distanceM: line.distanceM,
+        geometry: line.geometry,
+      };
+    } catch (error) {
+      console.warn('[Rivers] v2 line lookup failed:', error?.message);
+      return null;
+    }
+  }
+
   return {
     source: V1_SOURCE,
     /** HydroRIVERS v1 covers the world's land below 60°N and much above it. */
     covers: () => true,
 
     /** The reach nearest a click, its downstream path, and maybe its network. */
-    async atPoint({ lat, lon, heightM, maxOrder: order, upstream = false }) {
+    async atPoint({
+      lat,
+      lon,
+      heightM,
+      maxOrder: order,
+      upstream = false,
+      v2 = false,
+    }) {
       const started = now();
       const tally = { requests: 0 };
       const toleranceM = toleranceForHeight(heightM);
       const maxOrder = order ?? maxOrderForHeight(heightM);
       const query = { lat, lon, heightM, toleranceM, maxOrder };
+      const visible = visibleAt(v2, query);
       return guarded(async () => {
         const key = `${lat.toFixed(4)},${lon.toFixed(4)},${toleranceM},${maxOrder}`;
         let id = clicks.get(key);
@@ -1040,14 +1085,15 @@ export function createRiverReachService({
         }
         if (!id) {
           // No HydroRIVERS reach near enough: the waterway's name alone,
-          // when OpenStreetMap has one here (nothing to highlight).
+          // when OpenStreetMap has one here, and v2's line when it is drawn
+          // here; nothing to trace.
           let osmName = null;
           try {
             osmName = await nameAt({ lat, lon });
           } catch (error) {
             console.warn('[Rivers] name lookup failed:', error?.message);
           }
-          if (osmName)
+          if (osmName || visible)
             return answer(200, {
               schema: RIVER_REACH_SCHEMA,
               source: V1_SOURCE,
@@ -1055,6 +1101,7 @@ export function createRiverReachService({
               nameOnly: true,
               reach: null,
               osmName,
+              ...(visible ? { visible } : {}),
               downstream: null,
               upstream: null,
               links: null,
@@ -1063,13 +1110,16 @@ export function createRiverReachService({
             });
           return failure(404, `No river within ${toleranceM} m of this point`);
         }
-        return full(id, feature, {
+        const result = await full(id, feature, {
           upstream,
           click: { lat, lon },
           query,
           started,
           tally,
         });
+        return visible && result.status === 200
+          ? { ...result, body: { ...result.body, visible } }
+          : result;
       });
     },
 
@@ -1197,6 +1247,7 @@ export function riverReachProxy({
       sourceRoot,
       names: sharedRiverNames(sourceRoot),
       liveNames: createLiveRiverNames(),
+      visibleLines: sharedRiversV2Service(sourceRoot),
     });
     middlewares.use(
       RIVER_REACH_ROUTE,

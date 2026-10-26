@@ -3869,5 +3869,10 @@
   "The textured bricks’ sides": "Los lados de los ladrillos con textura",
   "Name only: no HydroRIVERS reach within {distance} m to trace": "Solo el nombre: ningún tramo de HydroRIVERS a menos de {distance} m que trazar",
   "Name only: no HydroRIVERS reach near enough to trace": "Solo el nombre: ningún tramo de HydroRIVERS lo bastante cerca para trazarlo",
-  "The waterway is {distance} m from the click": "El curso de agua está a {distance} m del clic"
+  "The waterway is {distance} m from the click": "El curso de agua está a {distance} m del clic",
+  "Line and details from HydroRIVERS v1": "Línea y datos de HydroRIVERS v1",
+  "Line from HydroSHEDS v2; details and paths from HydroRIVERS v1": "Línea de HydroSHEDS v2; datos y recorridos de HydroRIVERS v1",
+  "Line from HydroSHEDS v2": "Línea de HydroSHEDS v2",
+  "No HydroRIVERS reach within {distance} m to trace": "Ningún tramo de HydroRIVERS a menos de {distance} m que trazar",
+  "No HydroRIVERS reach near enough to trace": "Ningún tramo de HydroRIVERS lo bastante cerca para trazarlo"
 }

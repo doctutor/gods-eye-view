@@ -16,6 +16,7 @@ import {
   tileVersion,
 } from './riversV2/bands.js';
 import { openLevel } from './riversV2/levelFile.js';
+import { nearestV2Line } from './riversV2/nearest.js';
 import { EMPTY_PNG, TILE_SIZE, encodePng } from './riversV2/render.js';
 import { renderTileCoverage } from './riversV2/tiles.js';
 import {
@@ -23,6 +24,8 @@ import {
   tileWorldBox,
   validTile,
   worldBoxOfBounds,
+  worldX,
+  worldY,
 } from './riversV2/tileMath.js';
 
 /**
@@ -205,6 +208,21 @@ export function createRiversV2Service({
       };
     },
 
+    /**
+     * The drawn line nearest a click (riversV2/nearest.js), for the
+     * clicked-river highlight; null when none is near or nothing is built.
+     */
+    nearestLine({ lat, lon, toleranceM, maxOrder }) {
+      const open = build();
+      if (!open) return null;
+      const x = worldX(lon);
+      const y = worldY(lat);
+      const box = open.extentBox;
+      if (box && !(x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1))
+        return null;
+      return nearestV2Line(open.levels, { lat, lon, toleranceM, maxOrder });
+    },
+
     /** The version tiles of an ink are kept under, or null when not built. */
     version(ink) {
       return build()?.versions?.[ink] || null;
@@ -346,19 +364,29 @@ let shared = null;
 /** The dev server draws river tiles in this many worker threads. */
 const RIVERS_TILE_WORKERS = Math.max(1, Math.min(2, os.cpus().length - 4));
 
+/**
+ * The dev server's one v2 service, shared by its tiles and the river
+ * clicks (riverReach.js), so the build is opened once.
+ */
+export function sharedRiversV2Service(sourceRoot = defaultSourceRoot) {
+  shared ||= createRiversV2Service({
+    sourceRoot,
+    tileWorkers: RIVERS_TILE_WORKERS,
+  });
+  return shared;
+}
+
 /** Vite plugin: /api/rivers/v2 for the Rivers layer's HydroSHEDS v2 tiles. */
 export function riversV2Proxy({
   sourceRoot = defaultSourceRoot,
   service,
 } = {}) {
   function install(middlewares) {
-    shared ||= createRiversV2Service({
-      sourceRoot,
-      tileWorkers: RIVERS_TILE_WORKERS,
-    });
     middlewares.use(
       RIVERS_V2_ROUTE,
-      createRiversV2Handler({ service: service || shared }),
+      createRiversV2Handler({
+        service: service || sharedRiversV2Service(sourceRoot),
+      }),
     );
   }
   return {

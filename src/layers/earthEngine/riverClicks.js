@@ -18,9 +18,11 @@ import {
  *
  * The lookup is HydroRIVERS v1's (server/providers/riverReach.js). Over the
  * Americas the lines are HydroSHEDS v2's, which draws streams v1 does not
- * have (every 1 km² basin against v1's 10 km²): a click on one of those
- * finds the nearest v1 reach within the click tolerance, usually the river
- * it flows into, or misses.
+ * have (every 1 km² basin against v1's 10 km²) and draws them where they
+ * are, where v1's coarser lines can run a few hundred metres off: while the
+ * layer draws v2 (`v2Drawn`, from enable's options), a click asks for v2's
+ * line too, and the highlight is that line, with v1's reach for the card's
+ * details and the paths up and down stream.
  *
  * @param {{overlayHost?: object|null, picking?: object|null,
  *   isPointerFree?: () => boolean, requestRender?: Function,
@@ -41,13 +43,14 @@ export function createRiverClicks({
   let highlight = null;
   let detachClicks = null;
   return {
-    enable(viewer) {
+    enable(viewer, { v2Drawn = () => false } = {}) {
       if (highlight || !viewer?.scene) return;
       highlight = attachHighlight({
         viewer,
         overlays: overlayHost,
         picking,
         requestRender,
+        visibleLines: () => v2Drawn() === true,
       });
       detachClicks = attachClicks({
         viewer,

@@ -3962,5 +3962,10 @@
   "The textured bricks’ sides": "Бока кирпичей с текстурой",
   "Name only: no HydroRIVERS reach within {distance} m to trace": "Только название: нет участка HydroRIVERS ближе {distance} м, нечего прослеживать",
   "Name only: no HydroRIVERS reach near enough to trace": "Только название: нет участка HydroRIVERS достаточно близко, нечего прослеживать",
-  "The waterway is {distance} m from the click": "Водоток в {distance} м от места щелчка"
+  "The waterway is {distance} m from the click": "Водоток в {distance} м от места щелчка",
+  "Line and details from HydroRIVERS v1": "Линия и сведения из HydroRIVERS v1",
+  "Line from HydroSHEDS v2; details and paths from HydroRIVERS v1": "Линия из HydroSHEDS v2; сведения и пути из HydroRIVERS v1",
+  "Line from HydroSHEDS v2": "Линия из HydroSHEDS v2",
+  "No HydroRIVERS reach within {distance} m to trace": "Нет участка HydroRIVERS ближе {distance} м, нечего прослеживать",
+  "No HydroRIVERS reach near enough to trace": "Нет участка HydroRIVERS достаточно близко, нечего прослеживать"
 }
