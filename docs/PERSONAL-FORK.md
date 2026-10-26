@@ -6374,8 +6374,9 @@ OpenCV, a frame decoded in memory):
    through a box (a line that runs on outside it; the letters are never
    one) stays, and so do the letters' rims within 2 px of it. "Neu." sat on
    Neustria's border with Austrasia in 613, and painted out it joined the
-   two. A letter is its strokes, 3 px and more across, so a dark border
-   line of 1 or 2 px by black letters is a line all the same: the OCR's one
+   two. In a label 28 px tall or more, a letter is its strokes, 3 px and
+   more across, so a dark border line of 1 or 2 px by black letters is a
+   line all the same (a smaller label's strokes are as thin as a line): the OCR's one
    box for "H." and "Wei" in 245 BC took in the Zhao–Wei border, and painted
    out it joined Zhao to Wei. A letter set right across a line is still
    painted.

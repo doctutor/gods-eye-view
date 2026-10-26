@@ -108,6 +108,7 @@ LINE_BLACKHAT_CHANNEL = 32  # the same in any one channel (a crimson's darker li
 LINE_MARGIN = 10  # how far outside a label's box a border line is looked for
 LINE_OUTSIDE_PX = 8  # a line with this many pixels outside the box runs on: a border, not a letter
 LINE_KEEP_PX = 2  # a letter's rim this close to a border line through its box stays
+STROKE_LABEL_PX = 28  # a label this tall (px) has strokes of 3 px and more; a smaller one's are a line's width
 COLOUR_EDGE = 24  # a jump in a channel between neighbours: two fills meeting
 TEXT_DIFF = 20  # a text pixel's distance from its box's background (strokes and rims)
 MIN_REGION_PX = 25  # crumbs smaller than this are separators
@@ -228,13 +229,16 @@ def paint_out_text(frame, boxes, sea, lines=None):
             # whichever the box has more of: a dark line under white letters
             # is a line), nor the fill between white letters (darker than
             # both sides, so a black-hat line, but the fill's own colour).
-            # A letter is its strokes, 3 px and more across (what an opening
-            # keeps): a dark border line, 1 or 2 px, by black letters is a
-            # line all the same.
+            # In a label of STROKE_LABEL_PX or more, a letter is its strokes,
+            # 3 px and more across (what an opening keeps): a dark border
+            # line, 1 or 2 px, by black letters is a line all the same. A
+            # smaller label's strokes are as thin as a line.
             dark = far & (gray < 80)
             shade = far & light if (far & light).sum() > dark.sum() else dark
-            strokes = cv2.morphologyEx(shade.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-            letters = cv2.dilate(strokes, np.ones((3, 3), np.uint8)) > 0
+            letters = shade
+            if boxes[k][3] >= STROKE_LABEL_PX:
+                strokes = cv2.morphologyEx(shade.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+                letters = cv2.dilate(strokes, np.ones((3, 3), np.uint8)) > 0
             border = border_lines(lines, (x0, y0, x1, y1), (height, width), letters | ~far)
             if border.any():
                 text &= ~(cv2.dilate(border.astype(np.uint8), keep_kernel) > 0)

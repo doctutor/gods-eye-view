@@ -78,6 +78,13 @@ export const DIFFERENCES = Object.freeze([
     why: "While Vietnam was split (1533–92), Cottereau's Dai Viet is the Lê south; Cliopatria's Đại Việt of those years is the north under the Mạc (20–23° N).",
   },
   {
+    label: 'Majapahit',
+    cliopatria: 'Majapahit',
+    from: 1330,
+    to: 1527,
+    why: "Cottereau's Majapahit is its whole sphere in one pink: Borneo's coasts, south Sumatra, Malaya and the eastern isles; Cliopatria's is the Java and Bali core.",
+  },
+  {
     label: 'Teut',
     cliopatria: 'Teutonic Order',
     from: 1466,
