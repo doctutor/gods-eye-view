@@ -224,8 +224,13 @@ def paint_out_text(frame, boxes, sea, lines=None):
             # whichever the box has more of: a dark line under white letters
             # is a line), nor the fill between white letters (darker than
             # both sides, so a black-hat line, but the fill's own colour).
+            # A letter is its strokes, 3 px and more across (what an opening
+            # keeps): a dark border line, 1 or 2 px, by black letters is a
+            # line all the same.
             dark = far & (gray < 80)
-            letters = far & light if (far & light).sum() > dark.sum() else dark
+            shade = far & light if (far & light).sum() > dark.sum() else dark
+            strokes = cv2.morphologyEx(shade.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+            letters = cv2.dilate(strokes, np.ones((3, 3), np.uint8)) > 0
             border = border_lines(lines, (x0, y0, x1, y1), (height, width), letters | ~far)
             if border.any():
                 text &= ~(cv2.dilate(border.astype(np.uint8), keep_kernel) > 0)
