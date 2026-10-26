@@ -3854,6 +3854,18 @@ A label marks the path's end ("Mouth" or "Inland sink"). Escape, another
 click, a click on the sky, or turning the layer off clears it all. A miss
 says "No river here" for 3 seconds.
 
+**A name, but no reach.** When no reach lies within the tolerance but
+OpenStreetMap names a waterway at the click, the card gives that name
+alone, at the click, with nothing highlighted or traced: "Name only: no
+HydroRIVERS reach within 400 m to trace", how far the waterway is, and
+where the name came from. The name is the river names sidecar's at the
+point (its own radius by the river's size, 150 m for a stream), else a
+live one from the local Overpass: one request around the click, a named
+river within 400 m or a stream or canal within 150 m, the nearest for its
+size winning, kept by the rounded click (`liveNames.nameAt`,
+`chooseWaterwayAt`). The answer is a 200 with `nameOnly: true`,
+`reach: null` and the `osmName`.
+
 **Data.** HydroRIVERS v1 with the Free-Flowing Rivers attributes (Grill et
 al. 2019, _Nature_ 569: 215), Earth Engine table
 `WWF/HydroSHEDS/v1/FreeFlowingRivers`, with the same service account as the
@@ -3874,10 +3886,19 @@ GET /api/rivers/reach/<source>/<id>/upstream
 ```
 
 It answers 400 for bad parameters, 404 when no river is within the
-tolerance, 429 past the minute's budget, 502 when Earth Engine fails and 503
-when Earth Engine is not set up. The tolerance grows with the camera height
+tolerance and no waterway is named there (above), 429 past the minute's
+budget, 502 when Earth Engine fails and 503 when Earth Engine is not set
+up. The tolerance grows with the camera height
 (`src/data/riverReach.js`): 0.014 × height, about twelve screen pixels,
-never under 100 m nor over 50 km. The size limit (`maxOrder`) shrinks with
+never under 400 m nor over 50 km. The floor is HydroRIVERS' own error,
+not the click's: v1 is drawn on a 15″ grid (463 m north to south, 360 m
+east to west at 39° N) in 45° steps, so a small stream's line runs a cell
+or so off its channel. Until 2026-10-26 it was 100 m, and a click on Stony
+Run in Baltimore (39.3268, −76.6268) found nothing: its reach 7616601
+(0.13 m³/s) lies 245 m from the water. The floor rules up to a camera
+height of about 29 km. The nearest reach still wins, so the wider floor
+does not take a farther stream in a dense network. The size limit
+(`maxOrder`) shrinks with
 height, so a click on a big river seen from far away is not taken by a
 creek beside it: every order up to 20 km, ≤ 8 to 80 km, ≤ 7 to 250 km, ≤ 6
 to 800 km, ≤ 5 to 2,500 km, ≤ 4 to 8,000 km, then ≤ 3. A layer that draws

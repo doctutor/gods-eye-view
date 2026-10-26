@@ -642,3 +642,66 @@ test('helpers: the nearest point and upstream widths', () => {
   assert.ok(upstreamWidth(7, 5) < upstreamWidth(6, 5));
   assert.equal(upstreamWidth(10, 1), 1.5);
 });
+
+test('a name-only answer: the waterway’s name on the card at the click, nothing drawn or traced', async () => {
+  // Stony Run, Baltimore: no HydroRIVERS reach within 400 m, OSM's stream 131 m off.
+  const NAME_ONLY = {
+    schema: RIVER_REACH_SCHEMA,
+    source: { id: 'hydrorivers-v1', name: 'HydroRIVERS', attribution: '' },
+    query: {
+      lat: 39.3268,
+      lon: -76.6268,
+      heightM: 3000,
+      toleranceM: 400,
+      maxOrder: 10,
+    },
+    nameOnly: true,
+    reach: null,
+    osmName: {
+      name: 'Stony Run',
+      waterway: 'stream',
+      confidence: 'direct',
+      distanceM: 131,
+      radiusM: 150,
+    },
+    downstream: null,
+    upstream: null,
+    links: null,
+  };
+  const s = setup({ routes: [[/\?lat=/, () => json(200, NAME_ONLY)]] });
+  const answer = await s.highlight.select(39.3268, -76.6268, 3000);
+  assert.equal(answer.nameOnly, true);
+  const entries = s.overlays.sources.get(REACH_OVERLAY_SOURCE);
+  assert.equal(entries.length, 1, 'the card, no mouth label');
+  const [card] = entries;
+  assert.equal(card.title, 'Stony Run');
+  assert.deepEqual(card.details, [
+    'Name only: no HydroRIVERS reach within 400 m to trace',
+    'The waterway is 131 m from the click',
+    'Name from OpenStreetMap (© OpenStreetMap contributors, ODbL)',
+  ]);
+  assert.doesNotThrow(() => normalizeOverlayEntry(REACH_OVERLAY_SOURCE, card));
+  assert.equal(s.viewer.scene.groundPrimitives.items.length, 0, 'no highlight');
+  assert.equal(s.fetch.asked.length, 1, 'no upstream asked for');
+  assert.equal(s.timers.pending.size, 0, 'a card that stays, not a notice');
+  // Live names say they are a nearby waterway's; and in Spanish and Russian.
+  assert.deepEqual(
+    reachCardDetails({
+      ...NAME_ONLY,
+      osmName: { ...NAME_ONLY.osmName, confidence: 'live' },
+    }).at(-1),
+    'Name from OpenStreetMap (nearby waterway), © OpenStreetMap contributors, ODbL',
+  );
+  assert.equal(
+    reachCardDetails({ nameOnly: true, osmName: { name: 'X' } })[0],
+    'Name only: no HydroRIVERS reach near enough to trace',
+  );
+  try {
+    setLocale('es');
+    assert.match(reachCardDetails(NAME_ONLY)[0], /^Solo el nombre: .*400 m/);
+    setLocale('ru');
+    assert.match(reachCardDetails(NAME_ONLY)[0], /^Только название: .*400 м/);
+  } finally {
+    setLocale('en');
+  }
+});

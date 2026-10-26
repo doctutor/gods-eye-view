@@ -47,14 +47,24 @@ export const MAX_HEIGHT_M = 50_000_000;
 export const DEFAULT_HEIGHT_M = 10_000;
 /** The click tolerance: about a dozen screen pixels of ground. */
 export const TOLERANCE_PER_HEIGHT = 0.014;
-export const MIN_TOLERANCE_M = 100;
+/**
+ * The floor: HydroRIVERS v1's lines, not the click, set it. They are drawn
+ * on the 15″ grid (one cell is 463 m north to south, 360 m east to west at
+ * 39° N) in steps of 45°, so a small stream's line runs a cell or so off
+ * its real channel: Stony Run in Baltimore (reach 7616601, 0.13 m³/s) is
+ * 245 m from a click on the water. 400 m holds that and a cell's diagonal
+ * half (290 m); the nearest reach still wins, so a wider floor does not
+ * take a farther stream in a dense network.
+ */
+export const MIN_TOLERANCE_M = 400;
 export const MAX_TOLERANCE_M = 50_000;
 
 /**
  * How far from the click a reach may be, growing with the camera's height:
  * a 60° view across ~1,000 pixels sees about height/870 metres per pixel,
- * so 0.014 × height is about twelve pixels. Never under 100 m (a street-level
- * click still finds the channel) nor over 50 km.
+ * so 0.014 × height is about twelve pixels. Never under MIN_TOLERANCE_M
+ * (HydroRIVERS' own error: a street-level click still finds the channel,
+ * up to a camera height of about 29 km) nor over 50 km.
  * @param {number} heightM
  * @returns {number} metres
  */

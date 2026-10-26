@@ -74,10 +74,17 @@ test('a click needs a place on the globe; height, size limit and upstream are ch
     assert.equal(parseReachId(bad), null, bad);
 });
 
-test('the tolerance grows with the camera height, within 100 m and 50 km', () => {
+test('the tolerance grows with the camera height, within 400 m (HydroRIVERS’ own error) and 50 km', () => {
+  assert.equal(MIN_TOLERANCE_M, 400);
   assert.equal(toleranceForHeight(0), MIN_TOLERANCE_M);
   assert.equal(toleranceForHeight(5_000), MIN_TOLERANCE_M);
-  assert.equal(toleranceForHeight(10_000), 140);
+  assert.equal(
+    toleranceForHeight(10_000),
+    MIN_TOLERANCE_M,
+    'a city view: the floor',
+  );
+  assert.equal(toleranceForHeight(28_000), 400);
+  assert.equal(toleranceForHeight(30_000), 420);
   assert.equal(toleranceForHeight(100_000), 1400);
   assert.equal(toleranceForHeight(1_000_000), 14_000);
   assert.equal(toleranceForHeight(20_000_000), MAX_TOLERANCE_M);
@@ -518,7 +525,7 @@ test('no river near the click is a 404; no Earth Engine is a 503; failures are a
   });
   const miss = await none.atPoint({ lat: 5, lon: 5, heightM: 1000 });
   assert.equal(miss.status, 404);
-  assert.match(miss.body.error, /100 m/);
+  assert.match(miss.body.error, /400 m/);
 
   const unconfigured = createRiverReachService({ sourceRoot: root, env: {} });
   assert.equal(
@@ -838,4 +845,216 @@ test('a live lookup that finds no waterway is kept as none: the next click asks 
   assert.equal((await service.atPoint(click)).body.osmName, undefined);
   assert.equal((await service.byId(30)).body.osmName, undefined);
   assert.equal(calls, 1);
+});
+
+// --- small streams: the 400 m floor, and the name alone -------------------------
+
+/** The function invocation of a name in an expression graph, its arguments. */
+function argumentsOf(expression, functionName) {
+  for (const value of Object.values(expression.values)) {
+    const call = value.functionInvocationValue;
+    if (call?.functionName === functionName) return call.arguments;
+  }
+  return null;
+}
+
+/** Metres from a point to a polyline [[lon, lat], …], locally flat. */
+function metresToLine(lat, lon, coordinates) {
+  const kx = 111_320 * Math.cos((lat * Math.PI) / 180);
+  const ky = 110_574;
+  let best = Infinity;
+  for (let i = 0; i + 1 < coordinates.length; i++) {
+    const [ax, ay] = [
+      (coordinates[i][0] - lon) * kx,
+      (coordinates[i][1] - lat) * ky,
+    ];
+    const [bx, by] = [
+      (coordinates[i + 1][0] - lon) * kx,
+      (coordinates[i + 1][1] - lat) * ky,
+    ];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = dx * dx + dy * dy;
+    const t = len ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len)) : 0;
+    best = Math.min(best, Math.hypot(ax + t * dx, ay + t * dy));
+  }
+  return best;
+}
+
+/**
+ * What Earth Engine would answer the nearest expression over these reaches:
+ * its point, tolerance and largest order, then its sort and limit, as the
+ * expression asks for them.
+ */
+function evaluateNearest(expression, reaches) {
+  const [lon, lat] = argumentsOf(expression, 'GeometryConstructors.Point')
+    .coordinates.constantValue;
+  const toleranceM = argumentsOf(expression, 'Filter.withinDistance').distance
+    .constantValue;
+  const maxOrder = argumentsOf(expression, 'Filter.lessThanOrEquals').rightValue
+    .constantValue;
+  const limit = argumentsOf(expression, 'Collection.limit');
+  assert.equal(limit.key.constantValue, 'gev_distM');
+  assert.equal(limit.ascending.constantValue, true, 'nearest first');
+  const measured = reaches
+    .filter((r) => r.RIV_ORD <= maxOrder)
+    .map((r) => ({ ...r, d: metresToLine(lat, lon, r.line) }))
+    .filter((r) => r.d <= toleranceM)
+    .sort((a, b) => a.d - b.d);
+  return measured.slice(0, limit.limit.constantValue);
+}
+
+// Stony Run (Baltimore), as measured on the live server 2026-10-26: a click
+// on the water at 39.3268, -76.6268 (Wyman Park, by W 33rd St and Keswick
+// Rd) is 245 m from HydroRIVERS reach 7616601 (UPLAND_SKM 7.3, DIS_AV_CMS
+// 0.13) and 131 m from OpenStreetMap's "Stony Run" (a stream, radius 150 m).
+const STONY_RUN = { lat: 39.3268, lon: -76.6268 };
+const eastOf = (metres) =>
+  metres / (111_320 * Math.cos((STONY_RUN.lat * Math.PI) / 180));
+const STONY_RUN_REACH = {
+  NOID: 7616601,
+  RIV_ORD: 9,
+  UPLAND_SKM: 7.3,
+  DIS_AV_CMS: 0.13,
+  // A north-south line 245 m east of the click.
+  line: [
+    [STONY_RUN.lon + eastOf(245), STONY_RUN.lat - 0.01],
+    [STONY_RUN.lon + eastOf(245), STONY_RUN.lat + 0.01],
+  ],
+};
+const STONY_RUN_NAME = {
+  name: 'Stony Run',
+  waterway: 'stream',
+  confidence: 'direct',
+  distanceM: 131,
+  radiusM: 150,
+};
+
+test('Stony Run: the 100 m floor missed its HydroRIVERS reach 245 m off; 400 m finds it', () => {
+  // A city view: the floor rules (it took 100 m before).
+  const heightM = 3_000;
+  assert.equal(toleranceForHeight(heightM), 400);
+  const before = nearestExpression({
+    ...STONY_RUN,
+    toleranceM: 100,
+    maxOrder: 10,
+  });
+  assert.deepEqual(
+    evaluateNearest(before, [STONY_RUN_REACH]),
+    [],
+    'the miss the user saw',
+  );
+  const now = nearestExpression({
+    ...STONY_RUN,
+    toleranceM: toleranceForHeight(heightM),
+    maxOrder: maxOrderForHeight(heightM),
+  });
+  const [found] = evaluateNearest(now, [STONY_RUN_REACH]);
+  assert.equal(found.NOID, 7616601);
+  assert.ok(Math.abs(found.d - 245) < 2, `${found.d} m`);
+});
+
+test('a wider floor still takes the nearest stream in a dense network', () => {
+  // Five parallel streams 150 m apart, the click between two of them: four
+  // lie within 400 m; the one 60 m off wins, whichever order they come in.
+  const streams = [-240, -90, 60, 210, 360].map((offset, i) => ({
+    NOID: 100 + i,
+    RIV_ORD: 9,
+    line: [
+      [STONY_RUN.lon + eastOf(offset), STONY_RUN.lat - 0.02],
+      [STONY_RUN.lon + eastOf(offset), STONY_RUN.lat + 0.02],
+    ],
+  }));
+  const expression = nearestExpression({
+    ...STONY_RUN,
+    toleranceM: 400,
+    maxOrder: 10,
+  });
+  for (const order of [streams, [...streams].reverse()]) {
+    const found = evaluateNearest(expression, order);
+    assert.equal(found.length, 1, 'one reach, the nearest');
+    assert.equal(found[0].NOID, 102);
+  }
+  // A larger river nearby does not take the click from the creek it is on.
+  const river = { NOID: 9, RIV_ORD: 6, line: streams[4].line };
+  assert.equal(evaluateNearest(expression, [river, ...streams])[0].NOID, 102);
+});
+
+test('no reach within the tolerance, a named waterway there: the name alone, nothing to trace', async (t) => {
+  const root = await tempRoot(t);
+  const asked = [];
+  const service = createRiverReachService({
+    sourceRoot: root,
+    backend: fakeEngine({ nearest: 0 }),
+    names: {
+      nearest: (point) => {
+        asked.push(point);
+        return STONY_RUN_NAME;
+      },
+    },
+  });
+  const answer = await service.atPoint({ ...STONY_RUN, heightM: 3_000 });
+  assert.equal(answer.status, 200);
+  assert.equal(answer.body.schema, RIVER_REACH_SCHEMA);
+  assert.equal(answer.body.nameOnly, true);
+  assert.equal(answer.body.reach, null, 'no highlight');
+  assert.equal(answer.body.downstream, null);
+  assert.equal(answer.body.links, null);
+  assert.deepEqual(answer.body.osmName, STONY_RUN_NAME);
+  assert.equal(answer.body.query.toleranceM, 400);
+  assert.deepEqual(asked, [{ lat: STONY_RUN.lat, lon: STONY_RUN.lon }]);
+  // The sidecar has no name there either: as before, a 404.
+  const unnamed = createRiverReachService({
+    sourceRoot: root,
+    backend: fakeEngine({ nearest: 0 }),
+    names: { nearest: () => null },
+  });
+  const miss = await unnamed.atPoint({ ...STONY_RUN, heightM: 3_000 });
+  assert.equal(miss.status, 404);
+  assert.match(miss.body.error, /No river within 400 m/);
+});
+
+test('no sidecar: the live name at the point, asked once a click; a failed lookup is a 404 and asked again', async (t) => {
+  const root = await tempRoot(t);
+  let reply = {
+    status: 'named',
+    osmName: {
+      name: 'Stony Run',
+      waterway: 'stream',
+      distanceM: 131,
+      radiusM: 150,
+      confidence: 'live',
+    },
+  };
+  const asked = [];
+  const liveNames = {
+    name: async () => ({ status: 'none' }),
+    nameAt: async (point) => {
+      asked.push(point);
+      return reply;
+    },
+  };
+  const service = createRiverReachService({
+    sourceRoot: root,
+    backend: fakeEngine({ nearest: 0 }),
+    liveNames,
+  });
+  const first = await service.atPoint({ ...STONY_RUN, heightM: 3_000 });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.nameOnly, true);
+  assert.equal(first.body.osmName.confidence, 'live');
+  await service.atPoint({ ...STONY_RUN, heightM: 3_000 });
+  assert.equal(asked.length, 1, 'kept for the click');
+  // Elsewhere, Overpass gives no answer: a 404, and asked again next time.
+  reply = { status: 'failed' };
+  const elsewhere = { lat: 39.4, lon: -76.7, heightM: 3_000 };
+  assert.equal((await service.atPoint(elsewhere)).status, 404);
+  assert.equal((await service.atPoint(elsewhere)).status, 404);
+  assert.equal(asked.length, 3);
+  // An answer with no waterway: a 404, kept.
+  reply = { status: 'none' };
+  const dry = { lat: 39.5, lon: -76.8, heightM: 3_000 };
+  assert.equal((await service.atPoint(dry)).status, 404);
+  assert.equal((await service.atPoint(dry)).status, 404);
+  assert.equal(asked.length, 4);
 });

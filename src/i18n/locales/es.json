@@ -3866,5 +3866,8 @@
   "Brick tops: {size} px of Esri imagery": "Caras superiores: {size} px de imágenes de Esri",
   "How the Google 3D tiles meet the bricks": "Cómo se unen las teselas de Google 3D a los ladrillos",
   "AUTO: the tiles lifted onto the bricks close in, the bricks’ tops textured with imagery far out (above 20 km). LIFT and TEXTURE: always one way": "AUTO: las teselas elevadas sobre los ladrillos de cerca, y las caras superiores con imágenes de lejos (por encima de 20 km). ELEVAR y TEXTURA: siempre de una forma",
-  "The textured bricks’ sides": "Los lados de los ladrillos con textura"
+  "The textured bricks’ sides": "Los lados de los ladrillos con textura",
+  "Name only: no HydroRIVERS reach within {distance} m to trace": "Solo el nombre: ningún tramo de HydroRIVERS a menos de {distance} m que trazar",
+  "Name only: no HydroRIVERS reach near enough to trace": "Solo el nombre: ningún tramo de HydroRIVERS lo bastante cerca para trazarlo",
+  "The waterway is {distance} m from the click": "El curso de agua está a {distance} m del clic"
 }

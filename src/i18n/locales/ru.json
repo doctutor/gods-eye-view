@@ -3959,5 +3959,8 @@
   "Brick tops: {size} px of Esri imagery": "Верх кирпичей: {size} px снимков Esri",
   "How the Google 3D tiles meet the bricks": "Как тайлы Google 3D сочетаются с кирпичами",
   "AUTO: the tiles lifted onto the bricks close in, the bricks’ tops textured with imagery far out (above 20 km). LIFT and TEXTURE: always one way": "АВТО: вблизи тайлы подняты на кирпичи, издали верх кирпичей покрыт снимками (выше 20 км). ПОДЪЁМ и ТЕКСТУРА: всегда одним способом",
-  "The textured bricks’ sides": "Бока кирпичей с текстурой"
+  "The textured bricks’ sides": "Бока кирпичей с текстурой",
+  "Name only: no HydroRIVERS reach within {distance} m to trace": "Только название: нет участка HydroRIVERS ближе {distance} м, нечего прослеживать",
+  "Name only: no HydroRIVERS reach near enough to trace": "Только название: нет участка HydroRIVERS достаточно близко, нечего прослеживать",
+  "The waterway is {distance} m from the click": "Водоток в {distance} м от места щелчка"
 }
