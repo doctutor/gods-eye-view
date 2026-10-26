@@ -335,6 +335,50 @@ class Version5(unittest.TestCase):
         self.assertEqual(flags, {})
 
 
+class Version6(unittest.TestCase):
+    """A dark border line by black letters, and a beside label that names
+    its polity never taking a region wholly outside it."""
+
+    def test_a_dark_line_by_black_letters_stays(self):
+        # Cream polities divided by a thin dark line (1 px, under 80 grey: as
+        # dark as the letters) that runs by a black label's feet.
+        f = np.zeros((H, W, 3), np.uint8)
+        f[:] = SEA
+        cv2.rectangle(f, (200, 200), (1400, 900), CREAM, -1)
+        cv2.line(f, (200, 550), (1400, 550), (60, 60, 60), 1)
+        cv2.putText(f, 'Wei', (700, 547), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (20, 20, 20), 4, cv2.LINE_AA)
+        (tw, th), _ = cv2.getTextSize('Wei', cv2.FONT_HERSHEY_SIMPLEX, 1.6, 4)
+        boxes = [[700 + tw / 2, 547 - th / 2, tw, th + 10]]
+        comp, table = eb.segment(f, boxes)
+        self.assertNotEqual(int(comp[400, 750]), int(comp[700, 750]), 'the line divides them under the label')
+        x, y = int(boxes[0][0]), int(boxes[0][1]) - 4
+        self.assertEqual(int(comp[y, x]), int(comp[400, 750]), 'the letters are painted into their fill')
+
+    def test_names_alike(self):
+        self.assertTrue(eb.names_alike('Liberia', 'Republic of Liberia'))
+        self.assertTrue(eb.names_alike('Gold Coast', 'Dutch Gold Coast'))
+        self.assertTrue(eb.names_alike('Dai Viet', 'Đại Việt'))
+        self.assertTrue(eb.names_alike('Maynila2', 'Maynila'))
+        self.assertFalse(eb.names_alike('Taiwan', 'Japan'))
+        self.assertFalse(eb.names_alike('Newfoundland', 'New France'), 'new is generic')
+        self.assertFalse(eb.names_alike('Liberia', None))
+
+    def test_a_beside_label_naming_its_polity_takes_none_wholly_outside_it(self):
+        # Liberia's label over the sea, its own land left white; the region
+        # beside it is French, wholly outside Cliopatria's Liberia.
+        comp, table, labels = TwoPasses.world()
+        shares = {1: 0.0, 2: 0.0}
+        hint = lambda label: lambda cid: shares[cid]
+        named = [dict(labels[0], text='Liberia', cliopatria='Republic of Liberia')]
+        self.assertEqual(eb.name_regions(comp, table, named, hint)[0], {}, 'none taken')
+        # Matched by place alone, the label keeps the region near it.
+        placed = [dict(labels[0], text='Taiwan', cliopatria='Japan')]
+        self.assertEqual(eb.name_regions(comp, table, placed, hint)[0], {1: 0})
+        # A region with any part inside the polity is taken still.
+        shares[2] = 0.02
+        self.assertEqual(eb.name_regions(comp, table, named, hint)[0], {2: 0})
+
+
 class Claims(unittest.TestCase):
     """A small polity's label set beside a giant: the bound on its claim."""
 

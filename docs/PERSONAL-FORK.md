@@ -6374,7 +6374,11 @@ OpenCV, a frame decoded in memory):
    through a box (a line that runs on outside it; the letters are never
    one) stays, and so do the letters' rims within 2 px of it. "Neu." sat on
    Neustria's border with Austrasia in 613, and painted out it joined the
-   two. A letter set right across a line is still painted.
+   two. A letter is its strokes, 3 px and more across, so a dark border
+   line of 1 or 2 px by black letters is a line all the same: the OCR's one
+   box for "H." and "Wei" in 245 BC took in the Zhao–Wei border, and painted
+   out it joined Zhao to Wei. A letter set right across a line is still
+   painted.
 3. **Separators** are:
    - the thin border lines (a black-hat: thin and darker than both sides,
      in grey or in any one channel: the British colonies' lines in 1764
@@ -6399,7 +6403,13 @@ OpenCV, a frame decoded in memory):
      those mostly (half their pixels or more) inside its matched Cliopatria
      polity come first, then those partly (a tenth or more) inside it, so
      Sarawak's crimson strip comes before the larger Dutch Borneo beside
-     it (flag `beside`). Labels with such a region choose
+     it (flag `beside`). A label that names its matched polity (a word of
+     each begins alike: "Liberia", "Republic of Liberia") never takes a
+     region wholly outside that polity: Cottereau leaves Liberia white in
+     the 1880s, and its label over the sea took French Ivory Coast; Cyprus,
+     Jamaica, Qatar, Sulu, Banjar and the Gold Coast took a neighbour's
+     region the same way. One matched by place alone still may (Taiwan,
+     matched to Japan, is its island). Labels with such a region choose
      before the others, so a label set beside its neighbour cannot take,
      by coming first, the region another label's polity is. Banu Sulaym's
      label took the Mamluks' Egypt and Levant for three centuries this way.
@@ -6450,6 +6460,9 @@ OpenCV, a frame decoded in memory):
     over three pixels, fades, two-line labels, one polity's labels
     together), none carries over: the separators change in nearly every
     frame, and which samples change can only be told from the frames.
+  - From 5 to 6 (letters by their strokes, beside labels kept to their
+    polity), none carries over: whether a black label's box holds a thin
+    dark border line can only be told from the frame.
 - Two labels in one region split it by nearest label in chunks of pixels,
   so a region holding many labels stays within a few hundred MB.
 - While it runs it is `builds/<key>.partial/`, holding `samples.json` (the
@@ -6500,6 +6513,15 @@ and by `status`):
   - Prussia 1834–47: Cliopatria's Kingdom of Prussia after 1807 is
     exclaves of under 2,000 km²; Prussia's land is its German
     Confederation record.
+  - Qin 350–328 BC and Wei: his Warring States lie west of
+    Cliopatria's (his Qin in Gansu, his Wei west of Han), and his "Zhou"
+    covers Shandong.
+  - Balhae 705–740: his early Balhae is in Manchuria, Cliopatria's in
+    northern Korea.
+  - Gauda 602–611: his is west Bengal, Cliopatria's east Bengal.
+  - Dai Viet 1533–92: his is the Lê south, Cliopatria's the Mạc north.
+  - Teut. State 1466–1524: his is Livonia, the Order's Prussia drawn as
+    Poland's; Cliopatria's Teutonic Order is Prussia.
   - Zagwe: Cliopatria's Zagwe dynasty is the Lasta highlands, 14,454 km².
   - Volga Bulgaria: his lies north-west of Cliopatria's, though Kazan in
     the same framing overlaps at 0.5.
