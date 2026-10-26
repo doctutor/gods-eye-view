@@ -176,6 +176,7 @@ npm run overpass:status                        # its "Backup:" line: newest, age
 npm run overpass:restore -- latest             # prints the plan; changes nothing
 npm run overpass:restore -- 20261025 --yes     # does it (refused while the live database is healthy)
 npm run overpass:backup -- --adopt E:/gev-data/overpass-backup/20261025   # a copy made by hand: writes its manifest
+npm run overpass:backup -- --adopt E:/gev-data/overpass-backup/20261025.partial   # a kept .partial (below)
 ```
 
 `--dir` (or `OVERPASS_BACKUP_DIR`) moves the backups, and `--keep` (2) sets
@@ -210,18 +211,40 @@ how many complete ones stay. `--docker-drive` (or `OVERPASS_DOCKER_DRIVE`,
    - It checks the drive for the volume's size plus 5% first.
    - The tar is streamed over the container's stdout into Windows'
      `tar.exe`, not written through a bind mount.
-4. **Checks every file's size** against the volume's list, writes
+4. **Checks every data file's size** against the volume's list, writes
    `manifest.json`, and renames the directory to `<yyyymmdd>`, or
    `<yyyymmdd>-2` for a second backup that day.
+   - The logs are not checked against the volume: `changes.log`,
+     `db/database.log` and `db/transactions.log` (any `*.log` at the root or
+     under `db/`). The serving dispatchers keep appending to them. Their
+     size as copied goes in the manifest, marked `log`.
+   - Files the volume gains after the list was taken do not count, such as
+     the `diffs/changes.osc` the resumed updater downloads.
+   - Every other file must match exactly. (The first real backup,
+     2026-10-25, 411.4 GB in 6 h 10 min at 14 to 18.6 MB/s, matched all 72
+     data files and differed only in those three logs. The old check failed
+     it on them.)
    - `manifest.json` holds `replicate_id`, the data timestamp, the size,
      the duration, and every file with its size.
    - A directory without that manifest, a `.partial` above all, is never a
      backup.
 5. **Only then removes** the oldest complete backups beyond `--keep`.
 
-A failed copy leaves its `.partial` and changes nothing else; the next run
-removes it. `backup.lock` in the backups directory stops a second backup
-running at once.
+A failed copy leaves its `.partial` and changes nothing else.
+
+- Once the data files have matched, a `data-verified.json` record goes into
+  the `.partial` before the manifest and the rename. A copy that fails
+  after that point is never removed: the next run keeps it and prints the
+  `--adopt` command for it.
+- Only a `.partial` without that record (cut off mid-copy, or its data not
+  matching) is removed by the next run.
+- `--adopt <dir>.partial` makes a kept copy a backup:
+  - with its record, once its files are still those sizes on disk;
+  - without one, only after its data files are checked against the volume
+    again, and only while the live `replicate_id` equals the copy's and no
+    update is applying or waiting;
+  - anything else is refused, and the `.partial` is left as it is. `backup.lock` in the backups directory stops a second backup
+    running at once.
 
 Every docker command is spawned from Node with an argument list and no shell.
 That matters on this PC: Git Bash rewrites a bare absolute path passed to a

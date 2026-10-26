@@ -31,6 +31,12 @@ export const DEFAULT_BACKUP_DIR = 'E:/gev-data/overpass-backup';
 export const DEFAULT_KEEP = 2;
 export const MANIFEST = 'manifest.json';
 export const PARTIAL_SUFFIX = '.partial';
+/**
+ * Written into a .partial once its data files matched the volume, before
+ * anything else can fail: such a copy is kept and can be adopted, never
+ * removed as a cut-off one.
+ */
+export const DATA_VERIFIED = 'data-verified.json';
 /** A complete backup's directory name: the day, and a count when there are more. */
 export const BACKUP_NAME = /^(\d{8})(?:-(\d+))?$/;
 /** Room to spare on the target beyond the copy itself. */
@@ -232,15 +238,37 @@ export async function listBackups(dir, fs) {
 export const backupsToRemove = (backups, keep = DEFAULT_KEEP) =>
   backups.slice(Math.max(1, keep));
 
-/** Left-over .partial directories (a copy a power cut or a failure cut off). */
+/**
+ * Left-over .partial directories: {path, verified}. `verified` holds the
+ * DATA_VERIFIED record of a copy whose data files matched (keep it; it can
+ * be adopted), null for one a power cut or a failure cut off before that.
+ */
 export async function staleParts(dir, fs) {
+  let names = [];
   try {
-    return (await fs.readdir(dir))
-      .filter((name) => name.endsWith(PARTIAL_SUFFIX))
-      .map((name) => path.join(dir, name));
+    names = await fs.readdir(dir);
   } catch {
     return [];
   }
+  const found = [];
+  for (const name of names.filter((n) => n.endsWith(PARTIAL_SUFFIX))) {
+    const at = path.join(dir, name);
+    let verified = null;
+    // The record, or a complete manifest (written just before the rename).
+    for (const file of [DATA_VERIFIED, MANIFEST]) {
+      if (verified) break;
+      try {
+        const record = JSON.parse(
+          await fs.readFile(path.join(at, file), 'utf8'),
+        );
+        if (record?.complete === true) verified = record;
+      } catch {
+        /* not there */
+      }
+    }
+    found.push({ path: at, verified });
+  }
+  return found;
 }
 
 // ── Progress and words ──────────────────────────────────────────────────
@@ -272,6 +300,13 @@ export function parseFiles(text) {
     .map(([, size, file]) => ({ path: file, size: Number(size) }));
 }
 
+/**
+ * Append-only logs the serving dispatchers and the resumed updater keep
+ * writing (changes.log at the volume's root; database.log and
+ * transactions.log under db/): never size-checked against the live volume.
+ */
+export const isLogFile = (file) => /^(?:db\/)?[^/]+\.log$/.test(file);
+
 /** Files whose copy is missing or a different size: [{path, expected, found}]. */
 export async function verifyCopy(dir, files, fs) {
   const wrong = [];
@@ -286,6 +321,33 @@ export async function verifyCopy(dir, files, fs) {
       wrong.push({ path: file.path, expected: file.size, found });
   }
   return wrong;
+}
+
+/**
+ * A copy checked against the volume's list: every data file the same size;
+ * logs recorded at their size as copied (`log: true`). Files the volume
+ * gained after the list was taken (a diff the resumed updater downloaded)
+ * are not in the list and do not count. Returns {wrong, files}: the data
+ * files that differ, and the manifest's file list.
+ */
+export async function checkCopy(dir, listed, fs) {
+  const data = listed.filter((f) => !isLogFile(f.path));
+  const wrong = await verifyCopy(dir, data, fs);
+  const files = [];
+  for (const file of listed) {
+    if (!isLogFile(file.path)) {
+      files.push(file);
+      continue;
+    }
+    let size = null;
+    try {
+      size = (await fs.stat(path.join(dir, file.path))).size;
+    } catch {
+      /* not copied: nothing to record */
+    }
+    if (size !== null) files.push({ path: file.path, size, log: true });
+  }
+  return { wrong, files };
 }
 
 /** Bytes free on the drive holding `dir`, or null when unknown. */
@@ -388,8 +450,16 @@ export async function runBackup(
   }
   try {
     for (const stale of await staleParts(dir, fs)) {
-      io.log(`removing a cut-off copy: ${stale}`);
-      await fs.rm(stale, { recursive: true, force: true });
+      if (stale.verified) {
+        // A good copy that failed only after its data matched: never removed.
+        io.log(
+          `keeping ${stale.path}: its data files matched the volume (replicate_id ${stale.verified.replicateId}). ` +
+            `Make it a backup with: npm run overpass:backup -- --adopt ${stale.path}`,
+        );
+        continue;
+      }
+      io.log(`removing a cut-off copy: ${stale.path}`);
+      await fs.rm(stale.path, { recursive: true, force: true });
     }
     const before = await listBackups(dir, fs);
     const lastKnown = before[0]?.manifest?.replicateId || null;
@@ -496,10 +566,10 @@ async function copyPaused(io, { dir, before, state }) {
         .trim()
         .slice(0, 200)}; ${partial} is left for the next run to remove`,
     );
-  const wrong = await verifyCopy(partial, files, fs);
-  if (wrong.length)
+  const checked = await checkCopy(partial, files, fs);
+  if (checked.wrong.length)
     throw new Error(
-      `${wrong.length} files differ from the volume (first: ${wrong[0].path}, ${wrong[0].found ?? 'missing'} of ${wrong[0].expected} bytes); ${partial} is left for the next run to remove`,
+      `${checked.wrong.length} data files differ from the volume (first: ${checked.wrong[0].path}, ${checked.wrong[0].found ?? 'missing'} of ${checked.wrong[0].expected} bytes); ${partial} is left for the next run to remove`,
     );
   const seconds = (io.now() - started) / 1000;
   const manifest = {
@@ -508,22 +578,132 @@ async function copyPaused(io, { dir, before, state }) {
     createdAt: new Date(started).toISOString(),
     replicateId: state.replicateId,
     dataTimestamp: state.dataTimestamp,
-    sizeBytes: total,
+    sizeBytes: checked.files.reduce((sum, f) => sum + f.size, 0),
     durationSeconds: Math.round(seconds),
     volume: VOLUME,
     image: IMAGE,
-    files,
+    files: checked.files,
   };
+  // From here a failure leaves a copy that is kept and can be adopted.
   await fs.writeFile(
-    path.join(partial, MANIFEST),
+    path.join(partial, DATA_VERIFIED),
     `${JSON.stringify(manifest, null, 1)}\n`,
   );
+  await writeManifestAndRename(partial, path.join(dir, name), manifest, fs);
   const final = path.join(dir, name);
-  await fs.rename(partial, final);
   io.log(
     `backup complete: ${final}, ${formatGb(total)} in ${formatDuration(seconds)} (${(total / Math.max(1, seconds) / 1e6).toFixed(1)} MB/s)`,
   );
   return { name, path: final, manifest };
+}
+
+/** The manifest written, the marker gone, the .partial renamed. */
+async function writeManifestAndRename(partial, final, manifest, fs) {
+  await fs.writeFile(
+    path.join(partial, MANIFEST),
+    `${JSON.stringify(manifest, null, 1)}\n`,
+  );
+  await fs.rename(partial, final);
+  // Only once renamed: a rename that fails leaves the record in the .partial.
+  await fs.rm(path.join(final, DATA_VERIFIED), { force: true });
+}
+
+/**
+ * A .partial made a backup (`--adopt <dir>.partial`):
+ * - one whose data files matched during its run (DATA_VERIFIED) is renamed
+ *   once its files are still those sizes on disk;
+ * - one without that record is checked against the volume now, only while
+ *   the live replicate_id equals the copy's and no update is applying or
+ *   waiting (the volume's data files then are what was copied);
+ * - otherwise refused.
+ * Returns the manifest.
+ * @param {BackupIo} io
+ */
+export async function adoptPartial(io, partial) {
+  const { fs } = io;
+  const at = path.resolve(partial);
+  const base = path.basename(at);
+  const name = base.slice(0, -PARTIAL_SUFFIX.length);
+  if (!base.endsWith(PARTIAL_SUFFIX) || !BACKUP_NAME.test(name))
+    throw new Error(`${base} is not a backup's .partial (yyyymmdd.partial)`);
+  const final = path.join(path.dirname(at), name);
+  let taken = true;
+  try {
+    await fs.stat(final);
+  } catch {
+    taken = false;
+  }
+  if (taken) throw new Error(`${final} exists already`);
+  const read = async (file) => {
+    try {
+      return String(await fs.readFile(path.join(at, file), 'utf8')).trim();
+    } catch {
+      return '';
+    }
+  };
+  const marker = await read(DATA_VERIFIED);
+  if (marker) {
+    const manifest = JSON.parse(marker);
+    const wrong = await verifyCopy(
+      at,
+      manifest.files.filter((f) => !f.log),
+      fs,
+    );
+    if (wrong.length)
+      throw new Error(
+        `${wrong.length} data files are no longer the size they were verified at (first: ${wrong[0].path}); not adopted`,
+      );
+    await writeManifestAndRename(at, final, manifest, fs);
+    return manifest;
+  }
+  const copied = Number(await read('replicate_id'));
+  if (!Number.isSafeInteger(copied) || copied <= 0)
+    throw new Error(`${at} holds no replicate_id: not a copy of /db`);
+  const live = await probe(io);
+  if (live.state.replicateId !== copied)
+    throw new Error(
+      `the database has moved on since this copy (replicate_id ${live.state.replicateId} now, ${copied} in the copy): ` +
+        `its data files cannot be checked against the volume any more, so it is not adopted. Delete it, or keep it by hand.`,
+    );
+  if (updateRunning(live.processes) || live.state.diffPending)
+    throw new Error(
+      'an update is applying or waiting: run --adopt again when it has finished',
+    );
+  const listed = await io.docker([
+    'run',
+    '--rm',
+    '-v',
+    `${VOLUME}:/src:ro`,
+    '--entrypoint',
+    'sh',
+    IMAGE,
+    '-c',
+    FILES_PROBE,
+  ]);
+  if (listed.code !== 0)
+    throw new Error(
+      `cannot list the volume: ${listed.stderr.trim().slice(0, 160)}`,
+    );
+  const checked = await checkCopy(at, parseFiles(listed.stdout), fs);
+  if (checked.wrong.length)
+    throw new Error(
+      `${checked.wrong.length} data files differ from the volume (first: ${checked.wrong[0].path}, ${checked.wrong[0].found ?? 'missing'} of ${checked.wrong[0].expected} bytes); not adopted`,
+    );
+  const manifest = {
+    version: 1,
+    complete: true,
+    verifiedAtAdoption: true,
+    createdAt: new Date(io.now()).toISOString(),
+    replicateId: copied,
+    dataTimestamp: live.state.dataTimestamp,
+    sizeBytes: checked.files.reduce((sum, f) => sum + f.size, 0),
+    durationSeconds: null,
+    volume: VOLUME,
+    image: IMAGE,
+    files: checked.files,
+  };
+  await writeManifestAndRename(at, final, manifest, fs);
+  return manifest;
 }
 
 /** Every file under `dir` with its size, paths relative and with "/". */
@@ -928,7 +1108,11 @@ async function main() {
         process.exitCode = 1;
       }
     } else if (options.adopt) {
-      const manifest = await adoptBackup(options.adopt, io.fs, io.now());
+      const manifest = options.adopt
+        .replace(/[\\/]+$/, '')
+        .endsWith(PARTIAL_SUFFIX)
+        ? await adoptPartial(io, options.adopt.replace(/[\\/]+$/, ''))
+        : await adoptBackup(options.adopt, io.fs, io.now());
       io.log(
         `adopted ${options.adopt}: replicate_id ${manifest.replicateId}, ${formatGb(manifest.sizeBytes)}, ${manifest.files.length} files`,
       );

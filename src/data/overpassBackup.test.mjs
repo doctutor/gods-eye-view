@@ -11,7 +11,11 @@ import path from 'node:path';
 
 import {
   APPLYING_COMMS,
+  DATA_VERIFIED,
   MANIFEST,
+  adoptPartial,
+  checkCopy,
+  isLogFile,
   adoptBackup,
   parseArgs,
   backupName,
@@ -175,6 +179,7 @@ function fakeIo({
   ],
   streamFails = false,
   shortFile = null,
+  copiedSizes = {},
   start = Date.parse('2026-10-25T18:00:00Z'),
 } = {}) {
   let clock = start;
@@ -225,7 +230,8 @@ function fakeIo({
         return { code: 2, stderr: 'tar: write error: no space left' };
       }
       for (const f of files) {
-        const size = f.path === shortFile ? f.size - 1 : f.size;
+        const size =
+          copiedSizes[f.path] ?? (f.path === shortFile ? f.size - 1 : f.size);
         fs.put(path.join(dest, f.path), size);
         clock += 60_000;
         onBytes(size);
@@ -806,4 +812,238 @@ test('container paths reach docker as written: argv arrays, no shell (Git Bash w
   assert.ok(unstream.args.includes('gev-overpass-db:/db'));
   assert.match(unstream.args.at(-1), /^tar -xf - -C \/db && \{ chown/);
   assert.equal(calls.at(-1).options.cwd, 'tools/overpass');
+});
+
+const WITH_LOGS = [
+  { path: 'changes.log', size: 1000 },
+  { path: 'db/database.log', size: 500 },
+  { path: 'db/transactions.log', size: 700 },
+  { path: 'db/nodes.bin', size: 1.5e11 },
+  { path: 'db/ways.bin', size: 1.5e11 },
+  { path: 'replicate_id', size: 8 },
+];
+
+test('logs the live dispatchers keep writing are not size-checked; every data file still is', async () => {
+  assert.equal(isLogFile('changes.log'), true);
+  assert.equal(isLogFile('db/database.log'), true);
+  assert.equal(isLogFile('db/transactions.log'), true);
+  assert.equal(isLogFile('db/nodes.bin'), false);
+  assert.equal(isLogFile('diffs/changes.osc'), false);
+  assert.equal(isLogFile('db/sub/x.log'), false, 'only the root and db/');
+  // The logs grew while the copy ran (the real backup's three differences).
+  const fs = memoryFs();
+  const io = fakeIo({
+    fs,
+    files: WITH_LOGS,
+    copiedSizes: {
+      'changes.log': 1400,
+      'db/database.log': 900,
+      'db/transactions.log': 650,
+    },
+  });
+  const result = await runBackup(io, { dir: DIR });
+  assert.equal(result.name, '20261025');
+  const logs = result.manifest.files.filter((f) => f.log);
+  assert.deepEqual(logs, [
+    { path: 'changes.log', size: 1400, log: true },
+    { path: 'db/database.log', size: 900, log: true },
+    { path: 'db/transactions.log', size: 650, log: true },
+  ]);
+  assert.equal(result.manifest.sizeBytes, 3e11 + 8 + 1400 + 900 + 650);
+  assert.deepEqual(
+    await fs
+      .readdir(path.join(DIR, '20261025'))
+      .then((n) => n.includes(DATA_VERIFIED)),
+    false,
+    'the marker goes with the rename',
+  );
+  // A data file that differs still fails it.
+  const bad = fakeIo({
+    files: WITH_LOGS,
+    copiedSizes: { 'db/ways.bin': 1.4e11 },
+  });
+  await assert.rejects(
+    runBackup(bad, { dir: DIR }),
+    /1 data files differ from the volume \(first: db\/ways\.bin/,
+  );
+  // checkCopy alone: a file the volume gained after the list (a diff the
+  // resumed updater downloaded) is not in the list and does not count.
+  const loose = memoryFs();
+  for (const f of WITH_LOGS)
+    loose.put(
+      path.join(DIR, 'x', f.path),
+      f.size + (isLogFile(f.path) ? 5 : 0),
+    );
+  loose.put(path.join(DIR, 'x', 'diffs/changes.osc'), 99);
+  const checked = await checkCopy(path.join(DIR, 'x'), WITH_LOGS, loose);
+  assert.deepEqual(checked.wrong, []);
+  assert.equal(checked.files.length, WITH_LOGS.length);
+  assert.equal(
+    checked.files.some((f) => f.path === 'diffs/changes.osc'),
+    false,
+  );
+});
+
+test('a .partial whose data files matched is never removed: kept, with how to adopt it; a cut-off one still is', async () => {
+  const fs = memoryFs();
+  await fs.mkdir(DIR, { recursive: true });
+  // Verified, then cut off (say at the rename).
+  const good = path.join(DIR, '20261024.partial');
+  await fs.mkdir(good, { recursive: true });
+  await fs.writeFile(
+    path.join(good, DATA_VERIFIED),
+    JSON.stringify({ complete: true, replicateId: 7344300, files: [] }),
+  );
+  // Cut off mid-copy: no record.
+  const cut = path.join(DIR, '20261023.partial');
+  await fs.mkdir(cut, { recursive: true });
+  const io = fakeIo({ fs });
+  await runBackup(io, { dir: DIR });
+  const names = await fs.readdir(DIR);
+  assert.ok(names.includes('20261024.partial'), 'kept');
+  assert.ok(!names.includes('20261023.partial'), 'removed');
+  assert.ok(
+    io.lines.some((l) =>
+      l.includes(`npm run overpass:backup -- --adopt ${good}`),
+    ),
+  );
+  // A copy that fails after its data matched leaves that record behind.
+  const late = memoryFs();
+  const lateIo = fakeIo({ fs: late });
+  const rename = late.rename;
+  late.rename = async () => {
+    throw new Error('EPERM: the drive went away');
+  };
+  await assert.rejects(runBackup(lateIo, { dir: DIR }), /EPERM/);
+  late.rename = rename;
+  const left = path.join(DIR, '20261025.partial');
+  const record = JSON.parse(
+    await late.readFile(path.join(left, DATA_VERIFIED)),
+  );
+  assert.equal(record.replicateId, 7344333);
+  assert.equal(record.complete, true);
+});
+
+async function partialWith(fs, name, files, { marker = false } = {}) {
+  const at = path.join(DIR, name);
+  await fs.mkdir(at, { recursive: true });
+  for (const f of files) fs.put(path.join(at, f.path), f.size);
+  await fs.writeFile(path.join(at, 'replicate_id'), '7344333\n');
+  if (marker)
+    await fs.writeFile(
+      path.join(at, DATA_VERIFIED),
+      JSON.stringify({
+        version: 1,
+        complete: true,
+        replicateId: 7344333,
+        files: [...files, { path: 'replicate_id', size: 8 }],
+        sizeBytes: 1,
+      }),
+    );
+  return at;
+}
+const DATA = [
+  { path: 'db/nodes.bin', size: 1.5e11 },
+  { path: 'db/ways.bin', size: 1.5e11 },
+  { path: 'db/database.log', size: 900 },
+];
+
+test('--adopt on a .partial: by its record, or re-verified against the volume while the replicate_id still matches; refused otherwise', async () => {
+  // With its record: renamed, its manifest written, the record gone.
+  const fs = memoryFs();
+  const marked = await partialWith(fs, '20261025.partial', DATA, {
+    marker: true,
+  });
+  const manifest = await adoptPartial(fakeIo({ fs }), marked);
+  assert.equal(manifest.replicateId, 7344333);
+  assert.deepEqual(
+    (await listBackups(DIR, fs)).map((b) => b.name),
+    ['20261025'],
+  );
+  assert.equal(
+    (await fs.readdir(path.join(DIR, '20261025'))).includes(DATA_VERIFIED),
+    false,
+  );
+
+  // No record, the volume still at the copy's replicate_id: checked now.
+  const listed = [
+    { path: 'db/database.log', size: 5000 }, // grew: a log, fine
+    { path: 'db/nodes.bin', size: 1.5e11 },
+    { path: 'db/ways.bin', size: 1.5e11 },
+    { path: 'replicate_id', size: 8 },
+  ];
+  const fresh = memoryFs();
+  const plain = await partialWith(fresh, '20261026.partial', DATA);
+  const adopted = await adoptPartial(
+    fakeIo({ fs: fresh, files: listed }),
+    plain,
+  );
+  assert.equal(adopted.verifiedAtAdoption, true);
+  assert.deepEqual(
+    adopted.files.find((f) => f.log),
+    { path: 'db/database.log', size: 900, log: true },
+  );
+  assert.deepEqual(
+    (await listBackups(DIR, fresh)).map((b) => b.name),
+    ['20261026'],
+  );
+
+  // The database moved on: refused, the .partial left as it was.
+  const moved = memoryFs();
+  const old = await partialWith(moved, '20261027.partial', DATA);
+  await assert.rejects(
+    adoptPartial(
+      fakeIo({
+        fs: moved,
+        files: listed,
+        probes: [{ procs: PROCS_IDLE, state: state({ id: 7344400 }) }],
+      }),
+      old,
+    ),
+    /moved on since this copy \(replicate_id 7344400 now, 7344333 in the copy\)/,
+  );
+  assert.ok((await moved.readdir(DIR)).includes('20261027.partial'));
+  // An update applying: refused for now.
+  await assert.rejects(
+    adoptPartial(
+      fakeIo({
+        fs: moved,
+        files: listed,
+        probes: [{ procs: PROCS_APPLYING, state: state() }],
+      }),
+      old,
+    ),
+    /applying or waiting/,
+  );
+  // A data file that differs: refused.
+  await assert.rejects(
+    adoptPartial(
+      fakeIo({
+        fs: moved,
+        files: [...listed.slice(0, 2), { path: 'db/ways.bin', size: 1.6e11 }],
+      }),
+      old,
+    ),
+    /1 data files differ/,
+  );
+  // A record whose files shrank since: refused.
+  const shrunk = memoryFs();
+  const s1 = await partialWith(shrunk, '20261028.partial', DATA, {
+    marker: true,
+  });
+  shrunk.put(path.join(s1, 'db/ways.bin'), 1);
+  await assert.rejects(
+    adoptPartial(fakeIo({ fs: shrunk }), s1),
+    /no longer the size/,
+  );
+  // Names and a taken target.
+  await assert.rejects(
+    adoptPartial(fakeIo({ fs: moved }), path.join(DIR, 'misc.partial')),
+    /not a backup's \.partial/,
+  );
+  await moved.mkdir(path.join(DIR, '20261027'), { recursive: true });
+  await assert.rejects(
+    adoptPartial(fakeIo({ fs: moved }), old),
+    /exists already/,
+  );
 });
