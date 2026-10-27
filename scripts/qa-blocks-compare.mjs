@@ -96,7 +96,8 @@ export function syntheticField() {
 export function fieldBounds() {
   const half = (FIELD_CELLS * FIELD_CELL_M) / 2;
   const dLat = half / M_PER_DEG;
-  const dLon = half / (M_PER_DEG * Math.cos((FIELD_CENTRE.lat * Math.PI) / 180));
+  const dLon =
+    half / (M_PER_DEG * Math.cos((FIELD_CENTRE.lat * Math.PI) / 180));
   return {
     west: FIELD_CENTRE.lon - dLon,
     south: FIELD_CENTRE.lat - dLat,
@@ -247,13 +248,19 @@ export function colourTile(z, x, y, field, size = 256) {
 
 /** The Earth Engine catalog with the Elevation layer alone, every variant ready. */
 export function earthEngineCatalog() {
-  const record = EARTH_ENGINE_LAYERS.find((layer) => layer.id === 'ee-elevation');
+  const record = EARTH_ENGINE_LAYERS.find(
+    (layer) => layer.id === 'ee-elevation',
+  );
   const variants = (record.variants || []).map((variant) => ({
     key: variant.key,
     ready: true,
     ...(variant.auto ? { auto: true } : {}),
-    ...(Number.isFinite(variant.minHeightM) ? { minHeightM: variant.minHeightM } : {}),
-    ...(Number.isFinite(variant.maxHeightM) ? { maxHeightM: variant.maxHeightM } : {}),
+    ...(Number.isFinite(variant.minHeightM)
+      ? { minHeightM: variant.minHeightM }
+      : {}),
+    ...(Number.isFinite(variant.maxHeightM)
+      ? { maxHeightM: variant.maxHeightM }
+      : {}),
   }));
   variants.push({ key: 'zoom', minZoom: 0, ready: true });
   return {
@@ -286,7 +293,8 @@ export function earthEngineCatalog() {
  */
 export function pageHash({ blocks }) {
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(VIEW)) params.set(key, String(value));
+  for (const [key, value] of Object.entries(VIEW))
+    params.set(key, String(value));
   params.set('map', 'blank-black');
   encodeLayerStateParams(params, { enabledLayerIds: [], options: {} });
   // The Elevation layer's colour scale: PET rainbow, 0 to 100 m, linear.
@@ -319,7 +327,8 @@ function staticFile(dist, pathname) {
     if (statSync(file).isFile())
       return {
         body: readFileSync(file),
-        contentType: MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
+        contentType:
+          MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
       };
   } catch {
     /* not there */
@@ -340,7 +349,8 @@ function respond(request, { dist, field, log }) {
   if (url.pathname === '/api/raster/values') {
     const query = parseRasterValuesQuery(url.searchParams);
     if (!query.ok) return json(query.status, { error: query.error });
-    if (query.layer !== 'ee-elevation') return json(404, { error: 'Unknown layer' });
+    if (query.layer !== 'ee-elevation')
+      return json(404, { error: 'Unknown layer' });
     log.values++;
     return request.respond({
       status: 200,
@@ -350,24 +360,35 @@ function respond(request, { dist, field, log }) {
   }
   if (url.pathname === '/api/earth-engine/layers')
     return json(200, earthEngineCatalog());
-  const tile = /^\/api\/earth-engine\/tile\/ee-elevation\/[^/]+\/[^/]+\/(\d+)\/(\d+)\/(\d+)$/.exec(
-    url.pathname,
-  );
+  const tile =
+    /^\/api\/earth-engine\/tile\/ee-elevation\/[^/]+\/[^/]+\/(\d+)\/(\d+)\/(\d+)$/.exec(
+      url.pathname,
+    );
   if (tile) {
     log.tiles++;
     return request.respond({
       status: 200,
       contentType: 'image/png',
-      body: colourTile(Number(tile[1]), Number(tile[2]), Number(tile[3]), field),
+      body: colourTile(
+        Number(tile[1]),
+        Number(tile[2]),
+        Number(tile[3]),
+        field,
+      ),
     });
   }
   if (url.pathname.startsWith('/api/')) {
     log.missing.add(url.pathname);
     return json(404, { error: 'Not served by qa-blocks-compare' });
   }
-  const found = staticFile(dist, url.pathname) || staticFile(dist, '/index.html');
+  const found =
+    staticFile(dist, url.pathname) || staticFile(dist, '/index.html');
   if (!found) return request.respond({ status: 404, body: '' });
-  return request.respond({ status: 200, contentType: found.contentType, body: found.body });
+  return request.respond({
+    status: 200,
+    contentType: found.contentType,
+    body: found.body,
+  });
 }
 
 function argValue(argv, name, fallback = null) {
@@ -379,7 +400,9 @@ async function shoot({ browser, dist, field, out, blocks }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   const log = { values: 0, tiles: 0, missing: new Set(), errors: [] };
-  page.on('pageerror', (error) => log.errors.push(String(error?.message || error)));
+  page.on('pageerror', (error) =>
+    log.errors.push(String(error?.message || error)),
+  );
   await page.setViewport({ width: WIDTH, height: HEIGHT });
   await page.setRequestInterception(true);
   page.on('request', (request) => {
@@ -388,7 +411,9 @@ async function shoot({ browser, dist, field, out, blocks }) {
     );
   });
   const name = blocks ? 'blocks' : 'colour';
-  await page.goto(`${ORIGIN}/${pageHash({ blocks })}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${ORIGIN}/${pageHash({ blocks })}`, {
+    waitUntil: 'domcontentloaded',
+  });
   await page.waitForFunction(() => Boolean(window.__godsEyeView?.viewer), {
     timeout: 120_000,
   });
@@ -410,7 +435,8 @@ async function shoot({ browser, dist, field, out, blocks }) {
     await page
       .waitForFunction(
         () => {
-          const text = document.querySelector('.lego-render-status')?.textContent || '';
+          const text =
+            document.querySelector('.lego-render-status')?.textContent || '';
           return /chunks/.test(text) && !/loading/.test(text);
         },
         { timeout: 180_000, polling: 500 },
@@ -437,13 +463,61 @@ async function shoot({ browser, dist, field, out, blocks }) {
   );
   const file = path.join(out, `${name}.png`);
   await page.screenshot({ path: file });
+  const scene = [await probe(page)];
+  if (blocks) {
+    // Leave Blocks from the drop-down, the camera still: the globe comes
+    // back and the Elevation layer drapes again without a move.
+    await page.evaluate(() => {
+      const select = document.querySelector('.lego-render-select');
+      select.value = 'colour';
+      select.dispatchEvent(new Event('change'));
+    });
+    await page.evaluate(
+      () => new Promise((resolve) => setTimeout(resolve, 3000)),
+    );
+    scene.push({ after: 'Render: Colour', ...(await probe(page)) });
+  }
   await context.close();
-  return { name, file, status, ...log, missing: [...log.missing] };
+  return { name, file, status, scene, ...log, missing: [...log.missing] };
+}
+
+/**
+ * What the page shows now: the globe, the Elevation row's line, the HUD's
+ * floor note, and how many imagery layers drape on the globe.
+ */
+function probe(page) {
+  return page.evaluate(() => {
+    const gev = window.__godsEyeView;
+    const entry = gev.dataManager.layers.get('ee-elevation');
+    let row = '';
+    try {
+      row = entry?.module?.getRowControls?.()?.info || '';
+    } catch {
+      /* no row */
+    }
+    return {
+      globeShown: gev.viewer.scene.globe.show,
+      elevationRow: row,
+      floorNote:
+        document.getElementById('hud-cam-agl-floor')?.textContent || '',
+      // The floor the HUD computes now (its note refreshes only while shown).
+      hudFloor: (() => {
+        try {
+          return gev.styleManager?.hud?.cameraPrecision?.()?.floor?.name || '';
+        } catch {
+          return '';
+        }
+      })(),
+      hudShown: gev.styleManager?.hud?._visible ?? null,
+      drapes: gev.viewer.imageryLayers.length,
+    };
+  });
 }
 
 export async function main(argv = process.argv.slice(2)) {
   const out = path.resolve(argValue(argv, '--out', ''));
-  if (!argValue(argv, '--out')) throw new Error('--out <dir outside the repository> is required');
+  if (!argValue(argv, '--out'))
+    throw new Error('--out <dir outside the repository> is required');
   if (out === ROOT || out.startsWith(`${ROOT}${path.sep}`))
     throw new Error(`--out must be outside the repository (${ROOT})`);
   mkdirSync(out, { recursive: true });
@@ -451,11 +525,16 @@ export async function main(argv = process.argv.slice(2)) {
   if (argv.includes('--build')) {
     dist = path.join(out, 'dist');
     const vite = path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
-    const built = spawnSync(process.execPath, [vite, 'build', '--outDir', dist, '--emptyOutDir'], {
-      cwd: ROOT,
-      stdio: 'inherit',
-    });
-    if (built.status !== 0) throw new Error(`vite build failed (${built.status})`);
+    const built = spawnSync(
+      process.execPath,
+      [vite, 'build', '--outDir', dist, '--emptyOutDir'],
+      {
+        cwd: ROOT,
+        stdio: 'inherit',
+      },
+    );
+    if (built.status !== 0)
+      throw new Error(`vite build failed (${built.status})`);
   }
   if (!dist || !existsSync(path.join(dist, 'index.html')))
     throw new Error('--dist <a vite build with index.html>, or --build');
@@ -485,14 +564,22 @@ export async function main(argv = process.argv.slice(2)) {
   for (const result of results) {
     console.log(`${result.name}: ${result.file}`);
     console.log(`  status line: ${result.status || '(none)'}`);
-    console.log(`  values answered: ${result.values}, colour tiles: ${result.tiles}`);
-    if (result.missing.length) console.log(`  404s: ${result.missing.join(', ')}`);
+    console.log(
+      `  values answered: ${result.values}, colour tiles: ${result.tiles}`,
+    );
+    for (const seen of result.scene)
+      console.log(`  scene: ${JSON.stringify(seen)}`);
+    if (result.missing.length)
+      console.log(`  404s: ${result.missing.join(', ')}`);
     for (const error of result.errors) console.log(`  page error: ${error}`);
   }
   return results;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+)
   main().catch((error) => {
     console.error(error?.message || error);
     process.exitCode = 1;
