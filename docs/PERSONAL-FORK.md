@@ -6000,6 +6000,18 @@ from mean sea level, chunks 64 columns a side. A column at or below 0 m is
 water at sea level; below the top every block is filled. The store keeps an
 edits overlay per chunk from the start (for later breaking and stacking).
 
+**Where sea level is.** Lego's rule. On flat ground (no photoreal tileset
+and the globe on Cesium's ellipsoid terrain) level 0 is drawn on the
+ellipsoid, so the blocks stand on the globe as Lego's columns do. On
+terrain or the photoreal tiles, whose heights are ellipsoidal, the region
+is lifted by the EGM96 geoid undulation at its origin (about −33 m at
+Baltimore), so level 0 lands on the sea surface; a geoid that cannot be
+read lifts nothing. The controller hands the renderer
+`setRegion(region, { datumOffsetM })` and anchors the region again when the
+ground flips (a new map stack). The blank basemaps keep the globe's terrain
+(World Terrain with an Ion token, Re:Earth's keyless terrain without), so
+they are terrain here unless the terrain is flat.
+
 **Streaming** (`src/layers/blocks/index.js`). On the camera's `moveEnd`,
 and every 500 ms while it moves or while chunks are still coming, the
 controller:
@@ -6044,7 +6056,9 @@ answers `/api/raster/values` and the Elevation layer's Earth Engine catalog
 and tiles from a synthetic heightfield (64 × 64 cells at 10 m, 600 m north
 of the camera: a hill to 77 m, a spur, and a river valley cut to 2 m,
 on a 12 m plain), painted in the PET rainbow over 0 to 100 m for Colour.
-Other `/api/` routes answer 404 and other hosts are refused. The script
+Other `/api/` routes answer 404 and other hosts are refused, the terrain's
+too, so the globe there is flat ground and the shots show the flat case
+(offset 0). The script
 prints each shot's status line, how many values and tiles it answered, and
 any page error.
 
@@ -6052,7 +6066,9 @@ any page error.
 source, renderer and camera: the ring's order, the budget, re-meshing on a
 neighbour or a version, the hysteresis, re-anchoring at 25 km, the
 Elevation-off and Colour cases, the tick, failures (no values service, a
-chunk that fails), the status line and the HUD floor. The mode, `bk` and
+chunk that fails), the datum offset (0 on flat ground, the geoid on
+terrain, a re-anchor when the ground flips, 0 when the geoid fails), the
+status line and the HUD floor. The mode, `bk` and
 the drop-down are in `src/layers/lego/lego.test.mjs`, the link in
 `src/sharelink.camera.test.mjs`, the floor in `src/hud/precision.test.mjs`.
 

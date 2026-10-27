@@ -56,6 +56,7 @@ export function createApplicationLego({
     viewer,
     dataManager,
     store: renderMode,
+    mapStackController,
   });
   // A link asking for the bricks turns Lego on, and the elevation layer
   // when no Lego layer is on, once the layers are restored.

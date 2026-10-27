@@ -82,7 +82,7 @@ function fakeRenderer() {
   return {
     shown,
     calls,
-    setRegion: (region) => calls.push(['region', region]),
+    setRegion: (region, options) => calls.push(['region', region, options]),
     setSun: (dir, options) => calls.push(['sun', dir, options]),
     setFog: (fog) => calls.push(['fog', fog]),
     upsert(key, mesh) {
@@ -162,6 +162,7 @@ function setup({
   elevation = true,
   source,
   radiusBlocks,
+  datum,
 } = {}) {
   const store = createRenderModeStore({ storage: memoryStorage() });
   store.setMode(mode);
@@ -182,6 +183,7 @@ function setup({
       return { faces: 1, chunk };
     },
     ...(radiusBlocks ? { radiusBlocks } : {}),
+    ...(datum ? { datum } : {}),
     setIntervalImpl(callback) {
       timers.callback = callback;
       timers.set++;
@@ -545,6 +547,88 @@ test('a region that fails: unavailable without the values service, failed otherw
     assert.equal(controller.getStatus().state, 'ready');
     assert.equal(controller.getStatus().failed, 1);
     controller.destroy();
+  } finally {
+    console.warn = warn;
+  }
+});
+
+/** A ground that is flat or terrain, switchable, with a geoid. */
+function fakeDatum({ flat = true, undulation = -33.2, fails = false } = {}) {
+  const listeners = new Set();
+  const datum = {
+    isFlat: flat,
+    asked: [],
+    flat: () => datum.isFlat,
+    async undulation(lat, lon) {
+      datum.asked.push({ lat, lon });
+      if (fails) throw new Error('no geoid grid');
+      return undulation;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    flip(next) {
+      datum.isFlat = next;
+      for (const listener of listeners) listener();
+    },
+  };
+  return datum;
+}
+
+test('sea level: on the ellipsoid on flat ground (offset 0), lifted by the geoid on terrain', async () => {
+  const flat = fakeDatum({ flat: true });
+  const onFlat = setup({ datum: flat, radiusBlocks: 64 });
+  await drain(onFlat.controller);
+  const [, , flatOptions] = onFlat.renderer.calls.find(([k]) => k === 'region');
+  assert.deepEqual(flatOptions, { datumOffsetM: 0 });
+  assert.equal(flat.asked.length, 0, 'no geoid on flat ground');
+  onFlat.controller.destroy();
+
+  const terrain = fakeDatum({ flat: false, undulation: -33.2 });
+  const onTerrain = setup({ datum: terrain, radiusBlocks: 64 });
+  await drain(onTerrain.controller);
+  const [, region, options] = onTerrain.renderer.calls.find(
+    ([k]) => k === 'region',
+  );
+  assert.deepEqual(options, { datumOffsetM: -33.2 });
+  assert.deepEqual(terrain.asked, [{ lat: region.lat0, lon: region.lon0 }]);
+  assert.equal(onTerrain.controller._state().region.datumOffsetM, -33.2);
+  onTerrain.controller.destroy();
+});
+
+test('the ground flipping (a new map stack) re-anchors with the new offset; a geoid that fails is 0', async () => {
+  const datum = fakeDatum({ flat: true });
+  const { controller, renderer } = setup({ datum, radiusBlocks: 64 });
+  await drain(controller);
+  const before = renderer.shown.size;
+  assert.ok(before > 0);
+  datum.flip(false);
+  await drain(controller);
+  const regions = renderer.calls.filter(([k]) => k === 'region');
+  assert.equal(regions.length, 2);
+  assert.deepEqual(regions[1][2], { datumOffsetM: -33.2 });
+  assert.equal(renderer.calls.filter(([k]) => k === 'remove').length, before);
+  assert.equal(renderer.shown.size, before);
+  // Back to flat: anchored again at 0.
+  datum.flip(true);
+  await drain(controller);
+  assert.deepEqual(renderer.calls.filter(([k]) => k === 'region')[2][2], {
+    datumOffsetM: 0,
+  });
+  controller.destroy();
+
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const broken = fakeDatum({ flat: false, fails: true });
+    const run = setup({ datum: broken, radiusBlocks: 64 });
+    await drain(run.controller);
+    assert.deepEqual(run.renderer.calls.find(([k]) => k === 'region')[2], {
+      datumOffsetM: 0,
+    });
+    assert.ok(run.renderer.shown.size > 0);
+    run.controller.destroy();
   } finally {
     console.warn = warn;
   }

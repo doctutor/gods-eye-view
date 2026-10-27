@@ -44,6 +44,17 @@ export const STUDY_SUN = Object.freeze({
   fixed: true,
 });
 
+/**
+ * Where sea level sits when none is given: the ground is flat (the globe
+ * on the ellipsoid), so level 0 is drawn on the ellipsoid. src/app/blocks.js
+ * gives the real test (the globe's terrain and the photoreal tiles) and the
+ * EGM96 geoid.
+ */
+export const FLAT_DATUM = Object.freeze({
+  flat: () => true,
+  undulation: () => 0,
+});
+
 const RAD = Math.PI / 180;
 
 /** A call's result as a promise, asked now; a throw is a rejection. */
@@ -123,6 +134,8 @@ export function sourceName(source) {
  *   buildChunkMesh: Function,
  *   sun?: (lon: number, lat: number) => {dir: {east: number, north: number,
  *     up: number}, fixed: boolean},
+ *   datum?: {flat: () => boolean, undulation: (lat: number, lon: number)
+ *     => number|Promise<number>, subscribe?: Function},
  *   radiusBlocks?: number, budget?: number, tickMs?: number,
  *   requestRender?: Function,
  *   setIntervalImpl?: typeof setInterval, clearIntervalImpl?: typeof clearInterval,
@@ -137,6 +150,7 @@ export function createBlocksController({
   grid,
   buildChunkMesh,
   sun = () => STUDY_SUN,
+  datum = FLAT_DATUM,
   radiusBlocks = RENDER_DISTANCE_BLOCKS,
   budget = CHUNK_BUDGET,
   tickMs = TICK_MS,
@@ -244,59 +258,84 @@ export function createBlocksController({
 
   function anchor(camera) {
     const generation = _generation;
+    const stale = () => generation !== _generation || !active();
     setStatus({ state: 'anchoring' });
+    const fail = (error, unavailable = false) => {
+      if (generation !== _generation) return;
+      _anchoring = null;
+      stopTicking();
+      setStatus({
+        state: unavailable ? 'unavailable' : 'failed',
+        error: String(error?.message || error),
+      });
+      if (!unavailable)
+        console.warn('[Blocks] no region:', error?.message || error);
+    };
     _anchoring = call(() =>
       source.regionFor(camera.lon, camera.lat, REGION_WINDOW_M),
-    )
-      .then(
-        (found) => {
-          if (generation !== _generation || !active()) return;
-          _anchoring = null;
-          const blockM = Number(found?.blockM);
-          if (!(blockM > 0)) throw new Error('no block size for this region');
-          const region = grid.createRegion({
-            lon0: camera.lon,
-            lat0: camera.lat,
-            blockM,
-          });
-          // The sun at the region, once: mesh.js bakes it into the colours.
-          const light = sun(camera.lon, camera.lat) || STUDY_SUN;
-          call(() => renderer.setRegion(region)).catch((error) =>
-            console.warn('[Blocks] region not set:', error?.message || error),
-          );
-          renderer.setSun?.(light.dir, { fixed: Boolean(light.fixed) });
-          renderer.setFog?.({
-            startM: radiusBlocks * blockM * 0.6,
-            endM: radiusBlocks * blockM,
-          });
-          _region = {
-            region,
-            blockM,
-            sourceName: sourceName(found.source),
-            sun: light,
-          };
-          tick();
-        },
-        (error) => {
-          if (generation !== _generation) return;
-          _anchoring = null;
-          stopTicking();
-          const status = Number(error?.status);
-          setStatus({
-            state: [404, 501, 503].includes(status) ? 'unavailable' : 'failed',
-            error: String(error?.message || error),
-          });
-          if (![404, 501, 503].includes(status))
-            console.warn('[Blocks] no region:', error?.message || error);
-        },
-      )
-      .catch((error) => {
-        if (generation !== _generation) return;
+    ).then(
+      async (found) => {
+        if (stale()) return;
+        const blockM = Number(found?.blockM);
+        if (!(blockM > 0)) throw new Error('no block size for this region');
+        const region = grid.createRegion({
+          lon0: camera.lon,
+          lat0: camera.lat,
+          blockM,
+        });
+        // Where sea level is: the ellipsoid on flat ground, the geoid on terrain.
+        const flat = Boolean(datum.flat());
+        const datumOffsetM = await datumOffsetFor(region, flat, camera);
+        if (stale()) return;
         _anchoring = null;
-        stopTicking();
-        setStatus({ state: 'failed', error: String(error?.message || error) });
-        console.warn('[Blocks] no region:', error?.message || error);
-      });
+        // The sun at the region, once: mesh.js bakes it into the colours.
+        const light = sun(camera.lon, camera.lat) || STUDY_SUN;
+        call(() => renderer.setRegion(region, { datumOffsetM })).catch(
+          (error) =>
+            console.warn('[Blocks] region not set:', error?.message || error),
+        );
+        renderer.setSun?.(light.dir, { fixed: Boolean(light.fixed) });
+        renderer.setFog?.({
+          startM: radiusBlocks * blockM * 0.6,
+          endM: radiusBlocks * blockM,
+        });
+        _region = {
+          region,
+          blockM,
+          sourceName: sourceName(found.source),
+          sun: light,
+          flat,
+          datumOffsetM,
+        };
+        tick();
+      },
+      (error) => fail(error, [404, 501, 503].includes(Number(error?.status))),
+    );
+    _anchoring.catch((error) => fail(error));
+  }
+
+  /**
+   * The region's datum offset (m, added to its heights above sea level):
+   * 0 on flat ground, where the globe is the ellipsoid and sea level is
+   * drawn on it (as Lego's columns stand); the geoid undulation at the
+   * origin on terrain or the photoreal tiles, whose heights are
+   * ellipsoidal, so level 0 lands on the sea surface there. A geoid that
+   * cannot be read is 0 (about 30 m off at worst).
+   */
+  async function datumOffsetFor(region, flat, camera) {
+    if (flat) return 0;
+    try {
+      const n = Number(
+        await datum.undulation(
+          region.lat0 ?? camera.lat,
+          region.lon0 ?? camera.lon,
+        ),
+      );
+      return Number.isFinite(n) ? n : 0;
+    } catch (error) {
+      console.warn('[Blocks] no geoid:', error?.message || error);
+      return 0;
+    }
   }
 
   function load(entry) {
@@ -365,7 +404,10 @@ export function createBlocksController({
     if (_anchoring) return;
     if (_region) {
       const local = _region.region.toLocal(camera.lon, camera.lat);
-      if (needsReanchor(local, _region.blockM, radiusBlocks)) {
+      if (
+        needsReanchor(local, _region.blockM, radiusBlocks) ||
+        Boolean(datum.flat()) !== _region.flat
+      ) {
         clearAll('anchoring');
         startTicking();
       }
@@ -484,6 +526,9 @@ export function createBlocksController({
   }
 
   _removers.push(store.subscribe(() => tick()));
+  // A new map stack can flip the ground between flat and terrain.
+  const offDatum = datum.subscribe?.(() => tick());
+  if (typeof offDatum === 'function') _removers.push(offDatum);
   if (layers?.subscribeActivity)
     _removers.push(
       layers.subscribeActivity((change) => {
