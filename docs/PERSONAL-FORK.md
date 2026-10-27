@@ -6049,7 +6049,12 @@ Each chunk is meshed with its eight neighbours: the four it shares a side
 with (border faces) and the diagonals (ambient occlusion at its corners).
 A neighbour not loaded yet reads as the edge column repeated, so no wall
 shows at the edge of what is loaded, and the chunk is meshed again when a
-neighbour arrives.
+neighbour arrives. Where the fine ring ends, a fine chunk whose neighbour across
+a border is neither loaded nor coming hangs a skirt there: its edge
+columns' sides run down to the lowest ground of the coarse chunk beyond
+(four fine levels to a coarse one), so the 1 m edge meets the 4 m ring
+without a seam of background showing between them. It is meshed again
+when that coarse chunk arrives; coarse chunks get no skirts.
 
 The sun is fixed when the region is anchored: the real sun when it is more
 than 15° up, otherwise a study sun 60° up from the south-west; mesh.js

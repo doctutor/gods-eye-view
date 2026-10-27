@@ -955,7 +955,14 @@ function coarseSource({ hold = false, holdCoarse = false } = {}) {
   const coarse = [];
   base.coarse = coarse;
   base.loadCoarseChunk = (region, gi, gj) => {
-    const chunk = { gi, gj, coarse: true, version: 0 };
+    // Its ground: lowest 5 + gi levels (coarse), a little higher inland.
+    const chunk = {
+      gi,
+      gj,
+      coarse: true,
+      version: 0,
+      topSolid: (i, j) => 5 + gi + ((i + j) % 3),
+    };
     if (!holdCoarse) {
       coarse.push({ gi, gj });
       return Promise.resolve(chunk);
@@ -1144,4 +1151,75 @@ test('the world for Walk and Fly: the region, its loaded chunks and the datum of
   store.setMode('colour');
   assert.equal(controller.world(), null);
   controller.destroy();
+});
+
+test('skirts: a fine chunk with no fine neighbour beyond a border hangs its sides down to 4 × the lowest coarse level there', async () => {
+  const { SKIRT_SIDES } = await import('./index.js');
+  assert.deepEqual(
+    SKIRT_SIDES.map(([name]) => name),
+    ['n', 's', 'e', 'w'],
+  );
+  const source = coarseSource();
+  const { controller, meshes } = setup({ source, radiusBlocks: 128 });
+  await drain(controller);
+  // R1 = 128 columns: fine groups −1 … 0 each way, chunks −4 … 3.
+  const last = (key) => meshes.filter((m) => m.key === key).at(-1).options;
+  // The east edge of group 0: chunk 4:0 is not fine, c:1:0 is beyond (lowest 6).
+  assert.deepEqual(last('3:0').skirt, { n: null, s: null, e: 24, w: null });
+  // The north-west corner: skirts on two sides, from c:-1:1 (lowest 4) and c:-2:0 (3).
+  assert.deepEqual(last('-4:3').skirt, { n: 16, s: null, e: null, w: 12 });
+  // Inside the fine ring: none.
+  assert.equal(last('1:1').skirt, undefined);
+  // Coarse chunks: none.
+  const coarse = meshes.filter((m) => m.chunk.coarse);
+  assert.ok(coarse.length > 0);
+  assert.ok(coarse.every((m) => m.options.skirt === undefined));
+  controller.destroy();
+});
+
+test('skirts wait for what is coming: none toward a fine neighbour still loading; meshed again when the coarse chunk beyond arrives', async () => {
+  // The coarse ring held: the fine edge is meshed bare, then again with its skirt.
+  const source = coarseSource({ holdCoarse: true });
+  const { controller, meshes } = setup({ source, radiusBlocks: 128 });
+  await drain(controller, 40);
+  const ofEdge = () => meshes.filter((m) => m.key === '3:0');
+  assert.ok(ofEdge().length >= 1);
+  assert.equal(ofEdge().at(-1).options.skirt, undefined, 'nothing beyond yet');
+  for (let n = 0; n < 40; n++) {
+    source.coarse.forEach((c) => c.resolve?.());
+    await settle();
+    controller.tick();
+  }
+  await drain(controller);
+  assert.deepEqual(ofEdge().at(-1).options.skirt, {
+    n: null,
+    s: null,
+    e: 24,
+    w: null,
+  });
+  controller.destroy();
+
+  // A fine neighbour loading: no skirt toward it (it will cull the border).
+  const held = coarseSource({ hold: true });
+  const run = setup({ source: held, radiusBlocks: 128 });
+  await settle();
+  // Let only chunk 0:0 arrive; its neighbours are loading or not asked.
+  held.loads.find((l) => l.ci === 0 && l.cj === 0).resolve();
+  for (let n = 0; n < 5; n++) {
+    await settle();
+    run.controller.tick();
+  }
+  const first = run.meshes.find((m) => m.key === '0:0');
+  assert.ok(first, 'meshed');
+  // All four of 0:0's side neighbours are among the first loads, still
+  // loading: they will cull its borders, so no skirt at all.
+  for (const [di, dj] of [
+    [0, 1],
+    [0, -1],
+    [1, 0],
+    [-1, 0],
+  ])
+    assert.ok(held.loads.some((l) => l.ci === di && l.cj === dj));
+  assert.equal(first.options.skirt, undefined);
+  run.controller.destroy();
 });

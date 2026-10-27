@@ -38,6 +38,15 @@ export const retryDelayMs = (attempts) =>
   Math.min(60_000, 2000 * 2 ** (attempts - 1));
 /** From this block size the budget doubles (tickBudget). */
 export const COARSE_BLOCK_M = 30;
+/** The borders a fine chunk can hang a skirt from: [name, Δci, Δcj]. */
+export const SKIRT_SIDES = Object.freeze([
+  ['n', 0, 1],
+  ['s', 0, -1],
+  ['e', 1, 0],
+  ['w', -1, 0],
+]);
+/** Below this a column's top is the store's NONE (no ground). */
+const NO_TOP = -2147483648;
 /** A chunk's neighbours as buildChunkMesh names them: [name, Δci, Δcj]. */
 export const NEIGHBOURS = Object.freeze([
   ['n', 0, 1],
@@ -528,12 +537,75 @@ export function createBlocksController({
       .map((c) => (c ? String(c.version ?? 0) : '-'))
       .join('|');
 
-  function mesh(entry, neighbours, signature) {
+  /**
+   * The lowest top of a coarse chunk, in its own levels (null for one with
+   * no ground), kept until its version changes.
+   */
+  function lowestTop(entry) {
+    const version = entry.chunk.version ?? 0;
+    if (entry.lowestVersion === version) return entry.lowest;
+    let lowest = Infinity;
+    const n = grid.CHUNK_COLUMNS;
+    for (let j = 0; j < n; j++)
+      for (let i = 0; i < n; i++) {
+        const top = entry.chunk.topSolid?.(i, j);
+        if (Number.isFinite(top) && top > NO_TOP && top < lowest) lowest = top;
+      }
+    entry.lowest = lowest === Infinity ? null : lowest;
+    entry.lowestVersion = version;
+    return entry.lowest;
+  }
+
+  /**
+   * A fine chunk's skirts ({n, s, e, w}, floor levels or null): along a
+   * border whose fine neighbour is neither loaded nor coming, its edge
+   * columns' sides run down to the lowest ground of the coarse chunk
+   * beyond (four fine levels to a coarse one), so the fine ring meets the
+   * coarse ring without a seam. Coarse chunks get none: their hidden
+   * coarse neighbours still cull their borders.
+   */
+  function skirtFor(entry) {
+    if (entry.coarse) return null;
+    let any = false;
+    const skirt = {};
+    for (const [name, di, dj] of SKIRT_SIDES) {
+      skirt[name] = null;
+      const ci = entry.ci + di;
+      const cj = entry.cj + dj;
+      const fine = _chunks.get(grid.chunkKey(ci, cj));
+      if (fine?.chunk || fine?.loading) continue;
+      const { gi, gj } = groupOf(ci, cj);
+      const beyond = _coarse.get(coarseKey(gi, gj));
+      if (!beyond?.chunk) continue;
+      const lowest = lowestTop(beyond);
+      if (lowest === null) continue;
+      skirt[name] = lowest * GROUP_CHUNKS;
+      any = true;
+    }
+    return any ? skirt : null;
+  }
+
+  /** What a chunk is meshed from, and the signature that says when again. */
+  function meshInputs(entry) {
+    const neighbours = neighboursOf(entry);
+    const skirt = skirtFor(entry);
+    const floors = skirt
+      ? SKIRT_SIDES.map(([name]) => skirt[name] ?? '-').join(',')
+      : '';
+    return {
+      neighbours,
+      skirt,
+      signature: `${signatureOf(entry.chunk, neighbours)}|${floors}`,
+    };
+  }
+
+  function mesh(entry, { neighbours, skirt, signature }) {
     const built = buildChunkMesh(entry.chunk, {
       neighbours,
       // A coarse chunk's levels are in its own unit, four blocks.
       blockM: _region.blockM * (entry.coarse ? GROUP_CHUNKS : 1),
       sunDir: _region.sun.dir,
+      ...(skirt ? { skirt } : {}),
     });
     if (entry.coarse) {
       // The renderer cannot read a 'c:' key: the group's south-west corner.
@@ -731,8 +803,8 @@ export function createBlocksController({
           }
           continue;
         }
-        const neighbours = neighboursOf(entry);
-        const signature = signatureOf(entry.chunk, neighbours);
+        const inputs = meshInputs(entry);
+        const { signature } = inputs;
         if (entry.shown && entry.signature === signature) continue;
         if (!entry.shown && entry.mesh && entry.signature === signature) {
           renderer.upsert(entry.key, entry.mesh);
@@ -741,7 +813,7 @@ export function createBlocksController({
           continue;
         }
         try {
-          mesh(entry, neighbours, signature);
+          mesh(entry, inputs);
         } catch (error) {
           entry.failed = true;
           entry.retryAt = Infinity;
@@ -784,10 +856,7 @@ export function createBlocksController({
       const entry = _chunks.get(grid.chunkKey(ci, cj));
       if (waiting(entry)) return true;
       if (!entry.chunk) continue;
-      if (
-        !entry.shown ||
-        entry.signature !== signatureOf(entry.chunk, neighboursOf(entry))
-      )
+      if (!entry.shown || entry.signature !== meshInputs(entry).signature)
         return true;
     }
     for (const { gi, gj } of groups) {
@@ -796,10 +865,7 @@ export function createBlocksController({
       if (!entry.chunk) continue;
       const covered = groupDrawn(gi, gj);
       if (covered === entry.shown) return true;
-      if (
-        !covered &&
-        entry.signature !== signatureOf(entry.chunk, neighboursOf(entry))
-      )
+      if (!covered && entry.signature !== meshInputs(entry).signature)
         return true;
     }
     return false;
