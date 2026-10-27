@@ -832,7 +832,8 @@
       "src/hud/cameraState.js",
       "src/navigation/binding.js",
       "src/navigation/target.js",
-      "src/navigation/targeting.js"
+      "src/navigation/targeting.js",
+      "src/navigation/entry.js"
     ],
     "external": ["cesium"]
   },
@@ -2760,7 +2761,8 @@
       "src/navigation/binding.js",
       "src/hud/blockTarget.js",
       "src/navigation/target.js",
-      "src/navigation/targeting.js"
+      "src/navigation/targeting.js",
+      "src/navigation/entry.js"
     ],
     "external": [
       "hls.js",

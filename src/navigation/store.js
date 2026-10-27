@@ -31,6 +31,7 @@ function hashModeNow() {
 export function createNavigationStore({ initial = hashModeNow() } = {}) {
   let mode = NAV_MODES.includes(initial) ? initial : 'spectator';
   const listeners = new Set();
+  const entryListeners = new Set();
   return {
     get: () => mode,
     set(next) {
@@ -50,6 +51,26 @@ export function createNavigationStore({ initial = hashModeNow() } = {}) {
       return () => listeners.delete(listener);
     },
     param: () => encodeNavParam(mode),
+    /**
+     * "Walk here" / "Fly here": ask the binding to stand the walker on
+     * the targeted block (the G key, the button beside Move); it sets the
+     * mode itself once the camera is placed.
+     */
+    requestEntry(next) {
+      if (next !== 'walk' && next !== 'fly') return false;
+      for (const listener of [...entryListeners]) {
+        try {
+          listener(next);
+        } catch (error) {
+          console.warn('[Navigation] entry listener failed:', error);
+        }
+      }
+      return entryListeners.size > 0;
+    },
+    onEntry(listener) {
+      entryListeners.add(listener);
+      return () => entryListeners.delete(listener);
+    },
   };
 }
 

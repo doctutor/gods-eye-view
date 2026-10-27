@@ -1484,3 +1484,19 @@ body.recording-mode #right-context-rail > [data-panel-id] {
   color: var(--text-secondary);
   font-size: 9px;
 }
+
+/* Personal fork: "Here" beside Move (src/navigation/presentation.js). */
+.nav-here-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 10px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.nav-here-btn[hidden] {
+  display: none;
+}
