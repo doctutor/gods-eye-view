@@ -680,7 +680,7 @@ export class IntelHUD {
     const mode = this._navigation?.mode;
     if (mode === 'walk')
       return t(
-        'Walk: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space jumps, Shift or W twice sprints',
+        'Walk: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space jumps, Shift sneaks (slow, the eye lower, never off an edge), W twice sprints',
       );
     if (mode === 'fly')
       return t(

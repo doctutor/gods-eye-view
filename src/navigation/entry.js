@@ -69,6 +69,8 @@ export function exitView({ yaw, backM = EXIT_BACK_M, upM = EXIT_UP_M }) {
 
 /** The keys a mode uses, for the hint over the crosshair. */
 export const MODE_HINTS = Object.freeze({
-  walk: msg('WASD move · Space jump · Shift sprint · Esc release'),
+  walk: msg(
+    'WASD move · Space jump · Shift sneak · W twice sprint · Esc release',
+  ),
   fly: msg('WASD move · Space/Shift up/down · W twice faster · Esc release'),
 });
