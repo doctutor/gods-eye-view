@@ -15,6 +15,9 @@
  * ambient occlusion at the corners) cull faces across the chunk's borders;
  * a missing neighbour reads as the edge column repeated, so an open edge
  * has no wall, and the chunk is meshed again when the neighbour arrives.
+ * Personal fork: unless a skirt is asked for along that border (`skirt`):
+ * then the edge columns' sides run down from their tops to a floor, so a
+ * fine ring's edge meets a coarser ring behind it without a seam.
  */
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
 import { MATERIALS, NONE, isSolid } from './store.js';
@@ -164,20 +167,45 @@ function occupancyVolume(chunk, neighbours) {
 const STAT_NAMES = DIRECTIONS.map((d) => d.name);
 
 /**
+ * The borders a skirt can hang from: the `skirt` key, the neighbour it
+ * stands in for, the direction its faces look, and which edge columns.
+ */
+const SKIRT_BORDERS = Object.freeze([
+  { key: 'e', dirIndex: 2, column: (k) => [N - 1, k] },
+  { key: 'w', dirIndex: 3, column: (k) => [0, k] },
+  { key: 'n', dirIndex: 4, column: (k) => [k, N - 1] },
+  { key: 's', dirIndex: 5, column: (k) => [k, 0] },
+]);
+/** The deepest a skirt hangs below an edge column's top, in levels. */
+const MAX_SKIRT_LEVELS = 4096;
+
+/**
  * Mesh a chunk. `blockM` scales block units to metres; `sunDir` is the
  * unit vector to the sun, {east, north, up} in the region's frame (the
  * study sun when not given);
  * `greedy: false` keeps one quad per block face (for counting faces).
- * `stats` counts block faces by direction (and water), before merging.
+ * `skirt: {n, s, e, w}`, each a floor level or null: along a border whose
+ * neighbour is absent, every solid block of each edge column from its top
+ * down to and including the floor level gets a side face (shaded as a
+ * side, without ambient occlusion), merged like the other sides; nothing
+ * below the floor. A border with its neighbour present ignores it.
+ * `stats` counts block faces by direction (and water, and the skirts'
+ * share in `skirt`), before merging.
  * @returns {{positions: Float32Array, normals: Float32Array,
  *   colors: Uint8Array, indices: Uint32Array, faces: number,
  *   opaqueIndexCount: number, stats: Object<string, number>}}
  */
 export function buildChunkMesh(
   chunk,
-  { neighbours = {}, blockM = 1, sunDir = STUDY_SUN_DIR, greedy = true } = {},
+  {
+    neighbours = {},
+    blockM = 1,
+    sunDir = STUDY_SUN_DIR,
+    greedy = true,
+    skirt = null,
+  } = {},
 ) {
-  const counts = new Float64Array(7);
+  const counts = new Float64Array(8);
   const volume = occupancyVolume(chunk, neighbours);
   if (!volume) return writeQuads([], [], { blockM, sunDir, counts });
   const { cells, yMin, levels, low, up } = volume;
@@ -251,6 +279,33 @@ export function buildChunkMesh(
         }
       }
     }
+
+  // Skirts: where a border's neighbour is absent (so its edge columns'
+  // sides were culled against themselves), those sides down to the floor.
+  for (const border of SKIRT_BORDERS) {
+    const floor = skirt?.[border.key];
+    if (!Number.isInteger(floor) || neighbours[border.key]) continue;
+    const d = DIRECTIONS[border.dirIndex];
+    for (let k = 0; k < N; k += 1) {
+      const [i, j] = border.column(k);
+      const top = chunk.topSolid(i, j);
+      if (top === NONE || top < floor) continue;
+      const bottom = Math.max(floor, top - MAX_SKIRT_LEVELS);
+      p[0] = i;
+      p[1] = j;
+      for (let y = bottom; y <= top; y += 1) {
+        const material = chunk.occupancy(i, j, y);
+        if (!isSolid(material)) continue;
+        p[2] = y;
+        const slot = p[d.axis] + planeOffset[border.dirIndex];
+        const plane = (planes[border.dirIndex][slot] ??= []);
+        // No ambient occlusion: all four corners unoccluded.
+        plane.push(p[d.u], p[d.v], material << 8);
+        counts[border.dirIndex] += 1;
+        counts[7] += 1;
+      }
+    }
+  }
 
   // Merge each plane's faces into rectangles (or keep them one by one).
   const opaque = [];
@@ -360,6 +415,7 @@ function writeQuads(opaque, water, { blockM, sunDir, counts }) {
     STAT_NAMES.map((name, dirIndex) => [name, counts[dirIndex]]),
   );
   stats.water = counts[6];
+  stats.skirt = counts[7];
   return {
     positions,
     normals,
