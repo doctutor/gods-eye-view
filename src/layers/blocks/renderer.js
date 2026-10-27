@@ -28,6 +28,59 @@ import { STUDY_SUN, STUDY_SUN_DIR, sunDirection } from './lighting.js';
 export const REAL_SUN_MIN_ELEVATION_DEG = 15;
 /** The fog colour when the scene has no background colour: a clear sky near the horizon. */
 export const DEFAULT_FOG_COLOR = Object.freeze([0.71, 0.8, 0.9, 1]);
+/** Cesium's sky atmosphere near the horizon by day, and at dusk. */
+export const HORIZON_SKY_DAY = Object.freeze([0.55, 0.7, 0.9]);
+export const HORIZON_SKY_DUSK = Object.freeze([0.12, 0.14, 0.22]);
+/** The sun's elevations (degrees) the horizon goes from dusk to day over. */
+export const SKY_DUSK_ELEVATION_DEG = -6;
+export const SKY_DAY_ELEVATION_DEG = 10;
+/** Below this camera height the sky atmosphere is what lies behind the far blocks. */
+export const SKY_FOG_MAX_HEIGHT_M = 20_000;
+
+/**
+ * The horizon sky's colour for a sun elevation: day blue above 10°, a dark
+ * dusk blue below −6° (civil twilight's end), between them a smooth blend;
+ * the atmosphere's brightnessShift brightens or darkens it as it does the
+ * sky.
+ */
+export function horizonSkyColor(sunElevationDeg, brightnessShift = 0) {
+  const t = Math.min(
+    1,
+    Math.max(
+      0,
+      (sunElevationDeg - SKY_DUSK_ELEVATION_DEG) /
+        (SKY_DAY_ELEVATION_DEG - SKY_DUSK_ELEVATION_DEG),
+    ),
+  );
+  const blend = t * t * (3 - 2 * t);
+  const gain = Math.max(0, 1 + (brightnessShift || 0));
+  return HORIZON_SKY_DUSK.map((dusk, k) =>
+    Math.min(1, (dusk + (HORIZON_SKY_DAY[k] - dusk) * blend) * gain),
+  );
+}
+
+/**
+ * The colour the fog fades the far blocks into: what is drawn behind
+ * them. Near the ground with the sky atmosphere shown that is the horizon
+ * sky (so the far ring melts into it, Minecraft's sky-coloured fog);
+ * otherwise the scene's background colour (the hidden globe's black).
+ * @returns {{color: number[], source: 'sky'|'background'}} color [r, g, b, 1]
+ */
+export function fogColorFor(scene, { heightM, sunElevationDeg }) {
+  const sky = scene.skyAtmosphere;
+  if (sky?.show && Number.isFinite(heightM) && heightM < SKY_FOG_MAX_HEIGHT_M)
+    return {
+      color: [...horizonSkyColor(sunElevationDeg, sky.brightnessShift), 1],
+      source: 'sky',
+    };
+  const background = scene.backgroundColor;
+  return {
+    color: background
+      ? [background.red, background.green, background.blue, 1]
+      : [...DEFAULT_FOG_COLOR],
+    source: 'background',
+  };
+}
 /**
  * Each fragment is drawn this fraction of its distance nearer the eye, so
  * a block top level with the globe's surface (World Terrain, the photoreal
@@ -368,10 +421,12 @@ export function createBlocksRenderer({
     dir: { ...STUDY_SUN_DIR },
     fixed: true,
   };
-  // The fog colour follows the scene's background unless setFog names one:
-  // with the globe hidden that is what the fogged edge meets.
+  // The fog colour follows what is drawn behind the blocks (fogColorFor:
+  // the horizon sky near the ground, else the background) unless setFog
+  // names one.
   let fog = { startM: 1e9, endM: 2e9, color: [...DEFAULT_FOG_COLOR] };
   let fogFollowsBackground = true;
+  let fogSource = 'background';
   let destroyed = false;
   let style = {
     edges: styleOption(edges, EDGE_DEFAULTS),
@@ -406,12 +461,27 @@ export function createBlocksRenderer({
     }
   }
 
-  /** Take the scene's background colour as the fog's; true if it changed. */
+  /** The camera's height and the sun's elevation over it, at the viewer's clock. */
+  function viewNow() {
+    const place = scene.camera?.positionCartographic;
+    if (!place) return { heightM: NaN, sunElevationDeg: 90 };
+    const time = viewer.clock?.currentTime;
+    const ms = time ? Cesium.JulianDate.toDate(time).getTime() : Date.now();
+    const lat = Cesium.Math.toDegrees(place.latitude);
+    const lon = Cesium.Math.toDegrees(place.longitude);
+    return {
+      heightM: place.height,
+      sunElevationDeg: sunPosition(ms, lat, lon).elevation,
+    };
+  }
+
+  /** Take the colour behind the blocks as the fog's; true if it changed. */
   function followBackground() {
-    const background = scene.backgroundColor;
-    if (!fogFollowsBackground || !background) return false;
-    const next = [background.red, background.green, background.blue, 1];
-    if (next.every((value, k) => value === fog.color[k])) return false;
+    if (!fogFollowsBackground) return false;
+    const { color: next, source } = fogColorFor(scene, viewNow());
+    fogSource = source;
+    if (next.every((value, k) => Math.abs(value - fog.color[k]) < 1e-4))
+      return false;
     fog.color = next;
     return true;
   }
@@ -532,7 +602,12 @@ export function createBlocksRenderer({
 
     getSun: () => sun,
 
-    /** Fog from startM to endM from the eye, toward `color` (CSS, Cesium.Color or [r, g, b, a]). */
+    /**
+     * Fog from startM to endM from the eye, toward `color` (CSS, a
+     * Cesium.Color or [r, g, b, a]); 'background' (or null) follows what
+     * is behind the blocks again: the horizon sky near the ground, else
+     * the background.
+     */
     setFog({ startM, endM, color } = {}) {
       if (Number.isFinite(startM)) fog.startM = startM;
       if (Number.isFinite(endM)) fog.endM = endM;
@@ -580,6 +655,7 @@ export function createBlocksRenderer({
         ...fog,
         color: [...fog.color],
         followsBackground: fogFollowsBackground,
+        source: fogFollowsBackground ? fogSource : 'set',
       },
     }),
 

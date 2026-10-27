@@ -12,6 +12,11 @@ import { createChunk } from './store.js';
 import { buildChunkMesh } from './mesh.js';
 import {
   DITHER_DEFAULTS,
+  HORIZON_SKY_DAY,
+  HORIZON_SKY_DUSK,
+  SKY_FOG_MAX_HEIGHT_M,
+  fogColorFor,
+  horizonSkyColor,
   EDGE_DEFAULTS,
   REAL_SUN_MIN_ELEVATION_DEG,
   blocksSun,
@@ -567,4 +572,106 @@ test('edges and dither options: off, settings, and setStyle', () => {
   assert.equal(u.edgeStrength, 0.12);
   assert.equal(u.blockM, 2);
   custom.destroy();
+});
+
+test('horizonSkyColor: day blue by day, dusk blue after twilight, a blend between', () => {
+  assert.deepEqual(horizonSkyColor(30), [...HORIZON_SKY_DAY]);
+  assert.deepEqual(horizonSkyColor(10), [...HORIZON_SKY_DAY]);
+  assert.deepEqual(horizonSkyColor(-10), [...HORIZON_SKY_DUSK]);
+  const mid = horizonSkyColor(2); // halfway from −6° to 10°
+  for (let k = 0; k < 3; k++) {
+    assert.ok(mid[k] > HORIZON_SKY_DUSK[k] && mid[k] < HORIZON_SKY_DAY[k]);
+    assert.ok(
+      Math.abs(mid[k] - (HORIZON_SKY_DUSK[k] + HORIZON_SKY_DAY[k]) / 2) < 1e-9,
+    );
+  }
+  // The atmosphere's brightness shift darkens or brightens it, within 0…1.
+  const dim = horizonSkyColor(30, -0.5);
+  assert.ok(Math.abs(dim[2] - HORIZON_SKY_DAY[2] / 2) < 1e-9);
+  assert.equal(horizonSkyColor(30, 1)[2], 1);
+});
+
+test('fogColorFor: the horizon sky near the ground with the atmosphere shown, else the background', () => {
+  const scene = {
+    skyAtmosphere: { show: true, brightnessShift: 0 },
+    backgroundColor: Cesium.Color.BLACK,
+  };
+  const low = fogColorFor(scene, { heightM: 300, sunElevationDeg: 40 });
+  assert.equal(low.source, 'sky');
+  assert.deepEqual(low.color, [...HORIZON_SKY_DAY, 1]);
+  const high = fogColorFor(scene, {
+    heightM: SKY_FOG_MAX_HEIGHT_M + 1,
+    sunElevationDeg: 40,
+  });
+  assert.deepEqual(high, { color: [0, 0, 0, 1], source: 'background' });
+  scene.skyAtmosphere.show = false;
+  assert.equal(
+    fogColorFor(scene, { heightM: 300, sunElevationDeg: 40 }).source,
+    'background',
+  );
+  assert.equal(
+    fogColorFor({}, { heightM: 300, sunElevationDeg: 40 }).color.length,
+    4,
+  );
+  // Dusk at the ground: dark, not black.
+  scene.skyAtmosphere.show = true;
+  const dusk = fogColorFor(scene, { heightM: 2, sunElevationDeg: -12 });
+  assert.deepEqual(dusk.color, [...HORIZON_SKY_DUSK, 1]);
+});
+
+test('the renderer fog follows the sky at eye level, the background high up, and a set colour holds', () => {
+  const viewer = fakeViewer();
+  const scene = viewer.scene;
+  scene.preRender = new Cesium.Event();
+  scene.backgroundColor = Cesium.Color.BLACK.clone();
+  scene.skyAtmosphere = { show: true, brightnessShift: 0 };
+  // Baltimore at 1.7 m, early afternoon local time (the sun high).
+  scene.camera = {
+    positionCartographic: Cesium.Cartographic.fromDegrees(-76.61, 39.29, 1.7),
+  };
+  viewer.clock = {
+    currentTime: Cesium.JulianDate.fromDate(
+      new Date(Date.UTC(2026, 5, 21, 17)),
+    ),
+  };
+  const renderer = createBlocksRenderer({ viewer });
+  renderer.setRegion(stubRegion());
+  renderer.upsert('0:0', tinyMesh());
+  const uniforms = () =>
+    renderer.getCollection().get(0).appearance.material.uniforms;
+  let fog = renderer.getState().fog;
+  assert.equal(fog.source, 'sky');
+  assert.deepEqual(fog.color, [...HORIZON_SKY_DAY, 1]);
+  assert.ok(Math.abs(uniforms().fogColor.blue - HORIZON_SKY_DAY[2]) < 1e-6);
+  // At night the horizon is dusk blue.
+  viewer.clock.currentTime = Cesium.JulianDate.fromDate(
+    new Date(Date.UTC(2026, 5, 21, 5)),
+  );
+  scene.preRender.raiseEvent(scene);
+  assert.deepEqual(renderer.getState().fog.color, [...HORIZON_SKY_DUSK, 1]);
+  // High up the fog meets the background again.
+  scene.camera.positionCartographic = Cesium.Cartographic.fromDegrees(
+    -76.61,
+    39.29,
+    50_000,
+  );
+  scene.preRender.raiseEvent(scene);
+  fog = renderer.getState().fog;
+  assert.equal(fog.source, 'background');
+  assert.deepEqual(fog.color, [0, 0, 0, 1]);
+  // A named colour holds wherever the camera goes.
+  renderer.setFog({ color: [1, 0, 0, 1] });
+  scene.camera.positionCartographic = Cesium.Cartographic.fromDegrees(
+    -76.61,
+    39.29,
+    2,
+  );
+  scene.preRender.raiseEvent(scene);
+  fog = renderer.getState().fog;
+  assert.equal(fog.source, 'set');
+  assert.deepEqual(fog.color, [1, 0, 0, 1]);
+  // 'background' follows again: the sky, at eye level.
+  renderer.setFog({ color: 'background' });
+  assert.equal(renderer.getState().fog.source, 'sky');
+  renderer.destroy();
 });
