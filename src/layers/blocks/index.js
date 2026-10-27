@@ -960,6 +960,8 @@ export function createBlocksController({
         region: _region.region,
         geoidM: _region.datumOffsetM || 0,
         chunkAt: (ci, cj) => _chunks.get(grid.chunkKey(ci, cj))?.chunk || null,
+        // The elevation source's name, for the HUD's BLOCK line.
+        sourceName: _region.sourceName || '',
       };
     },
     subscribe(listener) {

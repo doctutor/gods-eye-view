@@ -830,7 +830,9 @@
       "src/layers/blocks/store.js",
       "src/navigation/worlds.js",
       "src/hud/cameraState.js",
-      "src/navigation/binding.js"
+      "src/navigation/binding.js",
+      "src/navigation/target.js",
+      "src/navigation/targeting.js"
     ],
     "external": ["cesium"]
   },
@@ -2755,7 +2757,10 @@
       "src/navigation/store.js",
       "src/navigation/blocksSource.js",
       "src/navigation/worlds.js",
-      "src/navigation/binding.js"
+      "src/navigation/binding.js",
+      "src/hud/blockTarget.js",
+      "src/navigation/target.js",
+      "src/navigation/targeting.js"
     ],
     "external": [
       "hls.js",

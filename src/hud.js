@@ -60,6 +60,7 @@ import {
   viewDiagnostics,
 } from './hud/cameraState.js';
 import { dataFloor, pixelFootprintM, viewPrecision } from './hud/precision.js';
+import { formatBlockTarget } from './hud/blockTarget.js';
 
 /** Color palettes keyed by shader mode; applied as CSS custom properties. */
 const HUD_COLORS = {
@@ -373,6 +374,7 @@ export class IntelHUD {
       <div class="hud-corner hud-bottom-right">
         <div class="hud-content hud-cam" id="hud-pose" style="text-align:right">
           ${cameraFieldsHtml('pose')}
+          <div id="hud-block" class="hud-cam-row hud-block-target" hidden><span class="hud-cam-label">${t('BLOCK')}</span> <span id="hud-block-text" class="hud-cam-value"></span></div>
           <div id="hud-nav" class="hud-nav-mode"><span class="hud-cam-label">${t('MODE')}</span> <span id="hud-nav-name">${t(NAV_MODE_NAMES.spectator)}</span><span id="hud-nav-detail" class="hud-nav-detail"></span></div>
           <div id="hud-ais-vessel" class="hud-ais-vessel">${t('AIS: --')}</div>
         </div>
@@ -600,6 +602,23 @@ export class IntelHUD {
    * the MODE line: {mode, surface: 'blocks'|'surface'|'none', blockM,
    * locked}.
    */
+  /**
+   * Personal fork: the targeted block's facts (src/navigation/target.js),
+   * for the BLOCK line; null hides it.
+   */
+  setBlockTarget(facts) {
+    this._blockTarget = facts || null;
+    const row = document.getElementById('hud-block');
+    const text = document.getElementById('hud-block-text');
+    const line = formatBlockTarget(this._blockTarget);
+    if (row) row.hidden = !line;
+    if (text) {
+      text.textContent = line?.text ?? '';
+      text.title = line?.title ?? '';
+    }
+    return line;
+  }
+
   setNavigationStatus(status = {}) {
     this._navigation = status;
     const { name, detail } = this._navigationText();

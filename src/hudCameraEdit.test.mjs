@@ -230,6 +230,47 @@ test('the MODE line names the navigation mode and what it stands on', () => {
   }
 });
 
+test('the BLOCK line shows the targeted block and hides for none', () => {
+  const rows = { 'hud-block': { hidden: true }, 'hud-block-text': {} };
+  const before = globalThis.document;
+  const s = setup();
+  globalThis.document = {
+    ...globalThis.document,
+    getElementById: (id) => rows[id] ?? null,
+  };
+  try {
+    const facts = {
+      i: 10,
+      j: 20,
+      y: 33,
+      level: 33,
+      chunkKey: '0:0',
+      lon: -76.6121,
+      lat: 39.29058,
+      baseM: 33,
+      topM: 34,
+      material: 1,
+      materialName: 'terrain',
+      blockM: 1,
+      sourceName: '3DEP 1 m',
+    };
+    const line = s.hud.setBlockTarget(facts);
+    assert.equal(rows['hud-block'].hidden, false);
+    assert.equal(
+      rows['hud-block-text'].textContent,
+      '39.290580 -76.612100 · L33 (33 m) · terrain · 3DEP 1 m',
+    );
+    assert.equal(rows['hud-block-text'].title, line.title);
+    assert.match(line.title, /Chunk 0:0/);
+    s.hud.setBlockTarget(null);
+    assert.equal(rows['hud-block'].hidden, true);
+    assert.equal(rows['hud-block-text'].textContent, '');
+  } finally {
+    globalThis.document = before;
+    s.hud.destroy();
+  }
+});
+
 test('the live diagnostics handle comes and goes with the HUD', () => {
   globalThis.window = {};
   const s = setup();
