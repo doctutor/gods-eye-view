@@ -59,6 +59,10 @@ unless its switch is set to `0`.
 - [Raw downloads on an archive (GEV_RAW_DIR)](#raw-downloads-on-an-archive-gev_raw_dir)
 - [Lego rendering mode](#lego-rendering-mode)
   - [Lego with the Google 3D tiles: Relief ×N and Photoreal on bricks](#lego-with-the-google-3d-tiles-relief-n-and-photoreal-on-bricks)
+- [Blocks](#blocks)
+  - [Blocks: the chunk source](#blocks-the-chunk-source)
+  - [Blocks: the renderer](#blocks-the-renderer)
+  - [Blocks: buildings and land cover](#blocks-buildings-and-land-cover)
 - [Colour scales: palettes and a window per layer](#colour-scales-palettes-and-a-window-per-layer)
 - [Local Overpass: clone or import](#local-overpass-clone-or-import)
 - [MSFS renderer on AWS](#msfs-renderer-on-aws)
@@ -6108,13 +6112,20 @@ version, a neighbour, a skirt), was dropped, or the region was anchored
 again is thrown away and the chunk meshed from what it is now. Where
 Workers cannot be made the pool meshes in-thread.
 
-The sun is fixed when the region is anchored: the real sun when it is more
-than 15° up, otherwise a study sun 60° up from the south-west; mesh.js
-bakes it into the colours with per-face shading and ambient occlusion.
-Fog closes in from 70 % of the farthest ring drawn to its edge (R2 with
-the coarse ring, 1,434 to 2,048 m at 1 m; R1 without it), toward the
-scene's background: the style's own (black on blank-black), which Blocks
-leaves as it is.
+**Sun and fog.** The sun is read at the camera when the region is
+anchored and every minute after (`SUN_TICK_MS`): the real sun when it is
+more than 15° up, otherwise the study sun, 45° up from the north-west
+(the cartographer's hillshade light, `lighting.js`). It is NOAA's solar
+position on the wall clock (`src/data/solarDaylight.js`), the one the
+HUD's SUN reads, so "· study sun" and the SUN readout agree. mesh.js bakes
+it into the colours with per-face shading and ambient occlusion, so when
+it changes (the real sun against the study sun, or the real sun 3° on,
+about twelve minutes) every chunk is meshed again, nearest first. Fog
+closes in from 70 % of the farthest ring drawn to its edge (R2 with the
+coarse ring, 1,434 to 2,048 m at 1 m; R1 without it), toward what lies
+behind the blocks: the horizon sky when the sky atmosphere is shown and
+the camera is under 20 km, so the far ring melts into the sky at eye
+level; otherwise the scene's background (black on blank-black).
 
 **The globe.** Within the render distance the world is the blocks. On a
 drawn style (blank, Positron, dark, Countries: `isFlatBasemap`) the globe
@@ -6182,6 +6193,170 @@ counted, the switch off and on in place, Overpass not configured). The
 mode, `bk` and
 the drop-down are in `src/layers/lego/lego.test.mjs`, the link in
 `src/sharelink.camera.test.mjs`, the floor in `src/hud/precision.test.mjs`.
+
+### Blocks: the chunk source
+
+`src/layers/blocks/source.js` (worker2's). The heights come from
+`GET /api/raster/values` for `ee-elevation` (see
+[Raster values (for Lego mode)](#raster-values-for-lego-mode)), mean sea
+level as the DEM stack reports them.
+
+**Block size.** `regionFor(lon, lat)` asks for a probe 64 m a side at 64
+cells, at the camera. The server never goes finer than the stack's own
+cell, so the answer's cell is that cell (64 m of 30 m cells reads 32 m),
+snapped to the nearest of the stack's sizes: 1, 2, 8, 10, 30 or 231 m. A
+cell over 64 m (GMTED alone) takes a second probe, 4 km a side. The block
+size is the cell under the camera, not the window's finest, so a corner
+of 3DEP 1 m does not turn a 30 m view into 1 m blocks.
+
+**Groups.** One request answers a group of 4 × 4 chunks
+(`CHUNK_GROUP`): 256 cells over the group's box, on a 4-chunk grid. Each
+column reads the cell under its centre (`region.columnCentre`), not the
+cell of its index, since the server may answer a cell short. A column's
+level is floor(h / block size); at or below 0 m it is sea, water at level
+0 over a bed at most level −1; nodata is no column. All 16 chunks go into
+the cache at once, so a chunk's neighbours come free: a 1 m view asks
+about 20 times, not 270, and every Earth Engine answer is a tile against
+the day's budget. Splitting a group takes about 20 ms.
+
+**Coarse chunks.** `loadCoarseChunk(region, gi, gj)` gives a group's
+ground as one chunk of 64 × 64 columns at four times the block size:
+
+- from the fine group, when it is loaded or on its way: each column the
+  mean of the finite heights of the 4 × 4 fine columns under it (none: no
+  column; at or below 0 m: water);
+- otherwise from its supergroup: one request of 256 cells over 4 × 4
+  groups (1,024 blocks a side, so the server answers at four times the
+  block size), split into its 16 coarse chunks. A fine group's own coarse
+  chunk replaces the supergroup's when the group loads.
+
+A 2 km ring at 1 m is about 14 requests, not 210.
+
+**The cache.** An LRU of 1,024 chunks, fine and coarse, keyed by the
+region (its origin and block size) and the chunk. Groups and supergroups
+in flight are shared. A failure is not kept, so the controller's retry
+asks again. The server keeps the answers 30 days on disk.
+
+### Blocks: the renderer
+
+`src/layers/blocks/renderer.js` (worker2's).
+
+**Placing.** Positions stay float, metres east, north and up of each
+chunk's south-west corner. A chunk's model matrix is the region's
+east-north-up frame at its origin, raised by the datum offset, moved to
+the chunk's origin, which includes the ellipsoid's drop below the tangent
+plane there (about −18 m at 15 km). Cesium composes the model-view matrix
+in double precision, so a 1 m block does not shimmer 6,400 km from the
+Earth's centre, and nothing is moved to world coordinates on the CPU. The
+app is not `scene3DOnly`, and Cesium's Primitive then wants a
+Columbus-view bounding sphere that float local geometry never gets: each
+Blocks primitive updates with a 3D-only view of the frame state and draws
+nothing in 2D or Columbus view.
+
+**Two passes.** Opaque faces write depth, so `scene.pickPosition` and the
+HUD's AGL and centre distance land on the blocks. Water faces (alpha 170)
+draw in the translucent pass without writing depth, so a pick over water
+reaches the bed under it. Every fragment is drawn 1/10,000 of its distance
+nearer the eye (2 cm at 200 m, 1.5 m at 15 km), so a block top level with
+the terrain or the photoreal tiles wins the depth test; a polygon offset
+would not, since logarithmic depth writes the depth in the fragment
+shader. Picks read that much short: a ray at 460 m hits 4.8 cm high.
+
+**Shading.** mesh.js bakes the colours; the fragment shader adds:
+
+- block edges: a line about 1.5 px wide (by `fwidth`) where a face
+  crosses a multiple of the block size on its two in-plane axes, 12 %
+  darker, fading out from 200 to 300 blocks away and as a block nears a
+  pixel, so far chunks do not moiré;
+- a tone per block on top faces, ±3 %, from a hash of the block's column
+  in the region (the chunk's place rides on each instance), fading out as
+  a block nears a pixel, so a flat field is not one colour;
+- the fog (above).
+
+Water takes neither edges nor tone. Both are options of
+`createBlocksRenderer` (`edges`, `dither`: on by default, off, or
+settings) and of `setStyle`. In the harness at a 70° sun the edges took a
+close-up's pixel-to-pixel contrast from 2.8 to 3.7, and left the far view
+as it was.
+
+**Batching.** Each 4 × 4 group of fine chunks, and of coarse chunks,
+draws as one opaque and one water Primitive with a geometry instance per
+chunk. An instance carries its chunk's offset in the batch, which the
+vertex shader takes back off, so edges, tone and picking are the chunk's
+own. A chunk that arrives or changes draws alone at once, its old
+instance in the batch hidden, and the batch takes it back in once it has
+been quiet for 1.5 s, one batch a frame (a timer wakes a frame in
+request-render mode). At a judgement-view load (316 fine and 184 coarse
+chunks, 6.8 M vertices; headless Chrome, ANGLE D3D11):
+
+|                           | One primitive a chunk   | Batched                       |
+| ------------------------- | ----------------------- | ----------------------------- |
+| Primitives, draw commands | 500                     | 48                            |
+| A frame's CPU time        | 4.2–5.3 ms              | 1.3–2.4 ms                    |
+| A chunk meshed again      | 1–6 ms and a 7 ms frame | 1–6 ms and a 5 ms frame       |
+| Folding it into its batch | —                       | about 45 ms, once, when quiet |
+
+The meshes are kept to rebuild batches from, compact (byte normals, which
+the GPU reads too, and 16-bit indices): 159 MB at that view
+(`getState().retainedMB`).
+
+### Blocks: buildings and land cover
+
+`src/layers/blocks/structures.js` (worker2's). One Overpass query per
+group (the controller asks a supergroup at a time, above) through the
+app's `/api/overpass` asks for the buildings and building parts, the land
+cover areas, and the roads, railways and waterways in its box, as
+`out geom`; a relation's member ways are joined into rings.
+
+**Buildings.** A footprint takes the columns whose centres are inside it
+(even-odd, so courtyards stay open). Its height in blocks is the `height`
+tag, else `building:levels` × 3.2 m, else 6.4 m, over the block size,
+rounded, at least one. Its roof is level, at the highest ground under it
+plus that height, and its walls run down to each column's own ground, so
+the low side of a slope shows more wall, as Arnis builds them. A part
+with `min_height` (or `building:min_level`) starts that far above the
+base and leaves a hollow under it. Parts override their building's outline
+where they overlap; overlaps unite. The levels go into the chunk's
+structures layer, between the terrain and the edits, so an edit can still
+break a block of a building. One downtown Baltimore group at 1 m (256 m):
+33 buildings over 42 % of the columns, the tallest 68 blocks; asked for
+parts too, 89 footprints, 56 of them parts and 9 starting above the
+ground (skybridges).
+
+**Land cover.** A column's top block takes its surface from the same
+answer:
+
+| Surface | From                                                                                               | Material                |
+| ------- | -------------------------------------------------------------------------------------------------- | ----------------------- |
+| Water   | `natural=water`, `water=*`, `waterway=riverbank` areas                                             | its top a water surface |
+| Water   | `waterway=river`, `stream`, `canal` lines                                                          | as above                |
+| Road    | `area:highway` and `highway` + `area=yes` areas; `highway` and railway lines                       | asphalt grey            |
+| Forest  | `landuse=forest`, `natural=wood`                                                                   | deep green              |
+| Grass   | `landuse=grass`, `meadow`, `recreation_ground`, `village_green`; `leisure=park`, `pitch`, `garden` | green                   |
+
+Water puts the column's water surface at its own top, the ground a level
+under it, so a river above sea level reads as water. Lines are buffered
+by half their width: the `width` tag, else roads 6 m, footways, paths,
+cycleways and steps 2 m, service roads 4 m, tracks and railways 3 m;
+rivers 20 m, streams 3 m, canals 8 m. The half-width is never under a
+block's half-diagonal, so a road narrower than a block is still an
+unbroken line of blocks. Tunnels and culverts are left out. Where they
+meet, the first of these wins: a building, a water area, a road, a
+waterway line (so a bridge stays road), forest, grass, the terrain. The
+HUD's BLOCK line names grass, forest and road.
+
+**Above 2 m blocks** the query leaves out what a block cannot show:
+buildings with a perimeter under 8 blocks (Overpass's `if:length()`),
+footways and service roads, and streams. A 10 m downtown group went from
+16 MB to 2.6 MB (3.6 s), a 30 m one from 98 MB to 8.2 MB (7.3 s); at 1 m
+nothing is left out (0.03 to 0.13 MB, 2 to 6 s).
+
+**Tests.** `src/layers/blocks/source.test.mjs` (block size, groups,
+supergroups, coarse levels, the cache), `renderer.test.mjs` (a real
+Cesium Primitive from a tiny mesh, the model matrices, fog, edges and
+tone, the sun, batching) and `structures.test.mjs` (heights, footprints,
+parts and roofs, each surface, buffers at 1 m and 10 m, precedence, the
+query through the proxy's checks).
 
 ## Colour scales: palettes and a window per layer
 
