@@ -614,6 +614,9 @@ async function shoot({ browser, dist, field, out, blocks, view, suffix }) {
     () => window.__godsEyeView.dataManager.isEnabled('ee-elevation') === true,
     { timeout: 60_000 },
   );
+  // The fresh ring's time: from Elevation on (Blocks may start) until the
+  // status line says nothing is loading any more.
+  const ringStarted = Date.now();
   if (blocks)
     await page
       .waitForFunction(
@@ -622,8 +625,9 @@ async function shoot({ browser, dist, field, out, blocks, view, suffix }) {
             document.querySelector('.lego-render-status')?.textContent || '';
           return / cubes /.test(text) && !/loading/.test(text);
         },
-        { timeout: 180_000, polling: 500 },
+        { timeout: 180_000, polling: 250 },
       )
+      .then(() => (log.ringMs = Date.now() - ringStarted))
       .catch(() => log.errors.push('Blocks did not settle in 3 minutes'));
   // Frames until the globe's tiles are in, then a few more.
   await page.evaluate(
@@ -758,6 +762,8 @@ export async function main(argv = process.argv.slice(2)) {
   for (const result of results) {
     console.log(`${result.name}: ${result.file}`);
     console.log(`  status line: ${result.status || '(none)'}`);
+    if (result.ringMs)
+      console.log(`  fresh ring: ${(result.ringMs / 1000).toFixed(1)} s`);
     console.log(
       `  values answered: ${result.values}, colour tiles: ${result.tiles}, Overpass queries: ${result.overpass} (${result.buildings} buildings)`,
     );

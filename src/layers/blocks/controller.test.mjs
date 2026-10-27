@@ -1332,7 +1332,8 @@ test('pooled meshing: at most the budget submitted a tick, none twice for the sa
   const { controller, renderer, mesher } = asyncSetup({ radiusBlocks: 128 });
   await settle();
   controller.tick();
-  assert.ok(mesher.jobs.length <= CHUNK_BUDGET, 'the first tick');
+  const { ASYNC_BUDGET } = await import('./index.js');
+  assert.ok(mesher.jobs.length <= ASYNC_BUDGET, 'the first tick');
   await loadAll(controller);
   // Submitted, not drawn yet; each set of inputs once (a chunk is asked
   // again when a neighbour arrives, and the older answer is then dropped).
@@ -1344,7 +1345,7 @@ test('pooled meshing: at most the budget submitted a tick, none twice for the sa
   const before = mesher.jobs.length;
   controller.tick();
   controller.tick();
-  assert.ok(mesher.jobs.length - before <= 2 * CHUNK_BUDGET);
+  assert.ok(mesher.jobs.length - before <= 2 * ASYNC_BUDGET);
   // Released, newest first per chunk: drawn, and the status counts them.
   const latest = new Map();
   for (const job of mesher.jobs)
@@ -1848,17 +1849,8 @@ test('no coarse chunks asked for a supergroup whose 16 groups all lie within R1'
   const source = coarseSource();
   const store = createRenderModeStore({ storage: memoryStorage() });
   store.setMode('blocks');
-  // A region anchored 512 m south-west of the camera, so the camera sits
-  // in the middle of supergroup (0, 0): columns 512, 512.
-  const offsetGrid = {
-    ...fakeGrid,
-    createRegion: ({ lon0, lat0, blockM }) =>
-      fakeGrid.createRegion({
-        lon0: east(-512, lon0),
-        lat0: lat0 - 512 / M_PER_DEG,
-        blockM,
-      }),
-  };
+  // supergroupGroups: the region is anchored 512 m south-west of the
+  // camera, so the camera sits mid-supergroup (0, 0): columns 512, 512.
   const viewer = fakeViewer();
   const controller = createBlocksController({
     viewer,
@@ -1866,7 +1858,7 @@ test('no coarse chunks asked for a supergroup whose 16 groups all lie within R1'
     layers: fakeLayers(true),
     source,
     renderer: fakeRenderer(),
-    grid: offsetGrid,
+    grid: fakeGrid,
     buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
     supergroupGroups: 4,
     radiusBlocks: 512,
@@ -1892,7 +1884,7 @@ test('no coarse chunks asked for a supergroup whose 16 groups all lie within R1'
     layers: fakeLayers(true),
     source: plain,
     renderer: fakeRenderer(),
-    grid: offsetGrid,
+    grid: fakeGrid,
     buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
     radiusBlocks: 512,
     setIntervalImpl: () => 1,
@@ -1994,4 +1986,164 @@ test('the sun is read again at the camera every minute: the study-sun flag follo
   controller.destroy();
   assert.equal(sunTimer.callback, null);
   assert.ok(sunTimer.cleared >= 1);
+});
+
+test('a region is anchored half a supergroup south-west of the camera, so the camera stands mid-supergroup', async () => {
+  const source = fakeSource();
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const renderer = fakeRenderer();
+  const controller = createBlocksController({
+    viewer: fakeViewer(),
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    supergroupGroups: 4,
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller);
+  const region = renderer.calls.find(([k]) => k === 'region')[1];
+  // 4 groups × 4 chunks × 64 columns / 2 = 512 m at 1 m blocks.
+  const local = region.toLocal(LON0, LAT0);
+  assert.ok(Math.abs(local.x - 512) < 0.5, String(local.x));
+  assert.ok(Math.abs(local.y - 512) < 0.5, String(local.y));
+  // The source is still asked about the camera's own place.
+  assert.ok(Math.abs(source.regions[0].lon - LON0) < 1e-12);
+  // The camera's own chunk is asked for first (7 or 8 a side: the camera
+  // stands on the line between them, within the rounding of a degree).
+  assert.equal(source.loads[0].ci, Math.floor(local.x / 64));
+  assert.equal(source.loads[0].cj, Math.floor(local.y / 64));
+  assert.ok([7, 8].includes(source.loads[0].ci));
+  controller.destroy();
+});
+
+test('with the pool: up to 24 loads and 24 mesh submits a tick, none while its queue is deeper than twice its workers', async () => {
+  const { ASYNC_BUDGET, BACKLOG_PER_WORKER } = await import('./index.js');
+  assert.equal(ASYNC_BUDGET, 24);
+  assert.equal(BACKLOG_PER_WORKER, 2);
+  let backlog = { waiting: 0, workers: 3 };
+  const source = fakeSource({ hold: true });
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const mesher = deferredMesher();
+  const controller = createBlocksController({
+    viewer: fakeViewer(),
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: () => {
+      throw new Error('in-thread mesher used');
+    },
+    meshAsync: mesher.meshAsync,
+    meshBacklog: () => backlog,
+    radiusBlocks: 512,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await settle();
+  assert.equal(source.loads.length, ASYNC_BUDGET, '24 loads in flight, not 8');
+  // 30 arrive: at most 24 submitted this tick.
+  source.loads.slice(0, 24).forEach((l) => l.resolve());
+  await settle();
+  controller.tick();
+  assert.ok(mesher.jobs.length > CHUNK_BUDGET, 'more than the old 8');
+  assert.ok(mesher.jobs.length <= ASYNC_BUDGET);
+  // The pool's queue deep (7 > 2 × 3): nothing submitted, loads go on.
+  backlog = { waiting: 7, workers: 3 };
+  const submitted = mesher.jobs.length;
+  for (let n = 0; n < 3; n++) {
+    source.loads.forEach((l) => l.resolve());
+    await settle();
+    controller.tick();
+  }
+  assert.equal(mesher.jobs.length, submitted, 'held back');
+  assert.ok(source.loads.length > ASYNC_BUDGET, 'loading went on');
+  // Drained: submits again.
+  backlog = { waiting: 0, workers: 3 };
+  controller.tick();
+  assert.ok(mesher.jobs.length > submitted);
+  controller.destroy();
+});
+
+test('leaving Blocks keeps the region’s chunks hidden for 60 s (back is instant); then they go', async () => {
+  const { PARK_MS } = await import('./index.js');
+  assert.equal(PARK_MS, 60_000);
+  const source = fakeSource();
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const renderer = fakeRenderer();
+  const visible = [];
+  renderer.setVisible = (on) => visible.push(on);
+  const timers = [];
+  const meshes = [];
+  const controller = createBlocksController({
+    viewer: fakeViewer(),
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh(chunk) {
+      meshes.push(chunk);
+      return { faces: 1, chunk };
+    },
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+    setTimeoutImpl: (fn, ms) => {
+      const timer = { fn, ms, cleared: false };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeoutImpl: (timer) => {
+      if (timer) timer.cleared = true;
+    },
+  });
+  await drain(controller);
+  const shown = renderer.shown.size;
+  const loads = source.loads.length;
+  const meshed = meshes.length;
+  assert.ok(shown > 0);
+  // Render: Colour: hidden, not dropped.
+  store.setMode('colour');
+  assert.deepEqual(visible, [false]);
+  assert.equal(renderer.shown.size, shown, 'kept');
+  assert.equal(controller._state().parked, true);
+  assert.equal(controller.getStatus().state, 'off');
+  assert.equal(timers.at(-1).ms, PARK_MS);
+  // Back within the minute: shown at once, nothing asked or meshed again.
+  store.setMode('blocks');
+  await drain(controller);
+  assert.deepEqual(visible, [false, true]);
+  assert.equal(timers.at(-1).cleared, true);
+  assert.equal(source.loads.length, loads);
+  assert.equal(meshes.length, meshed);
+  assert.equal(controller.getStatus().chunks, shown);
+  // Away for the minute: evicted, and the renderer shown again for next time.
+  store.setMode('colour');
+  timers.at(-1).fn();
+  assert.equal(renderer.shown.size, 0, 'evicted');
+  assert.equal(visible.at(-1), true);
+  assert.equal(controller._state().parked, false);
+  assert.equal(controller._state().region, null);
+  // Back after that: built afresh.
+  store.setMode('blocks');
+  await drain(controller);
+  assert.equal(source.regions.length, 2);
+  assert.ok(renderer.shown.size > 0);
+  controller.destroy();
+
+  // A renderer that cannot hide: dropped at once, as before.
+  const plain = setup({ radiusBlocks: 64 });
+  await drain(plain.controller);
+  plain.store.setMode('colour');
+  assert.equal(plain.renderer.shown.size, 0);
+  plain.controller.destroy();
 });

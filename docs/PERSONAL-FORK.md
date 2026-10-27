@@ -6056,9 +6056,10 @@ controller:
   either fine or coarse. The coarse chunks have a load budget of their
   own; a supergroup (the source's coarse request, 4 × 4 groups) all of
   whose groups lie within R1 is not asked for at all, since its coarse
-  chunks would never be drawn (it happens once the camera has moved half
-  a supergroup from where the region was anchored: a region starts with
-  the camera at a supergroup corner);
+  chunks would never be drawn. A region is anchored half a supergroup
+  (512 blocks) south-west of the camera, so the camera starts in the
+  middle of one: the fine ring then reaches into as few supergroups as it
+  can (fewer Overpass queries) and the central supergroup is skipped;
 - starts loads until 8 are in flight, and meshes at most 8 chunks a tick,
   each with its four neighbours so the faces on a chunk's border are culled
   against them; a chunk is meshed again when a neighbour arrives or its
@@ -6106,8 +6107,10 @@ ground from its own chunks (the per-group query stays for other callers).
 
 **Meshing off the main thread.** Chunks are meshed by the worker pool
 (`meshPool.js`, worker1's: `meshChunkAsync`, buildChunkMesh's arguments,
-a promise of its mesh), at most the budget submitted a tick and none twice
-for the same inputs. A mesh that comes back after its chunk moved on (its
+a promise of its mesh), none twice for the same inputs. With the pool a
+tick starts up to 24 loads and submits up to 24 meshes, fine and coarse
+each (8 without it), and submits none while the pool has more than twice
+its workers' jobs queued: the pool, not the tick, is the bound. A mesh that comes back after its chunk moved on (its
 version, a neighbour, a skirt), was dropped, or the region was anchored
 again is thrown away and the chunk meshed from what it is now. Where
 Workers cannot be made the pool meshes in-thread.
@@ -6143,7 +6146,9 @@ so a drape that finds no host under the hidden globe does not turn Blocks
 off.
 
 Turning
-Elevation off, or picking Colour or Lego, removes every chunk; the
+Elevation off, or picking Colour or Lego, hides every chunk and keeps the
+region for 60 s (the renderer's `setVisible`), so coming back is instant;
+after the minute they go. The
 renderer is made the first time a region is anchored, so a page that never
 picks Blocks adds nothing to the scene.
 
