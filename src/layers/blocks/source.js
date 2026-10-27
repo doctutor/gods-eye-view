@@ -5,19 +5,15 @@
 // too. Heights are mean sea level as the DEM stack reports them; a column
 // at or below 0 m is the sea, water at level 0 over a seabed below it.
 //
-// The store (store.js) and the region (grid.js) are worker1's: createChunk
-// is passed in, and a region is used only through its contract (lon0, lat0,
-// blockM, chunkBounds, chunkOrigin, toLonLat).
+// A region (grid.js) is used through lon0, lat0, blockM, chunkBounds and
+// columnCentre; chunks are store.js's, its createChunk unless the
+// controller passes one.
 
 import { createRasterValuesClient } from '../../data/rasterValues.js';
 import { DEM_SOURCES } from '../../data/demStack.js';
+import { CHUNK_COLUMNS, columnIndex } from './grid.js';
+import { MATERIALS, NONE, createChunk as storeChunk } from './store.js';
 
-/** Columns a chunk side (the plan's grid.js constant). */
-export const CHUNK_COLUMNS = 64;
-/** No ground: nodata columns and columns without water (store.js's NONE). */
-export const NONE = -2147483648;
-/** Material ids (store.js's MATERIALS). */
-export const MATERIAL = Object.freeze({ AIR: 0, TERRAIN: 1, WATER: 2 });
 /** The layer whose values are the heights. */
 export const ELEVATION_LAYER = 'ee-elevation';
 /** Chunks kept in memory. */
@@ -63,26 +59,25 @@ export function probeBox(lon, lat, sideM) {
 }
 
 /**
- * A chunk's heights, one per column (index j × CHUNK_COLUMNS + i, i east
- * and j north from the chunk's south-west corner): each column's centre
- * read from the answer's cell under it. The answer's grid is equal-angle
- * over the chunk's bounds and may be a cell short of CHUNK_COLUMNS when the
- * native cell is the block, so columns are looked up by place, not index.
+ * A chunk's heights, one per column (columnIndex: j × CHUNK_COLUMNS + i, i
+ * east and j north from the chunk's south-west corner): each column's
+ * centre read from the answer's cell under it. The answer's grid is
+ * equal-angle over the chunk's bounds and may be a cell short of
+ * CHUNK_COLUMNS when the native cell is the block, so columns are looked
+ * up by place, not index.
  */
 export function sampleColumns(region, ci, cj, { header, values }) {
-  const { blockM } = region;
-  const origin = region.chunkOrigin(ci, cj);
   const { west, south, east, north, cols, rows } = header;
   const heights = new Float32Array(CHUNK_COLUMNS * CHUNK_COLUMNS);
   for (let j = 0; j < CHUNK_COLUMNS; j++) {
     for (let i = 0; i < CHUNK_COLUMNS; i++) {
-      const { lon, lat } = region.toLonLat(
-        origin.x + (i + 0.5) * blockM,
-        origin.y + (j + 0.5) * blockM,
+      const { lon, lat } = region.columnCentre(
+        ci * CHUNK_COLUMNS + i,
+        cj * CHUNK_COLUMNS + j,
       );
       const col = Math.floor(((lon - west) / (east - west)) * cols);
       const row = Math.floor(((north - lat) / (north - south)) * rows);
-      heights[j * CHUNK_COLUMNS + i] =
+      heights[columnIndex(i, j)] =
         col < 0 || col >= cols || row < 0 || row >= rows
           ? NaN
           : values[row * cols + col];
@@ -105,11 +100,11 @@ export function columnsFromHeights(heights, blockM) {
     if (!Number.isFinite(h)) {
       top[k] = NONE;
       water[k] = NONE;
-      material[k] = MATERIAL.AIR;
+      material[k] = MATERIALS.AIR;
       continue;
     }
     const level = Math.floor(h / blockM);
-    material[k] = MATERIAL.TERRAIN;
+    material[k] = MATERIALS.TERRAIN;
     if (h <= 0) {
       top[k] = Math.min(level, -1);
       water[k] = 0;
@@ -128,16 +123,14 @@ export const regionKey = (region) =>
 /**
  * @param {{fetchValues?: (request: {layer: string, mode: string, box:
  *   object, cells: number}) => Promise<{header: object, values:
- *   Float32Array}>, createChunk: Function, maxChunks?: number}} options
- *   createChunk is store.js's.
+ *   Float32Array}>, createChunk?: Function, maxChunks?: number}} options
+ *   createChunk: store.js's unless given.
  */
 export function createChunkSource({
   fetchValues,
-  createChunk,
+  createChunk = storeChunk,
   maxChunks = MAX_CHUNKS,
 } = {}) {
-  if (typeof createChunk !== 'function')
-    throw new TypeError('createChunkSource needs createChunk (store.js)');
   if (!fetchValues) {
     const client = createRasterValuesClient({ maxEntries: 16 });
     fetchValues = (request) => client.get(request);

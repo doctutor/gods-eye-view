@@ -6,17 +6,18 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 
+import { STUDY_SUN } from './lighting.js';
+import { CHUNK_COLUMNS, createRegion } from './grid.js';
+import { createChunk } from './store.js';
+import { buildChunkMesh } from './mesh.js';
 import {
   REAL_SUN_MIN_ELEVATION_DEG,
-  STUDY_SUN,
   blocksSun,
   chunkMatrix,
   createBlocksRenderer,
-  parseChunkKey,
   primitive3D,
   regionFrame,
   splitMesh,
-  sunVector,
 } from './renderer.js';
 
 // Cesium's Material asks whether a uniform is a canvas or an image.
@@ -57,7 +58,6 @@ function fakeViewer() {
   let renders = 0;
   const scene = {
     primitives: new Cesium.PrimitiveCollection(),
-    pickTranslucentDepth: false,
     requestRender: () => renders++,
   };
   return { scene, renders: () => renders };
@@ -66,7 +66,7 @@ function fakeViewer() {
 /** One block's top face (a quad at z = 1) and, with water, a translucent quad beside it. */
 function tinyMesh({ water = false } = {}) {
   const quads = [[0, 0, 1, [120, 160, 80, 255]]];
-  if (water) quads.push([1, 0, 1, [60, 110, 200, 160]]);
+  if (water) quads.push([1, 0, 1, [58, 112, 190, 170]]);
   const positions = [];
   const normals = [];
   const colors = [];
@@ -91,6 +91,7 @@ function tinyMesh({ water = false } = {}) {
     colors: Uint8Array.from(colors),
     indices: Uint32Array.from(indices),
     faces: quads.length,
+    opaqueIndexCount: 6,
   };
 }
 
@@ -120,10 +121,6 @@ test('regionFrame and chunkMatrix: ENU at the origin, moved to the chunk', () =>
   assert.ok(Math.abs(lifted.x - (a - 33.5)) < 1e-6);
 });
 
-test('parseChunkKey reads ci:cj, negatives included', () => {
-  assert.deepEqual(parseChunkKey('3:-2'), { ci: 3, cj: -2 });
-});
-
 test('splitMesh: opaque and water faces apart, vertices compacted', () => {
   const { opaque, water } = splitMesh(tinyMesh({ water: true }));
   assert.equal(opaque.indices.length, 6);
@@ -131,7 +128,7 @@ test('splitMesh: opaque and water faces apart, vertices compacted', () => {
   assert.equal(opaque.positions.length, 12);
   assert.equal(water.positions.length, 12);
   assert.ok(
-    [...water.colors].filter((_, k) => k % 4 === 3).every((a) => a === 160),
+    [...water.colors].filter((_, k) => k % 4 === 3).every((a) => a === 170),
   );
   assert.equal(water.positions[0], 1); // the water quad starts at x = 1
   const dry = splitMesh(tinyMesh());
@@ -143,7 +140,6 @@ test('upsert, replace and remove by key', async () => {
   const viewer = fakeViewer();
   const renderer = createBlocksRenderer({ viewer });
   assert.equal(viewer.scene.primitives.length, 1); // the blocks collection
-  assert.equal(viewer.scene.pickTranslucentDepth, true);
   await renderer.setRegion(stubRegion({ lon0: -76.6, lat0: 39.3, blockM: 1 }));
   renderer.upsert('0:0', tinyMesh());
   renderer.upsert('1:-1', tinyMesh({ water: true }));
@@ -176,7 +172,6 @@ test('upsert, replace and remove by key', async () => {
   assert.ok(viewer.renders() > 0);
   renderer.destroy();
   assert.equal(viewer.scene.primitives.length, 0);
-  assert.equal(viewer.scene.pickTranslucentDepth, false);
 });
 
 test('model matrices: chunk origin from the key, raised by the datum offset', () => {
@@ -291,7 +286,7 @@ test('blocksSun: the real sun above 15°, else the study sun from the south-west
   assert.ok(night.realElevationDeg < 0);
   assert.equal(night.elevationDeg, STUDY_SUN.elevationDeg);
   assert.equal(night.azimuthDeg, STUDY_SUN.azimuthDeg);
-  assert.ok(night.dir.east < 0 && night.dir.north < 0, 'from the south-west');
+  assert.ok(night.dir.east < 0 && night.dir.north > 0, 'from the north-west');
   // Low sun (under 15°) is study too.
   const low = blocksSun(Date.UTC(2026, 11, 21, 13, 30), 39.29, -76.61);
   assert.ok(low.realElevationDeg < REAL_SUN_MIN_ELEVATION_DEG);
@@ -307,8 +302,6 @@ test('setSun keeps a unit direction and which sun it is', () => {
     Math.abs(Math.hypot(sun.dir.east, sun.dir.north, sun.dir.up) - 1) < 1e-12,
   );
   assert.equal(renderer.getSun().fixed, true);
-  const v = sunVector(0, 90);
-  assert.ok(Math.abs(v.east - 1) < 1e-12 && Math.abs(v.up) < 1e-12);
   renderer.destroy();
 });
 
@@ -418,4 +411,74 @@ test('fog colour follows the scene background until setFog names one', () => {
   assert.equal(renderer.getState().fog.endM, 512);
   renderer.destroy();
   assert.equal(viewer.scene.preRender.numberOfListeners, 0);
+});
+
+test('a far chunk drops onto the ellipsoid: chunkOrigin z in the translation', () => {
+  const renderer = createBlocksRenderer({ viewer: fakeViewer() });
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 30 });
+  renderer.setRegion(region);
+  // Chunk (8, 0) of 30 m blocks starts 15.4 km east of the origin.
+  renderer.upsert('8:0', tinyMesh());
+  const { z } = region.chunkOrigin(8, 0);
+  assert.ok(z < -15 && z > -21, `drop ${z}`);
+  const corner = translation(renderer.getCollection().get(0).modelMatrix);
+  const height = Cesium.Cartographic.fromCartesian(corner).height;
+  assert.ok(
+    Math.abs(height) < 0.01,
+    `the chunk corner is ${height} m off the ellipsoid`,
+  );
+  // With the geoid's N the corner sits N above it.
+  renderer.setRegion(region, { datumOffsetM: -33.5 });
+  const lifted = translation(renderer.getCollection().get(0).modelMatrix);
+  assert.ok(
+    Math.abs(Cesium.Cartographic.fromCartesian(lifted).height + 33.5) < 0.01,
+  );
+  renderer.destroy();
+});
+
+test('splitMesh cuts at opaqueIndexCount and renumbers each part', () => {
+  const mesh = tinyMesh({ water: true });
+  const { opaque, water } = splitMesh(mesh);
+  assert.deepEqual([...opaque.indices], [0, 1, 2, 0, 2, 3]);
+  assert.deepEqual([...water.indices], [0, 1, 2, 0, 2, 3]);
+  assert.equal(water.colors[3], 170);
+  // No water: the mesh's own arrays, no copy.
+  const dry = tinyMesh();
+  const parts = splitMesh(dry);
+  assert.equal(parts.opaque.positions, dry.positions);
+  assert.equal(parts.water, null);
+  // All water.
+  const wet = { ...mesh, opaqueIndexCount: 0 };
+  assert.equal(splitMesh(wet).opaque, null);
+});
+
+test('the real mesher into the renderer: land and sea chunk, opaque and water primitives', () => {
+  const renderer = createBlocksRenderer({ viewer: fakeViewer() });
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  renderer.setRegion(region);
+  const top = new Int32Array(CHUNK_COLUMNS * CHUNK_COLUMNS);
+  const water = new Int32Array(CHUNK_COLUMNS * CHUNK_COLUMNS).fill(-2147483648);
+  for (let j = 0; j < CHUNK_COLUMNS; j++)
+    for (let i = 0; i < CHUNK_COLUMNS; i++) {
+      const k = j * CHUNK_COLUMNS + i;
+      if (i < 20) {
+        top[k] = -2;
+        water[k] = 0;
+      } else top[k] = Math.floor((i - 20) / 4);
+    }
+  const chunk = createChunk({ ci: 0, cj: 0, top, water });
+  const mesh = buildChunkMesh(chunk, { blockM: 1 });
+  assert.ok(
+    mesh.opaqueIndexCount > 0 && mesh.opaqueIndexCount < mesh.indices.length,
+  );
+  renderer.upsert('0:0', mesh);
+  const [opaque, sea] = [0, 1].map((k) => renderer.getCollection().get(k));
+  assert.equal(opaque.appearance.isTranslucent(), false);
+  assert.equal(sea.appearance.isTranslucent(), true);
+  assert.equal(
+    opaque.geometryInstances.geometry.indices.length +
+      sea.geometryInstances.geometry.indices.length,
+    mesh.indices.length,
+  );
+  renderer.destroy();
 });
