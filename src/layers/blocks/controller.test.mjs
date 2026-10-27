@@ -691,3 +691,48 @@ test('the globe: hidden while Blocks is on over a drawn style, shown again on le
   colour.controller.destroy();
   assert.equal(colour.viewer.scene.globe.show, true);
 });
+
+test('Elevation on but draped nowhere (the globe hidden): Blocks reads the toggle, not the host, so nothing flips back', async () => {
+  const { resolveImageryHost } = await import('../../maps/imageryHost.js');
+  const { subscribeBlocksScene, blocksScene } = await import('./floor.js');
+  const { controller, viewer, layers } = setup({
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    elevation: false,
+  });
+  viewer.imageryLayers = { add() {}, remove() {} };
+  // The Elevation layer: re-drapes on every scene change, and a re-drape
+  // that finds no host is still on (its toggle), as the Earth Engine layer is.
+  const hosts = [];
+  const flips = [];
+  let lastShow = viewer.scene.globe.show;
+  const off = subscribeBlocksScene(() => {
+    hosts.push(resolveImageryHost({ viewer }).kind);
+    if (viewer.scene.globe.show !== lastShow)
+      flips.push((lastShow = viewer.scene.globe.show));
+    // The lifecycle settles it again: a visibility event, its toggle as it was.
+    layers.set(layers.on);
+  });
+  try {
+    assert.equal(viewer.scene.globe.show, true, 'Elevation off: untouched');
+    layers.set(true);
+    await drain(controller);
+    for (let n = 0; n < 10; n++) {
+      viewer.camera.moveEnd.raise();
+      await drain(controller);
+    }
+    assert.equal(viewer.scene.globe.show, false);
+    assert.equal(resolveImageryHost({ viewer }).kind, 'none');
+    assert.deepEqual(hosts, ['none'], 'told once, when the globe went');
+    assert.deepEqual(flips, [false], 'hidden once, never shown again');
+    assert.equal(blocksScene().active, true);
+    assert.equal(controller.getStatus().state, 'ready');
+    // Turning the toggle off is what ends it.
+    layers.set(false);
+    assert.equal(viewer.scene.globe.show, true);
+    assert.equal(blocksScene().active, false);
+  } finally {
+    off();
+    controller.destroy();
+  }
+});

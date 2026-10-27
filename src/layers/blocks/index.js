@@ -11,7 +11,7 @@
 // to test on fakes. Not part of upstream God's Eye View.
 
 import { ELEVATION_LAYER_ID } from '../lego/layerSpecs.js';
-import { setBlocksFloorM } from './floor.js';
+import { setBlocksFloorM, setBlocksScene } from './floor.js';
 
 /** The render distance, in blocks (512 m at 1 m, 15 km at 30 m). */
 export const RENDER_DISTANCE_BLOCKS = 512;
@@ -406,6 +406,12 @@ export function createBlocksController({
    * controller has set it for that map already, and it is left as it is.
    */
   function applyGlobe() {
+    setGlobe();
+    // Told after the globe is set, so the overlays re-drape where it is.
+    setBlocksScene({ active: active(), globeHidden: _globeHidden });
+  }
+
+  function setGlobe() {
     const globe = _viewer?.scene?.globe;
     if (!globe) return;
     const drawn = Boolean(flatStyle());

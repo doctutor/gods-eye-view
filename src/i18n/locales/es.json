@@ -3479,6 +3479,7 @@
   "Render: Colour": "Dibujo: Color",
   "Render: Lego": "Dibujo: Lego",
   "Render: Blocks": "Dibujo: Bloques",
+  "Shown as blocks": "Mostrado como bloques",
   "Blocks {size} m": "Bloques {size} m",
   "Blocks needs the Elevation layer on": "Bloques necesita la capa Elevación activada",
   "Blocks: finding the block size…": "Bloques: buscando el tamaño de bloque…",

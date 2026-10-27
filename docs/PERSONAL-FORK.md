@@ -6044,7 +6044,12 @@ Blocks, or turning Elevation off, shows it again. On imagery and the
 photoreal tiles the globe stays (the ground and the block tops still
 fight there for now); on a switch to another map Blocks leaves the globe
 as the map stack set it. While the globe is hidden, draped overlays have
-nowhere to go and say so in their rows.
+nowhere to go: the Elevation row says "Shown as blocks", others say the
+map hides them, and every Earth Engine layer drapes again the moment
+Blocks shows the globe, without a camera move (`src/layers/blocks/floor.js`
+tells them). Blocks needs the Elevation layer's toggle on, not its drape,
+so a drape that finds no host under the hidden globe does not turn Blocks
+off.
 
 Turning
 Elevation off, or picking Colour or Lego, removes every chunk; the

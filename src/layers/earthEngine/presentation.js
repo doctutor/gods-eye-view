@@ -386,12 +386,13 @@ const LOCAL_MESSAGES = Object.freeze({
  * The status line.
  * @param {{catalog?: object|null, layer?: object|null, variant?: string,
  *   loading?: boolean, failure?: string|null, hostless?: boolean,
- *   ceilingM?: number|null, slowDistricts?: boolean, americasV2?: boolean,
- *   mode?: string, demSource?: string}}
+ *   asBlocks?: boolean, ceilingM?: number|null, slowDistricts?: boolean,
+ *   americasV2?: boolean, mode?: string, demSource?: string}}
  *   state - `mode`: the mode drawn (Population's epoch); `americasV2`: the
  *   Rivers draw the Americas from HydroSHEDS v2; `demSource`: a terrain
  *   layer's elevation source under the view; `hostless`:
- *   the map stack can drape no imagery; `ceilingM`: the camera is above the
+ *   the map stack can drape no imagery (`asBlocks`: because Render: Blocks
+ *   hid the globe to draw the layer as cubes); `ceilingM`: the camera is above the
  *   layer's ceiling; `slowDistricts`: districts are forced from far out.
  */
 export function statusText({
@@ -401,6 +402,7 @@ export function statusText({
   loading = false,
   failure = null,
   hostless = false,
+  asBlocks = false,
   ceilingM = null,
   slowDistricts = false,
   americasV2 = false,
@@ -418,6 +420,7 @@ export function statusText({
       ? t(LOCAL_MESSAGES[localMessage])
       : localMessage;
   // The words Recent Imagery and the weather layers use for this map.
+  if (hostless && asBlocks) return t('Shown as blocks');
   if (hostless && catalog?.configured && !layer?.error)
     return t(NO_IMAGERY_HOST);
   if (!catalog) return loading ? t('Asking Earth Engine…') : '';
@@ -467,7 +470,8 @@ export function statusText({
  * The row's controls for the layer panel (src/ui/layerPanel.js).
  * @param {{record: object, catalog?: object|null, variant?: string,
  *   opacity: number, onOpacity: (value: number) => void, loading?: boolean,
- *   failure?: string|null, hostless?: boolean, ceilingM?: number|null,
+ *   failure?: string|null, hostless?: boolean, asBlocks?: boolean,
+ *   ceilingM?: number|null,
  *   level?: string, onLevel?: (key: string) => void, ink?: string,
  *   onInk?: (key: string) => void, inkDrawn?: string,
  *   slowDistricts?: boolean, mode?: string,
@@ -486,6 +490,7 @@ export function rowControls({
   loading = false,
   failure = null,
   hostless = false,
+  asBlocks = false,
   ceilingM = null,
   level = 'auto',
   onLevel = () => {},
@@ -601,6 +606,7 @@ export function rowControls({
       loading,
       failure,
       hostless,
+      asBlocks,
       ceilingM,
       slowDistricts,
       americasV2,

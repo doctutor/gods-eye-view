@@ -1151,3 +1151,62 @@ test('the row says where 3DEP 1 m lidar draws and what draws where it has none',
   );
   assert.equal(demSourceText({ name: '' }), '');
 });
+
+test('Render: Blocks hiding the globe: the Elevation row says "Shown as blocks", the layer stays on, and the drape comes back without a camera move', async () => {
+  const { setBlocksScene } = await import('../blocks/floor.js');
+  const fake = fakeViewer(3_000);
+  fake.viewer.scene = { globe: { show: true } };
+  fake.viewer.imageryLayers = fakeCollection();
+  const stack = fakeMapStack(fake.viewer);
+  stack.settle({ id: 'blank-black', globe: true });
+  const server = fakeServer({
+    configured: true,
+    tiles: { used: 0, budget: 20000 },
+    layers: [serverLayer('ee-elevation'), serverLayer('ee-forest-loss')],
+  });
+  const source = createEarthEngineSource({ fetchImpl: server.fetchImpl });
+  const make = (id) => {
+    const layer = createEarthEngineLayer({
+      record: record(id),
+      source,
+      storage: memoryStorage(),
+    });
+    layer.init(fake.viewer);
+    layer.attachMapStackController(stack);
+    layer.enable(fake.viewer);
+    return layer;
+  };
+  const elevation = make('ee-elevation');
+  const forest = make('ee-forest-loss');
+  await flush();
+  const drawn = () => fake.viewer.imageryLayers.layers.length;
+  assert.equal(drawn(), 2);
+  try {
+    // Blocks on over blank: the globe hidden, the scene told.
+    fake.viewer.scene.globe.show = false;
+    setBlocksScene({ active: true, globeHidden: true });
+    assert.equal(drawn(), 0, 'nowhere to drape');
+    assert.equal(elevation._state().mounted, false);
+    assert.equal(elevation.getRowControls().info, 'Shown as blocks');
+    // Another layer has nowhere to go and says so as before.
+    assert.equal(
+      forest.getRowControls().info,
+      'Hidden by this map source · choose a globe map',
+    );
+    // Blocks off: the globe back, and both drape again with no camera move.
+    fake.viewer.scene.globe.show = true;
+    setBlocksScene({ active: false, globeHidden: false });
+    assert.equal(drawn(), 2);
+    assert.notEqual(elevation.getRowControls().info, 'Shown as blocks');
+    // A photoreal map with no imagery host while Blocks is off: the usual words.
+    stack.settle({ id: 'photoreal', tileset: { show: true } });
+    assert.equal(
+      elevation.getRowControls().info,
+      'Hidden by this map source · choose a globe map',
+    );
+  } finally {
+    setBlocksScene({ active: false, globeHidden: false });
+    elevation.destroy();
+    forest.destroy();
+  }
+});
