@@ -54,13 +54,15 @@ export function createNavigationStore({ initial = hashModeNow() } = {}) {
     /**
      * "Walk here" / "Fly here": ask the binding to stand the walker on
      * the targeted block (the G key, the button beside Move); it sets the
-     * mode itself once the camera is placed.
+     * mode itself once the camera is placed. With a `pose` ({lon, lat,
+     * heightM, headingDeg, pitchDeg}: Home, a waypoint) the walker goes
+     * there instead, from any mode.
      */
-    requestEntry(next) {
+    requestEntry(next, pose = null) {
       if (next !== 'walk' && next !== 'fly') return false;
       for (const listener of [...entryListeners]) {
         try {
-          listener(next);
+          listener(next, pose);
         } catch (error) {
           console.warn('[Navigation] entry listener failed:', error);
         }

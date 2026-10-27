@@ -60,6 +60,8 @@ import {
   viewDiagnostics,
 } from './hud/cameraState.js';
 import { dataFloor, pixelFootprintM, viewPrecision } from './hud/precision.js';
+// Personal fork: the compass's angles (Walk and Fly).
+import { compassAngles } from './navigation/view.js';
 import { formatBlockTarget } from './hud/blockTarget.js';
 // Personal fork: the day's Earth Engine spend under PX while Blocks is drawn.
 import {
@@ -218,6 +220,31 @@ const NAV_MODE_NAMES = Object.freeze({
   walk: msg('WALK'),
   fly: msg('FLY'),
 });
+
+/**
+ * Personal fork: the compass rose shown in the pose block while Walk or
+ * Fly is on (src/navigation/view.js compassAngles): the rose turns with
+ * the walker's heading, N marked; a tick on the rim points home.
+ */
+function compassSvg() {
+  const ticks = [0, 45, 90, 135, 180, 225, 270, 315]
+    .map(
+      (deg) =>
+        `<line x1="0" y1="-17" x2="0" y2="${deg % 90 ? -14 : -12}" transform="rotate(${deg})"/>`,
+    )
+    .join('');
+  return `<svg viewBox="-20 -20 40 40" width="40" height="40">
+    <g id="hud-compass-rose" class="hud-compass-rose">
+      <circle r="17"/>${ticks}
+      <polygon class="hud-compass-north" points="0,-11 -3,-3 3,-3"/>
+      <text x="0" y="-5" text-anchor="middle" dominant-baseline="hanging">N</text>
+    </g>
+    <g id="hud-compass-home" class="hud-compass-home" hidden>
+      <polygon points="0,-20 -3,-15 3,-15"/>
+    </g>
+    <line class="hud-compass-ahead" x1="0" y1="-19" x2="0" y2="-15"/>
+  </svg>`;
+}
 
 /** Flattened list of all city POIs for nearest-point lookups. */
 const NEARBY_POINTS = Object.values(CITY_POIS).flatMap((city) =>
@@ -397,6 +424,7 @@ export class IntelHUD {
         <div class="hud-content hud-cam" id="hud-pose" style="text-align:right">
           ${poseWithBudgetRow(cameraFieldsHtml('pose'))}
           <div id="hud-block" class="hud-cam-row hud-block-target" hidden><span class="hud-cam-label">${t('BLOCK')}</span> <span id="hud-block-text" class="hud-cam-value"></span></div>
+          <div id="hud-compass" class="hud-compass" hidden aria-hidden="true">${compassSvg()}</div>
           <div id="hud-nav" class="hud-nav-mode"><span class="hud-cam-label">${t('MODE')}</span> <span id="hud-nav-name">${t(NAV_MODE_NAMES.spectator)}</span><span id="hud-nav-detail" class="hud-nav-detail"></span></div>
           <div id="hud-ais-vessel" class="hud-ais-vessel">${t('AIS: --')}</div>
         </div>
@@ -664,6 +692,50 @@ export class IntelHUD {
     row.classList.toggle('is-red', level === 'red');
   }
 
+  /**
+   * Personal fork: where the compass reads from ({headingDeg, here,
+   * home} or null): the walker's heading and place, and home, while Walk
+   * or Fly is on. Read on the camera readout's tick.
+   */
+  setCompassSource(source) {
+    this._compassSource = typeof source === 'function' ? source : null;
+    this._updateCompass();
+  }
+
+  _updateCompass() {
+    const box = document.getElementById('hud-compass');
+    if (!box) return;
+    let reading = null;
+    try {
+      reading = this._compassSource?.() ?? null;
+    } catch {
+      reading = null;
+    }
+    box.hidden = !reading || !Number.isFinite(reading.headingDeg);
+    if (box.hidden) return;
+    const { roseDeg, homeDeg } = compassAngles(reading);
+    document
+      .getElementById('hud-compass-rose')
+      ?.setAttribute('transform', `rotate(${roseDeg.toFixed(1)})`);
+    const home = document.getElementById('hud-compass-home');
+    if (home) {
+      home.hidden = homeDeg === null;
+      if (homeDeg !== null)
+        home.setAttribute('transform', `rotate(${homeDeg.toFixed(1)})`);
+    }
+    box.title =
+      homeDeg === null
+        ? t('Heading {deg}°', {
+            deg: formatNumber(Math.round(reading.headingDeg) % 360),
+          })
+        : t('Heading {deg}° · home bears {home}°', {
+            deg: formatNumber(Math.round(reading.headingDeg) % 360),
+            home: formatNumber(
+              Math.round((homeDeg + reading.headingDeg) % 360),
+            ),
+          });
+  }
+
   setNavigationStatus(status = {}) {
     this._navigation = status;
     const { name, detail } = this._navigationText();
@@ -710,6 +782,9 @@ export class IntelHUD {
         }
         parts.push(floor.name);
       } else parts.push(t('no surface: hovering'));
+      // Third person (src/navigation/view.js).
+      if (status.view === 'back') parts.push(t('3rd'));
+      else if (status.view === 'front') parts.push(t('3rd, front'));
       if (!status.locked) parts.push(t('click to look'));
     }
     return {
@@ -759,6 +834,8 @@ export class IntelHUD {
    * {@link _latestMetrics}.
    */
   _updateCameraData() {
+    // Personal fork: the compass turns with the walker.
+    this._updateCompass();
     const view = readCameraView(this.viewer);
     if (!view) return;
 

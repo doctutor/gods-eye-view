@@ -20,6 +20,13 @@ import { StreetLevelControls } from './streetLevelControls.js';
 import { createNavigationBinding } from '../navigation/binding.js';
 import { createBlockTargeting } from '../navigation/targeting.js';
 import { navigationStore } from '../navigation/store.js';
+// Personal fork: third person, home and waypoints (Walk and Fly).
+import { viewStore } from '../navigation/view.js';
+import {
+  attachWayfindingKeys,
+  pageWayfinding,
+  provideWalker,
+} from '../navigation/waypoints.js';
 import { RadioControls } from './radio.js';
 import { LocalSdrControls } from './localSdrControls.js';
 import { LocationNavigation } from './locationNavigation.js';
@@ -389,9 +396,27 @@ export class StyleManager extends ShellFacade {
     this._embodied = createNavigationBinding({
       viewer,
       store: navigationStore(),
+      view: viewStore(),
       holdRender: () => services.holdContinuousRender?.('navigation'),
       releaseRender: () => services.releaseContinuousRender?.('navigation'),
       onStatus: (status) => this.hud?.setNavigationStatus(status),
+    });
+    // Personal fork: where the walker stands, for home and waypoints; T,
+    // B and Shift+B in Walk and Fly; the HUD's compass from the walker.
+    this._unprovideWalker = provideWalker(() => this._embodied?.place ?? null);
+    this._detachWayfindingKeys = attachWayfindingKeys({
+      navStore: navigationStore(),
+      view: viewStore(),
+      wayfinding: pageWayfinding(),
+    });
+    this.hud?.setCompassSource?.(() => {
+      const place = this._embodied?.place;
+      if (!place) return null;
+      return {
+        headingDeg: place.headingDeg,
+        here: place,
+        home: pageWayfinding().waypoints.home(),
+      };
     });
     // Personal fork: under Blocks, the block under the crosshair (Walk,
     // Fly) or the pointer (Spectator): the HUD's BLOCK line, the outline.
@@ -1802,6 +1827,8 @@ export class StyleManager extends ShellFacade {
     this._cockpitCoordinator.stop();
     this._blockTargeting?.destroy();
     this._blockTargeting = null;
+    this._detachWayfindingKeys?.();
+    this._unprovideWalker?.();
     this._embodied?.destroy();
     this._embodied = null;
     this._visualSettings.stop();

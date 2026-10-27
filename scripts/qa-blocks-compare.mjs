@@ -461,6 +461,15 @@ export function views(field) {
   return {
     judgement: { view: VIEW, suffix: '' },
     eye: { view: eyeView(field), suffix: '-eye' },
+    // Walk in third person, behind the walker, looking a little down into
+    // the town (Blocks only: blocks-third.png).
+    third: {
+      view: { ...eyeView(field), pitch: -8 },
+      suffix: '-third',
+      nav: 'walk',
+      viewMode: 'back',
+      blocksOnly: true,
+    },
   };
 }
 
@@ -469,7 +478,7 @@ export function views(field) {
  * list (Earth Engine layers are not in it: the page turns Elevation on),
  * the Elevation layer's colour scale PET 0–100 m; Blocks with bk=1.
  */
-export function pageHash({ blocks, view = VIEW }) {
+export function pageHash({ blocks, view = VIEW, nav = null }) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(view))
     params.set(key, String(value));
@@ -478,6 +487,8 @@ export function pageHash({ blocks, view = VIEW }) {
   // The Elevation layer's colour scale: PET rainbow, 0 to 100 m, linear.
   params.set('cs', 'el.r.0.100.n');
   if (blocks) params.set('bk', '1');
+  // Walk or Fly from the link (src/navigation/store.js).
+  if (nav) params.set('nav', nav);
   return `#${params.toString()}`;
 }
 
@@ -711,9 +722,20 @@ async function shoot({
   view,
   suffix,
   live = null,
+  nav = null,
+  viewMode = null,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
+  // Third person is kept in this browser (gev.nav.view), not in the link.
+  if (viewMode)
+    await page.evaluateOnNewDocument((mode) => {
+      try {
+        localStorage.setItem('gev.nav.view', mode);
+      } catch {
+        /* no storage */
+      }
+    }, viewMode);
   const log = {
     values: 0,
     tiles: 0,
@@ -735,7 +757,7 @@ async function shoot({
     );
   });
   const name = `${blocks ? 'blocks' : 'colour'}${suffix}`;
-  await page.goto(`${ORIGIN}/${pageHash({ blocks, view })}`, {
+  await page.goto(`${ORIGIN}/${pageHash({ blocks, view, nav })}`, {
     waitUntil: 'domcontentloaded',
   });
   await page.waitForFunction(() => Boolean(window.__godsEyeView?.viewer), {
@@ -906,7 +928,7 @@ export async function main(argv = process.argv.slice(2)) {
     for (const name of wanted) {
       const shot = shots[name];
       if (!shot) throw new Error(`unknown view ${name} (judgement, eye)`);
-      for (const blocks of [false, true])
+      for (const blocks of shot.blocksOnly ? [true] : [false, true])
         results.push(
           await shoot({ browser, dist, field, out, blocks, live, ...shot }),
         );

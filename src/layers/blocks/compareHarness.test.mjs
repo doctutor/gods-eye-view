@@ -118,7 +118,17 @@ test('the colour tiles are PNGs in the PET rainbow; the catalog passes the clien
 test('two views: the judgement view (300 m, −30°) and eye level (1.7 m above the block underfoot, −5°)', () => {
   const field = syntheticField();
   const shots = views(field);
-  assert.deepEqual(Object.keys(shots), ['judgement', 'eye']);
+  assert.deepEqual(Object.keys(shots), ['judgement', 'eye', 'third']);
+  // Third person: Walk from the link, the view kept in this browser.
+  assert.equal(shots.third.nav, 'walk');
+  assert.equal(shots.third.viewMode, 'back');
+  assert.equal(shots.third.blocksOnly, true);
+  assert.equal(
+    new URLSearchParams(
+      pageHash({ blocks: true, view: shots.third.view, nav: 'walk' }).slice(1),
+    ).get('nav'),
+    'walk',
+  );
   assert.equal(shots.judgement.view, VIEW);
   assert.equal(shots.judgement.suffix, '');
   assert.equal(shots.eye.suffix, '-eye');
