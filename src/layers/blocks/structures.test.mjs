@@ -18,6 +18,7 @@ import {
   BUILDING,
   bridgeLevels,
   bridgeLiftBlocks,
+  rampBlocks,
   isBridge,
   applyStructures,
   assembleRings,
@@ -1540,4 +1541,231 @@ test('a layered viaduct, a bridge area, and the higher of two crossing decks', (
   );
   assert.equal(crossing.top[at(50, 50)], 15);
   assert.equal(crossing.top[at(80, 50)], 5);
+});
+
+/** A level-tracking empty set of group levels. */
+const freshLevels = () => ({
+  top: new Int32Array(GROUP_COLUMNS * GROUP_COLUMNS).fill(NONE),
+  bottom: new Int32Array(GROUP_COLUMNS * GROUP_COLUMNS).fill(NONE),
+});
+const bridgeLine = (region, tags, from, to, widthM = 6) => ({
+  id: 'bridge',
+  tags,
+  widthM,
+  points: [region.toLonLat(...from), region.toLonLat(...to)],
+});
+const roadLine = (region, from, to, widthM = 6) => ({
+  id: 'road',
+  material: MATERIALS.ROAD,
+  widthM,
+  points: [region.toLonLat(...from), region.toLonLat(...to)],
+});
+
+test('a sloped deck: between its ends by the distance along it, clearing a bump mid-span', () => {
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  // Ground at 2, a ridge at x 48 … 51 up to 20; the ends' ground 10 and 4.
+  const ground = (i) => (i >= 48 && i <= 51 ? 20 : 2);
+  const bridge = bridgeLine(
+    region,
+    { highway: 'primary', bridge: 'yes' },
+    [10, 50],
+    [90, 50],
+  );
+  const levels = freshLevels();
+  bridgeLevels(region, 0, 0, [bridge], groundOf(ground), levels, {
+    endGround: () => [10, 4],
+  });
+  // 10 + 5 at the west end, 4 + 5 at the east, in between by the distance.
+  assert.equal(levels.top[at(10, 50)], 15);
+  assert.equal(levels.top[at(7, 50)], 15); // the end cap, past the end
+  assert.equal(levels.top[at(30, 50)], 13); // 15 − 6 × 20.5 / 80
+  assert.equal(levels.top[at(70, 50)], 10); // 15 − 6 × 60.5 / 80
+  assert.equal(levels.top[at(89, 50)], 9);
+  // The ridge pokes up through the line: the deck clears it by a block.
+  assert.equal(levels.top[at(49, 50)], 21);
+  assert.equal(levels.top[at(52, 50)], 12);
+  // One block thick everywhere.
+  for (const i of [10, 30, 49, 89])
+    assert.equal(levels.bottom[at(i, 50)], levels.top[at(i, 50)]);
+  // An end whose ground is not known is the highest ground under the span.
+  const unknown = freshLevels();
+  bridgeLevels(region, 0, 0, [bridge], groundOf(ground), unknown, {
+    endGround: () => [NONE, 4],
+  });
+  assert.equal(unknown.top[at(10, 50)], 25); // 20 + 5
+  // An area keeps the flat rule (its highest ground + 5), endGround or not.
+  const area = freshLevels();
+  bridgeLevels(
+    region,
+    0,
+    0,
+    [
+      {
+        id: 'a',
+        tags: { man_made: 'bridge' },
+        rings: squareAt(region, {}, 40, 40, 60, 60).rings,
+      },
+    ],
+    groundOf(ground),
+    area,
+    { endGround: () => [0, 0] },
+  );
+  assert.equal(area.top[at(42, 45)], 25);
+  assert.equal(area.top[at(58, 55)], 25);
+});
+
+test('abutments: the ground road steps up to the deck at both ends, from past the deck end', () => {
+  assert.deepEqual([1, 2, 5, 10, 30].map(rampBlocks), [3, 2, 1, 1, 1]);
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  // A bridge over the valley (banks at 10): deck 15 at both ends.
+  const bridge = bridgeLine(
+    region,
+    { highway: 'primary', bridge: 'yes' },
+    [30, 20],
+    [30, 80],
+  );
+  // The road comes in from the south (ending at the bridge's first node)
+  // and leaves to the north (starting at its last).
+  const roads = [
+    roadLine(region, [30, 0], [30, 20]),
+    roadLine(region, [30, 80], [30, 100]),
+  ];
+  const levels = freshLevels();
+  bridgeLevels(region, 0, 0, [bridge], groundOf(valley), levels, {
+    roads,
+    endGround: () => [10, 10],
+  });
+  // The deck's round end reaches 3 m past its node (rows 17 … 19 south).
+  assert.equal(levels.top[at(30, 17)], 15);
+  // Then three ramp rows, deck − 1, − 2, − 3, filled from the ground (10).
+  assert.deepEqual(
+    [16, 15, 14, 13].map((j) => levels.top[at(30, j)]),
+    [14, 13, 12, NONE],
+  );
+  assert.equal(levels.bottom[at(30, 16)], 11);
+  assert.equal(levels.structure[at(30, 16)], MATERIALS.ROAD);
+  // Across the road's width too.
+  assert.equal(levels.top[at(27, 16)], 14);
+  assert.equal(levels.top[at(32, 15)], 13);
+  // And at the north end.
+  assert.deepEqual(
+    [83, 84, 85, 86].map((j) => levels.top[at(30, j)]),
+    [14, 13, 12, NONE],
+  );
+  // In a chunk: solid from the ground up the ramp, no cliff.
+  const chunk = createChunk({
+    ci: 0,
+    cj: 0,
+    top: new Int32Array(COLUMNS).fill(10),
+  });
+  chunk.setStructure(
+    30,
+    16,
+    levels.top[at(30, 16)],
+    MATERIALS.ROAD,
+    levels.bottom[at(30, 16)],
+  );
+  assert.equal(chunk.occupancy(30, 16, 11), MATERIALS.ROAD);
+  assert.equal(chunk.topSolid(30, 16), 14);
+  // 10 m blocks: one ramp block.
+  const coarse = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 10 });
+  const wide = freshLevels();
+  bridgeLevels(
+    coarse,
+    0,
+    0,
+    [
+      bridgeLine(
+        coarse,
+        { highway: 'primary', bridge: 'yes' },
+        [305, 205],
+        [305, 805],
+      ),
+    ],
+    groundOf(() => 3),
+    wide,
+    {
+      roads: [roadLine(coarse, [305, 5], [305, 205])],
+      endGround: () => [3, 3],
+    },
+  );
+  // Deck 3 + 1 at 10 m; its end cap covers row 20 (7.07 m); ramp at row 19: 4 − 1 = 3 is the ground: none.
+  assert.equal(wide.top[at(30, 20)], 4);
+  assert.equal(wide.top[at(30, 19)], NONE);
+});
+
+test('a deck meeting another deck gets no ramp between them; the ground road at the far end does', () => {
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  const north = bridgeLine(
+    region,
+    { highway: 'primary', bridge: 'yes' },
+    [30, 50],
+    [30, 80],
+  );
+  const south = bridgeLine(
+    region,
+    { highway: 'primary', bridge: 'yes' },
+    [30, 20],
+    [30, 50],
+  );
+  const levels = freshLevels();
+  const placed = bridgeLevels(
+    region,
+    0,
+    0,
+    [south, north],
+    groundOf(() => 10),
+    levels,
+    {
+      roads: [roadLine(region, [30, 80], [30, 100])],
+      endGround: () => [10, 10],
+    },
+  );
+  // The two decks meet level at 15, no step and no ramp between them.
+  for (const j of [45, 50, 55]) assert.equal(levels.top[at(30, j)], 15);
+  // Ramps only past the north end: 3 rows × 6 columns, and the two corners
+  // the deck's round end leaves (the first step fills them).
+  const ramps = [...levels.top].filter(
+    (top) => top !== NONE && top < 15,
+  ).length;
+  assert.equal(ramps, 3 * 6 + 2);
+  assert.equal(levels.top[at(27, 82)], 14);
+  assert.equal(levels.top[at(30, 16)], NONE); // no road at the south end: no ramp
+  assert.ok(placed > ramps);
+});
+
+test('a deck across groups takes its far end from the elevation source, so both groups slope it alike', async () => {
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  const asked = [];
+  // Ground 2 in group (0, 0), 20 in group (1, 0) (columns 256 and up).
+  const loadChunk = async (r, ci, cj) => {
+    asked.push(`${ci}:${cj}`);
+    return createChunk({
+      ci,
+      cj,
+      top: new Int32Array(COLUMNS).fill(ci >= 4 ? 20 : 2),
+    });
+  };
+  const elements = [
+    {
+      type: 'way',
+      id: 1,
+      tags: { highway: 'primary', bridge: 'yes' },
+      geometry: [region.toLonLat(100, 50.5), region.toLonLat(300, 50.5)],
+    },
+  ];
+  const source = createStructuresSource({
+    query: async () => ({ elements }),
+    loadChunk,
+  });
+  const levels = await source.loadChunkStructures(region, 1, 0);
+  // The east end (x 300) is chunk 4:0, outside the group: asked for.
+  assert.ok(asked.includes('4:0'));
+  // At x 100: 2 + 5; at the group's east edge (x 255.5): 7 + 18 × 155.5 / 200 ≈ 21.
+  assert.equal(levels.top[columnIndex(100 - 64, 50)], 7);
+  const edge = await source.loadChunkStructures(region, 3, 0);
+  assert.equal(
+    edge.top[columnIndex(255 - 192, 50)],
+    Math.round(7 + 18 * (155.5 / 200)),
+  );
 });
