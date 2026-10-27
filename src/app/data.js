@@ -6,6 +6,12 @@ import { createApplicationLego } from './lego.js';
 // Personal fork: the DATA LAYERS panel's Titles toggle.
 import { titlesPreference } from '../ui/titles.js';
 import { setOverlayTitlesVisible } from '../overlays/worldOverlay.js';
+// Personal fork: Walk and Fly (src/navigation/), beside the Render control.
+import {
+  combineHeadingControls,
+  createNavigationHeadingControl,
+} from '../navigation/presentation.js';
+import { navigationStore } from '../navigation/store.js';
 /** Register the application layer catalog before allowing state restoration. */
 export function createApplicationData({
   scene: { viewer, mapStackController },
@@ -38,7 +44,15 @@ export function createApplicationData({
   titles.attachHost({ set: setOverlayTitlesVisible });
   const presentation = new LayerPresentation(dataManager, {
     weatherClock: catalog?.weatherClock,
-    groupHeadingControls: lego.headingControls,
+    groupHeadingControls: {
+      ...lego.headingControls,
+      Analysis: (doc) =>
+        combineHeadingControls(
+          doc,
+          lego.headingControls?.Analysis?.(doc),
+          createNavigationHeadingControl(doc, navigationStore()),
+        ),
+    },
     // Personal fork: names on markers on or off, for every layer.
     titles,
   });

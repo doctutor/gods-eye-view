@@ -16,6 +16,9 @@ import { CockpitCoordinator } from './cockpitCoordinator.js';
 import { ContextControls } from './context.js';
 import { CctvControls } from './cctv.js';
 import { StreetLevelControls } from './streetLevelControls.js';
+// Personal fork: Walk and Fly (src/navigation/).
+import { createNavigationBinding } from '../navigation/binding.js';
+import { navigationStore } from '../navigation/store.js';
 import { RadioControls } from './radio.js';
 import { LocalSdrControls } from './localSdrControls.js';
 import { LocationNavigation } from './locationNavigation.js';
@@ -376,6 +379,15 @@ export class StyleManager extends ShellFacade {
       onCameraEdited: () => this.shareLinkManager?.onCameraChange(),
     });
     this._recording.hud = this.hud;
+    // Personal fork: Walk and Fly own the camera while on (the ANALYSIS
+    // heading's Move drop-down, a link's nav=); the HUD names the mode.
+    this._embodied = createNavigationBinding({
+      viewer,
+      store: navigationStore(),
+      holdRender: () => services.holdContinuousRender?.('navigation'),
+      releaseRender: () => services.releaseContinuousRender?.('navigation'),
+      onStatus: (status) => this.hud?.setNavigationStatus(status),
+    });
     this._cockpitCoordinator = new CockpitCoordinator({
       viewer,
       services: {
@@ -1773,6 +1785,8 @@ export class StyleManager extends ShellFacade {
     this._radioControls?.destroy();
     this._localSdrControls?.destroy();
     this._cockpitCoordinator.stop();
+    this._embodied?.destroy();
+    this._embodied = null;
     this._visualSettings.stop();
     this._removeTitlesListener?.();
     this._removeTitlesListener = null;

@@ -3996,5 +3996,15 @@
   "What one screen pixel covers at the centre of the view: 2·d·tan(FOV/2) ÷ width, d the distance to the surface there ({distance}).": "Что покрывает один пиксель экрана в центре вида: 2·d·tan(FOV/2) ÷ ширина, где d — расстояние до поверхности там ({distance}).",
   "Estimated sun elevation above the horizon at the camera, degrees.": "Оценка высоты солнца над горизонтом у камеры, градусы.",
   "{mode} {band} {locality} | {region} | ALT {alt} | WINDOW {window} | SUN {sun}° | {zone}": "{mode} · {band} · {locality} | {region} | ALT {alt} | ОКНО {window} | SUN {sun}° | {zone}",
-  "Shown to {step}: no terrain is loaded under the camera (a flat ellipsoid), so no finer.": "С точностью {step}: под камерой не загружен рельеф (плоский эллипсоид), точнее нельзя."
+  "Shown to {step}: no terrain is loaded under the camera (a flat ellipsoid), so no finer.": "С точностью {step}: под камерой не загружен рельеф (плоский эллипсоид), точнее нельзя.",
+  "Move: Spectator": "Движение: наблюдатель",
+  "Move: Walk": "Движение: пешком",
+  "Move: Fly": "Движение: полёт",
+  "Navigation mode": "Режим перемещения",
+  "Walk: on the ground, WASD and the mouse (click the globe to look, Esc releases), Space jumps, Shift sprints. Fly: Space up, Shift down. Spectator: the usual camera": "Пешком: по земле, WASD и мышь (щелчок по глобусу — обзор, Esc отпускает), Пробел — прыжок, Shift — бег. Полёт: Пробел вверх, Shift вниз. Наблюдатель: обычная камера",
+  "SPECTATOR": "НАБЛЮДАТЕЛЬ",
+  "MODE": "РЕЖИМ",
+  "Blocks {size} m": "Блоки {size} м",
+  "no surface: hovering": "нет поверхности: зависание",
+  "click to look": "щёлкните для обзора"
 }

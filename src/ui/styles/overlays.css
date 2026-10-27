@@ -418,3 +418,36 @@
 #intel-hud[data-variant='minimal'] .hud-summary-wrap {
   max-width: 280px;
 }
+
+/* Personal fork: embodied navigation (src/navigation/binding.js): the
+   crosshair at the screen's centre while Walk or Fly is on, and the HUD's
+   MODE line. */
+.gev-nav-crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  pointer-events: none;
+  z-index: 5;
+  background:
+    linear-gradient(#fff, #fff) center / 2px 18px no-repeat,
+    linear-gradient(#fff, #fff) center / 18px 2px no-repeat;
+  mix-blend-mode: difference;
+}
+
+.gev-nav-crosshair[hidden] {
+  display: none;
+}
+
+.hud-nav-mode {
+  white-space: nowrap;
+}
+
+#intel-hud .hud-nav-detail {
+  text-transform: none;
+  font-size: 9px;
+  letter-spacing: 1px;
+  opacity: 0.6;
+}

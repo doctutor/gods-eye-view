@@ -16,6 +16,8 @@ import {
   LEGO_PHOTOREAL_PARAM,
   photorealStore,
 } from './layers/lego/photoreal.js';
+// Personal fork: the navigation mode, Walk or Fly (src/navigation/).
+import { NAV_PARAM, navigationStore } from './navigation/store.js';
 import * as Cesium from 'cesium';
 import { BLOOM_INTENSITY_DEFAULT, BLOOM_SCALE_VERSION } from './bloom.js';
 import {
@@ -202,6 +204,10 @@ export class ShareLinkManager {
     );
     // Personal fork: and the photoreal relief or bricks.
     this._removePhotoreal = photorealStore().subscribe(() =>
+      this._scheduleUpdate(),
+    );
+    // Personal fork: and the navigation mode.
+    this._removeNavigation = navigationStore().subscribe(() =>
       this._scheduleUpdate(),
     );
   }
@@ -727,6 +733,10 @@ export class ShareLinkManager {
     const photoreal = photorealStore().param();
     if (photoreal) params.set(LEGO_PHOTOREAL_PARAM, photoreal);
     else params.delete(LEGO_PHOTOREAL_PARAM);
+    // Personal fork: Walk or Fly (src/navigation/store.js); none for Spectator.
+    const navigation = navigationStore().param();
+    if (navigation) params.set(NAV_PARAM, navigation);
+    else params.delete(NAV_PARAM);
     this._encodePanelStateParam(params, this._panelStateProvider?.());
     // Personal fork: the panel's Titles toggle, in the same `ui` param.
     if (this._titlesProvider) encodeTitlesParam(params, this._titlesProvider());
@@ -764,6 +774,8 @@ export class ShareLinkManager {
     this._removeWorldHistory = null;
     this._removePhotoreal?.();
     this._removePhotoreal = null;
+    this._removeNavigation?.();
+    this._removeNavigation = null;
     clearTimeout(this._debounceTimer);
     this._debounceTimer = null;
     this._removeCameraChanged?.();

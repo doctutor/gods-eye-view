@@ -1452,6 +1452,21 @@ body.recording-mode #right-context-rail > [data-panel-id] {
   padding: 2px 4px;
 }
 
+/* Personal fork: two controls in one heading (Render, and Move:
+   src/navigation/presentation.js). */
+.data-layer-group-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.data-layer-group-controls > .data-layer-group-control {
+  margin-left: 0;
+}
+
 .lego-photoreal-toggle {
   display: inline-flex;
   align-items: center;
