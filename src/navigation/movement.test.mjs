@@ -346,3 +346,127 @@ test('the heightfield is sampled once per cell and asked again later', () => {
   assert.equal(world.blocked(0, 0, 2.9), true);
   assert.equal(world.blocked(0, 0, 3), false);
 });
+
+// ── Buildings (the store's structures layer, src/layers/blocks/structures.js)
+
+/**
+ * A one-chunk world flat at level 5 (its top at 6 m) with buildings put by
+ * setStructure: `walls` as [i0, i1, j0, j1, height in blocks] boxes.
+ */
+function withBuildings(walls) {
+  const { chunk, world } = blocks(5);
+  for (const [i0, i1, j0, j1, height] of walls)
+    for (let i = i0; i <= i1; i += 1)
+      for (let j = j0; j <= j1; j += 1)
+        chunk.setStructure(i, j, 5 + height, MATERIALS.BUILDING);
+  return { chunk, world };
+}
+
+test('buildings: a 2-block wall stops a walker, who slides along it', () => {
+  // A wall two blocks tall along j = 14, from i = 0 to 40.
+  const { world } = withBuildings([[0, 40, 14, 14, 2]]);
+  assert.equal(world.occupancy(10, 14, 7), MATERIALS.BUILDING);
+  // Straight at it: stopped short of j = 14, on the ground.
+  const straight = run(standingOn(6), { forward: true }, 2, world).at(-1);
+  assert.ok(straight.y < 14 && straight.y > 13.9, `${straight.y}`);
+  assert.ok(Math.abs(straight.z - (6 + EYE_HEIGHT_M)) < 1e-9);
+  // At 45° (forward and right): along the wall to the east.
+  const slid = run(standingOn(6), { forward: true, right: true }, 2, world).at(
+    -1,
+  );
+  assert.ok(slid.y < 14, `${slid.y}`);
+  assert.ok(slid.x > 10.5 + 2, `slid east to ${slid.x}`);
+});
+
+test('buildings: a 1-block ledge is stepped up; a 2-block one is not, even jumping; a jump lands on a 1-block one', () => {
+  // A 1-block plinth from j = 12 north, a 2-block one from i = 14 east.
+  const { world } = withBuildings([
+    [0, 13, 12, 40, 1],
+    [14, 40, 0, 40, 2],
+  ]);
+  const stepped = run(standingOn(6), { forward: true }, 1, world).at(-1);
+  assert.ok(stepped.y > 12.5, `${stepped.y}`);
+  assert.ok(Math.abs(stepped.z - (7 + EYE_HEIGHT_M)) < 1e-9, 'on the plinth');
+  // East at the 2-block one, walking and jumping: never up on it, and
+  // back on the ground once the keys are let go.
+  const east = standingOn(6, 12.5, 5.5, Math.PI / 2);
+  for (const input of [{ forward: true }, { forward: true, jump: true }]) {
+    const states = run(east, input, 2, world);
+    assert.ok(
+      states.every((s) => s.x < 14),
+      JSON.stringify(input),
+    );
+    const end = run(states.at(-1), {}, 1, world).at(-1);
+    assert.ok(end.onGround && Math.abs(end.z - (6 + EYE_HEIGHT_M)) < 1e-9);
+    assert.ok(end.x > 13.99, `at the wall: ${end.x}`);
+  }
+  // A jump (1.25 m) clears a 1-block ledge in mid-air and lands on it.
+  const { world: ledge } = withBuildings([[0, 40, 11, 40, 1]]);
+  // One jump, then walking on: up in mid-air, down on the ledge.
+  const takeoff = step(
+    standingOn(6, 10.5, 10.2),
+    { jump: true, forward: true },
+    DT,
+    ledge,
+  );
+  const leap = run(takeoff, { forward: true }, 0.8, ledge);
+  assert.ok(
+    leap.some((s) => !s.onGround),
+    'airborne',
+  );
+  const landed = leap.at(-1);
+  assert.ok(landed.y > 11 && landed.onGround, `${landed.y}`);
+  assert.ok(Math.abs(landed.z - (7 + EYE_HEIGHT_M)) < 1e-9);
+});
+
+test('buildings: inside a hollow building the ceiling stops a jump', () => {
+  // A 6-block building over (5…15, 5…15); a room 3 blocks tall carved out
+  // of it (levels 6 to 8), as a structure with a bottom would leave it.
+  const { chunk, world } = withBuildings([[5, 15, 5, 15, 6]]);
+  for (let i = 6; i <= 14; i += 1)
+    for (let j = 6; j <= 14; j += 1)
+      for (let y = 6; y <= 8; y += 1) chunk.setBlock(i, j, y, MATERIALS.AIR);
+  // Standing on the floor (6 m): the head at 7.8 m, the ceiling at 9 m.
+  const floor = world.surfaceBelow(10.5, 10.5, 6.1);
+  assert.equal(floor, 6, 'the floor, not the roof');
+  const first = step(standingOn(6), { jump: true }, DT, world);
+  const states = run(first, {}, 1, world);
+  const apex = Math.max(...states.map((s) => s.z - EYE_HEIGHT_M));
+  assert.ok(
+    apex + BODY_HEIGHT_M <= 9 + 1e-6,
+    `head at ${apex + BODY_HEIGHT_M}`,
+  );
+  assert.ok(apex > 6.9, 'it did jump');
+  assert.ok(states.at(-1).onGround);
+  // Walking at the inner wall stops there too.
+  const wall = run(standingOn(6), { forward: true }, 2, world).at(-1);
+  assert.ok(wall.y < 15 && wall.y > 14.9, `${wall.y}`);
+});
+
+test('buildings: Fly collides with a building and comes to rest on its roof', () => {
+  const { world } = withBuildings([[5, 15, 14, 24, 10]]);
+  // Flying north at 10 m (inside the building's height): stopped at its wall.
+  const air = createNavState({ x: 10.5, y: 8.5, z: 10 + EYE_HEIGHT_M });
+  const wall = run(air, { forward: true }, 2, world, 'fly').at(-1);
+  assert.ok(wall.y < 14 && wall.y > 13.9, `${wall.y}`);
+  // Above the roof (16 m) and descending: it rests on the roof.
+  const above = createNavState({ x: 10.5, y: 18.5, z: 25 });
+  const roof = run(above, { down: true }, 3, world, 'fly').at(-1);
+  assert.ok(Math.abs(roof.z - (16 + EYE_HEIGHT_M)) < 1e-9, `${roof.z}`);
+  assert.equal(roof.onGround, true);
+  assert.equal(roof.hovering, false);
+  // And holds there with nothing pressed.
+  assert.equal(run(roof, {}, 1, world, 'fly').at(-1).z, roof.z);
+});
+
+test('buildings: the looked-at block is the wall, a building block', () => {
+  const { world } = withBuildings([[0, 40, 14, 14, 3]]);
+  // From the eye (10.5, 10.5, 7.62) looking north: the wall at j = 14.
+  const hit = world.raycast(
+    { x: 10.5, y: 10.5, z: 7.62 },
+    { x: 0, y: 1, z: 0 },
+  );
+  assert.deepEqual([hit.i, hit.j, hit.y], [10, 14, 7]);
+  assert.deepEqual(hit.face, [0, -1, 0]);
+  assert.equal(world.occupancy(hit.i, hit.j, hit.y), MATERIALS.BUILDING);
+});

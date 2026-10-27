@@ -128,6 +128,8 @@ export function createNavigationBinding({
   const controller = scene.screenSpaceCameraController;
   let mode = 'spectator';
   let active = null;
+  /** The targeted block fed in by targeting.js, or null. */
+  let target = null;
 
   const status = (patch = {}) => {
     try {
@@ -293,7 +295,11 @@ export function createNavigationBinding({
   const outlineMaterial = Cesium.Material.fromType('Color', {
     color: Cesium.Color.fromCssColorString(OUTLINE_COLOR).withAlpha(0.9),
   });
-  const setOutline = (paths) => {
+  /**
+   * The outline's lines; `data` (the targeted block's facts, target.js)
+   * rides on each line as its id, for a later click on the block.
+   */
+  const setOutline = (paths, data = null) => {
     if (!outlines) return;
     while (outlines.length < paths.length)
       outlines.add({ positions: [], width: 2, material: outlineMaterial });
@@ -301,6 +307,7 @@ export function createNavigationBinding({
       const line = outlines.get(k);
       line.show = k < paths.length;
       if (line.show) line.positions = paths[k];
+      line.id = line.show ? data : null;
     }
     outlines.show = paths.length > 0;
   };
@@ -399,8 +406,10 @@ export function createNavigationBinding({
           y: Math.cos(state.yaw) * Math.cos(state.pitch),
           z: Math.sin(state.pitch),
         };
-        const hit = frame.world.raycast(state, direction);
-        setOutline(hit ? blockEdges(frame, hit) : []);
+        // The targeted block (targeting.js) when it is fed in; else the
+        // crosshair's own ray through occupancy.
+        const hit = target ?? frame.world.raycast(state, direction);
+        setOutline(hit ? blockEdges(frame, hit) : [], target);
         return;
       }
       const centre = new Cesium.Cartesian2(
@@ -637,6 +646,14 @@ export function createNavigationBinding({
   apply(store.get());
 
   return {
+    /**
+     * The targeted block's facts (targeting.js), outlined while Walk or
+     * Fly is on; null for none.
+     */
+    setTarget(facts) {
+      target = facts || null;
+      if (active) active.outlineAt = -Infinity;
+    },
     /** The mode now and, while one is on, the model's state. */
     get mode() {
       return mode;

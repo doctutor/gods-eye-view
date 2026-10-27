@@ -127,22 +127,59 @@ function standAt(world, x, y, feet, rise) {
   return standing;
 }
 
+/** Bisections that close a blocked step on a wall (to 1/256 of the step). */
+const CONTACT_STEPS = 8;
+
 /**
  * Move horizontally by (dx, dy), sliding along a wall: the whole step if
- * it is clear, else the east or the north part alone.
+ * it is clear; else the clear part (east or north) whole and the blocked
+ * part as far as it goes, so the body comes to the wall rather than
+ * stopping a frame's travel short of it (18 cm at Fly's 10.8 m/s).
  */
 function slide(world, state, dx, dy, feet, rise) {
-  for (const [mx, my] of [
-    [dx, dy],
-    [dx, 0],
-    [0, dy],
-  ]) {
-    if (!mx && !my) continue;
-    const standing = standAt(world, state.x + mx, state.y + my, feet, rise);
-    if (Number.isFinite(standing))
-      return { x: state.x + mx, y: state.y + my, feet: standing };
+  const at = (x, y) => standAt(world, x, y, feet, rise);
+  const whole = at(state.x + dx, state.y + dy);
+  if (Number.isFinite(whole))
+    return { x: state.x + dx, y: state.y + dy, feet: whole };
+  let x = state.x;
+  let y = state.y;
+  let standing = feet;
+  /** As far along (mx, my) from (x, y) as stands, by bisection. */
+  const approach = (mx, my) => {
+    if (!mx && !my) return;
+    const full = at(x + mx, y + my);
+    if (Number.isFinite(full)) {
+      x += mx;
+      y += my;
+      standing = full;
+      return;
+    }
+    let lo = 0;
+    let hi = 1;
+    let best = Number.NaN;
+    for (let k = 0; k < CONTACT_STEPS; k += 1) {
+      const mid = (lo + hi) / 2;
+      const there = at(x + mx * mid, y + my * mid);
+      if (Number.isFinite(there)) {
+        lo = mid;
+        best = there;
+      } else hi = mid;
+    }
+    if (lo > 0) {
+      x += mx * lo;
+      y += my * lo;
+      standing = best;
+    }
+  };
+  // The free part first, whole, then the blocked part up to the wall.
+  if (Number.isFinite(at(state.x + dx, state.y))) {
+    approach(dx, 0);
+    approach(0, dy);
+  } else {
+    approach(0, dy);
+    approach(dx, 0);
   }
-  return { x: state.x, y: state.y, feet };
+  return { x, y, feet: standing };
 }
 
 /**

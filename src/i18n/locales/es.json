@@ -3924,7 +3924,12 @@
   "Walk: on the ground, WASD and the mouse (click the globe to look, Esc releases), Space jumps, Shift or W twice sprints. Fly: Space up, Shift down, W twice doubles the speed. Spectator: the usual camera": "A pie: sobre el suelo, WASD y el ratón (clic en el globo para mirar, Esc lo suelta), Espacio salta, Mayús o W dos veces corre. Volar: Espacio sube, Mayús baja, W dos veces dobla la velocidad. Espectador: la cámara de siempre",
   "SPECTATOR": "ESPECTADOR",
   "MODE": "MODO",
-  "Blocks {size} m": "Bloques {size} m",
   "no surface: hovering": "sin superficie: flotando",
-  "click to look": "clic para mirar"
+  "click to look": "clic para mirar",
+  "BLOCK": "BLOQUE",
+  "terrain": "terreno",
+  "water": "agua",
+  "building": "edificio",
+  "L{level} ({height} m)": "N{level} ({height} m)",
+  "Chunk {chunk}, column {i} {j}, level {level}: {size} m blocks": "Trozo {chunk}, columna {i} {j}, nivel {level}: bloques de {size} m"
 }

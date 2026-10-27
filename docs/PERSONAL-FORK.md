@@ -6049,7 +6049,16 @@ Each chunk is meshed with its eight neighbours: the four it shares a side
 with (border faces) and the diagonals (ambient occlusion at its corners).
 A neighbour not loaded yet reads as the edge column repeated, so no wall
 shows at the edge of what is loaded, and the chunk is meshed again when a
-neighbour arrives.
+neighbour arrives. Where the fine ring ends, a fine chunk whose neighbour across
+a border is neither loaded nor coming hangs a skirt there: its edge
+columns' sides run down to the lowest ground of the coarse chunk beyond
+(four fine levels to a coarse one), so the 1 m edge meets the 4 m ring
+without a seam of background showing between them. It is meshed again
+when that coarse chunk arrives. The other way round, a coarse chunk
+beside a group drawn fine leaves that group's hidden coarse chunk out of
+its neighbours and hangs a skirt toward it, down to the group's lowest
+fine ground (in coarse levels), for where the coarse ground is the higher;
+no skirts toward other coarse chunks.
 
 The sun is fixed when the region is anchored: the real sun when it is more
 than 15° up, otherwise a study sun 60° up from the south-west; mesh.js
@@ -7293,17 +7302,45 @@ Spectator, so older links read the same) and opens in the mode
   are taken in the capture phase, outside form fields, so the app's own
   shortcuts (D cycles detection) wait. No Ctrl anywhere: Ctrl+W closes the
   browser tab, and a page cannot stop it.
+- **The targeted block** (Minecraft's F3, lessons 10–11;
+  `src/navigation/targeting.js`, `target.js`, `src/hud/blockTarget.js`).
+  While Blocks is drawn, in any mode, the HUD's pose block shows a BLOCK
+  line for the block under the crosshair (Walk, Fly) or under the mouse
+  pointer (Spectator): "39.321408 -76.629200 · L47 (47 m) · terrain · 3DEP
+  1 m", the column's centre to half a block (6 decimals at 1 m, 4 at
+  30 m), the level and its base above sea level, the material (terrain,
+  building) and the elevation source; the tooltip names the chunk and the
+  block's region column. The ray (the camera's direction, or Cesium's
+  pick ray at the pointer) is walked through the store's occupancy in the
+  Blocks region's frame, up to 2,048 blocks (20 km at most); where that
+  finds nothing (it leaves the loaded chunks, or starts outside them), the
+  depth pick there is snapped to the block it lies on. Looked for at most
+  every 100 ms after a frame, and at once on a pointer move; hidden when
+  nothing is targeted. The same facts ride on the Walk/Fly block outline's
+  lines as their `id`, for a later click to dig.
 - **The model** (`src/navigation/movement.js`, `worlds.js`) is pure:
   state, keys and a time step give the next state, with the body a column
   1.8 m tall, sliding along walls, a ceiling stopping a jump, and the
   vertical step exact under constant acceleration (a jump peaks at 1.25 m
-  at any frame rate).
+  at any frame rate). A blocked step is closed on the wall by bisection
+  (to 1/256 of the step), so the body comes to rest against it rather than
+  a frame's travel short (18 cm at Fly's speed). Buildings (the store's
+  structures layer) are blocks like any other: occupancy and topSolid
+  include them.
 
 Checked in Chromium on a synthetic flat tileset at Baltimore: Walk held
 the eye 1.620 m (±0.000001) above the tiles over 116 frames of W for 2 s,
 8.60 m covered; Fly rose 7.6 m in a second; a Blocks world put the eye
 1.62 m over the block tops; leaving restored inputs, collision and the
 field of view.
+Against buildings (2026-10-27, a 1 m Blocks world built with
+setStructure): a 2-block wall stopped a walker 0.00002 m from it and it
+slid 6.1 m along it at 45°; a 1-block plinth was walked up, a 2-block one
+not even jumping, and a jump landed on a 1-block ledge; in a hollow
+building (a room carved from a structure) a jump's head peaked at 33.99 m
+under a 34 m ceiling; Fly stopped at a building's wall and rested on its
+roof; the outline sat on the wall block under the crosshair (12 edges, its
+corners exact), a building block.
 
 ## Smaller additions
 

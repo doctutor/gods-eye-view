@@ -445,6 +445,11 @@
   white-space: nowrap;
 }
 
+/* Personal fork: the targeted block under Blocks (src/hud/blockTarget.js). */
+#intel-hud .hud-block-target[hidden] {
+  display: none;
+}
+
 #intel-hud .hud-nav-detail {
   text-transform: none;
   font-size: 9px;
