@@ -228,13 +228,15 @@ export function readGamepadSettings(storage) {
  * and gives its intents (inputs.js's partial intents), or null while no
  * mode is on (Spectator) or no pad is connected (nothing is polled then).
  * Connecting a pad shows CONNECTED_HINT for 3 s (`onHint`, the binding's
- * hint).
- * @param {{getMode: () => string, onHint?: Function, windowRef?: object,
+ * hint); a fly-speed press is also handed to `onFlySpeedStep(±1)`.
+ * @param {{getMode: () => string, onHint?: Function, onFlySpeedStep?:
+ *   Function, windowRef?: object,
  *   navigatorRef?: object, storage?: Storage}} options
  */
 export function createGamepadSource({
   getMode,
   onHint = () => {},
+  onFlySpeedStep = () => {},
   windowRef = globalThis.window,
   navigatorRef = globalThis.navigator,
   storage = globalThis.localStorage,
@@ -289,6 +291,9 @@ export function createGamepadSource({
         dt,
       });
       state = result.state;
+      // Until the binding reads flySpeedStep, a callback hears it too.
+      if (result.intents.flySpeedStep)
+        onFlySpeedStep(result.intents.flySpeedStep);
       return result.intents;
     },
     /** Forget what was held (the binding calls it when a mode starts or ends). */

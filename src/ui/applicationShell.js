@@ -18,6 +18,7 @@ import { CctvControls } from './cctv.js';
 import { StreetLevelControls } from './streetLevelControls.js';
 // Personal fork: Walk and Fly (src/navigation/).
 import { createNavigationBinding } from '../navigation/binding.js';
+import { attachGamepad } from '../navigation/gamepad.js';
 import { createBlockTargeting } from '../navigation/targeting.js';
 import { navigationStore } from '../navigation/store.js';
 import { RadioControls } from './radio.js';
@@ -392,6 +393,14 @@ export class StyleManager extends ShellFacade {
       holdRender: () => services.holdContinuousRender?.('navigation'),
       releaseRender: () => services.releaseContinuousRender?.('navigation'),
       onStatus: (status) => this.hud?.setNavigationStatus(status),
+    });
+    // Personal fork: a gamepad (Bedrock's layout) for Walk and Fly, read by
+    // the binding as an input source; its "controller connected" line in
+    // the binding's keys hint.
+    this._gamepad = attachGamepad({
+      addInputSource: (source) => this._embodied.addSource(source),
+      store: navigationStore(),
+      onHint: (text, ms) => this._embodied?.hint?.(text, ms),
     });
     // Personal fork: under Blocks, the block under the crosshair (Walk,
     // Fly) or the pointer (Spectator): the HUD's BLOCK line, the outline.
@@ -1802,6 +1811,8 @@ export class StyleManager extends ShellFacade {
     this._cockpitCoordinator.stop();
     this._blockTargeting?.destroy();
     this._blockTargeting = null;
+    this._gamepad?.detach();
+    this._gamepad = null;
     this._embodied?.destroy();
     this._embodied = null;
     this._visualSettings.stop();

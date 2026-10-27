@@ -309,6 +309,25 @@ test('the source: one-shot presses on their frame only; reset forgets what was h
   );
 });
 
+test('the source: a fly-speed press is also handed to onFlySpeedStep', () => {
+  const env = fakeEnvironment();
+  env.setPads([pad({ held: [BUTTONS.LEFT] })]);
+  const steps = [];
+  const source = createGamepadSource({
+    windowRef: env.windowRef,
+    navigatorRef: env.navigatorRef,
+    storage: null,
+    getMode: () => 'fly',
+    onFlySpeedStep: (step) => steps.push(step),
+  });
+  source.read(1 / 60);
+  source.read(1 / 60); // held: once
+  env.setPads([pad({ held: [BUTTONS.RIGHT] })]);
+  source.read(1 / 60);
+  assert.deepEqual(steps, [-1, 1]);
+  source.destroy();
+});
+
 test('attachGamepad: registered as a source, reading the mode from the store, the hint through onHint', () => {
   const env = fakeEnvironment();
   let mode = 'walk';
