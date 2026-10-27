@@ -7014,10 +7014,18 @@ AIS stay). The summary wraps to three lines instead of clipping.
 - **Bottom left, position:** LAT and LON (decimal degrees), DMS and MGRS at
   the same precision, ALT above mean sea level (EGM96, as before) and AGL
   above the rendered surface under the camera, with the surface's name in
-  small type ("AGL 4.2 m · Google"). AGL is `scene.sampleHeight` under the
-  camera, as the ground guard samples it: "—" until the tiles there answer,
-  sampled again on settling and at most once a second while the camera has
-  left the last sample (`src/hud/cameraState.js`).
+  small type ("AGL 4.2 m · Google"). The surface under the camera
+  (`surfaceUnderCamera`, `src/hud/cameraState.js`) is a ray straight down
+  from the camera through the scene (`pickFromRay`, so it meets the tiles
+  the view loaded near the camera), else `scene.sampleHeight`, else the
+  shown globe's terrain; an answer outside −500 … 9,000 m is a miss, not
+  the ground. On 2026-10-27 over Lake Tahoe on Google's tiles, 4 m above
+  the water, AGL read 25,700 m from a sample at −23.8 km (the sag of a
+  coarse tile's chord, it seems; sampleHeight's ray starts 9 km up). AGL is
+  "—" until a plausible answer, sampled again on settling and at most once
+  a second while it has none or the camera has left it.
+  `window.__gevHudCamera.diagnostics()` in a live tab lists every way's raw
+  answer beside the ones used.
 - **Bottom right, pose:** HEADING, PITCH, ROLL, FOV, then PX (one pixel's
   ground footprint) and SUN.
 - **Editing.** A click on LAT, LON, ALT, AGL, HEADING, PITCH, ROLL or FOV
@@ -7031,8 +7039,10 @@ AIS stay). The summary wraps to three lines instead of clipping.
 - **Precision** (`src/hud/precision.js`). A pixel's footprint is
   2·d·tan(fov/2) ÷ the canvas's wider side in CSS pixels (Cesium's fov spans
   the wider side), d the distance to the surface at the screen's centre
-  (`scene.pickPosition`, else the globe along the centre ray, else the
-  camera's height). Lengths are shown to the footprint rounded down to a
+  (`scene.pickPosition`, else a ray through the scene's primitives, the
+  Google tileset among them, else the globe, else the camera's height; a
+  hit off the plausible surfaces is not taken; measured again when the
+  view changes or after a second). Lengths are shown to the footprint rounded down to a
   power of ten (10 km … 1 mm), no finer than the decimal place of the data
   floor; LAT and LON take the decimals whose step (0.1° ≈ 11 km …
   0.000001° ≈ 0.11 m) resolves the larger of the footprint and the floor;
@@ -7052,7 +7062,8 @@ AIS stay). The summary wraps to three lines instead of clipping.
 - **Share links** (`src/sharelink.js`) carry the camera at the HUD's
   precision (`setCameraPrecisionProvider`): lat/lon and alt as the HUD shows
   them, so links are short from high up and about a metre near the ground;
-  heading, pitch and roll to 2 decimals (heading in 0 … 360); `fov` to 2
+  heading, pitch and roll to 2 decimals (heading in 0 … 360, roll in
+  −180 … 180, so a hair under 360° is 0); `fov` to 2
   decimals, written only when it is not 60°, so older links read the same.
   Without a HUD the old precision stands (4 decimals, whole metres).
 

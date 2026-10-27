@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
-import { ShareLinkManager } from './sharelink.js';
+import { ShareLinkManager, wrapRollDeg } from './sharelink.js';
 import { DATA_FLOORS, viewPrecision } from './hud/precision.js';
 
 const rad = (deg) => (deg * Math.PI) / 180;
@@ -73,6 +73,27 @@ test('a heading a hair under 360° is written as 0', () => {
   assert.equal(manager._buildHashParams().get('heading'), '0');
   const west = makeManager({ ...HARBOR, headingDeg: -90 }).manager;
   assert.equal(west._buildHashParams().get('heading'), '270');
+});
+
+test('roll is written in -180 … 180: a hair under 360° is 0 (Tahoe, 2026-10-27)', () => {
+  // The live link read roll=360 for a 0.00° roll.
+  for (const [rollDeg, written] of [
+    [359.9991, '0'],
+    [360 - 1e-9, '0'],
+    [-0.0001, '0'],
+    [190, '-170'],
+    [-179.999, '180'],
+    [180, '180'],
+    [12.345, '12.35'],
+  ])
+    assert.equal(
+      makeManager({ ...HARBOR, rollDeg })
+        .manager._buildHashParams()
+        .get('roll'),
+      written,
+      `${rollDeg}`,
+    );
+  assert.equal(wrapRollDeg(-540), 180);
 });
 
 test('from high up the link is short', () => {

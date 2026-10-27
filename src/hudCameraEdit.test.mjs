@@ -32,6 +32,9 @@ const { IntelHUD } = await import('./hud.js');
 
 const rad = (deg) => (deg * Math.PI) / 180;
 
+/** What the scene's sampleHeight answers (12.4 m unless a test says). */
+let surfaceAnswer = () => 12.4;
+
 /** A camera over the Inner Harbor and a scene whose surface is 12.4 m up. */
 function setup() {
   const views = [];
@@ -45,6 +48,9 @@ function setup() {
       latitude: rad(39.2858),
       longitude: rad(-76.6083),
       height: 500,
+    },
+    get positionWC() {
+      return Cesium.Cartographic.toCartesian(this.positionCartographic);
     },
     getPickRay: () => undefined,
     computeViewRectangle: () => undefined,
@@ -67,7 +73,7 @@ function setup() {
     scene: {
       canvas: { clientWidth: 1000, clientHeight: 600 },
       globe: { show: true, pick: () => undefined },
-      sampleHeight: () => 12.4,
+      sampleHeight: () => surfaceAnswer(),
       requestRender() {},
     },
   };
@@ -128,6 +134,42 @@ test('FOV goes on the frustum and is announced as a view change; AGL rides the s
   } finally {
     s.hud.destroy();
   }
+});
+
+test('a surface sampled at -23.8 km is not the ground: AGL waits, then takes a sane one', () => {
+  surfaceAnswer = () => -23_800;
+  const s = setup();
+  try {
+    s.hud._updateCameraData();
+    assert.ok(Number.isNaN(s.hud._latestMetrics.aglM), 'not 25,700 m');
+    // Asked again a second later, with a sane answer this time.
+    surfaceAnswer = () => 12.4;
+    s.hud._updateCameraData();
+    assert.ok(Number.isNaN(s.hud._latestMetrics.aglM), 'not before the retry');
+    s.hud._surface.at -= 1000;
+    s.hud._updateCameraData();
+    assert.ok(Math.abs(s.hud._latestMetrics.aglM - (500 - 12.4)) < 1e-6);
+    // An AGL edit needs a sane surface too.
+    surfaceAnswer = () => -23_800;
+    assert.equal(s.hud._applyCameraEdit('agl', 1.7), false);
+  } finally {
+    surfaceAnswer = () => 12.4;
+    s.hud.destroy();
+  }
+});
+
+test('the live diagnostics handle comes and goes with the HUD', () => {
+  globalThis.window = {};
+  const s = setup();
+  try {
+    const report = globalThis.window.__gevHudCamera.diagnostics();
+    assert.equal(report.surface.sampleHeightM, 12.4);
+    assert.equal(report.used.surface.via, 'sample');
+  } finally {
+    s.hud.destroy();
+  }
+  assert.equal(globalThis.window.__gevHudCamera, undefined);
+  delete globalThis.window;
 });
 
 test('the precision the link gets: the floor of the surface under the camera', () => {
