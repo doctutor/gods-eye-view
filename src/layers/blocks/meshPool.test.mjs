@@ -281,3 +281,59 @@ test('a worker that fails is dropped and its job meshed in-thread; a job that th
   await assert.rejects(failing.meshChunkAsync(chunk, OPTIONS), /bad job/);
   failing.destroy();
 });
+
+/** hilly() with buildings: on the chunk, on its east edge, and one broken into. */
+function withBuildings(ci, cj, seed) {
+  const chunk = hilly(ci, cj, seed);
+  for (let i = 10; i < 14; i += 1)
+    for (let j = 40; j < 45; j += 1)
+      chunk.setStructure(i, j, chunk.topSolid(i, j) + 6);
+  for (let j = 0; j < 3; j += 1)
+    for (const i of [0, N - 1])
+      chunk.setStructure(i, j, chunk.topSolid(i, j) + 4);
+  // An edit over a structure wins: a window broken into the first block.
+  chunk.setBlock(11, 41, chunk.top[columnIndex(11, 41)] + 3, MATERIALS.AIR);
+  return chunk;
+}
+
+test('buildings travel: the structures layer of the chunk and of its neighbours’ edges, with the edits over them', async () => {
+  const chunk = withBuildings(0, 0, 1);
+  const neighbours = Object.fromEntries(
+    Object.entries(OFFSETS).map(([key, [dx, dy]]) => [
+      key,
+      withBuildings(dx, dy, dx * 3 + dy),
+    ]),
+  );
+  const direct = buildChunkMesh(chunk, { ...OPTIONS, neighbours });
+  const { job } = snapshotJob(chunk, { ...OPTIONS, neighbours });
+  assert.ok(job.chunk.structureTop, 'the chunk carries its structures');
+  assert.ok(job.neighbours.e.structureTop, 'and the east edge its own');
+  assertSameMesh(runMeshJob(structuredClone(job)), direct);
+  // The buildings change the mesh: the old snapshot (no structures) would
+  // have meshed the bare hill.
+  const bare = buildChunkMesh(hilly(0, 0, 1), { ...OPTIONS, neighbours });
+  assert.notEqual(direct.faces, bare.faces);
+  assert.ok(direct.stats.up > bare.stats.up, 'roofs');
+  const back = restoreChunk(snapshotChunk(chunk));
+  const top = chunk.top[columnIndex(11, 41)];
+  for (const y of [top + 1, top + 3, top + 6, top + 7])
+    assert.equal(back.occupancy(11, 41, y), chunk.occupancy(11, 41, y), `${y}`);
+  assert.equal(back.occupancy(11, 41, top + 3), MATERIALS.AIR, 'the window');
+  assert.equal(back.occupancy(11, 41, top + 2), MATERIALS.BUILDING);
+  // A chunk without buildings carries none.
+  assert.equal(
+    snapshotJob(hilly(5, 5), OPTIONS).job.chunk.structureTop,
+    undefined,
+  );
+  // And through the real worker.
+  const pool = createMeshPool({ size: 1, createWorker: nodeMeshWorker });
+  try {
+    assertSameMesh(
+      await pool.meshChunkAsync(chunk, { ...OPTIONS, neighbours }),
+      direct,
+      'worker',
+    );
+  } finally {
+    pool.destroy();
+  }
+});
