@@ -6034,7 +6034,19 @@ controller:
 The sun is fixed when the region is anchored: the real sun when it is more
 than 15° up, otherwise a study sun 60° up from the south-west; mesh.js
 bakes it into the colours with per-face shading and ambient occlusion.
-Fog closes in from 60 % of the render distance to its edge. Turning
+Fog closes in from 60 % of the render distance to its edge.
+
+**The globe.** Within the render distance the world is the blocks. On a
+drawn style (blank, Positron, dark, Countries: `isFlatBasemap`) the globe
+is hidden while Blocks is on, the terrain beneath would otherwise poke
+through the block tops, and the fog hides where the blocks end. Leaving
+Blocks, or turning Elevation off, shows it again. On imagery and the
+photoreal tiles the globe stays (the ground and the block tops still
+fight there for now); on a switch to another map Blocks leaves the globe
+as the map stack set it. While the globe is hidden, draped overlays have
+nowhere to go and say so in their rows.
+
+Turning
 Elevation off, or picking Colour or Lego, removes every chunk; the
 renderer is made the first time a region is anchored, so a page that never
 picks Blocks adds nothing to the scene.

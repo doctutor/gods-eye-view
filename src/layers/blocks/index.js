@@ -134,6 +134,8 @@ export function sourceName(source) {
  *   buildChunkMesh: Function,
  *   sun?: (lon: number, lat: number) => {dir: {east: number, north: number,
  *     up: number}, fixed: boolean},
+ *   flatStyle?: () => boolean, whether the map is a drawn style (blank,
+ *     Positron, dark, Countries), where Blocks hides the globe,
  *   datum?: {flat: () => boolean, undulation: (lat: number, lon: number)
  *     => number|Promise<number>, subscribe?: Function},
  *   radiusBlocks?: number, budget?: number, tickMs?: number,
@@ -151,6 +153,7 @@ export function createBlocksController({
   buildChunkMesh,
   sun = () => STUDY_SUN,
   datum = FLAT_DATUM,
+  flatStyle = () => false,
   radiusBlocks = RENDER_DISTANCE_BLOCKS,
   budget = CHUNK_BUDGET,
   tickMs = TICK_MS,
@@ -166,6 +169,8 @@ export function createBlocksController({
   let _moving = false;
   let _destroyed = false;
   let _status = { state: 'off' };
+  let _globeHidden = false;
+  let _globeBefore = true;
   /** key → {key, ci, cj, chunk, loading, failed, signature, shown} */
   const _chunks = new Map();
   const _listeners = new Set();
@@ -393,7 +398,38 @@ export function createBlocksController({
    * One step: anchor or re-anchor, drop the far chunks, start loads and
    * mesh what arrived, each under the budget, nearest first.
    */
+  /**
+   * Within the render distance the world is the blocks: on a drawn style
+   * the globe is hidden while Blocks is on (the fog hides the edge). On
+   * imagery and the photoreal tiles the globe stays. Leaving Blocks on a
+   * drawn style shows it again; on a switch to another map the map stack
+   * controller has set it for that map already, and it is left as it is.
+   */
+  function applyGlobe() {
+    const globe = _viewer?.scene?.globe;
+    if (!globe) return;
+    const drawn = Boolean(flatStyle());
+    if (active() && drawn) {
+      if (!_globeHidden) {
+        _globeHidden = true;
+        _globeBefore = globe.show;
+      }
+      if (globe.show) {
+        globe.show = false;
+        requestRender('blocks-globe');
+      }
+      return;
+    }
+    if (!_globeHidden) return;
+    _globeHidden = false;
+    if (drawn && !globe.show && _globeBefore !== false) {
+      globe.show = true;
+      requestRender('blocks-globe');
+    }
+  }
+
   function tick() {
+    applyGlobe();
     if (!active()) {
       if (_region || _anchoring || _chunks.size) clearAll(statusOff());
       else setStatus({ state: statusOff() });
@@ -568,6 +604,7 @@ export function createBlocksController({
       }
       clearAll('off');
       _destroyed = true;
+      applyGlobe();
       _listeners.clear();
       setBlocksFloorM(null);
       try {

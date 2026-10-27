@@ -8,6 +8,7 @@ import { blocksSun, createBlocksRenderer } from '../layers/blocks/renderer.js';
 import { createRasterValuesClient } from '../data/rasterValues.js';
 import { governorRequestRender } from '../renderGovernor.js';
 import { ensureGeoidReady, geoidHeight } from '../data/geoid.js';
+import { isFlatBasemap } from '../layers/lego/renderMode.js';
 
 /**
  * Personal fork: Render: Blocks (docs/BLOCKS-PLAN.md), the ground around
@@ -42,6 +43,9 @@ export function createApplicationBlocks({
     // The real sun when it is above 15°, else the study sun.
     sun: (lon, lat) => blocksSun(Date.now(), lat, lon),
     datum: blocksDatum({ viewer, mapStackController }),
+    // On a drawn style the blocks are the world: the globe is hidden.
+    flatStyle: () =>
+      isFlatBasemap(mapStackController?.getActiveStack?.()) === true,
     requestRender: governorRequestRender,
   });
 }

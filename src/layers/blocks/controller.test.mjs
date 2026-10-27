@@ -121,6 +121,7 @@ function fakeViewer(lon = LON0, lat = LAT0) {
   };
   return {
     camera,
+    scene: { globe: { show: true } },
     moveTo(lonNow, latNow = lat) {
       camera.positionCartographic = {
         longitude: lonNow * RAD,
@@ -163,6 +164,7 @@ function setup({
   source,
   radiusBlocks,
   datum,
+  flatStyle,
 } = {}) {
   const store = createRenderModeStore({ storage: memoryStorage() });
   store.setMode(mode);
@@ -184,6 +186,7 @@ function setup({
     },
     ...(radiusBlocks ? { radiusBlocks } : {}),
     ...(datum ? { datum } : {}),
+    ...(flatStyle ? { flatStyle } : {}),
     setIntervalImpl(callback) {
       timers.callback = callback;
       timers.set++;
@@ -632,4 +635,59 @@ test('the ground flipping (a new map stack) re-anchors with the new offset; a ge
   } finally {
     console.warn = warn;
   }
+});
+
+test('the globe: hidden while Blocks is on over a drawn style, shown again on leaving; kept on imagery', async () => {
+  // Blank + Blocks: hidden at once, before a chunk arrives.
+  let drawn = true;
+  const blank = setup({ flatStyle: () => drawn, radiusBlocks: 64 });
+  const globe = blank.viewer.scene.globe;
+  assert.equal(globe.show, false);
+  await drain(blank.controller);
+  assert.equal(globe.show, false);
+  // Leave Blocks (Colour): shown again.
+  blank.store.setMode('colour');
+  assert.equal(globe.show, true);
+  // Back to Blocks, then Elevation off: shown (nothing is drawn).
+  blank.store.setMode('blocks');
+  assert.equal(globe.show, false);
+  blank.layers.set(false);
+  assert.equal(globe.show, true);
+  blank.layers.set(true);
+  assert.equal(globe.show, false);
+  // A switch to imagery: the map stack controller shows the globe for its
+  // map; Blocks leaves it so and does not hide it again.
+  drawn = false;
+  globe.show = true;
+  blank.controller.tick();
+  assert.equal(globe.show, true);
+  // ...nor shows it when the new map is one that hides it (photoreal).
+  drawn = true;
+  blank.controller.tick();
+  assert.equal(globe.show, false);
+  drawn = false;
+  globe.show = false; // the photoreal stack hid it
+  blank.controller.tick();
+  assert.equal(globe.show, false, 'the map’s choice stands');
+  // Destroy on a drawn style restores it.
+  drawn = true;
+  globe.show = true;
+  blank.controller.tick();
+  assert.equal(globe.show, false);
+  blank.controller.destroy();
+  assert.equal(globe.show, true);
+
+  // Satellite + Blocks: the globe stays.
+  const satellite = setup({ flatStyle: () => false, radiusBlocks: 64 });
+  await drain(satellite.controller);
+  assert.equal(satellite.viewer.scene.globe.show, true);
+  assert.ok(satellite.renderer.shown.size > 0);
+  satellite.controller.destroy();
+  assert.equal(satellite.viewer.scene.globe.show, true);
+
+  // Blank in Colour: never touched.
+  const colour = setup({ flatStyle: () => true, mode: 'colour' });
+  assert.equal(colour.viewer.scene.globe.show, true);
+  colour.controller.destroy();
+  assert.equal(colour.viewer.scene.globe.show, true);
 });
