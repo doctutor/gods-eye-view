@@ -664,15 +664,56 @@ export function structureLevels(
   return outlines;
 }
 
+/** Ramp blocks before a deck where a road on the ground meets it: 3 at 1 m, one from 5 m. */
+export const rampBlocks = (blockM) => Math.max(1, Math.round(3 / blockM));
+
+/**
+ * Where a point (region metres) lies along a line ([{x, y}]): `s` the
+ * distance along it to the nearest point on it, `length` the line's.
+ */
+export function alongLine(points, x, y) {
+  let best = Infinity;
+  let at = 0;
+  let walked = 0;
+  for (let k = 0; k + 1 < points.length; k++) {
+    const a = points[k];
+    const b = points[k + 1];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const length = Math.hypot(dx, dy);
+    const t = length
+      ? Math.max(
+          0,
+          Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / length ** 2),
+        )
+      : 0;
+    const d = Math.hypot(a.x + t * dx - x, a.y + t * dy - y);
+    if (d < best) {
+      best = d;
+      at = walked + t * length;
+    }
+    walked += length;
+  }
+  return { s: at, length: walked };
+}
+
 /**
  * Bridges into a group's levels (structureLevels's, with `structure`, the
- * material per column, added): each span a deck one block thick at the
- * highest ground under its columns, ends included, plus bridgeLiftBlocks,
- * ROAD, with a hollow under it (the ground keeps its own surface: a river
- * stays water). A line is buffered as a road is (lineHalfWidthM), an area
- * (man_made=bridge) filled. A building keeps its column; where two decks
- * cross, the higher.
- * @returns {number} deck columns
+ * material per column, added): each span a deck one block thick, ROAD,
+ * with a hollow under it (the ground keeps its own surface: a river stays
+ * water). A line's deck slopes: at each column, the level between its two
+ * ends' (each the ground at the end + bridgeLiftBlocks) by the distance
+ * along the way, never under the column's own ground + 1, so a span over
+ * a ridge still clears it; `endGround(bridge)` gives the ends' ground,
+ * [a, b] (NONE where it is not known: that end is taken as the highest
+ * ground under the span). An area (man_made=bridge) is flat, at the
+ * highest ground under it + the lift. A line is buffered as a road is
+ * (lineHalfWidthM). A building keeps its column; where two decks cross,
+ * the higher. Then, where a road on the ground (`roads`, ROAD lines)
+ * meets a deck's end at a shared node, its first rampBlocks blocks past
+ * the deck rise toward it (deck − 1, deck − 2 …), filled from the ground,
+ * so there is no cliff; nothing where a deck meets a deck.
+ * @returns {number} deck and ramp columns
  */
 export function bridgeLevels(
   region,
@@ -681,46 +722,101 @@ export function bridgeLevels(
   bridges,
   { terrainTop, ground },
   levels,
+  { roads = [], endGround = () => null } = {},
 ) {
   const count = GROUP_COLUMNS * GROUP_COLUMNS;
+  const blockM = region.blockM;
   levels.structure ??= new Uint8Array(count);
   const grid = {
-    blockM: region.blockM,
+    blockM,
     i0: gi * GROUP_COLUMNS,
     j0: gj * GROUP_COLUMNS,
     size: GROUP_COLUMNS,
   };
   const local = (points) =>
     points.map(({ lon, lat }) => region.toLocal(lon, lat));
+  const centre = (index) => ({
+    x: (grid.i0 + (index % GROUP_COLUMNS) + 0.5) * blockM,
+    y: (grid.j0 + Math.floor(index / GROUP_COLUMNS) + 0.5) * blockM,
+  });
   const building = levels.top.map((top) => (top !== NONE ? 1 : 0));
-  let decks = 0;
+  const deck = new Uint8Array(count);
+  const ends = []; // {point, level, halfM}: where a ramp may meet a deck
+  let placed = 0;
+  const put = (index, top, bottom) => {
+    if (levels.top[index] === NONE) placed++;
+    levels.top[index] = top;
+    levels.bottom[index] = bottom;
+    levels.structure[index] = MATERIALS.ROAD;
+  };
   for (const bridge of bridges) {
     const columns = [];
     const keep = (index) => {
       if (terrainTop(index) !== NONE) columns.push(index);
     };
-    if (bridge.rings) scanFootprint(bridge.rings.map(local), grid, keep);
-    else
-      scanLine(
-        local(bridge.points),
-        lineHalfWidthM(bridge.widthM, region.blockM),
-        grid,
-        keep,
-      );
+    const line = bridge.rings ? null : local(bridge.points);
+    const halfM = line ? lineHalfWidthM(bridge.widthM, blockM) : 0;
+    if (line) scanLine(line, halfM, grid, keep);
+    else scanFootprint(bridge.rings.map(local), grid, keep);
     if (!columns.length) continue;
+    const lift = bridgeLiftBlocks(bridge.tags, blockM);
     let base = -Infinity;
     for (const index of columns) base = Math.max(base, ground(index));
-    const deck = base + bridgeLiftBlocks(bridge.tags, region.blockM);
+    let levelAt = () => base + lift;
+    if (line) {
+      const [a, b] = endGround(bridge) ?? [];
+      const levelA = (a === undefined || a === NONE ? base : a) + lift;
+      const levelB = (b === undefined || b === NONE ? base : b) + lift;
+      levelAt = (index) => {
+        const { x, y } = centre(index);
+        const { s: along, length } = alongLine(line, x, y);
+        const t = length ? along / length : 0;
+        return Math.max(
+          Math.round(levelA + (levelB - levelA) * t),
+          ground(index) + 1,
+        );
+      };
+      ends.push(
+        { point: bridge.points[0], level: levelA, halfM },
+        {
+          point: bridge.points[bridge.points.length - 1],
+          level: levelB,
+          halfM,
+        },
+      );
+    }
     for (const index of columns) {
       if (building[index]) continue;
-      if (levels.top[index] !== NONE && levels.top[index] >= deck) continue;
-      if (levels.top[index] === NONE) decks++;
-      levels.top[index] = deck;
-      levels.bottom[index] = deck;
-      levels.structure[index] = MATERIALS.ROAD;
+      const level = levelAt(index);
+      if (levels.top[index] !== NONE && levels.top[index] >= level) continue;
+      put(index, level, level);
+      deck[index] = 1;
     }
   }
-  return decks;
+  // Ramps where a road on the ground meets a deck's end.
+  const steps = rampBlocks(blockM);
+  for (const end of ends)
+    for (const road of roads) {
+      const first = samePoint(road.points[0], end.point);
+      const last = samePoint(road.points[road.points.length - 1], end.point);
+      if (!first && !last) continue;
+      const roadLine = local(road.points);
+      scanLine(roadLine, lineHalfWidthM(road.widthM, blockM), grid, (index) => {
+        if (building[index] || deck[index]) return;
+        const top = terrainTop(index);
+        if (top === NONE) return;
+        const { x, y } = centre(index);
+        const { s: along, length } = alongLine(roadLine, x, y);
+        // Blocks past the deck's rounded end, from the shared node.
+        const past = (first ? along : length - along) - end.halfM;
+        const k = Math.max(1, Math.ceil(past / blockM));
+        const level = end.level - k;
+        if (k > steps || level <= top) return;
+        if (levels.top[index] !== NONE && levels.top[index] >= level) return;
+        put(index, level, top + 1);
+      });
+    }
+  return placed;
 }
 
 /**
@@ -887,6 +983,50 @@ export function createStructuresSource({
     return featuresIn(await loadSupergroup(region, si, sj), bounds);
   }
 
+  /**
+   * The ground at each line bridge's two ends, [a, b] (NONE where it is not
+   * known), from this group's chunks or the elevation source's.
+   */
+  async function bridgeEnds(region, gi, gj, bridges, terrain) {
+    const blockM = region.blockM;
+    const groundOf = async (point) => {
+      const { x, y } = region.toLocal(point.lon, point.lat);
+      const i = Math.floor(x / blockM);
+      const j = Math.floor(y / blockM);
+      const ci = Math.floor(i / CHUNK_COLUMNS);
+      const cj = Math.floor(j / CHUNK_COLUMNS);
+      const a = ci - gi * CHUNK_GROUP;
+      const b = cj - gj * CHUNK_GROUP;
+      let chunk;
+      if (a >= 0 && a < CHUNK_GROUP && b >= 0 && b < CHUNK_GROUP)
+        chunk = terrain[b * CHUNK_GROUP + a];
+      else
+        chunk = await Promise.resolve(loadChunk(region, ci, cj)).catch(
+          () => null,
+        );
+      if (!chunk) return NONE;
+      const k = columnIndex(i - ci * CHUNK_COLUMNS, j - cj * CHUNK_COLUMNS);
+      const top = chunk.top[k];
+      const water = chunk.water[k];
+      return top === NONE || water === NONE ? top : Math.max(top, water);
+    };
+    const ends = new Map();
+    await Promise.all(
+      bridges
+        .filter((bridge) => bridge.points)
+        .map(async (bridge) =>
+          ends.set(
+            bridge,
+            await Promise.all([
+              groundOf(bridge.points[0]),
+              groundOf(bridge.points[bridge.points.length - 1]),
+            ]),
+          ),
+        ),
+    );
+    return ends;
+  }
+
   function remember(key, promise) {
     held.delete(key);
     held.set(key, promise);
@@ -933,15 +1073,17 @@ export function createStructuresSource({
       for (let index = 0; index < levels.material.length; index++)
         if (levels.top[index] !== NONE) levels.material[index] = 0;
       // Bridges over the ground, which keeps its own surface (a river
-      // stays water under a deck).
-      bridgeLevels(
-        region,
-        gi,
-        gj,
-        features.bridges ?? [],
-        groupTerrain(terrain),
-        levels,
-      );
+      // stays water under a deck); their ends' ground read where it is,
+      // in this group or (from the elevation source) another, so a deck
+      // across groups slopes the same in each.
+      const bridges = features.bridges ?? [];
+      const ends = await bridgeEnds(region, gi, gj, bridges, terrain);
+      bridgeLevels(region, gi, gj, bridges, groupTerrain(terrain), levels, {
+        roads: features.lines.filter(
+          (line) => line.material === MATERIALS.ROAD,
+        ),
+        endGround: (bridge) => ends.get(bridge),
+      });
       const chunks = new Map();
       for (const { a, b, ci, cj } of cells)
         chunks.set(`${ci}:${cj}`, chunkLevels(levels, a, b));

@@ -6362,15 +6362,26 @@ grass, forest and road.
 
 **Bridges.** A road or railway with a `bridge` tag (any value but `no`),
 and a `man_made=bridge` area, is not ground but a deck in the air: one
-block thick, road-coloured, in the structures layer, at the highest
-ground under its columns (its ends included) plus 5 m, or `layer` × 5 m
-for layers 1 to 3, at least one block; buffered as a road is. The ground
-under it keeps its own surface, so the Jones Falls stays water under I-83,
-and the hollow between is air. A building keeps its column; where two
-decks cross, the higher one. With the Buildings switch off the decks go
-with the buildings. One 1 m group on I-83 (layer 1): 2,691 deck columns,
-439 of them over the river; one at North Avenue: 20,627 deck columns in
-three layers (+5, +10 and +15 m).
+block thick, road-coloured, in the structures layer, 5 m over the
+ground, or `layer` × 5 m for layers 1 to 3, at least one block; a line
+is buffered as a road is. A line's deck slopes: at each column it lies
+between its two ends' levels (the ground at each end plus that lift) by
+the distance along the way, never under the column's own ground plus
+one block, so a span over a ridge still clears it. The ends' ground is
+read where they are, from the elevation source's chunks when an end lies
+in another group, so a deck across groups slopes alike in each. An area
+stays flat, at the highest ground under it plus the lift. Where a road
+on the ground meets a deck's end at a shared node, its first blocks past
+the deck rise toward it (deck − 1, − 2, − 3 at 1 m; one block from 5 m),
+filled from the ground, so the road climbs rather than meeting a cliff;
+a deck meeting another deck needs none. The ground under a deck keeps
+its own surface, so the Jones Falls stays water under I-83, and the
+hollow between is air. A building keeps its column; where two decks
+cross, the higher one. With the Buildings switch off the decks go with
+the buildings. One 1 m group on I-83 (layer 1): 2,691 deck columns, 439
+of them over the river. At North Avenue (1 m, with stand-in ground
+rising a level every 20 m): 20,627 deck columns over 13 levels, 59 ramp
+columns, the ends read from 9 chunks outside the group, 2.1 s.
 
 **Above 2 m blocks** the query leaves out what a block cannot show:
 buildings with a perimeter under 8 blocks (Overpass's `if:length()`),
