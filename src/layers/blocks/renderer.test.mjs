@@ -342,7 +342,13 @@ test('a real Cesium.Primitive from a tiny mesh: float local positions, per-verte
   const vs = primitive.appearance.vertexShaderSource;
   assert.match(vs, /in vec3 position;/);
   assert.doesNotMatch(vs, /position3DHigh/);
-  assert.match(vs, /czm_modelViewProjection \* p/);
+  assert.match(vs, /czm_modelView \* p/);
+  // Drawn a little nearer the eye than it is, so it wins ties with terrain.
+  assert.match(vs, /const float DEPTH_BIAS = 1e-4;/);
+  assert.match(
+    vs,
+    /czm_projection \* vec4\(positionEC\.xyz \* \(1\.0 - DEPTH_BIAS\), 1\.0\)/,
+  );
   // Opaque faces write depth (Cesium's default); water's do not.
   assert.notEqual(primitive.appearance.renderState.depthMask, false);
   assert.equal(primitive.appearance.renderState.depthTest.enabled, true);
@@ -382,4 +388,34 @@ test('primitive3D: updates with a 3D-only view of the frame state, nothing outsi
   const only3D = { ...frameState, scene3DOnly: true };
   primitive.update(only3D);
   assert.equal(seen[1], only3D);
+});
+
+test('fog colour follows the scene background until setFog names one', () => {
+  const viewer = fakeViewer();
+  viewer.scene.preRender = new Cesium.Event();
+  viewer.scene.backgroundColor = Cesium.Color.BLACK.clone();
+  const renderer = createBlocksRenderer({ viewer });
+  const uniforms = () =>
+    renderer.getCollection().get(0).appearance.material.uniforms;
+  renderer.setRegion(stubRegion());
+  renderer.upsert('0:0', tinyMesh());
+  assert.deepEqual(renderer.getState().fog.color, [0, 0, 0, 1]);
+  assert.equal(renderer.getState().fog.followsBackground, true);
+  // The background changes: the next frame takes it.
+  viewer.scene.backgroundColor = new Cesium.Color(0.2, 0.4, 0.6, 1);
+  viewer.scene.preRender.raiseEvent(viewer.scene);
+  assert.ok(Math.abs(uniforms().fogColor.green - 0.4) < 1e-6);
+  // A named colour holds against background changes.
+  const fog = renderer.setFog({ startM: 400, endM: 512, color: [1, 0, 0, 1] });
+  assert.equal(fog.followsBackground, false);
+  viewer.scene.backgroundColor = Cesium.Color.WHITE.clone();
+  viewer.scene.preRender.raiseEvent(viewer.scene);
+  assert.equal(uniforms().fogColor.red, 1);
+  assert.equal(uniforms().fogColor.green, 0);
+  // 'background' follows again.
+  renderer.setFog({ color: 'background' });
+  assert.equal(uniforms().fogColor.green, 1);
+  assert.equal(renderer.getState().fog.endM, 512);
+  renderer.destroy();
+  assert.equal(viewer.scene.preRender.numberOfListeners, 0);
 });

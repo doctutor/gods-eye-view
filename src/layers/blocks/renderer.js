@@ -27,8 +27,16 @@ import { solarParameters, sunPosition } from '../../data/solarDaylight.js';
 export const REAL_SUN_MIN_ELEVATION_DEG = 15;
 /** The study sun: 60° up from the south-west. */
 export const STUDY_SUN = Object.freeze({ elevationDeg: 60, azimuthDeg: 225 });
-/** The fog colour until setFog names one: a clear sky near the horizon. */
+/** The fog colour when the scene has no background colour: a clear sky near the horizon. */
 export const DEFAULT_FOG_COLOR = Object.freeze([0.71, 0.8, 0.9, 1]);
+/**
+ * Each fragment is drawn this fraction of its distance nearer the eye, so
+ * a block top level with the globe's surface (World Terrain, the photoreal
+ * tiles) wins the depth test instead of flickering: 2 cm at 200 m, 1.5 m
+ * at 15 km. A polygon offset would not do it: with Cesium's logarithmic
+ * depth the fragment shader writes the depth.
+ */
+export const DEPTH_BIAS = 1e-4;
 
 const RAD = Math.PI / 180;
 
@@ -79,6 +87,7 @@ export function blocksSun(now, lat, lon) {
 }
 
 const VERTEX_SHADER = `
+const float DEPTH_BIAS = ${DEPTH_BIAS.toExponential()};
 in vec3 position;
 in vec3 normal;
 in vec4 color;
@@ -90,10 +99,11 @@ out vec4 v_color;
 
 void main() {
   vec4 p = vec4(position, 1.0);
-  v_positionEC = (czm_modelView * p).xyz;
+  vec4 positionEC = czm_modelView * p;
+  v_positionEC = positionEC.xyz;
   v_normalEC = czm_normal * normal;
   v_color = color;
-  gl_Position = czm_modelViewProjection * p;
+  gl_Position = czm_projection * vec4(positionEC.xyz * (1.0 - DEPTH_BIAS), 1.0);
 }
 `;
 
@@ -284,10 +294,38 @@ export function createBlocksRenderer({ viewer } = {}) {
     dir: sunVector(STUDY_SUN.elevationDeg, STUDY_SUN.azimuthDeg),
     fixed: true,
   };
+  // The fog colour follows the scene's background unless setFog names one:
+  // with the globe hidden that is what the fogged edge meets.
   let fog = { startM: 1e9, endM: 2e9, color: [...DEFAULT_FOG_COLOR] };
+  let fogFollowsBackground = true;
   let destroyed = false;
 
   const requestRender = () => scene.requestRender?.();
+
+  function applyFog() {
+    for (const appearance of Object.values(appearances)) {
+      const uniforms = appearance.material.uniforms;
+      uniforms.fogStartM = fog.startM;
+      uniforms.fogEndM = fog.endM;
+      uniforms.fogColor = new Cesium.Color(...fog.color);
+    }
+  }
+
+  /** Take the scene's background colour as the fog's; true if it changed. */
+  function followBackground() {
+    const background = scene.backgroundColor;
+    if (!fogFollowsBackground || !background) return false;
+    const next = [background.red, background.green, background.blue, 1];
+    if (next.every((value, k) => value === fog.color[k])) return false;
+    fog.color = next;
+    return true;
+  }
+
+  const removePreRender = scene.preRender?.addEventListener(() => {
+    if (followBackground()) applyFog();
+  });
+  followBackground();
+  applyFog();
 
   function dropChunk(key) {
     const held = chunks.get(key);
@@ -392,7 +430,9 @@ export function createBlocksRenderer({ viewer } = {}) {
     setFog({ startM, endM, color } = {}) {
       if (Number.isFinite(startM)) fog.startM = startM;
       if (Number.isFinite(endM)) fog.endM = endM;
-      if (color !== undefined) {
+      if (color === 'background' || color === null) fogFollowsBackground = true;
+      else if (color !== undefined) {
+        fogFollowsBackground = false;
         const c =
           typeof color === 'string'
             ? Cesium.Color.fromCssColorString(color)
@@ -401,14 +441,10 @@ export function createBlocksRenderer({ viewer } = {}) {
               : color;
         fog.color = [c.red, c.green, c.blue, c.alpha ?? 1];
       }
-      for (const appearance of Object.values(appearances)) {
-        const uniforms = appearance.material.uniforms;
-        uniforms.fogStartM = fog.startM;
-        uniforms.fogEndM = fog.endM;
-        uniforms.fogColor = new Cesium.Color(...fog.color);
-      }
+      followBackground();
+      applyFog();
       requestRender();
-      return { ...fog, color: [...fog.color] };
+      return api.getState().fog;
     },
 
     keys: () => [...chunks.keys()],
@@ -419,7 +455,11 @@ export function createBlocksRenderer({ viewer } = {}) {
       chunks: chunks.size,
       primitives: collection.length,
       sun,
-      fog: { ...fog, color: [...fog.color] },
+      fog: {
+        ...fog,
+        color: [...fog.color],
+        followsBackground: fogFollowsBackground,
+      },
     }),
 
     /** The collection the primitives are in (for tests and the harness). */
@@ -428,6 +468,7 @@ export function createBlocksRenderer({ viewer } = {}) {
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      removePreRender?.();
       chunks.clear();
       scene.pickTranslucentDepth = pickTranslucentDepthBefore;
       scene.primitives.remove(collection);
