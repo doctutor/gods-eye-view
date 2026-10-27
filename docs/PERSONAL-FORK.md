@@ -7322,13 +7322,25 @@ Spectator, so older links read the same) and opens in the mode
   state, keys and a time step give the next state, with the body a column
   1.8 m tall, sliding along walls, a ceiling stopping a jump, and the
   vertical step exact under constant acceleration (a jump peaks at 1.25 m
-  at any frame rate).
+  at any frame rate). A blocked step is closed on the wall by bisection
+  (to 1/256 of the step), so the body comes to rest against it rather than
+  a frame's travel short (18 cm at Fly's speed). Buildings (the store's
+  structures layer) are blocks like any other: occupancy and topSolid
+  include them.
 
 Checked in Chromium on a synthetic flat tileset at Baltimore: Walk held
 the eye 1.620 m (±0.000001) above the tiles over 116 frames of W for 2 s,
 8.60 m covered; Fly rose 7.6 m in a second; a Blocks world put the eye
 1.62 m over the block tops; leaving restored inputs, collision and the
 field of view.
+Against buildings (2026-10-27, a 1 m Blocks world built with
+setStructure): a 2-block wall stopped a walker 0.00002 m from it and it
+slid 6.1 m along it at 45°; a 1-block plinth was walked up, a 2-block one
+not even jumping, and a jump landed on a 1-block ledge; in a hollow
+building (a room carved from a structure) a jump's head peaked at 33.99 m
+under a 34 m ceiling; Fly stopped at a building's wall and rested on its
+roof; the outline sat on the wall block under the crosshair (12 edges, its
+corners exact), a building block.
 
 ## Smaller additions
 
