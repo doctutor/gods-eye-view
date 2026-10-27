@@ -1262,3 +1262,198 @@ test('skirts wait for what is coming: none toward a fine neighbour still loading
   assert.equal(first.options.skirt, undefined);
   run.controller.destroy();
 });
+
+/** A mesher whose jobs wait until released: meshAsync for the controller. */
+function deferredMesher() {
+  const jobs = [];
+  return {
+    jobs,
+    meshAsync(chunk, options) {
+      return new Promise((resolve, reject) =>
+        jobs.push({
+          chunk,
+          options,
+          version: chunk.version,
+          resolve: () => resolve({ faces: 1, chunk, from: chunk.version }),
+          reject,
+        }),
+      );
+    },
+  };
+}
+
+function asyncSetup({ source = fakeSource(), radiusBlocks = 64 } = {}) {
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  const renderer = fakeRenderer();
+  const mesher = deferredMesher();
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: () => {
+      throw new Error('in-thread mesher used');
+    },
+    meshAsync: mesher.meshAsync,
+    radiusBlocks,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  return { controller, viewer, renderer, mesher, store, source };
+}
+
+/** What a job was asked to mesh from: the chunk, its version, neighbours and skirts. */
+const inputsOf = (job) =>
+  [
+    `${job.chunk.ci}:${job.chunk.cj}`,
+    job.version,
+    Object.keys(job.options.neighbours)
+      .sort()
+      .map((name) => `${name}${job.options.neighbours[name].version}`)
+      .join(','),
+    JSON.stringify(job.options.skirt ?? null),
+  ].join('|');
+
+/** Tick until every chunk in range is loaded (the mesher holds its jobs). */
+async function loadAll(controller, ticks = 40) {
+  for (let n = 0; n < ticks; n++) {
+    await settle();
+    controller.tick();
+  }
+}
+
+test('pooled meshing: at most the budget submitted a tick, none twice for the same inputs, drawn when they come back', async () => {
+  const { controller, renderer, mesher } = asyncSetup({ radiusBlocks: 128 });
+  await settle();
+  controller.tick();
+  assert.ok(mesher.jobs.length <= CHUNK_BUDGET, 'the first tick');
+  await loadAll(controller);
+  // Submitted, not drawn yet; each set of inputs once (a chunk is asked
+  // again when a neighbour arrives, and the older answer is then dropped).
+  assert.ok(mesher.jobs.length > 0);
+  assert.equal(renderer.shown.size, 0);
+  const asked = mesher.jobs.map(inputsOf);
+  assert.equal(new Set(asked).size, asked.length, 'no inputs twice');
+  // Settled inputs: another tick submits nothing new for them.
+  const before = mesher.jobs.length;
+  controller.tick();
+  controller.tick();
+  assert.ok(mesher.jobs.length - before <= 2 * CHUNK_BUDGET);
+  // Released, newest first per chunk: drawn, and the status counts them.
+  const latest = new Map();
+  for (const job of mesher.jobs)
+    latest.set(`${job.chunk.ci}:${job.chunk.cj}`, job);
+  for (const job of latest.values()) job.resolve();
+  await settle();
+  assert.ok(renderer.shown.has('0:0'));
+  assert.ok(controller.getStatus().chunks >= 1);
+  controller.destroy();
+});
+
+test('pooled meshing drops a mesh whose chunk moved on, was dropped, or whose region was anchored again', async () => {
+  const { controller, renderer, mesher, viewer } = asyncSetup({
+    radiusBlocks: 64,
+  });
+  await loadAll(controller);
+  const ofOrigin = () =>
+    mesher.jobs.filter((j) => j.chunk.ci === 0 && j.chunk.cj === 0);
+  // Moved on: an edit after submitting; the stale mesh is not drawn and
+  // the chunk is submitted again from what it is now.
+  const job = ofOrigin().at(-1);
+  job.chunk.version = 7;
+  const asked = ofOrigin().length;
+  job.resolve();
+  await settle();
+  assert.ok(!renderer.shown.has('0:0'), 'stale mesh dropped');
+  controller.tick();
+  assert.equal(ofOrigin().length, asked + 1, 'submitted again');
+  assert.equal(ofOrigin().at(-1).version, 7);
+  ofOrigin().at(-1).resolve();
+  await settle();
+  assert.ok(renderer.shown.has('0:0'));
+  // Re-anchored (25 km away): everything pending is thrown away.
+  const pending = mesher.jobs.filter(
+    (j) => !renderer.shown.has(`${j.chunk.ci}:${j.chunk.cj}`),
+  );
+  assert.ok(pending.length > 0);
+  viewer.moveTo(east(25_000));
+  controller.tick();
+  await settle();
+  const upsertsBefore = renderer.calls.filter(([k]) => k === 'upsert').length;
+  for (const j of pending) j.resolve();
+  await settle();
+  assert.equal(
+    renderer.calls.filter(([k]) => k === 'upsert').length,
+    upsertsBefore,
+    'nothing from the old region drawn',
+  );
+  controller.destroy();
+});
+
+test('the pool’s worker path (snapshot, structured clone, restore) meshes a chunk with buildings as the in-thread mesher does', async () => {
+  const { buildChunkMesh } = await import('./mesh.js');
+  const { createChunk } = await import('./store.js');
+  const { createMeshPool } = await import('./meshPool.js');
+  const { runMeshJob } = await import('./meshJob.js');
+  const { applyStructures } = await import('./structures.js');
+  const N = 64;
+  const top = new Int32Array(N * N).fill(10);
+  const material = new Uint8Array(N * N).fill(1);
+  const water = new Int32Array(N * N).fill(-2147483648);
+  const chunk = createChunk({ ci: 0, cj: 0, top, material, water });
+  const east = createChunk({
+    ci: 1,
+    cj: 0,
+    top: top.slice(),
+    material: material.slice(),
+    water: water.slice(),
+  });
+  // A building 12 blocks tall over an 8 × 6 footprint.
+  const heights = new Uint16Array(N * N);
+  for (let j = 20; j < 26; j++)
+    for (let i = 30; i < 38; i++) heights[j * N + i] = 12;
+  assert.ok(applyStructures(chunk, heights) > 0);
+  assert.ok(chunk.structure, 'the store holds the buildings');
+  // A worker that does what meshWorker.js does, across a structured clone.
+  const fakeWorker = () => {
+    const listeners = { message: [], error: [] };
+    return {
+      addEventListener: (type, fn) => listeners[type].push(fn),
+      postMessage({ id, job }) {
+        const copy = structuredClone(job);
+        queueMicrotask(() => {
+          const mesh = runMeshJob(copy);
+          for (const fn of listeners.message) fn({ data: { id, mesh } });
+        });
+      },
+      terminate() {},
+    };
+  };
+  const pool = createMeshPool({ size: 1, createWorker: fakeWorker });
+  const options = {
+    neighbours: { e: east },
+    blockM: 1,
+    sunDir: STUDY_SUN.dir,
+    skirt: { n: 4, s: null, e: null, w: 4 },
+  };
+  const pooled = await pool.meshChunkAsync(chunk, options);
+  const direct = buildChunkMesh(chunk, options);
+  assert.equal(pooled.faces, direct.faces);
+  assert.deepEqual([...pooled.positions], [...direct.positions]);
+  assert.deepEqual([...pooled.colors], [...direct.colors]);
+  assert.deepEqual([...pooled.indices], [...direct.indices]);
+  // And the building is in it: more faces than the bare chunk.
+  const bare = createChunk({
+    ci: 0,
+    cj: 0,
+    top: top.slice(),
+    material: material.slice(),
+    water: water.slice(),
+  });
+  assert.ok(direct.faces > buildChunkMesh(bare, options).faces);
+  pool.destroy?.();
+});

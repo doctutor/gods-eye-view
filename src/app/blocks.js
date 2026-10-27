@@ -2,6 +2,7 @@ import * as Cesium from 'cesium';
 import { createBlocksController } from '../layers/blocks/index.js';
 import * as grid from '../layers/blocks/grid.js';
 import { buildChunkMesh } from '../layers/blocks/mesh.js';
+import { meshChunkAsync } from '../layers/blocks/meshPool.js';
 import { createChunk } from '../layers/blocks/store.js';
 import { createChunkSource } from '../layers/blocks/source.js';
 import { blocksSun, createBlocksRenderer } from '../layers/blocks/renderer.js';
@@ -42,6 +43,8 @@ export function createApplicationBlocks({
     renderer: lazyRenderer(() => createBlocksRenderer({ viewer })),
     grid,
     buildChunkMesh,
+    // Meshed off the main thread by the worker pool.
+    meshAsync: meshChunkAsync,
     // The real sun when it is above 15°, else the study sun.
     sun: (lon, lat) => blocksSun(Date.now(), lat, lon),
     datum: blocksDatum({ viewer, mapStackController }),

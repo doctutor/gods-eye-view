@@ -253,6 +253,9 @@ export function sourceName(source) {
  *     setSun?: Function, setFog?: Function, destroy?: Function},
  *   grid: {createRegion: Function, chunkKey: Function, CHUNK_COLUMNS: number},
  *   buildChunkMesh: Function,
+ *   meshAsync?: (chunk: object, options: object) => Promise<object>, the
+ *     worker pool's meshChunkAsync (meshPool.js): buildChunkMesh's
+ *     arguments, a promise of its mesh; buildChunkMesh in-thread without,
  *   sun?: (lon: number, lat: number) => {dir: {east: number, north: number,
  *     up: number}, fixed: boolean},
  *   flatStyle?: () => boolean, whether the map is a drawn style (blank,
@@ -272,6 +275,7 @@ export function createBlocksController({
   renderer,
   grid,
   buildChunkMesh,
+  meshAsync = null,
   sun = () => STUDY_SUN,
   datum = FLAT_DATUM,
   flatStyle = () => false,
@@ -633,14 +637,17 @@ export function createBlocksController({
     };
   }
 
-  function mesh(entry, { neighbours, skirt, signature }) {
-    const built = buildChunkMesh(entry.chunk, {
-      neighbours,
-      // A coarse chunk's levels are in its own unit, four blocks.
-      blockM: _region.blockM * (entry.coarse ? GROUP_CHUNKS : 1),
-      sunDir: _region.sun.dir,
-      ...(skirt ? { skirt } : {}),
-    });
+  /** What buildChunkMesh (or meshAsync) is given: plain data but the chunks. */
+  const meshOptions = (entry, { neighbours, skirt }) => ({
+    neighbours,
+    // A coarse chunk's levels are in its own unit, four blocks.
+    blockM: _region.blockM * (entry.coarse ? GROUP_CHUNKS : 1),
+    sunDir: _region.sun.dir,
+    ...(skirt ? { skirt } : {}),
+  });
+
+  /** A mesh drawn for its entry, as meshed from `signature`. */
+  function place(entry, built, signature) {
     if (entry.coarse) {
       // The renderer cannot read a 'c:' key: the group's south-west corner.
       built.origin = _region.region.chunkOrigin(
@@ -649,9 +656,55 @@ export function createBlocksController({
       );
       entry.mesh = built;
     }
-    renderer.upsert(entry.key, built);
     entry.signature = signature;
+    // A coarse chunk covered meanwhile keeps the mesh for when it comes back.
+    if (entry.coarse && groupDrawn(entry.gi, entry.gj)) return;
+    renderer.upsert(entry.key, built);
     entry.shown = true;
+  }
+
+  function meshFailed(entry, error) {
+    entry.failed = true;
+    entry.retryAt = Infinity;
+    entry.chunk = null;
+    console.warn(
+      `[Blocks] chunk ${entry.key} not meshed:`,
+      error?.message || error,
+    );
+  }
+
+  /**
+   * Mesh a chunk: in this thread with buildChunkMesh, or through `meshAsync`
+   * (the worker pool, meshPool.js) when given. A pooled mesh that comes
+   * back after the region was anchored again, the chunk was dropped, or
+   * its inputs moved on (its version, a neighbour, a skirt) is thrown
+   * away: the next tick meshes it again from what it is now.
+   */
+  function mesh(entry, inputs) {
+    const options = meshOptions(entry, inputs);
+    if (!meshAsync) {
+      place(entry, buildChunkMesh(entry.chunk, options), inputs.signature);
+      return;
+    }
+    const generation = _generation;
+    const held = entry.coarse ? _coarse : _chunks;
+    entry.meshing = inputs.signature;
+    call(() => meshAsync(entry.chunk, options)).then(
+      (built) => {
+        if (generation !== _generation || held.get(entry.key) !== entry) return;
+        if (entry.meshing === inputs.signature) entry.meshing = null;
+        if (!entry.chunk || meshInputs(entry).signature !== inputs.signature)
+          return;
+        place(entry, built, inputs.signature);
+        statusNow();
+        requestRender('blocks-chunks');
+      },
+      (error) => {
+        if (generation !== _generation || held.get(entry.key) !== entry) return;
+        entry.meshing = null;
+        meshFailed(entry, error);
+      },
+    );
   }
 
   const newEntry = (fields) => ({
@@ -840,6 +893,8 @@ export function createBlocksController({
         const inputs = meshInputs(entry);
         const { signature } = inputs;
         if (entry.shown && entry.signature === signature) continue;
+        // Already being meshed from what it is now (meshAsync).
+        if (entry.meshing === signature) continue;
         if (!entry.shown && entry.mesh && entry.signature === signature) {
           renderer.upsert(entry.key, entry.mesh);
           entry.shown = true;
@@ -849,13 +904,7 @@ export function createBlocksController({
         try {
           mesh(entry, inputs);
         } catch (error) {
-          entry.failed = true;
-          entry.retryAt = Infinity;
-          entry.chunk = null;
-          console.warn(
-            `[Blocks] chunk ${entry.key} not meshed:`,
-            error?.message || error,
-          );
+          meshFailed(entry, error);
         }
         meshed++;
         changed = true;
@@ -882,7 +931,7 @@ export function createBlocksController({
    */
   function hasWork(ring, groups = []) {
     for (const entry of [..._chunks.values(), ..._coarse.values()])
-      if (entry.loading) return true;
+      if (entry.loading || entry.meshing) return true;
     // Not asked yet, or a retry still to come.
     const waiting = (entry) =>
       !entry || (entry.failed && entry.retryAt !== Infinity);
