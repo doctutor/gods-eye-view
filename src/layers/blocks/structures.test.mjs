@@ -10,6 +10,7 @@ import { CHUNK_COLUMNS, columnIndex, createRegion } from './grid.js';
 import { MATERIALS, NONE, createChunk } from './store.js';
 import { buildChunkMesh } from './mesh.js';
 import { MATERIAL_COLORS } from './lighting.js';
+import { sanitizeOverpassBody } from '../../../server/providers/overpass/query.js';
 import { GROUP_COLUMNS, groupBounds } from './source.js';
 import {
   BUILDING,
@@ -17,7 +18,12 @@ import {
   assembleRings,
   buildingHeightBlocks,
   buildingHeightM,
-  buildingsQuery,
+  groupQuery,
+  lineHalfWidthM,
+  lineWidthM,
+  parseFeatures,
+  surfaceMaterial,
+  surfaceMaterials,
   createStructuresSource,
   fillFootprint,
   parseFootprints,
@@ -277,8 +283,48 @@ test('parseFootprints: ways, and a relation whose split outer ways join into a r
   ); // nothing closes
 });
 
-test('buildingsQuery: ways and relations tagged building or building:part (not no), in the box', () => {
-  const ql = buildingsQuery({
+test('groupQuery: buildings, parts, land cover, highways and railways in the box', () => {
+  const box = { west: -76.62, south: 39.28, east: -76.6, north: 39.3 };
+  const ql = groupQuery(box, 1);
+  assert.match(ql, /^\[out:json\]\[timeout:25\];/);
+  for (const filter of [
+    '["natural"~"^(water|wood)$"]',
+    '["water"]',
+    '["waterway"="riverbank"]',
+    '["leisure"~"^(park|pitch|garden)$"]',
+  ])
+    for (const type of ['way', 'relation'])
+      assert.ok(
+        ql.includes(`${type}${filter}(39.2800000,`),
+        `${type}${filter}`,
+      );
+  assert.ok(ql.includes('way["highway"](39.2800000,'));
+  assert.ok(ql.includes('way["area:highway"](39.2800000,'));
+  assert.match(
+    ql,
+    /way\["railway"~"\^\(rail\|tram\|light_rail\|subway\|narrow_gauge\)\$"\]/,
+  );
+  assert.doesNotMatch(ql, /if:length/);
+  // Coarse blocks: big buildings only, and the highways a block can show.
+  const coarse = groupQuery(box, 10);
+  assert.ok(
+    coarse.includes(
+      '(39.2800000,-76.6200000,39.3000000,-76.6000000)(if:length()>=80);',
+    ),
+  );
+  assert.doesNotMatch(coarse, /way\["highway"\]\(/);
+  assert.match(coarse, /way\["highway"~"\^\(motorway\|trunk/);
+  assert.doesNotMatch(coarse, /footway/);
+  // The proxy accepts both.
+  for (const q of [ql, coarse])
+    assert.equal(
+      sanitizeOverpassBody(`data=${encodeURIComponent(q)}`).ok,
+      true,
+    );
+});
+
+test('buildings in the group query: ways and relations tagged building or building:part (not no)', () => {
+  const ql = groupQuery({
     west: -76.62,
     south: 39.28,
     east: -76.6,
@@ -496,7 +542,14 @@ test('createStructuresSource: one query and the group ground per group; failures
   const queries = [];
   const chunkAsks = [];
   let fail = 1;
-  const building = squareAt(region, { height: '12' }, 70, 10, 80, 20); // chunk (1, 0)
+  const building = squareAt(
+    region,
+    { building: 'yes', height: '12' },
+    70,
+    10,
+    80,
+    20,
+  ); // chunk (1, 0)
   const query = async (ql) => {
     queries.push(ql);
     if (fail-- > 0) throw new Error('Overpass 504');
@@ -527,7 +580,7 @@ test('createStructuresSource: one query and the group ground per group; failures
     source.loadChunkStructures(region, 3, 2),
   ]);
   assert.equal(queries.length, 2);
-  assert.equal(queries[1], buildingsQuery(groupBounds(region, 0, 0)));
+  assert.equal(queries[1], groupQuery(groupBounds(region, 0, 0), 1));
   assert.equal(new Set(chunkAsks).size, 16);
   assert.equal(without, null);
   assert.ok(withBuilding.top instanceof Int32Array);
@@ -715,4 +768,383 @@ test('the mesher draws a structure: building-coloured walls and roof over flat g
     buildingTinted >= 4 * 5,
     `building-coloured vertices ${buildingTinted}`,
   );
+});
+
+test('surfaceMaterial and lineWidthM: the classes from tags', () => {
+  const { WATER, GRASS, FOREST, ROAD } = MATERIALS;
+  assert.equal(surfaceMaterial({ natural: 'water' }), WATER);
+  assert.equal(surfaceMaterial({ water: 'river' }), WATER);
+  assert.equal(surfaceMaterial({ waterway: 'riverbank' }), WATER);
+  assert.equal(surfaceMaterial({ landuse: 'grass' }), GRASS);
+  assert.equal(surfaceMaterial({ landuse: 'meadow' }), GRASS);
+  assert.equal(surfaceMaterial({ leisure: 'park' }), GRASS);
+  assert.equal(surfaceMaterial({ leisure: 'pitch' }), GRASS);
+  assert.equal(surfaceMaterial({ landuse: 'forest' }), FOREST);
+  assert.equal(surfaceMaterial({ natural: 'wood' }), FOREST);
+  assert.equal(surfaceMaterial({ 'area:highway': 'primary' }), ROAD);
+  assert.equal(surfaceMaterial({ highway: 'pedestrian', area: 'yes' }), ROAD);
+  assert.equal(surfaceMaterial({ highway: 'residential' }), 0);
+  assert.equal(surfaceMaterial({ landuse: 'residential' }), 0);
+  assert.equal(lineWidthM({ highway: 'residential' }), 6);
+  assert.equal(lineWidthM({ highway: 'footway' }), 2);
+  assert.equal(lineWidthM({ highway: 'service' }), 4);
+  assert.equal(lineWidthM({ highway: 'primary', width: '12' }), 12);
+  assert.equal(lineWidthM({ railway: 'rail' }), 3);
+  assert.equal(lineWidthM({ highway: 'primary', tunnel: 'yes' }), 0);
+  assert.equal(lineWidthM({ highway: 'proposed' }), 0);
+  assert.equal(lineWidthM({ highway: 'pedestrian', area: 'yes' }), 0);
+  assert.equal(lineWidthM({ railway: 'abandoned' }), 0);
+});
+
+test('parseFeatures sorts buildings, land cover areas and road lines', () => {
+  const p = (lat, lon) => ({ lat, lon });
+  const square = [p(0, 0), p(0, 1), p(1, 1), p(1, 0), p(0, 0)];
+  const { footprints, areas, lines } = parseFeatures([
+    { type: 'way', id: 1, tags: { building: 'yes' }, geometry: square },
+    { type: 'way', id: 2, tags: { natural: 'water' }, geometry: square },
+    {
+      type: 'way',
+      id: 3,
+      tags: { highway: 'primary' },
+      geometry: [p(0, 0), p(1, 1)],
+    },
+    {
+      type: 'way',
+      id: 4,
+      tags: { highway: 'pedestrian', area: 'yes' },
+      geometry: square,
+    },
+    // An open forest way is no area.
+    {
+      type: 'way',
+      id: 5,
+      tags: { landuse: 'forest' },
+      geometry: [p(0, 0), p(0, 1), p(1, 1)],
+    },
+    // A closed footway is still a line.
+    { type: 'way', id: 6, tags: { highway: 'footway' }, geometry: square },
+    {
+      type: 'relation',
+      id: 7,
+      tags: { type: 'multipolygon', leisure: 'park' },
+      members: [{ type: 'way', role: 'outer', geometry: square }],
+    },
+  ]);
+  assert.deepEqual(
+    footprints.map((f) => f.id),
+    ['way/1'],
+  );
+  assert.deepEqual(
+    areas.map((a) => [a.id, a.material]),
+    [
+      ['way/2', MATERIALS.WATER],
+      ['way/4', MATERIALS.ROAD],
+      ['relation/7', MATERIALS.GRASS],
+    ],
+  );
+  assert.deepEqual(
+    lines.map((l) => [l.id, l.widthM]),
+    [
+      ['way/3', 6],
+      ['way/6', 2],
+    ],
+  );
+});
+
+/** A line in lon/lat from region metres. */
+const lineAt = (region, points, widthM) => ({
+  id: 'line',
+  points: points.map(([x, y]) => region.toLonLat(x, y)),
+  widthM,
+});
+const areaAt = (region, material, x0, y0, x1, y1) => ({
+  id: 'area',
+  material,
+  rings: squareAt(region, {}, x0, y0, x1, y1).rings,
+});
+
+test('surfaceMaterials: each class on its polygon, and precedence where they meet', () => {
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  const { WATER, GRASS, FOREST, ROAD } = MATERIALS;
+  const out = surfaceMaterials(region, 0, 0, {
+    areas: [
+      areaAt(region, GRASS, 0, 0, 40, 40), // a park
+      areaAt(region, FOREST, 20, 0, 40, 20), // a wood in its south-east
+      areaAt(region, WATER, 30, 10, 50, 30), // a pond across both and beyond
+    ],
+    lines: [
+      lineAt(
+        region,
+        [
+          [0, 35.5],
+          [60, 35.5],
+        ],
+        2,
+      ),
+    ], // a path along y 35.5
+  });
+  assert.equal(out[at(5, 5)], GRASS);
+  assert.equal(out[at(25, 5)], FOREST); // forest over grass
+  assert.equal(out[at(35, 15)], WATER); // water over forest
+  assert.equal(out[at(35, 25)], WATER); // water over grass
+  assert.equal(out[at(45, 25)], WATER); // water alone
+  assert.equal(out[at(5, 35)], ROAD); // road over grass
+  assert.equal(out[at(45, 35)], ROAD); // road alone
+  assert.equal(out[at(55, 5)], 0); // the terrain
+  // A road through the pond stays water.
+  const pond = surfaceMaterials(region, 0, 0, {
+    areas: [areaAt(region, WATER, 0, 0, 20, 20)],
+    lines: [
+      lineAt(
+        region,
+        [
+          [0, 10],
+          [20, 10],
+        ],
+        6,
+      ),
+    ],
+  });
+  assert.equal(pond[at(10, 10)], WATER);
+});
+
+test('road buffers: width in blocks at 1 m and 10 m', () => {
+  const rows = (blockM, y, widthM) => {
+    const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM });
+    const out = surfaceMaterials(region, 0, 0, {
+      lines: [
+        lineAt(
+          region,
+          [
+            [0, y],
+            [100 * blockM, y],
+          ],
+          widthM,
+        ),
+      ],
+    });
+    const set = new Set();
+    for (let index = 0; index < out.length; index++)
+      if (out[index] && index % GROUP_COLUMNS === 50)
+        set.add(Math.floor(index / GROUP_COLUMNS));
+    return [...set].sort((a, b) => a - b);
+  };
+  // 1 m blocks: a 6 m road on y = 50 covers the 6 rows whose centres are within 3 m.
+  assert.deepEqual(rows(1, 50, 6), [47, 48, 49, 50, 51, 52]);
+  // A 2 m footway: 2 rows.
+  assert.deepEqual(rows(1, 50, 2), [49, 50]);
+  // 10 m blocks: a 6 m road is still one block wide (half-width at least a half-diagonal),
+  assert.deepEqual(rows(10, 505, 6), [50]);
+  // and a 25 m avenue three.
+  assert.deepEqual(rows(10, 505, 25), [49, 50, 51]);
+  assert.ok(Math.abs(lineHalfWidthM(6, 10) - 7.0710678) < 1e-6);
+  assert.equal(lineHalfWidthM(6, 1), 3);
+  // A diagonal line at 10 m leaves no gaps: every column it crosses is in.
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 10 });
+  const diagonal = surfaceMaterials(region, 0, 0, {
+    lines: [
+      lineAt(
+        region,
+        [
+          [0, 0],
+          [500, 500],
+        ],
+        6,
+      ),
+    ],
+  });
+  for (let k = 0; k < 50; k++)
+    assert.equal(diagonal[at(k, k)], MATERIALS.ROAD, `column ${k}`);
+});
+
+test('the source: one group query brings surfaces; buildings win over them', async () => {
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  const closed = (x0, y0, x1, y1) => {
+    const r = squareAt(region, {}, x0, y0, x1, y1).rings[0];
+    return [...r, r[0]];
+  };
+  const elements = [
+    {
+      type: 'way',
+      id: 1,
+      tags: { natural: 'water' },
+      geometry: closed(0, 0, 30, 30),
+    },
+    // A building in the pond.
+    {
+      type: 'way',
+      id: 2,
+      tags: { building: 'yes', height: '9' },
+      geometry: closed(10, 10, 20, 20),
+    },
+    {
+      type: 'way',
+      id: 3,
+      tags: { leisure: 'park' },
+      geometry: closed(30, 0, 60, 30),
+    },
+  ];
+  let queries = 0;
+  const source = createStructuresSource({
+    query: async () => {
+      queries++;
+      return { elements };
+    },
+    loadChunk: async (r, ci, cj) =>
+      createChunk({ ci, cj, top: new Int32Array(COLUMNS).fill(4) }),
+  });
+  const levels = await source.loadChunkStructures(region, 0, 0);
+  assert.equal(queries, 1);
+  assert.ok(levels.material instanceof Uint8Array);
+  assert.equal(levels.material[columnIndex(5, 5)], MATERIALS.WATER);
+  assert.equal(levels.material[columnIndex(15, 15)], 0); // under the building
+  assert.equal(levels.top[columnIndex(15, 15)], 4 + 9);
+  assert.equal(levels.material[columnIndex(45, 5)], MATERIALS.GRASS);
+  assert.equal(levels.material[columnIndex(62, 5)], 0);
+  // Nothing north of 64 m: no chunk levels.
+  assert.equal(await source.loadChunkStructures(region, 0, 1), null);
+});
+
+test('applyStructures writes surfaces: grass as the column material, water at the top', () => {
+  const chunk = createChunk({
+    ci: 0,
+    cj: 0,
+    top: new Int32Array(COLUMNS).fill(7),
+  });
+  const levels = {
+    top: new Int32Array(COLUMNS).fill(NONE),
+    bottom: new Int32Array(COLUMNS).fill(NONE),
+    material: new Uint8Array(COLUMNS),
+  };
+  levels.material[columnIndex(1, 1)] = MATERIALS.GRASS;
+  levels.material[columnIndex(2, 1)] = MATERIALS.WATER;
+  levels.material[columnIndex(3, 1)] = MATERIALS.ROAD;
+  levels.top[columnIndex(4, 1)] = 12; // a building, terrain under it
+  levels.bottom[columnIndex(4, 1)] = 8;
+  assert.equal(applyStructures(chunk, levels), 1);
+  assert.equal(chunk.material[columnIndex(1, 1)], MATERIALS.GRASS);
+  assert.equal(chunk.occupancy(1, 1, 7), MATERIALS.GRASS);
+  assert.equal(chunk.material[columnIndex(3, 1)], MATERIALS.ROAD);
+  // The river: its top block is water, the ground under it.
+  assert.equal(chunk.top[columnIndex(2, 1)], 6);
+  assert.equal(chunk.water[columnIndex(2, 1)], 7);
+  assert.equal(chunk.occupancy(2, 1, 7), MATERIALS.WATER);
+  assert.equal(chunk.occupancy(2, 1, 6), MATERIALS.TERRAIN);
+  assert.equal(chunk.topSolid(2, 1), 6);
+  assert.equal(chunk.occupancy(4, 1, 7), MATERIALS.TERRAIN);
+  assert.equal(chunk.occupancy(4, 1, 8), BUILDING);
+  // Again: nothing changes (the river is not lowered twice).
+  const version = chunk.version;
+  applyStructures(chunk, levels);
+  assert.equal(chunk.version, version);
+  assert.equal(chunk.top[columnIndex(2, 1)], 6);
+});
+
+test('setSurface: the sea and columns without data are left alone; air is no surface', () => {
+  const top = new Int32Array(COLUMNS).fill(-2);
+  const water = new Int32Array(COLUMNS).fill(0);
+  top[1] = NONE;
+  const chunk = createChunk({ ci: 0, cj: 0, top, water });
+  assert.equal(chunk.setSurface(0, 0, MATERIALS.WATER), false); // already the sea
+  assert.equal(chunk.setSurface(1, 0, MATERIALS.GRASS), false); // no data
+  assert.equal(chunk.setSurface(2, 0, MATERIALS.GRASS), true); // the seabed takes it
+  assert.throws(() => chunk.setSurface(0, 0, MATERIALS.AIR), RangeError);
+});
+
+test('the mesher colours grass, forest and road tops by their materials', () => {
+  const tops = new Int32Array(COLUMNS).fill(0);
+  const material = new Uint8Array(COLUMNS).fill(MATERIALS.TERRAIN);
+  for (let j = 0; j < 64; j++)
+    for (let i = 0; i < 64; i++)
+      material[columnIndex(i, j)] =
+        i < 20 ? MATERIALS.GRASS : i < 40 ? MATERIALS.FOREST : MATERIALS.ROAD;
+  const mesh = buildChunkMesh(
+    createChunk({ ci: 0, cj: 0, top: tops, material }),
+    {
+      blockM: 1,
+    },
+  );
+  const tint = (m) => {
+    const [r, g, b] = MATERIAL_COLORS[m];
+    return [r / g, b / g];
+  };
+  const found = new Set();
+  for (let v = 0; v < mesh.positions.length / 3; v++) {
+    if (mesh.normals[v * 3 + 2] < 0.5) continue; // tops only
+    const [r, g, b] = mesh.colors.subarray(v * 4, v * 4 + 3);
+    for (const m of [MATERIALS.GRASS, MATERIALS.FOREST, MATERIALS.ROAD]) {
+      const [rg, bg] = tint(m);
+      if (Math.abs(r / g - rg) < 0.05 && Math.abs(b / g - bg) < 0.05)
+        found.add(m);
+    }
+  }
+  assert.deepEqual(
+    [...found].sort(),
+    [MATERIALS.GRASS, MATERIALS.FOREST, MATERIALS.ROAD].sort(),
+  );
+  // Grass is green, the forest a deeper green.
+  assert.ok(
+    MATERIAL_COLORS[MATERIALS.GRASS][1] > MATERIAL_COLORS[MATERIALS.GRASS][0],
+  );
+  assert.ok(
+    MATERIAL_COLORS[MATERIALS.FOREST][1] < MATERIAL_COLORS[MATERIALS.GRASS][1],
+  );
+});
+
+test('buildings by supergroup: one query for its 16 groups at fine block sizes, each group keeping the features in its box; per group otherwise', async () => {
+  const { supergroupBounds } = await import('./source.js');
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  const queries = [];
+  // One building in group (0, 0), one across groups (0, 0) and (1, 0), one in group (3, 3).
+  const buildings = [
+    { id: 1, foot: squareAt(region, { height: '12' }, 70, 10, 80, 20) },
+    { id: 2, foot: squareAt(region, { height: '6' }, 250, 40, 262, 50) },
+    { id: 3, foot: squareAt(region, { height: '9' }, 800, 800, 810, 810) },
+  ];
+  const query = async (ql) => {
+    queries.push(ql);
+    return {
+      elements: buildings.map(({ id, foot }) => ({
+        type: 'way',
+        id,
+        tags: { building: 'yes', ...foot.tags },
+        geometry: [...foot.rings[0], foot.rings[0][0]],
+      })),
+    };
+  };
+  const loadChunk = async (r, ci, cj) =>
+    createChunk({ ci, cj, top: new Int32Array(COLUMNS).fill(3) });
+  const source = createStructuresSource({ query, loadChunk });
+  const via = { viaSupergroup: true };
+  const [a, b] = await Promise.all([
+    source.loadChunkStructures(region, 1, 0, via),
+    source.loadChunkStructures(region, 4, 0, via),
+  ]);
+  // Groups (0, 0) and (1, 0): one query, over the supergroup's box.
+  assert.equal(queries.length, 1);
+  assert.equal(queries[0], groupQuery(supergroupBounds(region, 0, 0), 1));
+  assert.equal(a.top[columnIndex(6, 10)], 15);
+  assert.ok(b, 'the building across the border reaches group (1, 0)');
+  // Each group's ids: only the buildings in its box.
+  assert.deepEqual(await source.loadGroupBuildings(region, 0, 0, via), [
+    'way/1',
+    'way/2',
+  ]);
+  assert.deepEqual(await source.loadGroupBuildings(region, 1, 0, via), [
+    'way/2',
+  ]);
+  assert.deepEqual(await source.loadGroupBuildings(region, 3, 3, via), [
+    'way/3',
+  ]);
+  assert.equal(queries.length, 1, 'still one query for the supergroup');
+  // Another supergroup asks again; without the option, per group.
+  await source.loadChunkStructures(region, 16, 0, via);
+  assert.equal(queries.length, 2);
+  const plain = createStructuresSource({ query, loadChunk });
+  await plain.loadChunkStructures(region, 1, 0);
+  assert.equal(queries.at(-1), groupQuery(groupBounds(region, 0, 0), 1));
+  // 10 m blocks: a supergroup's answer would be too big; per group.
+  const coarse = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 10 });
+  await source.loadChunkStructures(coarse, 1, 0, via);
+  assert.equal(queries.at(-1), groupQuery(groupBounds(coarse, 0, 0), 10));
 });

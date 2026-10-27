@@ -22,6 +22,7 @@ import {
   valueBricks,
 } from './model.js';
 import { buildBrickMesh } from './bricks.js';
+import { enableElevationForBlocksLink } from './renderMode.js';
 import {
   LEGO_LAYER_IDS,
   currentMode,
@@ -753,4 +754,49 @@ test('Blocks’ Buildings switch: kept in this browser, in the link as bk=1.b0 w
   assert.equal(linked.getMode(), 'blocks');
   assert.equal(linked.getBuildings(), false);
   assert.equal(storage.map.get(BUILDINGS_STORAGE_KEY), '1');
+});
+
+test('a Blocks link turns the Elevation layer on once the layers are restored (Earth Engine layers are not in links)', () => {
+  const enabled = new Map();
+  const dataManager = {
+    isEnabled: (id) => enabled.get(id) === true,
+    setEnabled: (id, on, options) => enabled.set(id, on && options),
+  };
+  const queued = [];
+  const defer = (run) => queued.push(run);
+  const asked = { linkAskedForBlocks: () => true };
+  const elevationId = 'ee-elevation';
+  assert.equal(
+    enableElevationForBlocksLink({
+      store: asked,
+      dataManager,
+      elevationId,
+      defer,
+    }),
+    true,
+  );
+  assert.equal(enabled.size, 0, 'not before the layers are restored');
+  queued.shift()();
+  assert.deepEqual(enabled.get(elevationId), { origin: 'programmatic' });
+  // Already on: left alone. Not asked: nothing.
+  enabled.set(elevationId, true);
+  enableElevationForBlocksLink({
+    store: asked,
+    dataManager,
+    elevationId,
+    defer,
+  });
+  queued.shift()();
+  assert.equal(enabled.get(elevationId), true);
+  const notAsked = { linkAskedForBlocks: () => false };
+  assert.equal(
+    enableElevationForBlocksLink({
+      store: notAsked,
+      dataManager,
+      elevationId,
+      defer,
+    }),
+    false,
+  );
+  assert.equal(queued.length, 0);
 });

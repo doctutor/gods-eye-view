@@ -6016,6 +6016,20 @@ ground flips (a new map stack). The blank basemaps keep the globe's terrain
 (World Terrain with an Ion token, Re:Earth's keyless terrain without), so
 they are terrain here unless the terrain is flat.
 
+**When it waits.** Every chunk is Earth Engine data the user pays for, so
+Blocks builds nothing (no region anchored, nothing loaded) while the
+camera is higher above the ground than 4 × R2 × the block size (8 km at
+1 m, 246 km at 30 m; 100 km before a region says the block size), or while
+a camera flight is in progress or an arrival correction still owns the
+camera (`cameraInFlight`: Cesium's flight, or `cameraArrivalPending` in
+`src/data/cameraArrival.js`, the ground guard's). The line says why
+("Blocks: come below 8 km to build", "Blocks: waiting for the camera to
+land"), the globe stays shown, and what is drawn already stays. The first
+region is anchored where the camera settles: on the first `moveEnd` below
+the ceiling, or on the tick after a flight's correction lets go. (On
+2026-10-27 it anchored at the opening orbit, 17,000 km up, and loaded
+500 chunks there.)
+
 **Streaming** (`src/layers/blocks/index.js`). On the camera's `moveEnd`,
 and every 500 ms while it moves or while chunks are still coming, the
 controller:
@@ -6036,7 +6050,11 @@ controller:
   under it are, removed then, and drawn again (its mesh kept) when one of
   them is dropped; fine chunks go a group at a time, so a group is drawn
   either fine or coarse. The coarse chunks have a load budget of their
-  own;
+  own; a supergroup (the source's coarse request, 4 × 4 groups) all of
+  whose groups lie within R1 is not asked for at all, since its coarse
+  chunks would never be drawn (it happens once the camera has moved half
+  a supergroup from where the region was anchored: a region starts with
+  the camera at a supergroup corner);
 - starts loads until 8 are in flight, and meshes at most 8 chunks a tick,
   each with its four neighbours so the faces on a chunk's border are culled
   against them; a chunk is meshed again when a neighbour arrives or its
@@ -6077,7 +6095,10 @@ switch with the reason. Turning it off takes the buildings off every chunk
 in place (their columns cleared, the chunks meshed again); on puts them
 back from the source's cache. A failed query is asked again with the
 chunks' backoff. The status line counts the buildings drawn, each once
-across groups.
+across groups. The fine groups ask for their buildings a supergroup (4 × 4
+groups) at a time: one Overpass query over the supergroup's box, each
+group keeping the footprints that reach into its own box and taking its
+ground from its own chunks (the per-group query stays for other callers).
 
 **Meshing off the main thread.** Chunks are meshed by the worker pool
 (`meshPool.js`, worker1's: `meshChunkAsync`, buildChunkMesh's arguments,

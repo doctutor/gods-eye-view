@@ -6,6 +6,14 @@ export function cancelCameraArrival(viewer) {
   if (viewer) arrivals.get(viewer)?.();
 }
 
+/**
+ * Whether an arrival correction (the ground guard after a flight) still
+ * owns the camera: Blocks waits for it before building there.
+ */
+export function cameraArrivalPending(viewer) {
+  return Boolean(viewer && arrivals.has(viewer));
+}
+
 /** Register a correction and return an idempotent ownership release. */
 export function ownCameraArrival(viewer, cancel) {
   cancelCameraArrival(viewer);

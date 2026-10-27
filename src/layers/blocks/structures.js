@@ -22,6 +22,17 @@
 // the heightfield and an edit can still break or stack a block of a
 // building. Groups are cached; a failed query is not, so the group has no
 // buildings until the controller retries, as it does for elevation.
+//
+// The same query brings the land cover for the top blocks (milestone 3's
+// materials): water areas (natural=water, water=*, waterway=riverbank)
+// make a column's top a water surface at its own level; parks, grass and
+// pitches make it GRASS, woods and forests FOREST; highway areas and
+// area:highway polygons, and road and railway lines buffered by their
+// width (the width tag, else a default by class), ROAD. Where they meet,
+// building > water > road > forest > grass > terrain. Above 2 m blocks the
+// query leaves out what a block cannot show (buildings with a perimeter
+// under 8 blocks, footways and service roads), so a 10 m group answers
+// in a few MB, not tens.
 
 import { createOverpassViewClient } from '../../sources/overpassView.js';
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
@@ -31,6 +42,8 @@ import {
   groupBounds,
   groupOf,
   regionKey,
+  supergroupBounds,
+  supergroupOf,
 } from './source.js';
 import { MATERIALS, NONE } from './store.js';
 
@@ -93,17 +106,111 @@ export function buildingMinHeightM(tags = {}) {
 export const isBuildingPart = (tags = {}) =>
   Boolean(tags['building:part']) && tags['building:part'] !== 'no';
 
-/** The Overpass query for the buildings and building parts in a box. */
-export function buildingsQuery({ west, south, east, north }) {
+/** Block sizes above this ask only for what a block can show. */
+export const FINE_BLOCK_M = 2;
+/** Highways a coarse block size still draws (the rest are narrower than a block). */
+const COARSE_HIGHWAYS = [
+  'motorway',
+  'trunk',
+  'primary',
+  'secondary',
+  'tertiary',
+  'unclassified',
+  'residential',
+  'living_street',
+  'motorway_link',
+  'trunk_link',
+  'primary_link',
+  'secondary_link',
+  'tertiary_link',
+];
+const RAILWAYS = ['rail', 'tram', 'light_rail', 'subway', 'narrow_gauge'];
+
+/**
+ * The Overpass query for a group: the buildings and building parts, the
+ * land cover areas, and the highways and railways in a box. Above
+ * FINE_BLOCK_M blocks it leaves out buildings whose perimeter is under 8
+ * blocks and the highways narrower than a block.
+ */
+export function groupQuery({ west, south, east, north }, blockM = 1) {
   const bbox = [south, west, north, east].map((v) => v.toFixed(7)).join(',');
+  const coarse = blockM > FINE_BLOCK_M;
+  const big = coarse ? `(if:length()>=${8 * blockM})` : '';
+  const both = (filter) => `way${filter}(${bbox});relation${filter}(${bbox});`;
+  const highway = coarse
+    ? `["highway"~"^(${COARSE_HIGHWAYS.join('|')})$"]`
+    : '["highway"]';
   return (
-    '[out:json][timeout:25];' +
-    `(way["building"]["building"!="no"](${bbox});` +
+    '[out:json][timeout:25];(' +
+    `way["building"]["building"!="no"](${bbox})${big};` +
     `relation["building"]["building"!="no"](${bbox});` +
-    `way["building:part"]["building:part"!="no"](${bbox});` +
-    `relation["building:part"]["building:part"!="no"](${bbox}););` +
-    'out geom qt;'
+    `way["building:part"]["building:part"!="no"](${bbox})${big};` +
+    `relation["building:part"]["building:part"!="no"](${bbox});` +
+    both('["natural"~"^(water|wood)$"]') +
+    both('["water"]') +
+    both('["waterway"="riverbank"]') +
+    both(
+      '["landuse"~"^(grass|meadow|recreation_ground|village_green|forest)$"]',
+    ) +
+    both('["leisure"~"^(park|pitch|garden)$"]') +
+    `way${highway}(${bbox});` +
+    `way["area:highway"](${bbox});` +
+    `way["railway"~"^(${RAILWAYS.join('|')})$"](${bbox});` +
+    ');out geom qt;'
   );
+}
+
+/** Whether tags make a building or a building part. */
+export const isBuildingTags = (tags = {}) =>
+  (Boolean(tags.building) && tags.building !== 'no') || isBuildingPart(tags);
+
+/** The surface an area's tags give (WATER, ROAD, FOREST, GRASS), or 0. */
+export function surfaceMaterial(tags = {}) {
+  if (tags.natural === 'water' || tags.water || tags.waterway === 'riverbank')
+    return MATERIALS.WATER;
+  if (tags['area:highway'] || (tags.highway && tags.area === 'yes'))
+    return MATERIALS.ROAD;
+  if (tags.landuse === 'forest' || tags.natural === 'wood')
+    return MATERIALS.FOREST;
+  if (
+    ['grass', 'meadow', 'recreation_ground', 'village_green'].includes(
+      tags.landuse,
+    ) ||
+    ['park', 'pitch', 'garden'].includes(tags.leisure)
+  )
+    return MATERIALS.GRASS;
+  return 0;
+}
+
+/** Default widths, metres, of a road or railway line with no width tag. */
+export const LINE_WIDTH_M = Object.freeze({
+  footway: 2,
+  path: 2,
+  cycleway: 2,
+  steps: 2,
+  bridleway: 2,
+  corridor: 2,
+  track: 3,
+  service: 4,
+  road: 6,
+  railway: 3,
+});
+const NOT_DRAWN = ['proposed', 'abandoned', 'razed', 'platform'];
+
+/**
+ * A road or railway line's width in metres (the width tag, else
+ * LINE_WIDTH_M by class, roads 6 m), or 0 when it is not drawn: an area,
+ * a tunnel, or a highway that is not built.
+ */
+export function lineWidthM(tags = {}) {
+  if (tags.area === 'yes' || tags['area:highway']) return 0;
+  if (tags.tunnel && tags.tunnel !== 'no') return 0;
+  const isRail = RAILWAYS.includes(tags.railway);
+  if (!isRail && (!tags.highway || NOT_DRAWN.includes(tags.highway))) return 0;
+  const width = parseLengthM(tags.width);
+  if (width > 0) return width;
+  if (isRail && !tags.highway) return LINE_WIDTH_M.railway;
+  return LINE_WIDTH_M[tags.highway] ?? LINE_WIDTH_M.road;
 }
 
 const samePoint = (a, b) => a.lat === b.lat && a.lon === b.lon;
@@ -133,21 +240,100 @@ export function assembleRings(ways) {
   return rings;
 }
 
+const isClosed = (points) =>
+  points.length >= 4 && samePoint(points[0], points[points.length - 1]);
+
 /**
- * Building footprints from an Overpass answer (`out geom`): {rings:
- * [[{lat, lon}]], tags, id}. A relation's outer and inner ways are rings
- * alike; the fill is even-odd.
+ * An Overpass answer (`out geom`) sorted: building footprints {id, tags,
+ * rings}, land cover areas {id, rings, material} (closed ways and
+ * relations), and road and railway lines {id, points, widthM}. Rings are
+ * [{lat, lon}], a relation's outer and inner ways alike (even-odd).
  */
-export function parseFootprints(elements = []) {
+export function parseFeatures(elements = []) {
   const footprints = [];
+  const areas = [];
+  const lines = [];
+  for (const shape of parseShapes(elements)) {
+    const { tags } = shape;
+    if (isBuildingTags(tags)) {
+      if (shape.rings) footprints.push(shape);
+      continue;
+    }
+    const material = surfaceMaterial(tags);
+    if (material && shape.rings) {
+      areas.push({ id: shape.id, rings: shape.rings, material });
+      continue;
+    }
+    const widthM = lineWidthM(tags);
+    if (widthM > 0 && shape.points)
+      lines.push({ id: shape.id, points: shape.points, widthM });
+  }
+  return { footprints, areas, lines };
+}
+
+/** Whether a list of {lat, lon} points reaches into a box (degrees). */
+function pointsIn(points, { west, south, east, north }) {
+  let w = Infinity;
+  let s = Infinity;
+  let e = -Infinity;
+  let n = -Infinity;
+  for (const { lon, lat } of points) {
+    if (lon < w) w = lon;
+    if (lon > e) e = lon;
+    if (lat < s) s = lat;
+    if (lat > n) n = lat;
+  }
+  return w <= east && e >= west && s <= north && n >= south;
+}
+
+/**
+ * The features (parseFeatures's) that reach into a box: a supergroup's
+ * answer cut down to one group's (a line's box widened by its width).
+ */
+export function featuresIn(features, bounds) {
+  const ringsIn = ({ rings }) => rings.some((ring) => pointsIn(ring, bounds));
+  const widen = (widthM) => {
+    const dLat = widthM / 111_320;
+    const dLon =
+      dLat / Math.max(0.01, Math.cos((bounds.south * Math.PI) / 180));
+    return {
+      west: bounds.west - dLon,
+      south: bounds.south - dLat,
+      east: bounds.east + dLon,
+      north: bounds.north + dLat,
+    };
+  };
+  return {
+    footprints: features.footprints.filter(ringsIn),
+    areas: features.areas.filter(ringsIn),
+    lines: features.lines.filter(({ points, widthM }) =>
+      pointsIn(points, widen(widthM)),
+    ),
+  };
+}
+
+/** Building footprints from an Overpass answer (parseFeatures's). */
+export const parseFootprints = (elements) => parseFeatures(elements).footprints;
+
+/**
+ * Each element's shape: a way's points (and, closed, its ring; a
+ * building's way always has a ring), a relation's rings.
+ */
+function parseShapes(elements) {
+  const shapes = [];
   for (const element of elements) {
-    if (element.type === 'way' && element.geometry?.length >= 3)
-      footprints.push({
+    const tags = element.tags || {};
+    if (element.type === 'way' && element.geometry?.length >= 2) {
+      const points = element.geometry;
+      const ring =
+        points.length >= 3 && (isClosed(points) || isBuildingTags(tags));
+      shapes.push({
         id: `way/${element.id}`,
-        tags: element.tags || {},
-        rings: [element.geometry],
+        tags,
+        points,
+        ...(ring ? { rings: [points] } : {}),
       });
-    else if (element.type === 'relation' && Array.isArray(element.members)) {
+    } else if (element.type === 'relation' && Array.isArray(element.members)) {
       const ways = element.members
         .filter(
           (member) =>
@@ -160,14 +346,10 @@ export function parseFootprints(elements = []) {
         .map((member) => member.geometry);
       const rings = assembleRings(ways);
       if (rings.length)
-        footprints.push({
-          id: `relation/${element.id}`,
-          tags: element.tags || {},
-          rings,
-        });
+        shapes.push({ id: `relation/${element.id}`, tags, rings });
     }
   }
-  return footprints;
+  return shapes;
 }
 
 /**
@@ -233,6 +415,99 @@ export function footprintColumns(rings, grid) {
 }
 
 /**
+ * Visit the columns of a grid (as scanFootprint) whose centres are within
+ * halfM of a line (region metres, [{x, y}]).
+ */
+export function scanLine(points, halfM, { blockM, i0, j0, size }, visit) {
+  const seen = new Set();
+  for (let k = 0; k + 1 < points.length; k++) {
+    const a = points[k];
+    const b = points[k + 1];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const length2 = dx * dx + dy * dy;
+    const iFrom = Math.max(
+      0,
+      Math.ceil((Math.min(a.x, b.x) - halfM) / blockM - 0.5) - i0,
+    );
+    const iTo = Math.min(
+      size - 1,
+      Math.floor((Math.max(a.x, b.x) + halfM) / blockM - 0.5) - i0,
+    );
+    const jFrom = Math.max(
+      0,
+      Math.ceil((Math.min(a.y, b.y) - halfM) / blockM - 0.5) - j0,
+    );
+    const jTo = Math.min(
+      size - 1,
+      Math.floor((Math.max(a.y, b.y) + halfM) / blockM - 0.5) - j0,
+    );
+    for (let j = jFrom; j <= jTo; j++)
+      for (let i = iFrom; i <= iTo; i++) {
+        const px = (i0 + i + 0.5) * blockM - a.x;
+        const py = (j0 + j + 0.5) * blockM - a.y;
+        const t = length2
+          ? Math.max(0, Math.min(1, (px * dx + py * dy) / length2))
+          : 0;
+        const ex = px - t * dx;
+        const ey = py - t * dy;
+        if (ex * ex + ey * ey > halfM * halfM) continue;
+        const index = j * size + i;
+        if (seen.has(index)) continue;
+        seen.add(index);
+        visit(index);
+      }
+  }
+}
+
+/** Surfaces' precedence: water over road over forest over grass. */
+const SURFACE_RANK = {
+  [MATERIALS.GRASS]: 1,
+  [MATERIALS.FOREST]: 2,
+  [MATERIALS.ROAD]: 3,
+  [MATERIALS.WATER]: 4,
+};
+
+/**
+ * A line's half-width in metres for blocks of blockM: half its width, but
+ * never under a block's half-diagonal, so a road narrower than a block
+ * still draws an unbroken line of blocks.
+ */
+export const lineHalfWidthM = (widthM, blockM) =>
+  Math.max(widthM / 2, (blockM * Math.SQRT2) / 2);
+
+/**
+ * A group's top-block surfaces, GROUP_COLUMNS² (index j × GROUP_COLUMNS +
+ * i; 0 where the terrain stays): areas filled (even-odd) and lines
+ * buffered by lineHalfWidthM, the higher in SURFACE_RANK winning.
+ */
+export function surfaceMaterials(region, gi, gj, { areas = [], lines = [] }) {
+  const out = new Uint8Array(GROUP_COLUMNS * GROUP_COLUMNS);
+  const grid = {
+    blockM: region.blockM,
+    i0: gi * GROUP_COLUMNS,
+    j0: gj * GROUP_COLUMNS,
+    size: GROUP_COLUMNS,
+  };
+  const local = (points) =>
+    points.map(({ lon, lat }) => region.toLocal(lon, lat));
+  const paint = (material) => (index) => {
+    if ((SURFACE_RANK[out[index]] ?? 0) < SURFACE_RANK[material])
+      out[index] = material;
+  };
+  for (const area of areas)
+    scanFootprint(area.rings.map(local), grid, paint(area.material));
+  for (const line of lines)
+    scanLine(
+      local(line.points),
+      lineHalfWidthM(line.widthM, region.blockM),
+      grid,
+      paint(MATERIALS.ROAD),
+    );
+  return out;
+}
+
+/**
  * A group's structures as levels, GROUP_COLUMNS² each (index j ×
  * GROUP_COLUMNS + i; NONE where none): `top` and `bottom` per column.
  * `terrainTop(index)` is a column's heightfield top and `ground(index)`
@@ -293,22 +568,28 @@ export function structureLevels(
   return outlines;
 }
 
-/** Chunk (a, b) of a group's levels, in columnIndex order; null when it has none. */
-function chunkLevels({ top, bottom }, a, b) {
+/**
+ * Chunk (a, b) of a group's levels and surfaces, in columnIndex order;
+ * null when it has neither.
+ */
+function chunkLevels({ top, bottom, material }, a, b) {
   const out = {
     top: new Int32Array(CHUNK_COLUMNS * CHUNK_COLUMNS),
     bottom: new Int32Array(CHUNK_COLUMNS * CHUNK_COLUMNS),
+    material: new Uint8Array(CHUNK_COLUMNS * CHUNK_COLUMNS),
   };
   let any = false;
   for (let j = 0; j < CHUNK_COLUMNS; j++) {
     const from = (b * CHUNK_COLUMNS + j) * GROUP_COLUMNS + a * CHUNK_COLUMNS;
-    const row = top.subarray(from, from + CHUNK_COLUMNS);
-    out.top.set(row, columnIndex(0, j));
-    out.bottom.set(
-      bottom.subarray(from, from + CHUNK_COLUMNS),
-      columnIndex(0, j),
-    );
-    if (!any) any = row.some((level) => level !== NONE);
+    const to = from + CHUNK_COLUMNS;
+    const at = columnIndex(0, j);
+    out.top.set(top.subarray(from, to), at);
+    out.bottom.set(bottom.subarray(from, to), at);
+    out.material.set(material.subarray(from, to), at);
+    if (!any)
+      any =
+        top.subarray(from, to).some((level) => level !== NONE) ||
+        material.subarray(from, to).some((m) => m !== 0);
   }
   return any ? out : null;
 }
@@ -344,12 +625,14 @@ export function groupTerrain(chunks) {
 }
 
 /**
- * Put a chunk's buildings into its structures layer: each column with a
- * top gets its structure from its bottom to its top (store.js
- * setStructure). Columns without data take none.
+ * Put a chunk's land cover and buildings into the store: each column's
+ * surface first (store.js setSurface: its material, or water at its top),
+ * then each column with a top gets its structure from its bottom to its
+ * top (setStructure). Columns without data take neither.
  * @param {object} chunk store.js's
- * @param {{top: Int32Array, bottom: Int32Array}|null} levels per column
- *   (columnIndex order; top NONE: none), from loadChunkStructures
+ * @param {{top: Int32Array, bottom: Int32Array, material?: Uint8Array}|null}
+ *   levels per column (columnIndex order; top NONE: no building, material
+ *   0: the terrain's), from loadChunkStructures
  * @returns {number} columns with a building
  */
 export function applyStructures(chunk, levels, material = BUILDING) {
@@ -358,8 +641,11 @@ export function applyStructures(chunk, levels, material = BUILDING) {
   for (let j = 0; j < CHUNK_COLUMNS; j++)
     for (let i = 0; i < CHUNK_COLUMNS; i++) {
       const index = columnIndex(i, j);
+      if (chunk.top[index] === NONE) continue;
+      const surface = levels.material?.[index];
+      if (surface) chunk.setSurface(i, j, surface);
       const top = levels.top[index];
-      if (top === NONE || chunk.top[index] === NONE) continue;
+      if (top === NONE) continue;
       chunk.setStructure(i, j, top, material, levels.bottom[index]);
       count++;
     }
@@ -396,6 +682,48 @@ export function createStructuresSource({
   if (!query)
     query = serialQuery(createOverpassViewClient({ minGapMs: QUERY_GAP_MS }));
   const held = new Map(); // group key → Promise<Map<chunk key, levels|null>>
+  // supergroup key → Promise<features>: one query for its 16 groups.
+  const supers = new Map();
+
+  /**
+   * A supergroup's features (parseFeatures's) from one Overpass query
+   * over its box, kept a while; a failure is not.
+   */
+  function loadSupergroup(region, si, sj) {
+    const key = `${regionKey(region)}|s${si}:${sj}`;
+    const known = supers.get(key);
+    if (known) {
+      supers.delete(key);
+      supers.set(key, known);
+      return known;
+    }
+    const promise = query(
+      groupQuery(supergroupBounds(region, si, sj), region.blockM),
+    ).then(({ elements }) => parseFeatures(elements));
+    supers.set(key, promise);
+    while (supers.size > Math.max(4, Math.ceil(maxGroups / 16)))
+      supers.delete(supers.keys().next().value);
+    promise.catch(() => {
+      if (supers.get(key) === promise) supers.delete(key);
+    });
+    return promise;
+  }
+
+  /**
+   * A group's features: cut from its supergroup's one query when
+   * `viaSupergroup` and the blocks are fine (FINE_BLOCK_M or smaller: a
+   * coarser supergroup's answer would be tens of MB), else from a query of
+   * its own.
+   */
+  async function groupFeatures(region, gi, gj, viaSupergroup) {
+    const bounds = groupBounds(region, gi, gj);
+    if (!viaSupergroup || region.blockM > FINE_BLOCK_M) {
+      const { elements } = await query(groupQuery(bounds, region.blockM));
+      return parseFeatures(elements);
+    }
+    const { si, sj } = supergroupOf(gi, gj);
+    return featuresIn(await loadSupergroup(region, si, sj), bounds);
+  }
 
   function remember(key, promise) {
     held.delete(key);
@@ -403,8 +731,12 @@ export function createStructuresSource({
     while (held.size > maxGroups) held.delete(held.keys().next().value);
   }
 
-  /** A group's buildings by chunk key 'ci:cj': {top, bottom} levels, or null. */
-  function loadGroup(region, gi, gj) {
+  /**
+   * A group's buildings and surfaces by chunk key 'ci:cj': {top, bottom,
+   * material}, or null. `viaSupergroup`: its features from the
+   * supergroup's one query (a view's fine groups share a few).
+   */
+  function loadGroup(region, gi, gj, { viaSupergroup = false } = {}) {
     const key = `${regionKey(region)}|g${gi}:${gj}`;
     const known = held.get(key);
     if (known) {
@@ -422,11 +754,11 @@ export function createStructuresSource({
             cj: gj * CHUNK_GROUP + b,
           });
       // The ground comes with the elevation source's one group request.
-      const [{ elements }, terrain] = await Promise.all([
-        query(buildingsQuery(groupBounds(region, gi, gj))),
+      const [features, terrain] = await Promise.all([
+        groupFeatures(region, gi, gj, viaSupergroup),
         Promise.all(cells.map(({ ci, cj }) => loadChunk(region, ci, cj))),
       ]);
-      const footprints = parseFootprints(elements);
+      const { footprints } = features;
       const levels = structureLevels(
         region,
         gi,
@@ -434,6 +766,10 @@ export function createStructuresSource({
         footprints,
         groupTerrain(terrain),
       );
+      // A building's columns keep their terrain under it (building > water).
+      levels.material = surfaceMaterials(region, gi, gj, features);
+      for (let index = 0; index < levels.material.length; index++)
+        if (levels.top[index] !== NONE) levels.material[index] = 0;
       const chunks = new Map();
       for (const { a, b, ci, cj } of cells)
         chunks.set(`${ci}:${cj}`, chunkLevels(levels, a, b));
@@ -454,20 +790,27 @@ export function createStructuresSource({
     loadGroup,
     /**
      * A chunk's buildings as levels, {top, bottom} per column
-     * (columnIndex order, top NONE: none), or null when it has none; from
+     * (columnIndex order, top NONE: none), and its top-block surfaces,
+     * `material` (0: the terrain's), or null when it has neither; from
      * its group's one query.
-     * @returns {Promise<{top: Int32Array, bottom: Int32Array}|null>}
+     * @returns {Promise<{top: Int32Array, bottom: Int32Array, material:
+     *   Uint8Array}|null>}
      */
-    async loadChunkStructures(region, ci, cj) {
+    async loadChunkStructures(region, ci, cj, options) {
       const { gi, gj } = groupOf(ci, cj);
-      return (await loadGroup(region, gi, gj)).get(`${ci}:${cj}`) ?? null;
+      return (
+        (await loadGroup(region, gi, gj, options)).get(`${ci}:${cj}`) ?? null
+      );
     },
-    /** The ids of the buildings in a group, from its one query. */
-    async loadGroupBuildings(region, gi, gj) {
-      return (await loadGroup(region, gi, gj)).buildings ?? [];
+    /** The ids of the buildings in a group. */
+    async loadGroupBuildings(region, gi, gj, options) {
+      return (await loadGroup(region, gi, gj, options)).buildings ?? [];
     },
     /** Groups held (for tests). */
     size: () => held.size,
-    clear: () => held.clear(),
+    clear: () => {
+      held.clear();
+      supers.clear();
+    },
   };
 }

@@ -197,3 +197,24 @@ export function renderModeStore() {
   });
   return shared;
 }
+
+/**
+ * A link asking for Blocks (`bk=1`) turns the Elevation layer on once the
+ * layers are restored, as a link asking for Lego's bricks does: Earth
+ * Engine layers are not in a link's layer list, and Blocks draws from
+ * Elevation, so without this a shared or reloaded Blocks link opened on
+ * "Blocks needs the Elevation layer on". True when it was asked.
+ */
+export function enableElevationForBlocksLink({
+  store,
+  dataManager,
+  elevationId,
+  defer = (run) => setTimeout(run, 0),
+}) {
+  if (!store?.linkAskedForBlocks?.()) return false;
+  defer(() => {
+    if (!dataManager?.isEnabled?.(elevationId))
+      dataManager?.setEnabled?.(elevationId, true, { origin: 'programmatic' });
+  });
+  return true;
+}

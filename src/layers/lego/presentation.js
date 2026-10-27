@@ -106,6 +106,12 @@ export function blocksStatusText(status) {
       return t('Blocks needs the Elevation layer on');
     case 'anchoring':
       return t('Blocks: finding the block size…');
+    case 'flying':
+      return t('Blocks: waiting for the camera to land');
+    case 'too-high':
+      return t('Blocks: come below {height} km to build', {
+        height: formatNumber(Math.round((status.ceilingM || 0) / 1000)),
+      });
     case 'unavailable':
       return t('Blocks needs the raster values service (/api/raster/values)');
     case 'failed':

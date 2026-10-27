@@ -90,6 +90,11 @@ export const MATERIAL_COLORS = Object.freeze({
   [MATERIALS.WATER]: Object.freeze([58, 112, 190, 170]),
   // Buildings (structures.js): a warm grey-brown, apart from the terrain.
   [MATERIALS.BUILDING]: Object.freeze([158, 132, 112, 255]),
+  // Land cover from OSM (structures.js): grass a Minecraft-ish green, forest
+  // deeper, roads asphalt grey.
+  [MATERIALS.GRASS]: Object.freeze([112, 168, 74, 255]),
+  [MATERIALS.FOREST]: Object.freeze([58, 108, 50, 255]),
+  [MATERIALS.ROAD]: Object.freeze([86, 86, 90, 255]),
 });
 const UNKNOWN_COLOR = Object.freeze([255, 0, 255, 255]);
 

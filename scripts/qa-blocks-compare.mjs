@@ -261,7 +261,7 @@ function buildingRing({ north, east, width, depth }) {
 
 /**
  * The answer to an Overpass query from the Blocks buildings source
- * (structures.js buildingsQuery): the synthetic buildings in the query's
+ * (structures.js groupQuery): the synthetic buildings in the query's
  * box, as `out geom` ways.
  */
 export function overpassAnswer(query) {
@@ -512,6 +512,13 @@ function respond(request, { dist, field, log }) {
     if (query.layer !== 'ee-elevation')
       return json(404, { error: 'Unknown layer' });
     log.values++;
+    // By kind: the cells asked and the ground they cover (a probe, a
+    // fine group at 1 m, a coarse supergroup at 4 m).
+    const { box } = query;
+    const lat = ((box.south + box.north) / 2) * (Math.PI / 180);
+    const spanM = (box.east - box.west) * M_PER_DEG * Math.cos(lat);
+    const kind = `${query.cells} cells over ${Math.round(spanM)} m`;
+    log.kinds[kind] = (log.kinds[kind] || 0) + 1;
     return request.respond({
       status: 200,
       contentType: 'application/octet-stream',
@@ -524,6 +531,7 @@ function respond(request, { dist, field, log }) {
     // The buildings source's queries (POST data=…): the synthetic town.
     const body = new URLSearchParams(request.postData() || '');
     const answer = overpassAnswer(body.get('data') || '');
+    log.overpass++;
     log.buildings += answer.elements.length;
     return json(200, answer);
   }
@@ -570,6 +578,8 @@ async function shoot({ browser, dist, field, out, blocks, view, suffix }) {
     values: 0,
     tiles: 0,
     buildings: 0,
+    overpass: 0,
+    kinds: {},
     missing: new Set(),
     errors: [],
   };
@@ -749,8 +759,10 @@ export async function main(argv = process.argv.slice(2)) {
     console.log(`${result.name}: ${result.file}`);
     console.log(`  status line: ${result.status || '(none)'}`);
     console.log(
-      `  values answered: ${result.values}, colour tiles: ${result.tiles}, buildings answered: ${result.buildings}`,
+      `  values answered: ${result.values}, colour tiles: ${result.tiles}, Overpass queries: ${result.overpass} (${result.buildings} buildings)`,
     );
+    for (const [kind, count] of Object.entries(result.kinds))
+      console.log(`    raster values, ${kind}: ${count}`);
     for (const seen of result.scene)
       console.log(`  scene: ${JSON.stringify(seen)}`);
     if (result.missing.length)
