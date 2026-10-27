@@ -22,6 +22,11 @@ export const REMOVE_FACTOR = 1.25;
  * 10 to 65 ms a chunk warm, so 8 is about half a tick at 1 m.
  */
 export const CHUNK_BUDGET = 8;
+/** A chunk that fails is asked again this many times at most, backing off. */
+export const MAX_ATTEMPTS = 6;
+/** The backoff before attempt n + 1: 2 s, 4 s, 8 s … at most a minute. */
+export const retryDelayMs = (attempts) =>
+  Math.min(60_000, 2000 * 2 ** (attempts - 1));
 /** From this block size the budget doubles (tickBudget). */
 export const COARSE_BLOCK_M = 30;
 /** A chunk's neighbours as buildChunkMesh names them: [name, Δci, Δcj]. */
@@ -171,7 +176,7 @@ export function sourceName(source) {
  *   datum?: {flat: () => boolean, undulation: (lat: number, lon: number)
  *     => number|Promise<number>, subscribe?: Function},
  *   radiusBlocks?: number, budget?: number, tickMs?: number,
- *   requestRender?: Function,
+ *   requestRender?: Function, now?: () => number,
  *   setIntervalImpl?: typeof setInterval, clearIntervalImpl?: typeof clearInterval,
  * }} options
  */
@@ -190,6 +195,7 @@ export function createBlocksController({
   budget = CHUNK_BUDGET,
   tickMs = TICK_MS,
   requestRender = () => {},
+  now = () => Date.now(),
   setIntervalImpl = (...args) => setInterval(...args),
   clearIntervalImpl = (...args) => clearInterval(...args),
 }) {
@@ -290,6 +296,8 @@ export function createBlocksController({
       pending,
       failed,
       source: _region.sourceName,
+      // The study sun (the real one is under 15°): said on the line.
+      sunFixed: Boolean(_region.sun?.fixed),
     });
   }
 
@@ -392,15 +400,20 @@ export function createBlocksController({
           return;
         entry.loading = null;
         entry.failed = true;
+        entry.attempts += 1;
+        // The source keeps no failure: asked again after a backoff.
+        entry.retryAt =
+          entry.attempts < MAX_ATTEMPTS
+            ? now() + retryDelayMs(entry.attempts)
+            : Infinity;
         console.warn(
-          `[Blocks] chunk ${entry.key} not loaded:`,
+          `[Blocks] chunk ${entry.key} not loaded (attempt ${entry.attempts}${error?.status ? `, HTTP ${error.status}` : ''}):`,
           error?.message || error,
         );
       },
     );
   }
 
-  /** What a chunk's mesh depends on: its version and its neighbours'. */
   /**
    * The loaded chunks around one: the four it shares a side with (their
    * border faces) and the four diagonals (ambient occlusion at its
@@ -522,10 +535,20 @@ export function createBlocksController({
     const perTick = tickBudget(budget, _region.blockM);
     let inFlight = 0;
     for (const entry of _chunks.values()) if (entry.loading) inFlight++;
+    const time = now();
     for (const { ci, cj } of ring) {
       if (inFlight >= perTick) break;
       const key = grid.chunkKey(ci, cj);
-      if (_chunks.has(key)) continue;
+      const known = _chunks.get(key);
+      if (known) {
+        // A failed chunk is asked again once its backoff is over.
+        if (known.failed && known.retryAt <= time) {
+          known.failed = false;
+          load(known);
+          inFlight++;
+        }
+        continue;
+      }
       const entry = {
         key,
         ci,
@@ -533,6 +556,8 @@ export function createBlocksController({
         chunk: null,
         loading: null,
         failed: false,
+        attempts: 0,
+        retryAt: 0,
         signature: '',
         shown: false,
       };
@@ -575,6 +600,8 @@ export function createBlocksController({
     for (const { ci, cj } of ring) {
       const entry = _chunks.get(grid.chunkKey(ci, cj));
       if (!entry) return true;
+      // A retry still to come keeps the tick going.
+      if (entry.failed && entry.retryAt !== Infinity) return true;
       if (!entry.chunk) continue;
       if (
         !entry.shown ||

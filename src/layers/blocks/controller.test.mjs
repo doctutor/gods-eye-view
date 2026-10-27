@@ -533,13 +533,19 @@ test('the status line and the HUD floor; destroy frees the renderer', async () =
   await drain(controller);
   const status = controller.getStatus();
   assert.equal(status.state, 'ready');
+  // The default sun is the study sun, and the line says so.
+  assert.equal(status.sunFixed, true);
   assert.equal(
     blocksStatusText(status),
+    `Blocks: 1 m cubes · ${status.chunks} chunks · 3DEP 1 m · study sun`,
+  );
+  assert.equal(
+    blocksStatusText({ ...status, sunFixed: false }),
     `Blocks: 1 m cubes · ${status.chunks} chunks · 3DEP 1 m`,
   );
   assert.equal(
     blocksStatusText({ ...status, state: 'loading', pending: 3 }),
-    `Blocks: 1 m cubes · ${status.chunks} chunks · 3DEP 1 m · 3 loading`,
+    `Blocks: 1 m cubes · ${status.chunks} chunks · 3DEP 1 m · study sun · 3 loading`,
   );
   assert.equal(
     blocksStatusText({ state: 'ready', blockM: 30, chunks: 1234, source: '' }),
@@ -836,4 +842,96 @@ test('with the real grid, store and mesher: chunks meshed against their neighbou
   assert.equal(controller.getStatus().state, 'ready');
   assert.equal(controller.getStatus().blockM, 10);
   controller.destroy();
+});
+
+test('a chunk that fails is asked again after a backoff (2 s, 4 s, …), and given up after 6 tries', async () => {
+  const { retryDelayMs, MAX_ATTEMPTS } = await import('./index.js');
+  assert.deepEqual(
+    [1, 2, 3, 4, 5, 6, 7, 8].map(retryDelayMs),
+    [2000, 4000, 8000, 16_000, 32_000, 60_000, 60_000, 60_000],
+  );
+  assert.equal(MAX_ATTEMPTS, 6);
+  let clock = 1_000_000;
+  let failures = 2; // 1:0 fails twice, then loads
+  const source = fakeSource();
+  const load = source.loadChunk;
+  const asked = [];
+  source.loadChunk = (region, ci, cj) => {
+    if (ci === 1 && cj === 0) {
+      asked.push(clock);
+      if (failures-- > 0)
+        return Promise.reject(
+          Object.assign(new Error('busy'), { status: 503 }),
+        );
+    }
+    return load(region, ci, cj);
+  };
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const renderer = fakeRenderer();
+  let ticking = null;
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const controller = createBlocksController({
+      viewer: fakeViewer(),
+      store,
+      layers: fakeLayers(true),
+      source,
+      renderer,
+      grid: fakeGrid,
+      buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+      radiusBlocks: 64,
+      now: () => clock,
+      setIntervalImpl: (fn) => (ticking = fn),
+      clearIntervalImpl: () => (ticking = null),
+    });
+    await drain(controller);
+    assert.equal(asked.length, 1);
+    assert.ok(!renderer.shown.has('1:0'));
+    assert.equal(controller.getStatus().failed, 1);
+    assert.ok(ticking, 'a retry to come keeps the tick going');
+    // Not before the backoff.
+    clock += 1999;
+    controller.tick();
+    assert.equal(asked.length, 1);
+    clock += 1;
+    await drain(controller);
+    assert.equal(asked.length, 2, 'asked again at 2 s');
+    clock += 3999;
+    controller.tick();
+    assert.equal(asked.length, 2);
+    clock += 1;
+    await drain(controller);
+    assert.equal(asked.length, 3, 'and at 4 s more');
+    assert.ok(renderer.shown.has('1:0'), 'drawn once it loads');
+    assert.equal(controller.getStatus().failed, 0);
+    controller.destroy();
+
+    // Always failing: given up after 6 tries, and the tick stops.
+    failures = Infinity;
+    asked.length = 0;
+    const again = createBlocksController({
+      viewer: fakeViewer(),
+      store,
+      layers: fakeLayers(true),
+      source,
+      renderer: fakeRenderer(),
+      grid: fakeGrid,
+      buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+      radiusBlocks: 64,
+      now: () => clock,
+      setIntervalImpl: (fn) => (ticking = fn),
+      clearIntervalImpl: () => (ticking = null),
+    });
+    for (let n = 0; n < 12; n++) {
+      clock += 60_000;
+      await drain(again);
+    }
+    assert.equal(asked.length, 6);
+    assert.equal(ticking, null, 'nothing left to wait for');
+    again.destroy();
+  } finally {
+    console.warn = warn;
+  }
 });

@@ -3569,6 +3569,7 @@
   "Blocks: {size} m cubes · {count} chunks · {source}": "Блоки: кубы {size} м · фрагментов: {count} · {source}",
   "Blocks: {size} m cubes · {count} chunks": "Блоки: кубы {size} м · фрагментов: {count}",
   "{count} loading": "загружается: {count}",
+  "study sun": "условное солнце",
   "{count} bricks = {value}": {
     "one": "{count} кубик = {value}",
     "few": "{count} кубика = {value}",

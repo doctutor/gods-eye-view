@@ -5985,7 +5985,8 @@ others. Blocks needs the **Elevation** layer on; without it nothing is
 built and the line under the heading says "Blocks needs the Elevation layer
 on". With it, the line says what is drawn: "Blocks: 1 m cubes · 412 chunks
 · 3DEP 1 m" (the block size, the chunks drawn, the elevation source), with
-"· N loading" while chunks are still coming. The share link carries it as
+"· study sun" when the real sun is under 15° and "· N loading" while
+chunks are still coming. The share link carries it as
 `bk=1`: a link with `bk=1` opens in Blocks without overwriting the stored
 mode, and a link without `bk` (every link from before Blocks) keeps the
 stored mode as before. While Blocks draws, the HUD's floor note beside AGL
@@ -6029,12 +6030,22 @@ controller:
   against them; a chunk is meshed again when a neighbour arrives or its
   version changes (an edit);
 - drops chunks only beyond 1.25 × the render distance (640 blocks), so a
-  camera going back and forth does not reload its edge.
+  camera going back and forth does not reload its edge;
+- asks a chunk that failed again after 2 s, 4 s, 8 s … (at most a minute),
+  six tries in all; the budget doubles for 30 m blocks.
+
+Each chunk is meshed with its eight neighbours: the four it shares a side
+with (border faces) and the diagonals (ambient occlusion at its corners).
+A neighbour not loaded yet reads as the edge column repeated, so no wall
+shows at the edge of what is loaded, and the chunk is meshed again when a
+neighbour arrives.
 
 The sun is fixed when the region is anchored: the real sun when it is more
 than 15° up, otherwise a study sun 60° up from the south-west; mesh.js
 bakes it into the colours with per-face shading and ambient occlusion.
-Fog closes in from 60 % of the render distance to its edge.
+Fog closes in from 60 % of the render distance to its edge, toward the
+scene's background: the style's own (black on blank-black), which Blocks
+leaves as it is.
 
 **The globe.** Within the render distance the world is the blocks. On a
 drawn style (blank, Positron, dark, Countries: `isFlatBasemap`) the globe

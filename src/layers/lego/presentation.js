@@ -117,9 +117,11 @@ export function blocksStatusText(status) {
         count: formatNumber(status.chunks),
         source: status.source,
       };
-      const text = status.source
+      let text = status.source
         ? t('Blocks: {size} m cubes · {count} chunks · {source}', values)
         : t('Blocks: {size} m cubes · {count} chunks', values);
+      // The real sun is under 15°: lit by the fixed study sun.
+      if (status.sunFixed) text = `${text} · ${t('study sun')}`;
       return status.state === 'loading'
         ? `${text} · ${t('{count} loading', { count: formatNumber(status.pending) })}`
         : text;
