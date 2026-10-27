@@ -232,6 +232,13 @@ export class IntelHUD {
     this._onCameraEdited =
       typeof onCameraEdited === 'function' ? onCameraEdited : null;
     this._surface = null;
+    // Personal fork: the tileset whose tile loads re-sample a missing
+    // surface, and whether one has loaded since the last sample.
+    this._watchedTileset = null;
+    this._tilesArrived = false;
+    this._onTilesArrived = () => {
+      this._tilesArrived = true;
+    };
     this._lastDistanceM = Number.NaN;
     this._centre = null;
     this._cameraFields = null;
@@ -535,6 +542,7 @@ export class IntelHUD {
    * is fresh), sampled again at most once a SURFACE_RETRY_MS otherwise.
    */
   _surfaceUnderCamera(view) {
+    this._watchTileset();
     const sample = this._surface;
     const now = Date.now();
     const offM = sample
@@ -542,11 +550,38 @@ export class IntelHUD {
       : Infinity;
     const usable = sample && Number.isFinite(sample.heightM);
     if (usable && offM <= SURFACE_NEAR_M) return sample.heightM;
-    if (!sample || now - sample.at >= SURFACE_RETRY_MS)
+    // A tile has loaded since a sample found no trusted surface: the leaves
+    // may be here, so sample now rather than at the next retry.
+    const arrived = this._tilesArrived && !usable;
+    this._tilesArrived = false;
+    if (!sample || arrived || now - sample.at >= SURFACE_RETRY_MS)
       return this._sampleSurface(view);
     return usable && now - sample.at < 2 * SURFACE_RETRY_MS
       ? sample.heightM
       : Number.NaN;
+  }
+
+  /**
+   * Personal fork: listen to the tile loads of the tileset under the view
+   * (surfaceSource's `tileset`), following it when the map stack changes.
+   */
+  _watchTileset(tileset = this._surfaceTileset()) {
+    if (tileset === this._watchedTileset) return;
+    for (const event of ['tileLoad', 'allTilesLoaded'])
+      this._watchedTileset?.[event]?.removeEventListener?.(
+        this._onTilesArrived,
+      );
+    this._watchedTileset = tileset || null;
+    for (const event of ['tileLoad', 'allTilesLoaded'])
+      tileset?.[event]?.addEventListener?.(this._onTilesArrived);
+  }
+
+  _surfaceTileset() {
+    try {
+      return this._surfaceSource()?.tileset ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /** Personal fork: the number an edit box opens with: the one shown. */
@@ -1181,6 +1216,7 @@ export class IntelHUD {
     clearInterval(this._summaryInterval);
     clearInterval(this._summaryTypingInterval);
     this._cameraEditing?.detach();
+    this._watchTileset(null);
     if (
       typeof window !== 'undefined' &&
       window.__gevHudCamera === this._diagnosticsHandle

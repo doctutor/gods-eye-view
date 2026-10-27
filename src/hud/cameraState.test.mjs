@@ -23,17 +23,23 @@ const at = (heightM, lat = TAHOE.lat, lon = TAHOE.lon) =>
 
 /**
  * A camera 4 m over the lake looking 3° down, heading 300°, and a scene whose
- * picks answer as told: `pickPosition`, `pickFromRay` (by direction: down
- * or along the centre ray), `sampleHeight`, and a hidden or shown globe.
+ * picks answer as told: `pickPosition`, `pickFromRay` (by direction and
+ * origin: down from the camera, down from 9 km as sampleHeight casts, or
+ * along the centre ray; a handler answers a position or a whole pick
+ * result), `sampleHeight`, and a hidden or shown globe.
  */
 function fakeViewer({
   pickPosition = () => undefined,
   rayDown = () => undefined,
+  rayAbove = () => undefined,
   rayCentre = () => undefined,
   sampleHeight = () => undefined,
   globe = null,
+  cameraHeightM = LAKE_M + 4,
+  lat = TAHOE.lat,
+  lon = TAHOE.lon,
 } = {}) {
-  const positionWC = at(LAKE_M + 4);
+  const positionWC = at(cameraHeightM, lat, lon);
   const camera = new Cesium.Camera({
     canvas: { clientWidth: 1017, clientHeight: 640 },
     drawingBufferWidth: 1017,
@@ -65,9 +71,13 @@ function fakeViewer({
         new Cesium.Cartesian3(),
       );
       const down = Cesium.Cartesian3.dot(ray.direction, up) < -0.999;
-      asked.push([down ? 'rayDown' : 'rayCentre']);
-      const position = down ? rayDown(ray) : rayCentre(ray);
-      return position ? { position } : undefined;
+      const fromAbove =
+        down && Cesium.Cartographic.fromCartesian(ray.origin).height > 8000;
+      const name = fromAbove ? 'rayAbove' : down ? 'rayDown' : 'rayCentre';
+      asked.push([name]);
+      const answer = { rayAbove, rayDown, rayCentre }[name](ray);
+      if (!answer) return undefined;
+      return answer.position ? answer : { position: answer };
     },
     sampleHeight: () => {
       asked.push(['sampleHeight']);
@@ -98,21 +108,82 @@ test('Tahoe: the ray down from the camera finds the lake, and wins', () => {
 });
 
 test('Tahoe: a sample at -23.8 km is a miss, not the ground; the next way, or NaN', () => {
-  // The ray down misses too, sampleHeight answers the chord: nothing sane.
-  const missed = fakeViewer({ sampleHeight: () => -23_800 });
+  // The ray down misses too, the ray from above meets the chord: nothing sane.
+  const missed = fakeViewer({ rayAbove: () => at(-23_800) });
   assert.ok(Number.isNaN(surfaceUnderCamera(missed.viewer).heightM));
   // A shown globe with its terrain loaded answers instead.
   const terrain = fakeViewer({
     rayDown: () => at(-23_800),
-    sampleHeight: () => -23_800,
+    rayAbove: () => at(-23_800),
     globe: { show: true, getHeight: () => LAKE_M + 0.4 },
   });
   const surface = surfaceUnderCamera(terrain.viewer);
   assert.equal(surface.via, 'globe');
   assert.ok(Math.abs(surface.heightM - (LAKE_M + 0.4)) < 1e-9);
-  // sampleHeight is still used when it is sane.
-  const sampled = fakeViewer({ sampleHeight: () => LAKE_M });
-  assert.equal(surfaceUnderCamera(sampled.viewer).via, 'sample');
+  // The ray from above is used when it is sane; sampleHeight is not asked
+  // where the scene can pick from a ray (it cannot say which tile it met).
+  const sampled = fakeViewer({
+    rayAbove: () => at(LAKE_M),
+    sampleHeight: () => -23_800,
+  });
+  assert.equal(surfaceUnderCamera(sampled.viewer).via, 'above');
+  assert.ok(!sampled.asked.some(([name]) => name === 'sampleHeight'));
+});
+
+/** A pick result on a Google tile of a geometric error, as Cesium gives it. */
+const onTile = (position, geometricError) => ({
+  position,
+  object: {
+    content: { tile: { geometricError } },
+    primitive: { isCesium3DTileset: true, maximumScreenSpaceError: 16 },
+  },
+});
+
+const BALTIMORE = { lat: 39.321451, lon: -76.629219 };
+
+test('Baltimore: a coarse tile streaming in is not the ground; the leaves are (2026-10-27)', () => {
+  // The camera at 80 m; the coarse ancestor's chord bulges to +535 m, so
+  // the ray down from the camera meets nothing and the ray from above meets
+  // the coarse tile. AGL read -455.5 m from it.
+  const where = { ...BALTIMORE, cameraHeightM: 80 };
+  const coarse = fakeViewer({
+    ...where,
+    rayAbove: () => onTile(at(535, where.lat, where.lon), 1100),
+  });
+  const surface = surfaceUnderCamera(coarse.viewer);
+  assert.ok(Number.isNaN(surface.heightM), `not ${surface.heightM}`);
+  // The leaves arrive: the ray down meets a 1.2 m tile at 25.4 m.
+  const fine = fakeViewer({
+    ...where,
+    rayDown: () => onTile(at(25.4, where.lat, where.lon), 1.2),
+    rayAbove: () => onTile(at(535, where.lat, where.lon), 1100),
+  });
+  const leaves = surfaceUnderCamera(fine.viewer);
+  assert.equal(leaves.via, 'down');
+  assert.ok(Math.abs(leaves.heightM - 25.4) < 0.01);
+  // The diagnostics say which tile each way met.
+  const report = viewDiagnostics(coarse.viewer);
+  assert.equal(report.surface.aboveTileErrorM, 1100);
+  assert.equal(report.surface.aboveTrusted, false);
+  assert.ok(Math.abs(report.surface.aboveHeightM - 535) < 0.01);
+});
+
+test('Baltimore: the centre is not measured on a coarse tile', () => {
+  const where = { ...BALTIMORE, cameraHeightM: 80 };
+  const coarse = fakeViewer({
+    ...where,
+    rayCentre: (ray) =>
+      onTile(Cesium.Ray.getPoint(ray, 40, new Cesium.Cartesian3()), 1100),
+  });
+  assert.equal(centreDistanceM(coarse.viewer).via, 'height');
+  const fine = fakeViewer({
+    ...where,
+    rayCentre: (ray) =>
+      onTile(Cesium.Ray.getPoint(ray, 1915, new Cesium.Cartesian3()), 1.2),
+  });
+  const centre = centreDistanceM(fine.viewer);
+  assert.equal(centre.via, 'ray');
+  assert.ok(Math.abs(centre.distanceM - 1915) < 0.01);
 });
 
 test('Tahoe: the centre is found by a ray through the tileset when the depth pick misses', () => {

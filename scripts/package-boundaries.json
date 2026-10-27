@@ -22,7 +22,11 @@
   },
   "viewer": {
     "exports": ["./application/viewer"],
-    "modules": ["src/app/viewer.js", "src/app/atmosphereCompat.js"],
+    "modules": [
+      "src/app/viewer.js",
+      "src/app/atmosphereCompat.js",
+      "src/surfaceTrust.js"
+    ],
     "external": ["cesium"]
   },
   "vite-build": {
@@ -1903,6 +1907,7 @@
       "src/bloom.js",
       "src/camera.js",
       "src/cameraGroundGuard.js",
+      "src/surfaceTrust.js",
       "src/cameraVerbs.js",
       "src/cctvFocusPolicy.js",
       "src/cctvFocusRequest.js",
@@ -3230,6 +3235,7 @@
       "src/data/inputOwnership.js",
       "src/annotations/worldAnnotationRenderer.js",
       "src/cameraGroundGuard.js",
+      "src/surfaceTrust.js",
       "src/cameraVerbs.js",
       "src/services/groundFloor.js",
       "src/data/routeSteps.js",
@@ -3469,6 +3475,7 @@
       "src/locations.js",
       "src/cityPois.js",
       "src/cameraGroundGuard.js",
+      "src/surfaceTrust.js",
       "src/search/alpsGeocoder.js",
       "src/search/defaults.js",
       "src/search/geospatial.js",
