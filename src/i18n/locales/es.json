@@ -3908,7 +3908,7 @@
   "Move: Walk": "Mover: a pie",
   "Move: Fly": "Mover: volar",
   "Navigation mode": "Modo de navegación",
-  "Walk: on the ground, WASD and the mouse (click the globe to look, Esc releases), Space jumps, Shift sprints. Fly: Space up, Shift down. Spectator: the usual camera": "A pie: sobre el suelo, WASD y el ratón (clic en el globo para mirar, Esc lo suelta), Espacio salta, Mayús corre. Volar: Espacio sube, Mayús baja. Espectador: la cámara de siempre",
+  "Walk: on the ground, WASD and the mouse (click the globe to look, Esc releases), Space jumps, Shift or W twice sprints. Fly: Space up, Shift down, W twice doubles the speed. Spectator: the usual camera": "A pie: sobre el suelo, WASD y el ratón (clic en el globo para mirar, Esc lo suelta), Espacio salta, Mayús o W dos veces corre. Volar: Espacio sube, Mayús baja, W dos veces dobla la velocidad. Espectador: la cámara de siempre",
   "SPECTATOR": "ESPECTADOR",
   "MODE": "MODO",
   "Blocks {size} m": "Bloques {size} m",

@@ -19,7 +19,7 @@ export function createNavigationHeadingControl(doc, store) {
   select.className = 'nav-mode-select';
   select.setAttribute('aria-label', t('Navigation mode'));
   select.title = t(
-    'Walk: on the ground, WASD and the mouse (click the globe to look, Esc releases), Space jumps, Shift sprints. Fly: Space up, Shift down. Spectator: the usual camera',
+    'Walk: on the ground, WASD and the mouse (click the globe to look, Esc releases), Space jumps, Shift or W twice sprints. Fly: Space up, Shift down, W twice doubles the speed. Spectator: the usual camera',
   );
   for (const key of Object.keys(NAV_LABELS)) {
     const option = doc.createElement('option');

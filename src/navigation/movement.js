@@ -28,6 +28,7 @@ export const BODY_HEIGHT_M = 1.8;
 export const WALK_SPEED_M_S = 4.3;
 export const SPRINT_SPEED_M_S = 5.6;
 export const FLY_SPEED_M_S = 10.8;
+/** Fly's sprint (a double-tap of forward) doubles the speed. */
 export const FLY_SPRINT_FACTOR = 2;
 export const FLY_VERTICAL_M_S = 7.5;
 export const SWIM_SPEED_M_S = 2.2;
@@ -147,8 +148,9 @@ function slide(world, state, dx, dy, feet, rise) {
 /**
  * The next state after `dt` seconds with `input` held:
  * {forward, back, left, right, jump, sprint, up, down} booleans. In Walk,
- * Space jumps (swims up in water) and Ctrl or Shift sprints; in Fly, Space
- * rises, Shift descends and Ctrl doubles the speed. With nothing known
+ * Space jumps (swims up in water) and `sprint` (Shift, or a double-tap of
+ * forward) sprints; in Fly, Space rises, Shift descends and `sprint` (the
+ * double-tap) doubles the speed. With nothing known
  * under the body it hovers: no fall, no climb.
  */
 export function step(state, input, dt, world, mode = 'walk') {

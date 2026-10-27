@@ -14,7 +14,7 @@ import {
   combineHeadingControls,
   createNavigationHeadingControl,
 } from './presentation.js';
-import { inputFromKeys } from './binding.js';
+import { DOUBLE_TAP_MS, createDoubleTap, inputFromKeys } from './binding.js';
 
 test('nav= reads walk and fly; anything else, or none, is Spectator', () => {
   assert.equal(NAV_PARAM, 'nav');
@@ -142,6 +142,20 @@ test('the keys: Space jumps in Walk and rises in Fly; Shift sprints, or descends
     down: true,
     sprint: false,
   });
-  assert.equal(inputFromKeys(new Set(['control']), 'walk').sprint, true);
-  assert.equal(inputFromKeys(new Set(['control']), 'fly').sprint, true);
+  // No Ctrl (Ctrl+W closes the tab): forward's double-tap sprints, and
+  // doubles Fly's speed.
+  assert.equal(inputFromKeys(new Set(['control']), 'walk').sprint, false);
+  assert.equal(inputFromKeys(new Set(['sprint']), 'walk').sprint, true);
+  assert.equal(inputFromKeys(new Set(['sprint']), 'fly').sprint, true);
+  assert.equal(inputFromKeys(new Set(['shift']), 'fly').sprint, false);
+});
+
+test('a double-tap of forward within 300 ms sprints; a slow second press does not', () => {
+  assert.equal(DOUBLE_TAP_MS, 300);
+  const tap = createDoubleTap();
+  assert.equal(tap.press(0), false);
+  assert.equal(tap.press(250), true, 'the second of two');
+  assert.equal(tap.press(400), false, 'a third starts afresh');
+  assert.equal(tap.press(1000), false, 'too slow');
+  assert.equal(tap.press(1290), true);
 });

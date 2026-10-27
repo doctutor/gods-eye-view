@@ -33,7 +33,10 @@ import {
   readCameraView,
 } from '../hud/cameraState.js';
 
-/** Keys the modes use (KeyboardEvent.code). */
+/**
+ * Keys the modes use (KeyboardEvent.code). No Ctrl: Ctrl+W closes the
+ * browser tab, and a page cannot stop it.
+ */
 const KEY_INPUTS = Object.freeze({
   KeyW: 'forward',
   ArrowUp: 'forward',
@@ -46,9 +49,26 @@ const KEY_INPUTS = Object.freeze({
   Space: 'space',
   ShiftLeft: 'shift',
   ShiftRight: 'shift',
-  ControlLeft: 'control',
-  ControlRight: 'control',
 });
+
+/** Two presses of forward this close together sprint (Minecraft's double-tap). */
+export const DOUBLE_TAP_MS = 300;
+
+/**
+ * Forward's double-tap: `press(t)` for each fresh press of forward says
+ * whether it was the second of a double-tap (and so starts a sprint that
+ * lasts while forward is held).
+ */
+export function createDoubleTap(windowMs = DOUBLE_TAP_MS) {
+  let last = -Infinity;
+  return {
+    press(t) {
+      const double = t - last <= windowMs;
+      last = double ? -Infinity : t;
+      return double;
+    },
+  };
+}
 
 /** A walker this far above a known surface is put down on it. */
 export const LAND_ABOVE_M = 50;
@@ -68,13 +88,14 @@ export function inputFromKeys(held, mode) {
     left: held.has('left'),
     right: held.has('right'),
   };
+  // 'sprint' is forward's double-tap, held while forward is.
   if (mode === 'fly') {
     input.up = held.has('space');
     input.down = held.has('shift');
-    input.sprint = held.has('control');
+    input.sprint = held.has('sprint');
   } else {
     input.jump = held.has('space');
-    input.sprint = held.has('shift') || held.has('control');
+    input.sprint = held.has('shift') || held.has('sprint');
   }
   return input;
 }
@@ -418,8 +439,14 @@ export function createNavigationBinding({
     if (!active) return;
     const name = KEY_INPUTS[event.code];
     if (!name || isFormTarget(event.target)) return;
-    if (event.type === 'keydown') active.held.add(name);
-    else active.held.delete(name);
+    if (event.type === 'keydown') {
+      if (name === 'forward' && !event.repeat && !active.held.has('forward'))
+        if (active.doubleTap.press(now())) active.held.add('sprint');
+      active.held.add(name);
+    } else {
+      active.held.delete(name);
+      if (name === 'forward') active.held.delete('sprint');
+    }
     // The app's own shortcuts (D cycles detection) wait while walking.
     event.stopPropagation();
     if (name === 'space' || event.code.startsWith('Arrow'))
@@ -531,6 +558,7 @@ export function createNavigationBinding({
       frame,
       state: null,
       held: new Set(),
+      doubleTap: createDoubleTap(),
       lookX: 0,
       lookY: 0,
       at: now(),

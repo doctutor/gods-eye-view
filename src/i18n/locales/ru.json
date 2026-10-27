@@ -4001,7 +4001,7 @@
   "Move: Walk": "Движение: пешком",
   "Move: Fly": "Движение: полёт",
   "Navigation mode": "Режим перемещения",
-  "Walk: on the ground, WASD and the mouse (click the globe to look, Esc releases), Space jumps, Shift sprints. Fly: Space up, Shift down. Spectator: the usual camera": "Пешком: по земле, WASD и мышь (щелчок по глобусу — обзор, Esc отпускает), Пробел — прыжок, Shift — бег. Полёт: Пробел вверх, Shift вниз. Наблюдатель: обычная камера",
+  "Walk: on the ground, WASD and the mouse (click the globe to look, Esc releases), Space jumps, Shift or W twice sprints. Fly: Space up, Shift down, W twice doubles the speed. Spectator: the usual camera": "Пешком: по земле, WASD и мышь (щелчок по глобусу — обзор, Esc отпускает), Пробел — прыжок, Shift или W дважды — бег. Полёт: Пробел вверх, Shift вниз, W дважды — вдвое быстрее. Наблюдатель: обычная камера",
   "SPECTATOR": "НАБЛЮДАТЕЛЬ",
   "MODE": "РЕЖИМ",
   "Blocks {size} m": "Блоки {size} м",

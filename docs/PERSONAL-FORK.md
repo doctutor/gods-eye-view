@@ -7107,12 +7107,12 @@ Spectator, so older links read the same) and opens in the mode
 (`src/navigation/store.js`). Spectator changes nothing.
 
 - **Walk.** The eye 1.62 m above the feet, gravity (32 m/s², so a jump
-  rises 1.25 m in Minecraft's 0.6 s), walk 4.3 m/s, sprint 5.6 (Shift or
-  Ctrl), Space jumps, a step up climbed without jumping (one block under
+  rises 1.25 m in Minecraft's 0.6 s), walk 4.3 m/s, sprint 5.6 (Shift, or
+  W twice within 300 ms, held), Space jumps, a step up climbed without jumping (one block under
   Blocks, 0.6 m elsewhere), drops of 0.3 m or less followed rather than
   fallen, swimming in water (2.2 m/s across, Space up at 2 m/s, sinking at
   1 m/s). A walker more than 50 m above a known surface is put down on it.
-- **Fly.** No gravity, 10.8 m/s (Ctrl doubles it), Space up and Shift down
+- **Fly.** No gravity, 10.8 m/s (W twice doubles it), Space up and Shift down
   at 7.5 m/s; the ground and blocks still stop it.
 - **Looking.** WASD (or the arrows) and the mouse under Pointer Lock: a
   click on the globe captures the pointer, Esc releases it. Yaw and pitch
@@ -7144,8 +7144,8 @@ Spectator, so older links read the same) and opens in the mode
   progress (a search, a link) owns the camera until it lands, and a camera
   moved by anything else is taken as the walker's new place. Movement keys
   are taken in the capture phase, outside form fields, so the app's own
-  shortcuts (D cycles detection) wait. Ctrl+W still closes the browser tab:
-  sprint with Shift.
+  shortcuts (D cycles detection) wait. No Ctrl anywhere: Ctrl+W closes the
+  browser tab, and a page cannot stop it.
 - **The model** (`src/navigation/movement.js`, `worlds.js`) is pure:
   state, keys and a time step give the next state, with the body a column
   1.8 m tall, sliding along walls, a ceiling stopping a jump, and the
