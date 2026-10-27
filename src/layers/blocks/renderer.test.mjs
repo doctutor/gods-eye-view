@@ -11,6 +11,8 @@ import { CHUNK_COLUMNS, createRegion } from './grid.js';
 import { createChunk } from './store.js';
 import { buildChunkMesh } from './mesh.js';
 import {
+  DITHER_DEFAULTS,
+  EDGE_DEFAULTS,
   REAL_SUN_MIN_ELEVATION_DEG,
   blocksSun,
   chunkMatrix,
@@ -250,7 +252,7 @@ test('setFog sets both appearances uniforms', async () => {
     .get(0)
     .appearance.getFragmentShaderSource();
   assert.match(fs, /fogStartM/);
-  assert.match(fs, /mix\(v_color\.rgb, fog\.diffuse, fog\.alpha\)/);
+  assert.match(fs, /mix\(v_color\.rgb \* tone, fog\.diffuse, fog\.alpha\)/);
   renderer.setFog({ endM: 900 });
   assert.equal(renderer.getState().fog.startM, 300);
   assert.equal(renderer.getState().fog.endM, 900);
@@ -481,4 +483,88 @@ test('the real mesher into the renderer: land and sea chunk, opaque and water pr
     mesh.indices.length,
   );
   renderer.destroy();
+});
+
+test('block edges and top dither: on by default for land, never for water, blockM from the region', () => {
+  const renderer = createBlocksRenderer({ viewer: fakeViewer() });
+  renderer.setRegion(stubRegion({ blockM: 30 }));
+  renderer.upsert('3:-2', tinyMesh({ water: true }));
+  const [land, sea] = [0, 1].map((k) => renderer.getCollection().get(k));
+  const u = land.appearance.material.uniforms;
+  assert.equal(u.blockM, 30);
+  assert.equal(u.edgeStrength, EDGE_DEFAULTS.strength);
+  assert.equal(u.edgeStrength, 0.12);
+  assert.equal(u.edgeFadeStart, 200);
+  assert.equal(u.edgeFadeEnd, 300);
+  assert.equal(u.ditherAmount, DITHER_DEFAULTS.amount);
+  assert.equal(u.ditherAmount, 0.03);
+  const w = sea.appearance.material.uniforms;
+  assert.equal(w.edgeStrength, 0);
+  assert.equal(w.ditherAmount, 0);
+  // Each chunk carries its place for global dither columns.
+  for (const primitive of [land, sea])
+    assert.deepEqual(
+      primitive.geometryInstances.attributes.blockChunk.value,
+      [3, -2],
+    );
+  // The shaders: local position and normal through, lines by fwidth, the tone applied before the fog.
+  const vs = land.appearance.vertexShaderSource;
+  assert.match(vs, /v_chunk = czm_batchTable_blockChunk\(batchId\)/);
+  assert.match(vs, /v_localPosition = position;/);
+  const fs = land.appearance.getFragmentShaderSource();
+  assert.match(fs, /fwidth\(f\)/);
+  assert.match(fs, /ditherAmount_\d+ \* ditherFade \*/);
+  assert.match(
+    fs,
+    /blocks_tone\(v_localPosition, v_localNormal, v_chunk, length\(v_positionEC\)\)/,
+  );
+  assert.match(fs, /floor\(chunk \+ 0\.5\) \* 64\.0 \+ floor\(f\.xy\)/);
+  assert.deepEqual(renderer.getState().style, {
+    edges: { ...EDGE_DEFAULTS },
+    dither: { ...DITHER_DEFAULTS },
+  });
+  renderer.destroy();
+});
+
+test('edges and dither options: off, settings, and setStyle', () => {
+  const off = createBlocksRenderer({
+    viewer: fakeViewer(),
+    edges: false,
+    dither: false,
+  });
+  off.setRegion(stubRegion());
+  off.upsert('0:0', tinyMesh());
+  let u = off.getCollection().get(0).appearance.material.uniforms;
+  assert.equal(u.edgeStrength, 0);
+  assert.equal(u.ditherAmount, 0);
+  assert.deepEqual(off.getState().style, { edges: null, dither: null });
+  // setStyle turns them on, with settings merged over the defaults.
+  const style = off.setStyle({
+    edges: { strength: 0.2, fadeEndBlocks: 150 },
+    dither: true,
+  });
+  assert.deepEqual(style.edges, {
+    strength: 0.2,
+    fadeStartBlocks: 200,
+    fadeEndBlocks: 150,
+  });
+  assert.equal(u.edgeStrength, 0.2);
+  assert.equal(u.edgeFadeEnd, 150);
+  assert.equal(u.ditherAmount, 0.03);
+  // Leaving one out keeps it; false turns it off.
+  off.setStyle({ dither: false });
+  assert.equal(u.edgeStrength, 0.2);
+  assert.equal(u.ditherAmount, 0);
+  off.destroy();
+  const custom = createBlocksRenderer({
+    viewer: fakeViewer(),
+    dither: { amount: 0.05 },
+  });
+  custom.setRegion(stubRegion({ blockM: 2 }));
+  custom.upsert('0:0', tinyMesh());
+  u = custom.getCollection().get(0).appearance.material.uniforms;
+  assert.equal(u.ditherAmount, 0.05);
+  assert.equal(u.edgeStrength, 0.12);
+  assert.equal(u.blockM, 2);
+  custom.destroy();
 });

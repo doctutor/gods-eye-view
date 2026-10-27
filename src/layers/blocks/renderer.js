@@ -21,7 +21,7 @@
 
 import * as Cesium from 'cesium';
 import { solarParameters, sunPosition } from '../../data/solarDaylight.js';
-import { parseChunkKey } from './grid.js';
+import { CHUNK_COLUMNS, parseChunkKey } from './grid.js';
 import { STUDY_SUN, STUDY_SUN_DIR, sunDirection } from './lighting.js';
 
 /** The real sun lights the blocks above this elevation, else the study sun. */
@@ -74,6 +74,15 @@ export function blocksSun(now, lat, lon) {
   };
 }
 
+/** Block edges: how much a line darkens, and the distance (blocks) it fades out over. */
+export const EDGE_DEFAULTS = Object.freeze({
+  strength: 0.12,
+  fadeStartBlocks: 200,
+  fadeEndBlocks: 300,
+});
+/** Top-face tone dither: ± this share of the colour, per block. */
+export const DITHER_DEFAULTS = Object.freeze({ amount: 0.03 });
+
 const VERTEX_SHADER = `
 const float DEPTH_BIAS = ${DEPTH_BIAS.toExponential()};
 in vec3 position;
@@ -84,6 +93,9 @@ in float batchId;
 out vec3 v_positionEC;
 out vec3 v_normalEC;
 out vec4 v_color;
+out vec3 v_localPosition;
+out vec3 v_localNormal;
+out vec2 v_chunk;
 
 void main() {
   vec4 p = vec4(position, 1.0);
@@ -91,6 +103,9 @@ void main() {
   v_positionEC = positionEC.xyz;
   v_normalEC = czm_normal * normal;
   v_color = color;
+  v_localPosition = position;
+  v_localNormal = normal;
+  v_chunk = czm_batchTable_blockChunk(batchId);
   gl_Position = czm_projection * vec4(positionEC.xyz * (1.0 - DEPTH_BIAS), 1.0);
 }
 `;
@@ -99,20 +114,65 @@ const FRAGMENT_SHADER = `
 in vec3 v_positionEC;
 in vec3 v_normalEC;
 in vec4 v_color;
+in vec3 v_localPosition;
+in vec3 v_localNormal;
+in vec2 v_chunk;
 
 void main() {
   czm_materialInput materialInput;
   materialInput.positionToEyeEC = -v_positionEC;
   materialInput.normalEC = normalize(v_normalEC);
   czm_material fog = czm_getMaterial(materialInput);
-  out_FragColor = vec4(mix(v_color.rgb, fog.diffuse, fog.alpha), v_color.a);
+  float tone = blocks_tone(v_localPosition, v_localNormal, v_chunk, length(v_positionEC));
+  out_FragColor = vec4(mix(v_color.rgb * tone, fog.diffuse, fog.alpha), v_color.a);
 }
 `;
 
-// The fog lives in a material because a material's uniforms are the only
-// ones an Appearance can carry: diffuse is the fog colour, alpha how much
-// of it a fragment at that distance takes.
-const FOG_SOURCE = `
+// The fog and the block tone live in a material because a material's
+// uniforms are the only ones an Appearance can carry. czm_getMaterial is
+// the fog: diffuse its colour, alpha how much of it a fragment at that
+// distance takes. blocks_tone is the shade that gives every block an edge:
+// a line about 1.5 px wide where the face crosses a multiple of blockM on
+// its two in-plane axes, fading out with distance and before the blocks
+// are too small on the screen for a line (no moiré), and on top faces a
+// per-block tone from a hash of the block's column, so a flat field is
+// not one colour (faded out as a block nears a pixel).
+const MATERIAL_SOURCE = `
+float blocks_hash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float blocks_line(float f) {
+  float w = fwidth(f);
+  float d = abs(f - floor(f + 0.5));
+  float line = 1.0 - smoothstep(0.5 * w, w, d);
+  return line * (1.0 - smoothstep(0.15, 0.35, w));
+}
+
+float blocks_tone(vec3 localPosition, vec3 localNormal, vec2 chunk, float distanceM) {
+  vec3 f = localPosition / blockM;
+  // Derivatives first, outside any branch.
+  float lx = blocks_line(f.x);
+  float ly = blocks_line(f.y);
+  float lz = blocks_line(f.z);
+  // A block under about a pixel gets no dither: it would sparkle as grain.
+  float footprint = max(fwidth(f.x), fwidth(f.y));
+  float ditherFade = 1.0 - smoothstep(0.5, 1.0, footprint);
+  vec3 a = abs(localNormal);
+  float line = a.z > 0.5 ? max(lx, ly) : a.x > 0.5 ? max(ly, lz) : max(lx, lz);
+  float fade = 1.0 - smoothstep(edgeFadeStart, edgeFadeEnd, distanceM / blockM);
+  float tone = 1.0 - edgeStrength * line * fade;
+  if (localNormal.z > 0.5) {
+    // The chunk is interpolated like any varying, so a hair off its whole
+    // number; rounded, or the hash bands across the block.
+    vec2 column = floor(chunk + 0.5) * ${CHUNK_COLUMNS.toFixed(1)} + floor(f.xy);
+    tone *= 1.0 + ditherAmount * ditherFade * (2.0 * blocks_hash(column) - 1.0);
+  }
+  return tone;
+}
+
 czm_material czm_getMaterial(czm_materialInput materialInput) {
   czm_material material = czm_getDefaultMaterial(materialInput);
   float d = length(materialInput.positionToEyeEC);
@@ -123,7 +183,7 @@ czm_material czm_getMaterial(czm_materialInput materialInput) {
 }
 `;
 
-function fogMaterial(translucent) {
+function blocksMaterial(translucent) {
   return new Cesium.Material({
     translucent,
     fabric: {
@@ -132,15 +192,26 @@ function fogMaterial(translucent) {
         fogStartM: 1e9,
         fogEndM: 2e9,
         fogColor: new Cesium.Color(...DEFAULT_FOG_COLOR),
+        blockM: 1,
+        edgeStrength: 0,
+        edgeFadeStart: EDGE_DEFAULTS.fadeStartBlocks,
+        edgeFadeEnd: EDGE_DEFAULTS.fadeEndBlocks,
+        ditherAmount: 0,
       },
-      source: FOG_SOURCE,
+      source: MATERIAL_SOURCE,
     },
   });
 }
 
+/** An edges or dither option (true, false, or settings) as settings; null when off. */
+function styleOption(value, defaults) {
+  if (value === false || value === null) return null;
+  return { ...defaults, ...(typeof value === 'object' ? value : {}) };
+}
+
 function blocksAppearance(translucent) {
   return new Cesium.Appearance({
-    material: fogMaterial(translucent),
+    material: blocksMaterial(translucent),
     translucent,
     closed: false,
     vertexShaderSource: VERTEX_SHADER,
@@ -270,8 +341,17 @@ export function chunkMatrix(frame, origin, result = new Cesium.Matrix4()) {
   );
 }
 
-/** @param {{viewer: object}} options */
-export function createBlocksRenderer({ viewer } = {}) {
+/**
+ * @param {{viewer: object, edges?: boolean|object, dither?: boolean|object}}
+ *   options edges: a line on every block edge (EDGE_DEFAULTS, on by
+ *   default); dither: a per-block tone on top faces (DITHER_DEFAULTS, on
+ *   by default). Water faces get neither.
+ */
+export function createBlocksRenderer({
+  viewer,
+  edges = true,
+  dither = true,
+} = {}) {
   const scene = viewer.scene;
   const collection = scene.primitives.add(
     new Cesium.PrimitiveCollection({ destroyPrimitives: true }),
@@ -293,8 +373,29 @@ export function createBlocksRenderer({ viewer } = {}) {
   let fog = { startM: 1e9, endM: 2e9, color: [...DEFAULT_FOG_COLOR] };
   let fogFollowsBackground = true;
   let destroyed = false;
+  let style = {
+    edges: styleOption(edges, EDGE_DEFAULTS),
+    dither: styleOption(dither, DITHER_DEFAULTS),
+  };
 
   const requestRender = () => scene.requestRender?.();
+
+  /** The block size and the land's edge and dither uniforms. */
+  function applyStyle() {
+    const blockM = region?.blockM || 1;
+    for (const [kind, appearance] of Object.entries(appearances)) {
+      const uniforms = appearance.material.uniforms;
+      const land = kind === 'opaque';
+      uniforms.blockM = blockM;
+      uniforms.edgeStrength = land && style.edges ? style.edges.strength : 0;
+      uniforms.edgeFadeStart =
+        style.edges?.fadeStartBlocks ?? EDGE_DEFAULTS.fadeStartBlocks;
+      uniforms.edgeFadeEnd =
+        style.edges?.fadeEndBlocks ?? EDGE_DEFAULTS.fadeEndBlocks;
+      uniforms.ditherAmount = land && style.dither ? style.dither.amount : 0;
+    }
+  }
+  applyStyle();
 
   function applyFog() {
     for (const appearance of Object.values(appearances)) {
@@ -356,6 +457,7 @@ export function createBlocksRenderer({ viewer } = {}) {
       region = next || null;
       datumOffsetM = offsetM;
       frame = region ? regionFrame(region, datumOffsetM) : null;
+      applyStyle();
       if (same) placeAll();
       requestRender();
       return api.getState();
@@ -383,6 +485,14 @@ export function createBlocksRenderer({ viewer } = {}) {
               geometryInstances: new Cesium.GeometryInstance({
                 geometry: meshGeometry(parts[kind]),
                 id: { blocks: true, key, water: kind === 'water' },
+                attributes: {
+                  // The chunk's place, so the dither's columns are global.
+                  blockChunk: new Cesium.GeometryInstanceAttribute({
+                    componentDatatype: Cesium.ComponentDatatype.FLOAT,
+                    componentsPerAttribute: 2,
+                    value: [parsed?.ci ?? 0, parsed?.cj ?? 0],
+                  }),
+                },
               }),
               appearance: appearances[kind],
               modelMatrix: chunkMatrix(frame, origin),
@@ -443,11 +553,26 @@ export function createBlocksRenderer({ viewer } = {}) {
       return api.getState().fog;
     },
 
+    /** Turn the edges or the dither on, off, or to other settings (as the options). */
+    setStyle({ edges: nextEdges, dither: nextDither } = {}) {
+      if (nextEdges !== undefined)
+        style.edges = styleOption(nextEdges, EDGE_DEFAULTS);
+      if (nextDither !== undefined)
+        style.dither = styleOption(nextDither, DITHER_DEFAULTS);
+      applyStyle();
+      requestRender();
+      return api.getState().style;
+    },
+
     keys: () => [...chunks.keys()],
 
     getState: () => ({
       region,
       datumOffsetM,
+      style: {
+        edges: style.edges && { ...style.edges },
+        dither: style.dither && { ...style.dither },
+      },
       chunks: chunks.size,
       primitives: collection.length,
       sun,
