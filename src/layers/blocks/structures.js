@@ -31,10 +31,14 @@
 // width (the width tag, else a default by class), ROAD; waterway lines
 // (river, stream, canal) buffered the same way (river 20 m, stream 3 m,
 // canal 8 m), WATER. Where they meet, building > water area > road >
-// waterway line (a bridge stays road) > forest > grass > terrain. Above
-// 2 m blocks the query leaves out what a block cannot show (buildings with
-// a perimeter under 8 blocks, footways and service roads, streams), so a
-// 10 m group answers in a few MB, not tens.
+// waterway line > forest > grass > terrain. A road or railway with a
+// bridge tag (and a man_made=bridge area) is not ground at all but a deck
+// one block thick in the structures layer, ROAD, at the highest ground
+// under the span plus 5 m (layer × 5 m for layer 1 to 3), with a hollow
+// under it, so I-83 crosses the Jones Falls in the air and the river
+// below stays water. Above 2 m blocks the query leaves out what a block
+// cannot show (buildings with a perimeter under 8 blocks, footways and
+// service roads, streams), so a 10 m group answers in a few MB, not tens.
 
 import { createOverpassViewClient } from '../../sources/overpassView.js';
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
@@ -159,6 +163,7 @@ export function groupQuery({ west, south, east, north }, blockM = 1) {
     `way["area:highway"](${bbox});` +
     `way["railway"~"^(${RAILWAYS.join('|')})$"](${bbox});` +
     `way["waterway"~"^(${(coarse ? ['river', 'canal'] : WATERWAYS).join('|')})$"](${bbox});` +
+    both('["man_made"="bridge"]') +
     ');out geom qt;'
   );
 }
@@ -238,6 +243,29 @@ export function lineWidthM(tags = {}) {
 
 const samePoint = (a, b) => a.lat === b.lat && a.lon === b.lon;
 
+/** How high a bridge's deck stands over the highest ground under it, metres, per layer. */
+export const BRIDGE_CLEARANCE_M = 5;
+/** The most layers a bridge is lifted by (a viaduct over viaducts). */
+export const BRIDGE_MAX_LAYERS = 3;
+
+/** Whether a road or railway's tags make it a bridge (any bridge value but no). */
+export const isBridge = (tags = {}) =>
+  Boolean(tags.bridge) && tags.bridge !== 'no';
+
+/**
+ * How many blocks a bridge's deck stands over the highest ground under it:
+ * BRIDGE_CLEARANCE_M per layer for layer 1 and up (at most
+ * BRIDGE_MAX_LAYERS), else one clearance; at least one block.
+ */
+export function bridgeLiftBlocks(tags = {}, blockM = 1) {
+  const layer = parseInt(tags.layer, 10);
+  const metres =
+    layer >= 1
+      ? Math.min(layer, BRIDGE_MAX_LAYERS) * BRIDGE_CLEARANCE_M
+      : BRIDGE_CLEARANCE_M;
+  return Math.max(1, Math.round(metres / blockM));
+}
+
 /**
  * Join member ways into closed rings: each open way is extended by any
  * way that shares an end, turned round if need be; a ring that cannot be
@@ -276,10 +304,22 @@ export function parseFeatures(elements = []) {
   const footprints = [];
   const areas = [];
   const lines = [];
+  const bridges = [];
   for (const shape of parseShapes(elements)) {
     const { tags } = shape;
     if (isBuildingTags(tags)) {
       if (shape.rings) footprints.push(shape);
+      continue;
+    }
+    // A bridge is a deck in the air, not the ground under it.
+    if (tags.man_made === 'bridge') {
+      if (shape.rings) bridges.push({ id: shape.id, tags, rings: shape.rings });
+      continue;
+    }
+    if (isBridge(tags) && shape.points) {
+      const widthM = lineWidthM(tags);
+      if (widthM > 0)
+        bridges.push({ id: shape.id, tags, points: shape.points, widthM });
       continue;
     }
     const material = surfaceMaterial(tags);
@@ -305,7 +345,7 @@ export function parseFeatures(elements = []) {
         material: MATERIALS.WATER,
       });
   }
-  return { footprints, areas, lines };
+  return { footprints, areas, lines, bridges };
 }
 
 /** Whether a list of {lat, lon} points reaches into a box (degrees). */
@@ -345,6 +385,11 @@ export function featuresIn(features, bounds) {
     areas: features.areas.filter(ringsIn),
     lines: features.lines.filter(({ points, widthM }) =>
       pointsIn(points, widen(widthM)),
+    ),
+    bridges: (features.bridges ?? []).filter((bridge) =>
+      bridge.rings
+        ? ringsIn(bridge)
+        : pointsIn(bridge.points, widen(bridge.widthM)),
     ),
   };
 }
@@ -620,14 +665,75 @@ export function structureLevels(
 }
 
 /**
+ * Bridges into a group's levels (structureLevels's, with `structure`, the
+ * material per column, added): each span a deck one block thick at the
+ * highest ground under its columns, ends included, plus bridgeLiftBlocks,
+ * ROAD, with a hollow under it (the ground keeps its own surface: a river
+ * stays water). A line is buffered as a road is (lineHalfWidthM), an area
+ * (man_made=bridge) filled. A building keeps its column; where two decks
+ * cross, the higher.
+ * @returns {number} deck columns
+ */
+export function bridgeLevels(
+  region,
+  gi,
+  gj,
+  bridges,
+  { terrainTop, ground },
+  levels,
+) {
+  const count = GROUP_COLUMNS * GROUP_COLUMNS;
+  levels.structure ??= new Uint8Array(count);
+  const grid = {
+    blockM: region.blockM,
+    i0: gi * GROUP_COLUMNS,
+    j0: gj * GROUP_COLUMNS,
+    size: GROUP_COLUMNS,
+  };
+  const local = (points) =>
+    points.map(({ lon, lat }) => region.toLocal(lon, lat));
+  const building = levels.top.map((top) => (top !== NONE ? 1 : 0));
+  let decks = 0;
+  for (const bridge of bridges) {
+    const columns = [];
+    const keep = (index) => {
+      if (terrainTop(index) !== NONE) columns.push(index);
+    };
+    if (bridge.rings) scanFootprint(bridge.rings.map(local), grid, keep);
+    else
+      scanLine(
+        local(bridge.points),
+        lineHalfWidthM(bridge.widthM, region.blockM),
+        grid,
+        keep,
+      );
+    if (!columns.length) continue;
+    let base = -Infinity;
+    for (const index of columns) base = Math.max(base, ground(index));
+    const deck = base + bridgeLiftBlocks(bridge.tags, region.blockM);
+    for (const index of columns) {
+      if (building[index]) continue;
+      if (levels.top[index] !== NONE && levels.top[index] >= deck) continue;
+      if (levels.top[index] === NONE) decks++;
+      levels.top[index] = deck;
+      levels.bottom[index] = deck;
+      levels.structure[index] = MATERIALS.ROAD;
+    }
+  }
+  return decks;
+}
+
+/**
  * Chunk (a, b) of a group's levels and surfaces, in columnIndex order;
  * null when it has neither.
  */
-function chunkLevels({ top, bottom, material }, a, b) {
+function chunkLevels({ top, bottom, material, structure }, a, b) {
   const out = {
     top: new Int32Array(CHUNK_COLUMNS * CHUNK_COLUMNS),
     bottom: new Int32Array(CHUNK_COLUMNS * CHUNK_COLUMNS),
     material: new Uint8Array(CHUNK_COLUMNS * CHUNK_COLUMNS),
+    // The structure's material per column (0: a building's).
+    structure: new Uint8Array(CHUNK_COLUMNS * CHUNK_COLUMNS),
   };
   let any = false;
   for (let j = 0; j < CHUNK_COLUMNS; j++) {
@@ -637,6 +743,7 @@ function chunkLevels({ top, bottom, material }, a, b) {
     out.top.set(top.subarray(from, to), at);
     out.bottom.set(bottom.subarray(from, to), at);
     out.material.set(material.subarray(from, to), at);
+    if (structure) out.structure.set(structure.subarray(from, to), at);
     if (!any)
       any =
         top.subarray(from, to).some((level) => level !== NONE) ||
@@ -676,15 +783,17 @@ export function groupTerrain(chunks) {
 }
 
 /**
- * Put a chunk's land cover and buildings into the store: each column's
- * surface first (store.js setSurface: its material, or water at its top),
- * then each column with a top gets its structure from its bottom to its
- * top (setStructure). Columns without data take neither.
+ * Put a chunk's land cover, buildings and bridges into the store: each
+ * column's surface first (store.js setSurface: its material, or water at
+ * its top), then each column with a top gets its structure from its
+ * bottom to its top (setStructure), a building's in `material`, a
+ * bridge's deck in its own (levels.structure). Columns without data take
+ * neither.
  * @param {object} chunk store.js's
  * @param {{top: Int32Array, bottom: Int32Array, material?: Uint8Array}|null}
  *   levels per column (columnIndex order; top NONE: no building, material
  *   0: the terrain's), from loadChunkStructures
- * @returns {number} columns with a building
+ * @returns {number} columns with a building or a deck
  */
 export function applyStructures(chunk, levels, material = BUILDING) {
   if (!levels) return 0;
@@ -697,7 +806,9 @@ export function applyStructures(chunk, levels, material = BUILDING) {
       if (surface) chunk.setSurface(i, j, surface);
       const top = levels.top[index];
       if (top === NONE) continue;
-      chunk.setStructure(i, j, top, material, levels.bottom[index]);
+      // A bridge's deck is ROAD; a building's, `material`.
+      const kind = levels.structure?.[index] || material;
+      chunk.setStructure(i, j, top, kind, levels.bottom[index]);
       count++;
     }
   return count;
@@ -821,6 +932,16 @@ export function createStructuresSource({
       levels.material = surfaceMaterials(region, gi, gj, features);
       for (let index = 0; index < levels.material.length; index++)
         if (levels.top[index] !== NONE) levels.material[index] = 0;
+      // Bridges over the ground, which keeps its own surface (a river
+      // stays water under a deck).
+      bridgeLevels(
+        region,
+        gi,
+        gj,
+        features.bridges ?? [],
+        groupTerrain(terrain),
+        levels,
+      );
       const chunks = new Map();
       for (const { a, b, ci, cj } of cells)
         chunks.set(`${ci}:${cj}`, chunkLevels(levels, a, b));
