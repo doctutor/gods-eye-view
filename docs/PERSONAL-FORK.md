@@ -6040,7 +6040,11 @@ a camera flight is in progress or an arrival correction still owns the
 camera (`cameraInFlight`: Cesium's flight, or `cameraArrivalPending` in
 `src/data/cameraArrival.js`, the ground guard's). The line says why
 ("Blocks: come below 8 km to build", "Blocks: waiting for the camera to
-land"), the globe stays shown, and what is drawn already stays. The first
+land"), and what is drawn already stays. Through a flight or arrival on a
+drawn style the globe stays hidden (Blocks builds where it lands, and a
+shown globe would have the Elevation layer fetch colour tiles for nothing,
+about 127 Earth Engine tiles a session opening into Blocks); too high to
+build, the globe shows. The first
 region is anchored where the camera settles: on the first `moveEnd` below
 the ceiling, or on the tick after a flight's correction lets go. (On
 2026-10-27 it anchored at the opening orbit, 17,000 km up, and loaded
@@ -6081,6 +6085,11 @@ controller:
 - asks a chunk that failed again after 2 s, 4 s, 8 s … (at most a minute),
   six tries in all; the budget doubles for 30 m blocks.
 
+A fine chunk is not meshed while a neighbour in the ring is still to
+come (at the ring's edge the neighbours beyond do not count), so a fresh
+chunk is meshed once rather than once per neighbour landing; a mesh that
+fails is tried again after the loads' backoff. A result that lands after
+Blocks was left is drawn into the hidden renderer but says nothing.
 Each chunk is meshed with its eight neighbours: the four it shares a side
 with (border faces) and the diagonals (ambient occlusion at its corners).
 A neighbour not loaded yet reads as the edge column repeated, so no wall
@@ -6112,7 +6121,8 @@ switch with the reason. Turning it off takes the buildings off every chunk
 in place (their columns cleared, the chunks meshed again); on puts them
 back from the source's cache. A failed query is asked again with the
 chunks' backoff. The status line counts the buildings drawn, each once
-across groups. The fine groups ask for their buildings a supergroup (4 × 4
+across groups, once every drawn group's buildings and ids are in
+("· buildings…" until then), so two looks at the same place agree. The fine groups ask for their buildings a supergroup (4 × 4
 groups) at a time: one Overpass query over the supergroup's box, each
 group keeping the footprints that reach into its own box and taking its
 ground from its own chunks (the per-group query stays for other callers).

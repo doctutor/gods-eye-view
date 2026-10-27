@@ -538,7 +538,8 @@ export function createBlocksController({
   }
 
   function statusNow() {
-    if (!_region) return;
+    // Parked (Blocks left) or off: a late result does not bring it back.
+    if (!_region || _parkTimer !== null || !active()) return;
     let shown = 0;
     let coarse = 0;
     let failed = 0;
@@ -554,13 +555,21 @@ export function createBlocksController({
       else if (!entry.chunk) pending++;
     }
     // Buildings drawn: those placed in groups with a fine chunk drawn
-    // with its buildings, each once.
+    // with its buildings, each once; not counted at all while a drawn
+    // group's buildings or ids are still coming, so two looks at the same
+    // place agree.
     const ids = new Set();
-    if (buildingsOn())
+    let buildingsPending = false;
+    if (buildingsOn()) {
+      for (const entry of _chunks.values())
+        if (entry.shown && structuresComing(entry)) buildingsPending = true;
       for (const [key, list] of _groupBuildings) {
         const [gi, gj] = key.split(':').map(Number);
-        if (groupHasBuildings(gi, gj)) for (const id of list) ids.add(id);
+        if (!groupHasBuildings(gi, gj)) continue;
+        if (list === null) buildingsPending = true;
+        else for (const id of list) ids.add(id);
       }
+    }
     setStatus({
       state: pending
         ? 'loading'
@@ -573,7 +582,8 @@ export function createBlocksController({
       pending,
       failed,
       source: _region.sourceName,
-      buildings: ids.size,
+      buildings: buildingsPending ? 0 : ids.size,
+      buildingsPending,
       buildingsOn: buildingsOn(),
       // The study sun (the real one is under 15°): said on the line.
       sunFixed: Boolean(_region.sun?.fixed),
@@ -857,12 +867,20 @@ export function createBlocksController({
     entry.shown = true;
   }
 
+  /**
+   * A mesh that failed: the chunk is loaded and meshed again after the
+   * loads' backoff (2 s, 4 s, … six tries), not given up for the region.
+   */
   function meshFailed(entry, error) {
     entry.failed = true;
-    entry.retryAt = Infinity;
     entry.chunk = null;
+    entry.attempts += 1;
+    entry.retryAt =
+      entry.attempts < MAX_ATTEMPTS
+        ? now() + retryDelayMs(entry.attempts)
+        : Infinity;
     console.warn(
-      `[Blocks] chunk ${entry.key} not meshed:`,
+      `[Blocks] chunk ${entry.key} not meshed (attempt ${entry.attempts}):`,
       error?.message || error,
     );
   }
@@ -901,6 +919,12 @@ export function createBlocksController({
     );
   }
 
+  /** Whether a fine chunk's buildings are still to come (asked, or to be asked again). */
+  const structuresComing = (entry) =>
+    entry.structures === undefined ||
+    entry.structures === 'loading' ||
+    (entry.structures === 'failed' && entry.structuresRetryAt !== Infinity);
+
   /** Whether a fine chunk of the group is drawn with its buildings. */
   function groupHasBuildings(gi, gj) {
     for (let dj = 0; dj < GROUP_CHUNKS; dj++)
@@ -938,7 +962,8 @@ export function createBlocksController({
         const { gi, gj } = groupOf(entry.ci, entry.cj);
         const key = `${gi}:${gj}`;
         if (structures.groupBuildings && !_groupBuildings.has(key)) {
-          _groupBuildings.set(key, []);
+          // null while the ids are coming: the count waits for them.
+          _groupBuildings.set(key, null);
           call(() => structures.groupBuildings(region, gi, gj)).then(
             (list) => {
               if (generation !== _generation || !_groupBuildings.has(key))
@@ -946,7 +971,11 @@ export function createBlocksController({
               _groupBuildings.set(key, Array.isArray(list) ? list : []);
               statusNow();
             },
-            () => {},
+            () => {
+              // No ids: counted as none rather than waited for.
+              if (_groupBuildings.get(key) === null)
+                _groupBuildings.set(key, []);
+            },
           );
         }
       },
@@ -1055,18 +1084,29 @@ export function createBlocksController({
    * drawn style shows it again; on a switch to another map the map stack
    * controller has set it for that map already, and it is left as it is.
    */
-  function applyGlobe(held = false) {
-    setGlobe(held);
+  /**
+   * `held`: why Blocks waits, or null. Through a flight or an arrival
+   * correction the globe stays hidden on a drawn style (Blocks will build
+   * where it lands, and a shown globe would have the Elevation layer fetch
+   * colour tiles for nothing: about 127 Earth Engine tiles a session that
+   * opens into Blocks); too high to build, Blocks cannot, and the globe
+   * shows.
+   */
+  function applyGlobe(held = null) {
+    const cannotBuild = held === 'too-high';
+    setGlobe(cannotBuild);
     // Told after the globe is set, so the overlays re-drape where it is.
-    setBlocksScene({ active: active() && !held, globeHidden: _globeHidden });
+    setBlocksScene({
+      active: active() && !cannotBuild,
+      globeHidden: _globeHidden,
+    });
   }
 
-  function setGlobe(held) {
+  function setGlobe(cannotBuild) {
     const globe = _viewer?.scene?.globe;
     if (!globe) return;
     const drawn = Boolean(flatStyle());
-    // Held (in flight, or too high to build): the globe stays.
-    if (active() && drawn && !held) {
+    if (active() && drawn && !cannotBuild) {
       if (!_globeHidden) {
         _globeHidden = true;
         _globeBefore = globe.show;
@@ -1144,7 +1184,7 @@ export function createBlocksController({
   function tick() {
     const camera = active() ? cameraLonLat() : null;
     const held = holdFor(camera);
-    applyGlobe(Boolean(held));
+    applyGlobe(held);
     if (!active()) {
       if (_region || _anchoring || _chunks.size) park();
       else setStatus({ state: statusOff() });
@@ -1203,6 +1243,12 @@ export function createBlocksController({
         changed = true;
       }
       _chunks.delete(entry.key);
+    }
+    // The dropped groups' building ids go with them.
+    for (const key of [..._groupBuildings.keys()]) {
+      const [gi, gj] = key.split(':').map(Number);
+      if (chunkDistance(at, gi, gj, groupSize) > far)
+        _groupBuildings.delete(key);
     }
     const coarseFar = radiusBlocks * COARSE_REACH * REMOVE_FACTOR;
     for (const entry of [..._coarse.values()]) {
@@ -1278,12 +1324,19 @@ export function createBlocksController({
     const poolFull =
       Boolean(backlog) &&
       backlog.waiting > BACKLOG_PER_WORKER * Math.max(1, backlog.workers || 0);
-    const meshEach = (wanted, held, keyOf, covered = () => false) => {
+    const meshEach = (
+      wanted,
+      held,
+      keyOf,
+      covered = () => false,
+      wait = () => false,
+    ) => {
       let meshed = poolFull ? perTick : 0;
       for (const place of wanted) {
         if (meshed >= perTick) break;
         const entry = held.get(keyOf(place));
         if (!entry?.chunk) continue;
+        if (!entry.shown && wait(entry)) continue;
         if (covered(entry)) {
           if (entry.shown) {
             renderer.remove(entry.key);
@@ -1312,7 +1365,26 @@ export function createBlocksController({
         changed = true;
       }
     };
-    meshEach(ring, _chunks, ({ ci, cj }) => grid.chunkKey(ci, cj));
+    // A fine chunk waits while a neighbour in the ring is still to come
+    // (meshing it now would mesh it again when that neighbour lands); at
+    // the ring's outer edge the neighbours beyond do not count.
+    const inRing = new Set(ring.map(({ ci, cj }) => grid.chunkKey(ci, cj)));
+    const neighbourComing = (entry) => {
+      for (const [, di, dj] of NEIGHBOURS) {
+        const key = grid.chunkKey(entry.ci + di, entry.cj + dj);
+        if (!inRing.has(key)) continue;
+        const neighbour = _chunks.get(key);
+        if (!neighbour || neighbour.loading) return true;
+      }
+      return false;
+    };
+    meshEach(
+      ring,
+      _chunks,
+      ({ ci, cj }) => grid.chunkKey(ci, cj),
+      undefined,
+      neighbourComing,
+    );
     meshEach(
       groups,
       _coarse,
@@ -1440,6 +1512,7 @@ export function createBlocksController({
     /** For tests and the harness. */
     _state: () => ({
       parked: _parkTimer !== null,
+      groupBuildings: _groupBuildings,
       region: _region,
       chunks: _chunks,
       coarse: _coarse,
