@@ -5,7 +5,10 @@ import {
   photorealStore,
 } from '../layers/lego/photoreal.js';
 import { createLegoHeadingControl } from '../layers/lego/presentation.js';
-import { renderModeStore } from '../layers/lego/renderMode.js';
+import {
+  enableElevationForBlocksLink,
+  renderModeStore,
+} from '../layers/lego/renderMode.js';
 import { createApplicationBlocks } from './blocks.js';
 import { ensureGeoidReady, geoidHeight } from '../data/geoid.js';
 import { governorRequestRender } from '../renderGovernor.js';
@@ -57,6 +60,12 @@ export function createApplicationLego({
     dataManager,
     store: renderMode,
     mapStackController,
+  });
+  // A link asking for Blocks turns the Elevation layer on likewise.
+  enableElevationForBlocksLink({
+    store: renderMode,
+    dataManager,
+    elevationId: ELEVATION_LAYER_ID,
   });
   // A link asking for the bricks turns Lego on, and the elevation layer
   // when no Lego layer is on, once the layers are restored.
