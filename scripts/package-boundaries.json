@@ -2765,7 +2765,6 @@
       "src/navigation/target.js",
       "src/navigation/targeting.js",
       "src/navigation/entry.js",
-      "src/data/earthEngineBudget.js",
       "src/navigation/inputs.js",
       "src/navigation/gamepad.js",
       "src/data/earthEngineBudget.js"
