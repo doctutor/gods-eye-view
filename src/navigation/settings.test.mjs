@@ -1,0 +1,204 @@
+// Personal fork: the Walk and Fly controls (src/navigation/settings.js):
+// the store (kept in this browser, bounds, reset), the key bindings and
+// their conflicts, the fly-speed wheel and the sprint FOV widening.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  APP_SHORTCUT_CODES,
+  BOUNDS,
+  DEFAULT_BINDINGS,
+  DEFAULT_SETTINGS,
+  FLY_SPEED_RANGE,
+  SETTINGS_KEY,
+  SPRINT_FOV_DEG,
+  SPRINT_FOV_RAMP_S,
+  WHEEL_NOTCH_FACTOR,
+  createFovEaser,
+  createNavSettings,
+  flySpeedAfterWheel,
+} from './settings.js';
+
+const memory = () => {
+  const map = new Map();
+  return {
+    getItem: (k) => (map.has(k) ? map.get(k) : null),
+    setItem: (k, v) => map.set(k, String(v)),
+    map,
+  };
+};
+
+test('the defaults: Minecraft’s, 70° vertical, the speeds as before, sprint and up/down unbound', () => {
+  const settings = createNavSettings({ storage: memory() }).get();
+  assert.equal(settings.fovDeg, 70);
+  assert.equal(settings.sensitivity, 1);
+  assert.equal(settings.invertY, false);
+  assert.deepEqual(
+    [settings.walk, settings.sprint, settings.fly],
+    [4.3, 5.6, 10.8],
+  );
+  assert.equal(settings.sneakMode, 'hold');
+  assert.equal(settings.sprintFov, true);
+  assert.equal(settings.bobbing, false);
+  assert.deepEqual(settings.bindings.forward, ['KeyW', 'ArrowUp']);
+  assert.deepEqual(settings.bindings.sneak, ['ShiftLeft', 'ShiftRight']);
+  assert.deepEqual(settings.bindings.jump, ['Space']);
+  assert.deepEqual(settings.bindings.walkHere, ['KeyG']);
+  assert.deepEqual(settings.bindings.release, ['Escape']);
+  for (const free of ['sprint', 'up', 'down', 'flyHere'])
+    assert.deepEqual(settings.bindings[free], [], free);
+  assert.equal(
+    Object.values(DEFAULT_BINDINGS)
+      .flat()
+      .some((c) => c.startsWith('Control')),
+    false,
+    'no Ctrl: Ctrl+W closes the tab',
+  );
+});
+
+test('kept in this browser, never the link; numbers held within their bounds; reset', () => {
+  const storage = memory();
+  const store = createNavSettings({ storage });
+  const heard = [];
+  store.subscribe((s) => heard.push(s.fovDeg));
+  assert.equal(
+    store.set({
+      fovDeg: 90,
+      sensitivity: 5,
+      invertY: true,
+      sneakMode: 'toggle',
+    }),
+    true,
+  );
+  assert.equal(store.set({ fovDeg: 90 }), false, 'no change, nothing said');
+  let now = store.get();
+  assert.equal(now.fovDeg, 90);
+  assert.equal(now.sensitivity, BOUNDS.sensitivity[1], 'clamped to 2×');
+  assert.equal(now.invertY, true);
+  assert.equal(now.sneakMode, 'toggle');
+  store.set({
+    fovDeg: 5,
+    fly: 500,
+    walk: 'fast',
+    sneakMode: 'sometimes',
+    bobbing: 'yes',
+  });
+  now = store.get();
+  assert.equal(now.fovDeg, 30);
+  assert.equal(now.fly, 50);
+  assert.equal(now.walk, 4.3, 'not a number: kept');
+  assert.equal(now.sneakMode, 'toggle', 'not a mode: kept');
+  assert.equal(now.bobbing, false, 'not a boolean: kept');
+  assert.ok(JSON.parse(storage.map.get(SETTINGS_KEY)).fovDeg === 30);
+  assert.equal(SETTINGS_KEY, 'gev.nav.settings');
+  // A new page reads what was kept.
+  assert.equal(createNavSettings({ storage }).get().fly, 50);
+  // A garbled store is the defaults.
+  storage.setItem(SETTINGS_KEY, '{not json');
+  assert.equal(createNavSettings({ storage }).get().fovDeg, 70);
+  // Reset: everything, the bindings too.
+  store.bind('jump', 'KeyJ');
+  store.reset();
+  assert.deepEqual(store.get(), {
+    ...DEFAULT_SETTINGS,
+    bindings: createNavSettings({ storage: memory() }).get().bindings,
+  });
+  assert.equal(heard.at(-1), 70);
+  // No storage at all: it still works, keeping nothing.
+  const bare = createNavSettings({ storage: null });
+  bare.set({ fovDeg: 80 });
+  assert.equal(bare.get().fovDeg, 80);
+});
+
+test('bindings: one key an action; refused on the app’s shortcuts (but for an action’s own default) and on another action’s key', () => {
+  const store = createNavSettings({ storage: memory() });
+  assert.deepEqual(store.bind('sprint', 'KeyR'), { ok: true });
+  assert.deepEqual(store.codesFor('sprint'), ['KeyR']);
+  assert.equal(store.keyMap().KeyR, 'sprint');
+  // The app's shortcut table: 1–7, h, o, v, f, d, c, Esc, `.
+  for (const code of [
+    'Digit1',
+    'Digit7',
+    'KeyH',
+    'KeyO',
+    'KeyV',
+    'KeyF',
+    'KeyC',
+    'Backquote',
+    'Escape',
+  ])
+    assert.deepEqual(
+      store.check('sprint', code),
+      { ok: false, reason: 'app' },
+      code,
+    );
+  assert.deepEqual(APP_SHORTCUT_CODES.length, 15);
+  // D is the app's (detection) but Walk's own default right: allowed back.
+  store.bind('right', 'KeyL');
+  assert.deepEqual(store.check('right', 'KeyD'), { ok: true });
+  assert.deepEqual(store.check('left', 'KeyD'), { ok: false, reason: 'app' });
+  // Another action's key.
+  assert.deepEqual(store.bind('jump', 'KeyR'), {
+    ok: false,
+    reason: 'taken',
+    by: 'sprint',
+  });
+  assert.deepEqual(store.bind('jump', 'KeyW'), {
+    ok: false,
+    reason: 'taken',
+    by: 'forward',
+  });
+  // Its own key again is fine; one key an action replaces the defaults' two.
+  assert.deepEqual(store.bind('forward', 'KeyW'), { ok: true });
+  assert.deepEqual(store.codesFor('forward'), ['KeyW']);
+  assert.equal(store.keyMap().ArrowUp, undefined);
+  // Backspace clears.
+  assert.equal(store.unbind('sprint'), true);
+  assert.deepEqual(store.codesFor('sprint'), []);
+  assert.equal(store.unbind('sprint'), false);
+  // walkHere and release are not held intents: not in the key map.
+  assert.equal(store.keyMap().KeyG, undefined);
+  assert.equal(store.keyMap().Escape, undefined);
+  assert.deepEqual(store.check('bogus', 'KeyQ'), {
+    ok: false,
+    reason: 'invalid',
+  });
+});
+
+test('the fly-speed wheel: 1.25× a notch, up faster, on a log scale between 1 and 50 m/s', () => {
+  assert.equal(WHEEL_NOTCH_FACTOR, 1.25);
+  assert.deepEqual(FLY_SPEED_RANGE, [1, 50]);
+  assert.ok(Math.abs(flySpeedAfterWheel(10, -100) - 12.5) < 1e-9, 'wheel up');
+  assert.ok(Math.abs(flySpeedAfterWheel(10, 100) - 8) < 1e-9, 'wheel down');
+  assert.ok(
+    Math.abs(flySpeedAfterWheel(10, -3, 1) - 12.5) < 1e-9,
+    'three lines a notch',
+  );
+  assert.ok(Math.abs(flySpeedAfterWheel(10, -2, 2) - 15.625) < 1e-9, 'pages');
+  // Equal notches, equal ratios: a log scale.
+  let speed = 1;
+  const seen = [];
+  for (let k = 0; k < 40; k++)
+    seen.push((speed = flySpeedAfterWheel(speed, -100)));
+  assert.equal(seen.at(-1), 50, 'stops at 50');
+  assert.equal(flySpeedAfterWheel(1.1, 500), 1, 'stops at 1');
+  assert.equal(flySpeedAfterWheel(10, 0), 10);
+});
+
+test('the sprint FOV widening: +10° over 0.2 s, back over 0.2 s', () => {
+  assert.equal(SPRINT_FOV_DEG, 10);
+  assert.equal(SPRINT_FOV_RAMP_S, 0.2);
+  const easer = createFovEaser();
+  assert.ok(Math.abs(easer.update(true, 0.1) - 5) < 1e-9, 'half way at 0.1 s');
+  assert.ok(
+    Math.abs(easer.update(true, 0.1) - 10) < 1e-9,
+    'all of it at 0.2 s',
+  );
+  assert.equal(easer.update(true, 0.5), 10, 'no further');
+  assert.ok(Math.abs(easer.update(false, 0.05) - 7.5) < 1e-9);
+  assert.equal(easer.update(false, 0.15), 0);
+  assert.equal(easer.update(false, 1), 0);
+  easer.update(true, 0.1);
+  easer.reset();
+  assert.equal(easer.boost, 0);
+});
