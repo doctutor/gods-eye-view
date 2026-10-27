@@ -8,8 +8,13 @@ import { CHUNK_COLUMNS, createRegion } from './grid.js';
 import { MATERIALS, NONE } from './store.js';
 import {
   ELEVATION_LAYER,
+  CHUNK_GROUP,
+  GROUP_COLUMNS,
+  coarseHeights,
   columnsFromHeights,
   createChunkSource,
+  groupBounds,
+  groupOf,
   probeBox,
   sampleColumns,
   snapBlockM,
@@ -154,7 +159,31 @@ test('sampleColumns: each column reads the cell under its centre, even on a 63-c
   }
 });
 
-test('loadChunk: one request over the chunk bounds, columns into createChunk', async () => {
+test('groupOf and groupBounds: a 4-chunk grid, the box around the corner chunks', () => {
+  assert.equal(CHUNK_GROUP, 4);
+  assert.deepEqual(groupOf(5, -3), { gi: 1, gj: -1 });
+  assert.deepEqual(groupOf(-1, 0), { gi: -1, gj: 0 });
+  assert.deepEqual(groupOf(3, 4), { gi: 0, gj: 1 });
+  const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 10 });
+  const box = groupBounds(region, 1, -1);
+  const sw = region.chunkBounds(4, -4);
+  const ne = region.chunkBounds(7, -1);
+  assert.ok(box.west <= sw.west && box.south <= sw.south);
+  assert.ok(box.east >= ne.east && box.north >= ne.north);
+  // Every chunk of the group lies inside it; the next group's do not.
+  for (let ci = 4; ci < 8; ci++)
+    for (let cj = -4; cj < 0; cj++) {
+      const b = region.chunkBounds(ci, cj);
+      assert.ok(b.west >= box.west && b.east <= box.east);
+      assert.ok(b.south >= box.south && b.north <= box.north);
+    }
+  // Four chunks wide (the boxes overlap a hair: the squares are turned by
+  // the meridians converging).
+  const width = (b) => b.east - b.west;
+  assert.ok(Math.abs(width(box) / width(sw) - 4) < 0.01);
+});
+
+test('loadChunk: one 256-cell request over the group, its chunks cut from it', async () => {
   const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 10 });
   // Sea west of the origin, land rising east of it, a nodata hole north.
   const mPerLon = M_PER_DEG * Math.cos((39.3 * Math.PI) / 180);
@@ -168,54 +197,141 @@ test('loadChunk: one request over the chunk bounds, columns into createChunk', a
   const source = createChunkSource({ fetchValues, createChunk });
   const chunk = await source.loadChunk(region, -1, 0);
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].box, region.chunkBounds(-1, 0));
-  assert.equal(calls[0].cells, CHUNK_COLUMNS);
+  assert.deepEqual(calls[0].box, groupBounds(region, -1, 0));
+  assert.equal(calls[0].cells, GROUP_COLUMNS);
+  assert.equal(GROUP_COLUMNS, 256);
   assert.equal(chunk.stub, true);
   assert.equal(chunk.ci, -1);
   assert.equal(chunk.cj, 0);
   assert.ok(chunk.top instanceof Int32Array);
-  assert.ok(chunk.material instanceof Uint8Array);
-  assert.ok(chunk.water instanceof Int32Array);
-  // West half sea (chunk -1 is all west of the origin): seabed -1, water 0.
+  assert.equal(chunk.top.length, CHUNK_COLUMNS * CHUNK_COLUMNS);
+  // Chunk -1 is all west of the origin: seabed -1, water 0.
   assert.equal(chunk.top[0], -1);
   assert.equal(chunk.water[0], 0);
   // Row 63 is 635 m north: nodata.
   assert.equal(chunk.top[63 * CHUNK_COLUMNS], NONE);
-
+  // Chunk 0 is in another group (0, 0): a second request.
   const east = await source.loadChunk(region, 0, 0);
+  assert.equal(calls.length, 2);
   // 10% grade: column 63's centre is 635 m east, 63.5 m high, level 6.
   assert.equal(east.top[63], 6);
   assert.equal(east.water[63], NONE);
+  // Its neighbour east in the same group came with it: column 0 of chunk
+  // 1 is 645 m east, level 6; no request.
+  const next = await source.loadChunk(region, 1, 0);
+  assert.equal(calls.length, 2);
+  assert.equal(next.top[0], 6);
+  assert.equal(next.top[63], 12); // 1275 m east, 127.5 m
 });
 
-test('loadChunk: shared in flight, kept by key, LRU-bounded', async () => {
+test('loadChunk: a group fetched once serves its 16 chunks and the coarse one', async () => {
+  const region = createRegion({ lon0: 0.5, lat0: 51.5, blockM: 30 });
+  const { fetchValues, calls } = fakeValues({
+    nativeM: 30,
+    heightAt: () => 12,
+  });
+  const source = createChunkSource({ fetchValues, createChunk });
+  // Two chunks of one group asked at once: one request, the second waits on it.
+  const [a, b] = await Promise.all([
+    source.loadChunk(region, 4, 8),
+    source.loadChunk(region, 7, 11),
+  ]);
+  assert.equal(calls.length, 1);
+  assert.equal(a.ci, 4);
+  assert.equal(b.cj, 11);
+  assert.equal(source.size(), 17);
+  const all = [];
+  for (let ci = 4; ci < 8; ci++)
+    for (let cj = 8; cj < 12; cj++) all.push(source.loadChunk(region, ci, cj));
+  const chunks = await Promise.all(all);
+  assert.equal(new Set(chunks).size, 16);
+  const coarse = await source.loadCoarseChunk(region, 1, 2);
+  assert.equal(calls.length, 1);
+  assert.equal(coarse.ci, 1);
+  assert.equal(coarse.cj, 2);
+  // The same chunk object each time.
+  assert.equal(await source.loadChunk(region, 4, 8), a);
+  // A coarse chunk asked first fetches the group and brings the fine ones.
+  const [c] = await Promise.all([
+    source.loadCoarseChunk(region, 0, 0),
+    source.loadChunk(region, 3, 3),
+  ]);
+  assert.equal(calls.length, 2);
+  assert.equal(c.ci, 0);
+  // Another region with the same chunk numbers is another group.
+  await source.loadChunk(
+    createRegion({ lon0: 0.5, lat0: 51.5, blockM: 10 }),
+    4,
+    8,
+  );
+  assert.equal(calls.length, 3);
+});
+
+test('loadChunk: the LRU holds at most maxChunks; an evicted chunk asks its group again', async () => {
   const region = createRegion({ lon0: 0.5, lat0: 51.5, blockM: 30 });
   const { fetchValues, calls } = fakeValues({
     nativeM: 30,
     heightAt: () => 12,
   });
   const source = createChunkSource({ fetchValues, createChunk, maxChunks: 3 });
-  const [a, b] = await Promise.all([
-    source.loadChunk(region, 0, 0),
-    source.loadChunk(region, 0, 0),
-  ]);
-  assert.equal(a, b);
-  assert.equal(calls.length, 1);
   await source.loadChunk(region, 0, 0);
-  assert.equal(calls.length, 1);
-  // Another region with the same chunk numbers is another chunk.
-  await source.loadChunk(
-    createRegion({ lon0: 0.5, lat0: 51.5, blockM: 10 }),
-    0,
-    0,
-  );
-  assert.equal(calls.length, 2);
-  await source.loadChunk(region, 1, 0);
-  await source.loadChunk(region, 2, 0);
   assert.equal(source.size(), 3);
-  // (0, 0) of the 30 m region was the least recently used: asked again.
+  assert.equal(calls.length, 1);
+  // (0, 0) was asked first, then 16 siblings and the coarse chunk went in after it.
   await source.loadChunk(region, 0, 0);
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 2);
+});
+
+test('coarseHeights: the mean of each block of finite heights; NaN where none', () => {
+  // 8 × 8 field, factor 4: four blocks.
+  const size = 8;
+  const field = new Float32Array(size * size);
+  for (let j = 0; j < size; j++)
+    for (let i = 0; i < size; i++) field[j * size + i] = i + 10 * j;
+  field[0] = NaN; // one hole in the south-west block
+  for (let j = 4; j < 8; j++)
+    for (let i = 4; i < 8; i++) field[j * size + i] = NaN;
+  const coarse = coarseHeights(field, size, 4);
+  // South-west: mean of i + 10j over 0..3 less the (0, 0) cell: (1.5·16 + 15·16 − 0) / 15.
+  assert.ok(Math.abs(coarse[0] - (16 * 1.5 + 16 * 15) / 15) < 1e-4);
+  assert.ok(Math.abs(coarse[1] - (5.5 + 15)) < 1e-4); // south-east
+  assert.ok(Math.abs(coarse[2] - (1.5 + 55)) < 1e-4); // north-west
+  assert.ok(Number.isNaN(coarse[3])); // north-east: all nodata
+});
+
+test('loadCoarseChunk: 4 × blockM levels from the mean of 4 × 4 columns, water at a mean ≤ 0', async () => {
+  const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 1 });
+  // Height = metres east of the origin, less 100: the sea west of 100 m.
+  const heightAt = (lon, lat) => {
+    const { x, y } = region.toLocal(lon, lat);
+    return y > 200 ? NaN : x - 100;
+  };
+  const { fetchValues, calls } = fakeValues({ nativeM: 1, heightAt });
+  const source = createChunkSource({ fetchValues, createChunk });
+  const coarse = await source.loadCoarseChunk(region, 0, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cells, GROUP_COLUMNS);
+  assert.equal(coarse.ci, 0);
+  assert.equal(coarse.top.length, CHUNK_COLUMNS * CHUNK_COLUMNS);
+  // Coarse column i covers fine columns 4i … 4i+3, centres 4i+0.5 … 4i+3.5 m
+  // east: mean height 4i + 2 − 100; level floor(that / 4).
+  for (const i of [0, 10, 24, 25, 26, 40, 63]) {
+    const mean = 4 * i + 2 - 100;
+    const k = 5 * CHUNK_COLUMNS + i; // row 5: 20–24 m north, inside the data
+    if (mean <= 0) {
+      assert.equal(coarse.water[k], 0, `column ${i} is sea`);
+      assert.equal(coarse.top[k], Math.min(Math.floor(mean / 4), -1));
+    } else {
+      assert.equal(coarse.water[k], NONE);
+      assert.equal(coarse.top[k], Math.floor(mean / 4), `column ${i}`);
+    }
+  }
+  // Row 63 covers 252–256 m north: no data, NONE.
+  assert.equal(coarse.top[63 * CHUNK_COLUMNS + 30], NONE);
+  // The fine chunks came with it.
+  const fine = await source.loadChunk(region, 1, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(fine.top[0], Math.floor(64.5 - 100)); // column 64, centre 64.5 m
 });
 
 test('loadChunk: a failure rejects with its status and is asked again', async () => {
