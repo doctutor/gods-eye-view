@@ -324,3 +324,119 @@ test('a column without data opens down to the lowest ground around it, not forev
   );
   assert.equal(mesh.stats.up, N * N - 1);
 });
+
+/**
+ * A round hill in 10 m terraces over nine chunks (the manager's field
+ * report, 2026-10-27: dark slivers at step corners, 10 m blocks, alt 300,
+ * pitch -30), a chunk's tops by a function of region columns.
+ */
+function terracedHill(ci, cj) {
+  const top = new Int32Array(N * N);
+  for (let j = 0; j < N; j += 1)
+    for (let i = 0; i < N; i += 1) {
+      const x = ci * N + i - 40;
+      const y = cj * N + j - 30;
+      top[columnIndex(i, j)] = Math.floor(
+        Math.max(0, 120 - Math.hypot(x, y) * 4) / 10,
+      );
+    }
+  return createChunk({ ci, cj, top });
+}
+
+test('mesh validator: on a terraced hill, no zero-area or inward triangle, no overlap, every riser spans its step', () => {
+  const chunk = terracedHill(0, 0);
+  const neighbours = {};
+  for (const [key, dx, dy] of [
+    ['n', 0, 1],
+    ['s', 0, -1],
+    ['e', 1, 0],
+    ['w', -1, 0],
+    ['ne', 1, 1],
+    ['nw', -1, 1],
+    ['se', 1, -1],
+    ['sw', -1, -1],
+  ])
+    neighbours[key] = terracedHill(dx, dy);
+  const topAt = (i, j) => {
+    const dx = Math.floor(i / N);
+    const dy = Math.floor(j / N);
+    const owner = dx === 0 && dy === 0 ? chunk : terracedHill(dx, dy);
+    return owner.top[columnIndex(i - dx * N, j - dy * N)];
+  };
+  // What must be covered: every top, and each side from the lower
+  // neighbour's top to this column's.
+  const expected = new Set();
+  const sides = [
+    ['east', 1, 0],
+    ['west', -1, 0],
+    ['north', 0, 1],
+    ['south', 0, -1],
+  ];
+  for (let j = 0; j < N; j += 1)
+    for (let i = 0; i < N; i += 1) {
+      const top = topAt(i, j);
+      expected.add(`up|${i}|${j}|${top}`);
+      for (const [name, dx, dy] of sides)
+        for (let y = topAt(i + dx, j + dy) + 1; y <= top; y += 1)
+          expected.add(`${name}|${i}|${j}|${y}`);
+    }
+  const blockM = 10;
+  for (const greedy of [false, true]) {
+    const mesh = buildChunkMesh(chunk, { neighbours, blockM, greedy });
+    assertOutwardWinding(mesh);
+    const { positions: p, indices, normals } = mesh;
+    for (let t = 0; t < indices.length; t += 3) {
+      const [a, b, c] = [indices[t], indices[t + 1], indices[t + 2]];
+      const e1 = [0, 1, 2].map((k) => p[b * 3 + k] - p[a * 3 + k]);
+      const e2 = [0, 1, 2].map((k) => p[c * 3 + k] - p[a * 3 + k]);
+      const area = Math.hypot(
+        e1[1] * e2[2] - e1[2] * e2[1],
+        e1[2] * e2[0] - e1[0] * e2[2],
+        e1[0] * e2[1] - e1[1] * e2[0],
+      );
+      assert.ok(area > 1e-6, `zero-area triangle ${t / 3}`);
+    }
+    // Rasterise each quad back into block faces: each covered once, and
+    // exactly the faces expected.
+    const covered = new Set();
+    const name = {
+      '0,0,1': 'up',
+      '1,0,0': 'east',
+      '-1,0,0': 'west',
+      '0,1,0': 'north',
+      '0,-1,0': 'south',
+    };
+    for (let q = 0; q < mesh.faces; q += 1) {
+      const normal = [
+        normals[q * 12],
+        normals[q * 12 + 1],
+        normals[q * 12 + 2],
+      ];
+      const axis = normal.findIndex((v) => v !== 0);
+      const corners = [0, 1, 2, 3].map((c) =>
+        [0, 1, 2].map((k) => p[(q * 4 + c) * 3 + k] / blockM),
+      );
+      assert.equal(new Set(corners.map((c) => c[axis])).size, 1, 'planar');
+      const lo = [0, 1, 2].map((k) => Math.min(...corners.map((c) => c[k])));
+      const hi = [0, 1, 2].map((k) => Math.max(...corners.map((c) => c[k])));
+      // The block behind the face: inside along the normal.
+      const base = lo.map((v, k) =>
+        k === axis ? v - (normal[k] > 0 ? 1 : 0) : v,
+      );
+      const span = hi.map((v, k) => (k === axis ? base[k] + 1 : v));
+      for (let x = base[0]; x < span[0]; x += 1)
+        for (let y = base[1]; y < span[1]; y += 1)
+          for (let z = base[2]; z < span[2]; z += 1) {
+            const key = `${name[normal.join(',')]}|${x}|${y}|${z}`;
+            assert.ok(!covered.has(key), `overlap at ${key}`);
+            covered.add(key);
+          }
+    }
+    assert.deepEqual(
+      [...covered].filter((key) => !expected.has(key)),
+      [],
+      'no face where none belongs',
+    );
+    assert.equal(covered.size, expected.size, `greedy ${greedy}`);
+  }
+});
