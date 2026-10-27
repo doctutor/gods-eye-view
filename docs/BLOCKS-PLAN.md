@@ -214,6 +214,36 @@ in their report and the manager propagates it.
 4. **Interaction**: break and stack through the edits overlay, persisted
    per region.
 
+## Status, end of 2026-10-27
+
+Milestones 1–3 shipped on `local-fixes` the same day, in eighteen merges;
+the "Blocks" section of PERSONAL-FORK.md describes what exists. Beyond the
+page above:
+
+- Chunks come in 4×4 groups (one raster-values request each) and a coarse
+  ring of 4 m blocks out to 4 × the fine reach (one request per 4×4
+  groups); fog ends at the far ring, sky-coloured under the atmosphere.
+  Skirts close the fine/coarse seam both ways. A fresh 1 m view at
+  Baltimore is about 41 raster-values and 4 Overpass requests (anchoring
+  mid-supergroup, in progress, brings that to ~38 and ~2); the server's
+  Earth Engine budget is 20,000 tiles a day. Nothing loads while the camera
+  is above 4 × R2 blocks or in flight.
+- Meshing runs in a Web Worker pool (3 workers); the renderer draws one
+  opaque and one water primitive per group (500 draws → 48, frame CPU ~3×
+  less), with block-edge lines and a per-block dither on tops.
+- Buildings, parts with `min_height`, level roofs, and the top-block
+  materials water / grass / forest / road come from one Overpass query per
+  supergroup to the local clone; the Buildings switch sits beside Render
+  (`bk=1.b0` off).
+- Navigation: Move: Spectator | Walk | Fly beside Render; G / Shift+G
+  "here" onto the targeted block; the lift back to Spectator; the F3-style
+  BLOCK line; `nav=walk|fly` in the link. Verified live in Chrome on real
+  3DEP 1 m data at Baltimore with 915 real buildings.
+- Still open: milestone 4 (the edits overlay exists, nothing writes it from
+  the UI); `roof:shape`; bridges at ground level; waterway lines (in
+  progress); the sun's re-light costs a re-mesh of the ring every ~12 min of
+  daylight.
+
 ## Out of scope now
 
 The 1 m lidar download for a local terrain mesh (separate approval), the
