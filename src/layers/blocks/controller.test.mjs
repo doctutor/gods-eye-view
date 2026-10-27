@@ -1078,11 +1078,14 @@ test('the coarse ring: drawn at 4 × the block size from the group’s corner, r
   await drain(controller);
   assert.ok(!renderer.shown.has('0:0'), 'the fine chunk dropped');
   assert.ok(renderer.shown.has('c:0:0'), 'the coarse one back');
-  assert.equal(
+  // Back from its kept mesh, or meshed once more where its inputs changed:
+  // the groups beside it went from fine to coarse, so its skirts and the
+  // neighbours it culls against moved on.
+  assert.ok(
     meshes.filter((m) => m.chunk.coarse && m.chunk.gi === 0 && m.chunk.gj === 0)
-      .length,
-    meshedBefore,
-    'from its kept mesh',
+      .length <=
+      meshedBefore + 1,
+    'at most once more',
   );
   // No group is drawn both ways once settled.
   for (const key of renderer.shown.keys()) {
@@ -1170,10 +1173,46 @@ test('skirts: a fine chunk with no fine neighbour beyond a border hangs its side
   assert.deepEqual(last('-4:3').skirt, { n: 16, s: null, e: null, w: 12 });
   // Inside the fine ring: none.
   assert.equal(last('1:1').skirt, undefined);
-  // Coarse chunks: none.
+  // Coarse chunks toward other coarse chunks: none.
   const coarse = meshes.filter((m) => m.chunk.coarse);
   assert.ok(coarse.length > 0);
-  assert.ok(coarse.every((m) => m.options.skirt === undefined));
+  const lastCoarse = (gi, gj) =>
+    meshes
+      .filter((m) => m.chunk.coarse && m.chunk.gi === gi && m.chunk.gj === gj)
+      .at(-1).options;
+  assert.equal(lastCoarse(2, 0).skirt, undefined, 'only coarse around it');
+  controller.destroy();
+});
+
+test('coarse skirts: a coarse chunk beside a group drawn fine drops that neighbour and hangs a skirt to the lowest fine ground there', async () => {
+  const source = coarseSource();
+  // Fine ground: level 9 everywhere (fakeSource chunks get a topSolid here).
+  const load = source.loadChunk;
+  source.loadChunk = (region, ci, cj) =>
+    load(region, ci, cj).then((chunk) => ({ ...chunk, topSolid: () => 9 }));
+  const { controller, meshes } = setup({ source, radiusBlocks: 128 });
+  await drain(controller);
+  const lastCoarse = (gi, gj) =>
+    meshes
+      .filter((m) => m.chunk.coarse && m.chunk.gi === gi && m.chunk.gj === gj)
+      .at(-1).options;
+  // c:1:0 has group 0:0 (drawn fine) to its west: floor(9 / 4) = 2 there,
+  // and its west neighbour (the hidden c:0:0) left out.
+  const east = lastCoarse(1, 0);
+  assert.deepEqual(east.skirt, { n: null, s: null, e: null, w: 2 });
+  assert.equal(east.neighbours.w, undefined, 'the hidden coarse chunk dropped');
+  assert.ok(east.neighbours.e, 'its coarse neighbour kept');
+  // c:-2:-1 has group −1:−1 to its east.
+  assert.deepEqual(lastCoarse(-2, -1).skirt, {
+    n: null,
+    s: null,
+    e: 2,
+    w: null,
+  });
+  // c:0:1 has group 0:0 to its south.
+  assert.deepEqual(lastCoarse(0, 1).skirt, { n: null, s: 2, e: null, w: null });
+  // Beyond: coarse all round, none.
+  assert.equal(lastCoarse(2, 0).skirt, undefined);
   controller.destroy();
 });
 

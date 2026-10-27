@@ -527,6 +527,11 @@ export function createBlocksController({
     const [a, b] = entry.coarse ? [entry.gi, entry.gj] : [entry.ci, entry.cj];
     const out = {};
     for (const [name, di, dj] of NEIGHBOURS) {
+      // Beyond a side of a coarse chunk, a group drawn fine is not its
+      // neighbour: its hidden coarse chunk would cull the border where the
+      // fine ground is lower, so the skirt (skirtFor) stands in.
+      if (entry.coarse && (di === 0 || dj === 0) && groupDrawn(a + di, b + dj))
+        continue;
       const chunk = at(a + di, b + dj);
       if (chunk) out[name] = chunk;
     }
@@ -538,8 +543,8 @@ export function createBlocksController({
       .join('|');
 
   /**
-   * The lowest top of a coarse chunk, in its own levels (null for one with
-   * no ground), kept until its version changes.
+   * The lowest top of a chunk, in its own levels (null for one with no
+   * ground), kept until its version changes.
    */
   function lowestTop(entry) {
     const version = entry.chunk.version ?? 0;
@@ -556,18 +561,47 @@ export function createBlocksController({
     return entry.lowest;
   }
 
+  /** The lowest top of a group drawn fine, in fine levels, or null. */
+  function lowestFine(gi, gj) {
+    let lowest = Infinity;
+    for (let dj = 0; dj < GROUP_CHUNKS; dj++)
+      for (let di = 0; di < GROUP_CHUNKS; di++) {
+        const entry = _chunks.get(
+          grid.chunkKey(gi * GROUP_CHUNKS + di, gj * GROUP_CHUNKS + dj),
+        );
+        const top = entry?.chunk ? lowestTop(entry) : null;
+        if (top !== null && top < lowest) lowest = top;
+      }
+    return lowest === Infinity ? null : lowest;
+  }
+
   /**
-   * A fine chunk's skirts ({n, s, e, w}, floor levels or null): along a
-   * border whose fine neighbour is neither loaded nor coming, its edge
-   * columns' sides run down to the lowest ground of the coarse chunk
-   * beyond (four fine levels to a coarse one), so the fine ring meets the
-   * coarse ring without a seam. Coarse chunks get none: their hidden
-   * coarse neighbours still cull their borders.
+   * A chunk's skirts ({n, s, e, w}, floor levels or null), where the fine
+   * ring meets the coarse one, so neither shows the background between:
+   * - a fine chunk, along a border whose fine neighbour is neither loaded
+   *   nor coming: down to the lowest ground of the coarse chunk beyond
+   *   (four fine levels to a coarse one), for where the fine ground is
+   *   higher;
+   * - a coarse chunk, along a border with a group drawn fine: down to the
+   *   lowest fine ground there (in coarse levels), for where the coarse
+   *   ground is higher. None toward other coarse chunks.
    */
   function skirtFor(entry) {
-    if (entry.coarse) return null;
     let any = false;
     const skirt = {};
+    if (entry.coarse) {
+      for (const [name, di, dj] of SKIRT_SIDES) {
+        skirt[name] = null;
+        const gi = entry.gi + di;
+        const gj = entry.gj + dj;
+        if (!groupDrawn(gi, gj)) continue;
+        const lowest = lowestFine(gi, gj);
+        if (lowest === null) continue;
+        skirt[name] = Math.floor(lowest / GROUP_CHUNKS);
+        any = true;
+      }
+      return any ? skirt : null;
+    }
     for (const [name, di, dj] of SKIRT_SIDES) {
       skirt[name] = null;
       const ci = entry.ci + di;

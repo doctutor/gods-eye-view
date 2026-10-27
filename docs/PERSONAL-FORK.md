@@ -6054,7 +6054,11 @@ a border is neither loaded nor coming hangs a skirt there: its edge
 columns' sides run down to the lowest ground of the coarse chunk beyond
 (four fine levels to a coarse one), so the 1 m edge meets the 4 m ring
 without a seam of background showing between them. It is meshed again
-when that coarse chunk arrives; coarse chunks get no skirts.
+when that coarse chunk arrives. The other way round, a coarse chunk
+beside a group drawn fine leaves that group's hidden coarse chunk out of
+its neighbours and hangs a skirt toward it, down to the group's lowest
+fine ground (in coarse levels), for where the coarse ground is the higher;
+no skirts toward other coarse chunks.
 
 The sun is fixed when the region is anchored: the real sun when it is more
 than 15° up, otherwise a study sun 60° up from the south-west; mesh.js
