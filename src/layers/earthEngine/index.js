@@ -14,6 +14,8 @@ import {
   sourcesInRect,
 } from '../../data/demStack.js';
 import { resolveImageryHost } from '../../maps/imageryHost.js';
+// Personal fork: Render: Blocks hides the globe on a drawn style.
+import { blocksScene, subscribeBlocksScene } from '../blocks/floor.js';
 import { activeLuminance, readInkSetting, resolveInk } from '../../maps/ink.js';
 import {
   SLOW_DISTRICTS_ABOVE_M,
@@ -410,6 +412,7 @@ export function createEarthEngineLayer({
   /** The map stack controller (src/maps/controller.js), when attached. */
   let _controller = null;
   let _unsubscribeMap = null;
+  let _unsubscribeBlocks = null;
   /** The collection the overlay is draped on, and what kind of host it is. */
   let _collection = null;
   let _hostKind = 'globe';
@@ -1307,6 +1310,8 @@ export function createEarthEngineLayer({
       this.disable();
       _unsubscribeMap?.();
       _unsubscribeMap = null;
+      _unsubscribeBlocks?.();
+      _unsubscribeBlocks = null;
       _controller = null;
       _viewer = null;
       _catalog = null;
@@ -1339,6 +1344,8 @@ export function createEarthEngineLayer({
         loading: _loading,
         failure: _failure,
         hostless: _enabled && _hostKind === 'none',
+        // Render: Blocks draws the Elevation layer as cubes.
+        asBlocks: record.id === 'ee-elevation' && blocksScene().active,
         ceilingM: _enabled && _aboveCeiling ? record.maxHeightM : null,
         level: _level,
         onLevel: setLevel,
@@ -1399,6 +1406,10 @@ export function createEarthEngineLayer({
       _controller = controller || null;
       const off = _controller?.subscribe?.(onMapSettled);
       _unsubscribeMap = typeof off === 'function' ? off : null;
+      // Render: Blocks hiding or showing the globe moves the drape as a
+      // map switch does (no camera move needed to come back).
+      _unsubscribeBlocks?.();
+      _unsubscribeBlocks = subscribeBlocksScene(() => onMapSettled());
       onMapSettled();
     },
 

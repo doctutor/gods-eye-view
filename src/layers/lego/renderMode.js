@@ -1,11 +1,31 @@
 // Personal fork: the render mode the ANALYSIS heading's drop-down picks
-// ('colour', the default, or 'lego'), and the Lego elevation exaggeration,
-// both kept in this browser. One store, shared by the panel and the Lego
-// controller (index.js).
+// ('colour', the default, 'lego' or 'blocks'), and the Lego elevation
+// exaggeration, both kept in this browser. One store, shared by the panel,
+// the Lego controller (index.js), the Blocks controller
+// (src/layers/blocks/index.js) and the share link, which carries Blocks as
+// `bk=1`.
 
 export const RENDER_MODE_STORAGE_KEY = 'gev.render.mode';
 export const EXAGGERATION_STORAGE_KEY = 'gev.render.legoExaggeration';
-export const RENDER_MODES = Object.freeze(['colour', 'lego']);
+export const RENDER_MODES = Object.freeze(['colour', 'lego', 'blocks']);
+/** The share hash's Blocks switch: `bk=1` in Blocks, absent otherwise. */
+export const BLOCKS_PARAM = 'bk';
+
+/** `bk`'s value for a mode: '1' in Blocks, '' (not written) otherwise. */
+export const encodeBlocksParam = (mode) => (mode === 'blocks' ? '1' : '');
+
+/** Whether `bk`'s value asks for Blocks; anything but '1' does not. */
+export const decodeBlocksParam = (value) => String(value ?? '').trim() === '1';
+
+/** Whether the page's hash asks for Blocks (`bk=1`). */
+function linkAsksForBlocks() {
+  try {
+    const hash = String(globalThis.location?.hash || '').slice(1);
+    return decodeBlocksParam(new URLSearchParams(hash).get(BLOCKS_PARAM));
+  } catch {
+    return false;
+  }
+}
 
 function storageOf(storage) {
   if (storage !== undefined) return storage;
@@ -60,10 +80,15 @@ export function isFlatBasemap(stack) {
   return false;
 }
 
-/** @param {{storage?: Storage|null}} [options] */
-export function createRenderModeStore({ storage } = {}) {
+/**
+ * @param {{storage?: Storage|null, linkBlocks?: boolean}} [options]
+ *   `linkBlocks`: a link asked for Blocks (`bk=1`), which wins over the
+ *   stored mode for this page without overwriting it; a link without `bk`
+ *   keeps the stored mode, as links did before Blocks.
+ */
+export function createRenderModeStore({ storage, linkBlocks = false } = {}) {
   const store = storageOf(storage);
-  let mode = readRenderMode(store);
+  let mode = linkBlocks ? 'blocks' : readRenderMode(store);
   let exaggeration = readExaggeration(store);
   const listeners = new Set();
   const emit = () => {
@@ -105,5 +130,20 @@ export function createRenderModeStore({ storage } = {}) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    /** Whether the page's link asked for Blocks. */
+    linkAskedForBlocks: () => linkBlocks,
+    /** `bk`'s value now ('' when it is not written). */
+    param: () => encodeBlocksParam(mode),
   };
+}
+
+let shared = null;
+/**
+ * The page's store, the one the panel, both controllers and the share link
+ * use; made the first time it is asked for, from this browser's storage and
+ * the page's hash (`bk`).
+ */
+export function renderModeStore() {
+  shared ||= createRenderModeStore({ linkBlocks: linkAsksForBlocks() });
+  return shared;
 }
