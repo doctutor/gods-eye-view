@@ -15,6 +15,20 @@ import { DEFAULT_FOV_DEG } from './precision.js';
 export const MIN_FOV_DEG = 1;
 export const MAX_FOV_DEG = 150;
 
+/**
+ * Heights no rendered surface lies outside (the Dead Sea's shore is −430 m,
+ * Everest 8,849 m): a "surface" measured outside them is a miss (a coarse
+ * tile's chord, a shell or the sky), not the ground. Over Lake Tahoe a
+ * camera 4 m above the water once read AGL 25,700 m from a sample at
+ * −23.8 km.
+ */
+export const SURFACE_MIN_M = -500;
+export const SURFACE_MAX_M = 9000;
+export const plausibleSurfaceM = (heightM) =>
+  Number.isFinite(heightM) &&
+  heightM >= SURFACE_MIN_M &&
+  heightM <= SURFACE_MAX_M;
+
 const centreScratch = new Cesium.Cartesian2();
 const cartoScratch = new Cesium.Cartographic();
 
@@ -74,12 +88,57 @@ export function canvasSpanPx(viewer) {
   return Math.max(width, height);
 }
 
+const heightOf = (position, cesium) => {
+  if (!position) return Number.NaN;
+  try {
+    return cesium.Cartographic.fromCartesian(position)?.height ?? Number.NaN;
+  } catch {
+    return Number.NaN;
+  }
+};
+
+/** The first hit of a ray through the scene (primitives and globe), or null. */
+function rayHit(scene, ray) {
+  if (!ray || typeof scene?.pickFromRay !== 'function') return null;
+  try {
+    return scene.pickFromRay(ray, [])?.position ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The canvas's centre in window coordinates (CSS pixels, as picks take). */
+function canvasCentre(canvas, result) {
+  result.x = (canvas.clientWidth || canvas.width) / 2;
+  result.y = (canvas.clientHeight || canvas.height) / 2;
+  return result;
+}
+
+/** A ray straight down from the camera. */
+function downRay(camera, cesium) {
+  const origin = camera.positionWC;
+  if (!origin) return null;
+  const normal = cesium.Ellipsoid.WGS84.geodeticSurfaceNormal(
+    origin,
+    new cesium.Cartesian3(),
+  );
+  if (!normal) return null;
+  return new cesium.Ray(
+    origin,
+    cesium.Cartesian3.negate(normal, new cesium.Cartesian3()),
+  );
+}
+
 /**
- * Metres from the camera to the rendered surface at the screen's centre:
- * the depth buffer's position there (3D tiles and terrain alike), else the
- * globe hit along the centre ray, else the camera's height above the
- * ellipsoid (looking at the sky, or nothing drawn yet).
- * @returns {{distanceM: number, hit: boolean}}
+ * Metres from the camera to the rendered surface at the screen's centre,
+ * and which way it was measured: the depth buffer there (`depth`), else a
+ * ray through the scene's primitives and globe (`ray`: the Google tileset
+ * is a primitive, and the globe is hidden under it), else the globe alone
+ * (`globe`), else the camera's height above the ellipsoid (`height`:
+ * looking at the sky, or nothing measured). A hit off every plausible
+ * surface is not taken. The centre is in CSS pixels, the window
+ * coordinates Cesium's picks take (they scale by the pixel ratio).
+ * @returns {{distanceM: number, hit: boolean, via: string}}
  */
 export function centreDistanceM(viewer, cesium = Cesium) {
   const scene = viewer?.scene;
@@ -87,38 +146,46 @@ export function centreDistanceM(viewer, cesium = Cesium) {
   const fallback = {
     distanceM: Math.max(1, camera?.positionCartographic?.height ?? NaN),
     hit: false,
+    via: 'height',
   };
   const canvas = scene?.canvas;
   if (!scene || !camera || !canvas) return fallback;
-  centreScratch.x = (canvas.clientWidth || canvas.width) / 2;
-  centreScratch.y = (canvas.clientHeight || canvas.height) / 2;
-  let hit = null;
+  const centre = canvasCentre(canvas, centreScratch);
+  const taken = (position, via) => {
+    if (!position || !plausibleSurfaceM(heightOf(position, cesium)))
+      return null;
+    const distanceM = cesium.Cartesian3.distance(camera.positionWC, position);
+    return Number.isFinite(distanceM) && distanceM > 0
+      ? { distanceM, hit: true, via }
+      : null;
+  };
+  let found = null;
   try {
-    if (scene.pickPositionSupported) hit = scene.pickPosition(centreScratch);
+    if (scene.pickPositionSupported)
+      found = taken(scene.pickPosition(centre), 'depth');
   } catch {
-    hit = null;
+    found = null;
   }
-  if (!hit && scene.globe?.show !== false) {
+  if (found) return found;
+  let ray = null;
+  try {
+    ray = camera.getPickRay(centre);
+  } catch {
+    ray = null;
+  }
+  if (!ray) return fallback;
+  found = taken(rayHit(scene, ray), 'ray');
+  if (!found && scene.globe?.show !== false)
     try {
-      const ray = camera.getPickRay(centreScratch);
-      hit = ray ? scene.globe.pick(ray, scene) : null;
+      found = taken(scene.globe.pick(ray, scene), 'globe');
     } catch {
-      hit = null;
+      found = null;
     }
-  }
-  if (!hit) return fallback;
-  const distanceM = cesium.Cartesian3.distance(camera.positionWC, hit);
-  return Number.isFinite(distanceM) && distanceM > 0
-    ? { distanceM, hit: true }
-    : fallback;
+  return found || fallback;
 }
 
-/**
- * The rendered surface's height above the ellipsoid at a place, as the
- * camera ground guard samples it (src/cameraGroundGuard.js): NaN until the
- * tiles there have streamed in.
- */
-export function surfaceHeightM(viewer, lat, lon, cesium = Cesium) {
+/** Cesium's sampleHeight at a place, as the ground guard samples it. */
+export function sampledHeightM(viewer, lat, lon, cesium = Cesium) {
   const scene = viewer?.scene;
   if (typeof scene?.sampleHeight !== 'function') return Number.NaN;
   if (scene.sampleHeightSupported === false) return Number.NaN;
@@ -130,4 +197,108 @@ export function surfaceHeightM(viewer, lat, lon, cesium = Cesium) {
   } catch {
     return Number.NaN;
   }
+}
+
+/** The shown globe's loaded terrain height at a place. */
+export function globeHeightM(viewer, lat, lon, cesium = Cesium) {
+  const globe = viewer?.scene?.globe;
+  if (!globe || globe.show === false || typeof globe.getHeight !== 'function')
+    return Number.NaN;
+  try {
+    const height = globe.getHeight(
+      cesium.Cartographic.fromDegrees(lon, lat, 0, cartoScratch),
+    );
+    return Number.isFinite(height) ? height : Number.NaN;
+  } catch {
+    return Number.NaN;
+  }
+}
+
+/**
+ * The rendered surface's height above the ellipsoid under the camera, and
+ * how it was found: a ray straight down from the camera through the scene
+ * (`down`: from the camera, so it meets the tiles the view loaded near it),
+ * else Cesium's sampleHeight (`sample`: its ray starts 9 km up, and can
+ * meet coarser tiles), else the shown globe's terrain (`globe`). The first
+ * plausible answer wins; NaN until one is.
+ * @returns {{heightM: number, via: string|null}}
+ */
+export function surfaceUnderCamera(viewer, cesium = Cesium) {
+  const scene = viewer?.scene;
+  const camera = viewer?.camera;
+  const carto = camera?.positionCartographic;
+  if (!scene || !camera?.positionWC || !carto)
+    return { heightM: Number.NaN, via: null };
+  try {
+    const heightM = heightOf(rayHit(scene, downRay(camera, cesium)), cesium);
+    if (plausibleSurfaceM(heightM)) return { heightM, via: 'down' };
+  } catch {
+    /* no ray: the next way */
+  }
+  const lat = cesium.Math.toDegrees(carto.latitude);
+  const lon = cesium.Math.toDegrees(carto.longitude);
+  const sampled = sampledHeightM(viewer, lat, lon, cesium);
+  if (plausibleSurfaceM(sampled)) return { heightM: sampled, via: 'sample' };
+  const globe = globeHeightM(viewer, lat, lon, cesium);
+  if (plausibleSurfaceM(globe)) return { heightM: globe, via: 'globe' };
+  return { heightM: Number.NaN, via: null };
+}
+
+/**
+ * Every way of measuring the view, raw and unfiltered, beside the answers
+ * the readout uses: for a check in a live tab
+ * (`window.__gevHudCamera.diagnostics()`, src/hud.js).
+ */
+export function viewDiagnostics(viewer, cesium = Cesium) {
+  const scene = viewer?.scene;
+  const camera = viewer?.camera;
+  const carto = camera?.positionCartographic;
+  if (!scene || !carto) return null;
+  const lat = cesium.Math.toDegrees(carto.latitude);
+  const lon = cesium.Math.toDegrees(carto.longitude);
+  const canvas = scene.canvas;
+  const centre = canvasCentre(canvas, new cesium.Cartesian2());
+  const distance = (position) =>
+    position ? cesium.Cartesian3.distance(camera.positionWC, position) : null;
+  let picked = null;
+  try {
+    picked = scene.pickPositionSupported ? scene.pickPosition(centre) : null;
+  } catch {
+    picked = null;
+  }
+  let ray = null;
+  try {
+    ray = camera.getPickRay(centre);
+  } catch {
+    ray = null;
+  }
+  const centreHit = rayHit(scene, ray);
+  const downHit = rayHit(scene, downRay(camera, cesium));
+  return {
+    camera: { lat, lon, heightM: carto.height },
+    canvas: {
+      cssWidth: canvas.clientWidth,
+      cssHeight: canvas.clientHeight,
+      bufferWidth: scene.drawingBufferWidth,
+      pixelRatio: scene.pixelRatio,
+    },
+    globeShown: scene.globe?.show !== false,
+    pickPositionSupported: scene.pickPositionSupported,
+    sampleHeightSupported: scene.sampleHeightSupported,
+    centre: {
+      pickPositionM: distance(picked),
+      pickPositionHeightM: heightOf(picked, cesium),
+      rayM: distance(centreHit),
+      rayHeightM: heightOf(centreHit, cesium),
+    },
+    surface: {
+      downHeightM: heightOf(downHit, cesium),
+      sampleHeightM: sampledHeightM(viewer, lat, lon, cesium),
+      globeHeightM: globeHeightM(viewer, lat, lon, cesium),
+    },
+    used: {
+      centre: centreDistanceM(viewer, cesium),
+      surface: surfaceUnderCamera(viewer, cesium),
+    },
+  };
 }

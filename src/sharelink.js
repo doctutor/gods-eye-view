@@ -48,6 +48,15 @@ const DEBOUNCE_MS = 500;
 const LINK_PRECISION = Object.freeze({ degreeDecimals: 4, stepM: 1 });
 const DEFAULT_FOV_DEG = 60;
 const ANGLE_DECIMALS = 2;
+/**
+ * Roll in −180 … 180 at the link's 2 decimals: 359.996° is 0, and −180
+ * is written as 180.
+ */
+export function wrapRollDeg(deg) {
+  const wrapped = ((((Number(deg) + 180) % 360) + 360) % 360) - 180;
+  const shown = Number(wrapped.toFixed(ANGLE_DECIMALS));
+  return shown <= -180 ? 180 : shown;
+}
 /** A number to `decimals` places, trailing zeros (and -0) dropped. */
 const fixed = (value, decimals) =>
   String(Number(Number(value).toFixed(decimals)) || 0);
@@ -666,9 +675,11 @@ export class ShareLinkManager {
       'pitch',
       fixed(Cesium.Math.toDegrees(camera.pitch), ANGLE_DECIMALS),
     );
+    // Roll in −180 … 180, as it is conventionally given: a hair under 360°
+    // is 0, never 360.
     params.set(
       'roll',
-      fixed(Cesium.Math.toDegrees(camera.roll), ANGLE_DECIMALS),
+      fixed(wrapRollDeg(Cesium.Math.toDegrees(camera.roll)), ANGLE_DECIMALS),
     );
     const fov = camera.frustum?.fov;
     const fovDeg = Number.isFinite(fov) ? Cesium.Math.toDegrees(fov) : NaN;

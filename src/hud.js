@@ -56,7 +56,8 @@ import {
   canvasSpanPx,
   centreDistanceM,
   readCameraView,
-  surfaceHeightM,
+  surfaceUnderCamera,
+  viewDiagnostics,
 } from './hud/cameraState.js';
 import { dataFloor, pixelFootprintM, viewPrecision } from './hud/precision.js';
 
@@ -178,6 +179,12 @@ const HUD_GEOID_CELL_DEG = 0.01;
 const SURFACE_RETRY_MS = 1000;
 /** A sample still stands for the camera within this many metres of it. */
 const SURFACE_NEAR_M = 25;
+/**
+ * The centre's distance is measured again when the view has changed, or
+ * after this long: a missed depth pick falls back to a ray pick, a render
+ * pass of its own, which the 4 Hz tick should not repeat for a still view.
+ */
+const CENTRE_REUSE_MS = 1000;
 
 /** Flattened list of all city POIs for nearest-point lookups. */
 const NEARBY_POINTS = Object.values(CITY_POIS).flatMap((city) =>
@@ -226,6 +233,7 @@ export class IntelHUD {
       typeof onCameraEdited === 'function' ? onCameraEdited : null;
     this._surface = null;
     this._lastDistanceM = Number.NaN;
+    this._centre = null;
     this._cameraFields = null;
     this._cameraEditing = null;
     this.summaryService = summaryService;
@@ -292,6 +300,13 @@ export class IntelHUD {
     };
 
     this._buildDOM();
+    // Personal fork: every way of measuring the view, raw, for a live check.
+    if (typeof window !== 'undefined') {
+      this._diagnosticsHandle = {
+        diagnostics: () => viewDiagnostics(this.viewer),
+      };
+      window.__gevHudCamera = this._diagnosticsHandle;
+    }
     this.viewer.camera.moveEnd.addEventListener(this._onCameraMoveEnd);
     this._startTimers();
   }
@@ -454,7 +469,7 @@ export class IntelHUD {
    */
   cameraPrecision() {
     const view = readCameraView(this.viewer);
-    const { distanceM } = centreDistanceM(this.viewer);
+    const { distanceM } = this._centreDistance(view);
     this._lastDistanceM = distanceM;
     const footprintM = pixelFootprintM({
       distanceM,
@@ -470,14 +485,45 @@ export class IntelHUD {
     return viewPrecision({ footprintM, floor });
   }
 
-  /** Personal fork: sample the rendered surface under the camera now. */
+  /**
+   * Personal fork: the distance to the surface at the screen's centre
+   * (src/hud/cameraState.js), measured again when the view or the canvas
+   * has changed or CENTRE_REUSE_MS has passed.
+   */
+  _centreDistance(view) {
+    const key = view
+      ? [
+          view.lon.toFixed(7),
+          view.lat.toFixed(7),
+          view.heightM.toFixed(2),
+          view.headingDeg.toFixed(3),
+          view.pitchDeg.toFixed(3),
+          view.rollDeg.toFixed(3),
+          view.fovDeg.toFixed(3),
+          canvasSpanPx(this.viewer),
+        ].join()
+      : '';
+    const now = Date.now();
+    const held = this._centre;
+    if (held && held.key === key && now - held.at < CENTRE_REUSE_MS)
+      return held.measured;
+    const measured = centreDistanceM(this.viewer);
+    this._centre = { key, at: now, measured };
+    return measured;
+  }
+
+  /**
+   * Personal fork: sample the rendered surface under the camera now: a
+   * plausible height or NaN (src/hud/cameraState.js surfaceUnderCamera).
+   */
   _sampleSurface(view = readCameraView(this.viewer)) {
     if (!view) return Number.NaN;
-    const heightM = surfaceHeightM(this.viewer, view.lat, view.lon);
+    const { heightM, via } = surfaceUnderCamera(this.viewer);
     this._surface = {
       lat: view.lat,
       lon: view.lon,
       heightM,
+      via,
       at: Date.now(),
     };
     return heightM;
@@ -1135,6 +1181,11 @@ export class IntelHUD {
     clearInterval(this._summaryInterval);
     clearInterval(this._summaryTypingInterval);
     this._cameraEditing?.detach();
+    if (
+      typeof window !== 'undefined' &&
+      window.__gevHudCamera === this._diagnosticsHandle
+    )
+      delete window.__gevHudCamera;
     this.viewer.camera.moveEnd.removeEventListener(this._onCameraMoveEnd);
     this._dataManagerUnsubscribe?.();
     this._summaryRequest?.abort();
