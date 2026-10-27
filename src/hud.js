@@ -61,6 +61,13 @@ import {
 } from './hud/cameraState.js';
 import { dataFloor, pixelFootprintM, viewPrecision } from './hud/precision.js';
 import { formatBlockTarget } from './hud/blockTarget.js';
+// Personal fork: the day's Earth Engine spend under PX while Blocks is drawn.
+import {
+  budgetLevel,
+  budgetText,
+  budgetTitle,
+  earthEngineBudgetStore,
+} from './data/earthEngineBudget.js';
 import { sunPosition } from './data/solarDaylight.js';
 
 /** Color palettes keyed by shader mode; applied as CSS custom properties. */
@@ -192,6 +199,20 @@ const CENTRE_REUSE_MS = 1000;
  * Personal fork: the MODE line's names for the navigation modes
  * (src/navigation/binding.js), and what the walker stands on.
  */
+/**
+ * Personal fork: the pose rows with the Earth Engine budget's row (hidden
+ * until a budget is known) under PX.
+ */
+function poseWithBudgetRow(html) {
+  const row =
+    '<div id="hud-ee" class="hud-cam-row hud-ee-budget" hidden><span id="hud-ee-text" class="hud-cam-value"></span></div>';
+  const at = html.indexOf('data-cam-row="px"');
+  const end = at < 0 ? -1 : html.indexOf('</div>', at);
+  return end < 0
+    ? html + row
+    : html.slice(0, end + 6) + row + html.slice(end + 6);
+}
+
 const NAV_MODE_NAMES = Object.freeze({
   spectator: msg('SPECTATOR'),
   walk: msg('WALK'),
@@ -374,7 +395,7 @@ export class IntelHUD {
 
       <div class="hud-corner hud-bottom-right">
         <div class="hud-content hud-cam" id="hud-pose" style="text-align:right">
-          ${cameraFieldsHtml('pose')}
+          ${poseWithBudgetRow(cameraFieldsHtml('pose'))}
           <div id="hud-block" class="hud-cam-row hud-block-target" hidden><span class="hud-cam-label">${t('BLOCK')}</span> <span id="hud-block-text" class="hud-cam-value"></span></div>
           <div id="hud-nav" class="hud-nav-mode"><span class="hud-cam-label">${t('MODE')}</span> <span id="hud-nav-name">${t(NAV_MODE_NAMES.spectator)}</span><span id="hud-nav-detail" class="hud-nav-detail"></span></div>
           <div id="hud-ais-vessel" class="hud-ais-vessel">${t('AIS: --')}</div>
@@ -392,6 +413,12 @@ export class IntelHUD {
     `;
     this._el.dataset.variant = this._variant;
     // Personal fork: a click on an editable number opens it for typing.
+    // Personal fork: the Earth Engine budget, while Blocks is drawn.
+    this._offBudget?.();
+    this._offBudget = earthEngineBudgetStore().subscribe((budget) =>
+      this.setEarthEngineBudget(budget),
+    );
+    this.setEarthEngineBudget(earthEngineBudgetStore().get());
     this._cameraEditing = attachCameraEditing({
       roots: [
         document.getElementById('hud-position'),
@@ -618,6 +645,23 @@ export class IntelHUD {
       text.title = line?.title ?? '';
     }
     return line;
+  }
+
+  /**
+   * Personal fork: the day's Earth Engine spend (src/data/earthEngineBudget.js)
+   * as "EE 1,240 / 20,000 today", amber from 50% and red from 90%; null
+   * hides the line.
+   */
+  setEarthEngineBudget(budget) {
+    const row = document.getElementById('hud-ee');
+    const text = document.getElementById('hud-ee-text');
+    if (!row || !text) return;
+    row.hidden = !budget;
+    text.textContent = budget ? budgetText(budget) : '';
+    text.title = budget ? budgetTitle(budget) : '';
+    const level = budget ? budgetLevel(budget) : 'ok';
+    row.classList.toggle('is-amber', level === 'amber');
+    row.classList.toggle('is-red', level === 'red');
   }
 
   setNavigationStatus(status = {}) {
@@ -1284,6 +1328,8 @@ export class IntelHUD {
     clearInterval(this._summaryInterval);
     clearInterval(this._summaryTypingInterval);
     this._cameraEditing?.detach();
+    this._offBudget?.();
+    this._offBudget = null;
     this._watchTileset(null);
     if (
       typeof window !== 'undefined' &&

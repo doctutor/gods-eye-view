@@ -1,6 +1,11 @@
 import { formatNumber, msg, t, tn } from '../../i18n/index.js';
 import { EXAGGERATIONS, formatLatLon, formatValue } from './model.js';
 import { RELIEF_FACTORS } from './photoreal.js';
+import {
+  budgetText,
+  budgetTitle,
+  earthEngineBudgetStore,
+} from '../../data/earthEngineBudget.js';
 
 /**
  * Personal fork: what the Lego mode says: the drop-down beside the
@@ -304,6 +309,11 @@ export function createLegoHeadingControl(
       if (waiting) text = text ? `${text} · ${waiting}` : waiting;
     }
     if (status.textContent !== text) status.textContent = text;
+    // Personal fork: under Blocks, the day's Earth Engine spend in the tooltip.
+    const spent =
+      lego.getMode() === 'blocks' ? earthEngineBudgetStore().get() : null;
+    const title = spent ? `${budgetText(spent)}. ${budgetTitle(spent)}` : '';
+    if (status.title !== title) status.title = title;
   };
   const onMode = () => lego.setMode(mode.value);
   const onBuildings = () => blocks?.setBuildings?.(buildings.checked);
@@ -318,6 +328,7 @@ export function createLegoHeadingControl(
   sides?.addEventListener('change', onSides);
   const unsubscribePhotoreal = photoreal?.subscribe?.(sync);
   const unsubscribeBlocks = blocks?.subscribe?.(sync);
+  const unsubscribeBudget = earthEngineBudgetStore().subscribe(sync);
   const onExaggeration = () => lego.setExaggeration(Number(exaggeration.value));
   mode.addEventListener('change', onMode);
   exaggeration.addEventListener('change', onExaggeration);
@@ -332,6 +343,7 @@ export function createLegoHeadingControl(
       unsubscribe?.();
       unsubscribePhotoreal?.();
       unsubscribeBlocks?.();
+      unsubscribeBudget();
       buildings?.removeEventListener('change', onBuildings);
       relief?.removeEventListener('change', onRelief);
       bricks?.removeEventListener('change', onBricks);

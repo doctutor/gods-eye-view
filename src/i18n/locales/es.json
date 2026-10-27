@@ -3945,5 +3945,7 @@
   "Walk here (G): onto the block under the pointer, or the ground at the view’s centre. Shift-click or Shift+G flies there": "Caminar aquí (G): sobre el bloque bajo el puntero, o el suelo en el centro de la vista. Mayús+clic o Mayús+G vuela allí",
   "Walk: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space jumps, Shift or W twice sprints": "A pie: WASD o las flechas mueven, el ratón mira (clic en el globo para capturarlo, Esc lo suelta), Espacio salta, Mayús o W dos veces corre",
   "Fly: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space up, Shift down, W twice doubles the speed": "Volar: WASD o las flechas mueven, el ratón mira (clic en el globo para capturarlo, Esc lo suelta), Espacio sube, Mayús baja, W dos veces dobla la velocidad",
-  "Spectator: the usual camera. G walks onto the block under the pointer (or the ground at the centre), Shift+G flies there": "Espectador: la cámara de siempre. G camina sobre el bloque bajo el puntero (o el suelo en el centro), Mayús+G vuela allí"
+  "Spectator: the usual camera. G walks onto the block under the pointer (or the ground at the centre), Shift+G flies there": "Espectador: la cámara de siempre. G camina sobre el bloque bajo el puntero (o el suelo en el centro), Mayús+G vuela allí",
+  "EE {used} / {budget} today": "EE {used} / {budget} hoy",
+  "Earth Engine tiles fetched today ({date}, UTC): {used} of the {budget} a day": "Teselas de Earth Engine pedidas hoy ({date}, UTC): {used} de las {budget} diarias"
 }
