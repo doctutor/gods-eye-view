@@ -10,11 +10,14 @@ import {
   ELEVATION_LAYER,
   CHUNK_GROUP,
   GROUP_COLUMNS,
+  SUPERGROUP,
   coarseHeights,
   columnsFromHeights,
   createChunkSource,
   groupBounds,
   groupOf,
+  supergroupBounds,
+  supergroupOf,
   probeBox,
   sampleColumns,
   snapBlockM,
@@ -251,12 +254,15 @@ test('loadChunk: a group fetched once serves its 16 chunks and the coarse one', 
   assert.equal(coarse.cj, 2);
   // The same chunk object each time.
   assert.equal(await source.loadChunk(region, 4, 8), a);
-  // A coarse chunk asked first fetches the group and brings the fine ones.
-  const [c] = await Promise.all([
-    source.loadCoarseChunk(region, 0, 0),
+  // A coarse chunk asked while its fine group is in flight waits on that
+  // group's request rather than asking its supergroup.
+  const [, c] = await Promise.all([
     source.loadChunk(region, 3, 3),
+    source.loadCoarseChunk(region, 0, 0),
   ]);
   assert.equal(calls.length, 2);
+  assert.equal(calls[1].cells, GROUP_COLUMNS);
+  assert.deepEqual(calls[1].box, groupBounds(region, 0, 0));
   assert.equal(c.ci, 0);
   // Another region with the same chunk numbers is another group.
   await source.loadChunk(
@@ -299,39 +305,140 @@ test('coarseHeights: the mean of each block of finite heights; NaN where none', 
   assert.ok(Number.isNaN(coarse[3])); // north-east: all nodata
 });
 
-test('loadCoarseChunk: 4 × blockM levels from the mean of 4 × 4 columns, water at a mean ≤ 0', async () => {
+test('supergroupOf and supergroupBounds: 4 × 4 groups, the box around their corner chunks', () => {
+  assert.equal(SUPERGROUP, 4);
+  assert.deepEqual(supergroupOf(5, -1), { si: 1, sj: -1 });
+  assert.deepEqual(supergroupOf(-5, 3), { si: -2, sj: 0 });
   const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 1 });
-  // Height = metres east of the origin, less 100: the sea west of 100 m.
-  const heightAt = (lon, lat) => {
+  const box = supergroupBounds(region, 1, -1);
+  for (const [gi, gj] of [
+    [4, -4],
+    [7, -4],
+    [4, -1],
+    [7, -1],
+    [5, -2],
+  ]) {
+    const g = groupBounds(region, gi, gj);
+    assert.ok(g.west >= box.west && g.east <= box.east, `group ${gi},${gj}`);
+    assert.ok(g.south >= box.south && g.north <= box.north);
+  }
+  // Sixteen chunks wide: 1,024 blocks.
+  const width = (b) => b.east - b.west;
+  assert.ok(
+    Math.abs(width(box) / width(groupBounds(region, 4, -4)) - 4) < 0.01,
+  );
+});
+
+/** A ramp: metres east of the origin less 100 (the sea west of 100 m), nodata north of 200 m. */
+function rampAt(region) {
+  return (lon, lat) => {
     const { x, y } = region.toLocal(lon, lat);
     return y > 200 ? NaN : x - 100;
   };
-  const { fetchValues, calls } = fakeValues({ nativeM: 1, heightAt });
-  const source = createChunkSource({ fetchValues, createChunk });
-  const coarse = await source.loadCoarseChunk(region, 0, 0);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].cells, GROUP_COLUMNS);
-  assert.equal(coarse.ci, 0);
+}
+
+/** Coarse column i of chunk 0 has its centre 4i + 2 m east: level floor((4i + 2 − 100) / 4). */
+function assertRampLevels(coarse) {
   assert.equal(coarse.top.length, CHUNK_COLUMNS * CHUNK_COLUMNS);
-  // Coarse column i covers fine columns 4i … 4i+3, centres 4i+0.5 … 4i+3.5 m
-  // east: mean height 4i + 2 − 100; level floor(that / 4).
   for (const i of [0, 10, 24, 25, 26, 40, 63]) {
-    const mean = 4 * i + 2 - 100;
+    const h = 4 * i + 2 - 100;
     const k = 5 * CHUNK_COLUMNS + i; // row 5: 20–24 m north, inside the data
-    if (mean <= 0) {
+    if (h <= 0) {
       assert.equal(coarse.water[k], 0, `column ${i} is sea`);
-      assert.equal(coarse.top[k], Math.min(Math.floor(mean / 4), -1));
+      assert.equal(coarse.top[k], Math.min(Math.floor(h / 4), -1));
     } else {
       assert.equal(coarse.water[k], NONE);
-      assert.equal(coarse.top[k], Math.floor(mean / 4), `column ${i}`);
+      assert.equal(coarse.top[k], Math.floor(h / 4), `column ${i}`);
     }
   }
   // Row 63 covers 252–256 m north: no data, NONE.
   assert.equal(coarse.top[63 * CHUNK_COLUMNS + 30], NONE);
-  // The fine chunks came with it.
-  const fine = await source.loadChunk(region, 1, 0);
+}
+
+test('loadCoarseChunk: 16 coarse chunks at 4 × blockM from one supergroup request', async () => {
+  const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 1 });
+  const { fetchValues, calls } = fakeValues({
+    nativeM: 1,
+    heightAt: rampAt(region),
+  });
+  const source = createChunkSource({ fetchValues, createChunk });
+  // Two coarse chunks of one supergroup asked at once: one request.
+  const [coarse, other] = await Promise.all([
+    source.loadCoarseChunk(region, 0, 0),
+    source.loadCoarseChunk(region, 3, 3),
+  ]);
   assert.equal(calls.length, 1);
-  assert.equal(fine.top[0], Math.floor(64.5 - 100)); // column 64, centre 64.5 m
+  assert.equal(calls[0].cells, GROUP_COLUMNS);
+  assert.deepEqual(calls[0].box, supergroupBounds(region, 0, 0));
+  assert.equal(coarse.ci, 0);
+  assert.equal(other.cj, 3);
+  assertRampLevels(coarse);
+  // All 16 of the supergroup are held; none costs another request.
+  assert.equal(source.size(), 16);
+  for (let gi = 0; gi < 4; gi++)
+    for (let gj = 0; gj < 4; gj++) await source.loadCoarseChunk(region, gi, gj);
+  assert.equal(calls.length, 1);
+  // Coarse chunk (1, 0): its column 0 is 256 + 2 m east, level floor(158 / 4).
+  const east = await source.loadCoarseChunk(region, 1, 0);
+  assert.equal(east.top[5 * CHUNK_COLUMNS], Math.floor((256 + 2 - 100) / 4));
+  // The next supergroup asks again.
+  await source.loadCoarseChunk(region, 4, 0);
+  assert.equal(calls.length, 2);
+});
+
+test('loadCoarseChunk: the fine group coarse chunk, the mean of its columns, wins when loaded', async () => {
+  const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 1 });
+  const { fetchValues, calls } = fakeValues({
+    nativeM: 1,
+    heightAt: rampAt(region),
+  });
+  const source = createChunkSource({ fetchValues, createChunk });
+  // Fine group first: its coarse chunk comes free and is served as is.
+  await source.loadChunk(region, 1, 0);
+  assert.equal(calls.length, 1);
+  const exact = await source.loadCoarseChunk(region, 0, 0);
+  assert.equal(calls.length, 1);
+  assertRampLevels(exact);
+  // Its supergroup neighbours are not held: (1, 0) asks the supergroup.
+  await source.loadCoarseChunk(region, 1, 0);
+  assert.equal(calls.length, 2);
+  // which leaves the fine group's (0, 0) in place.
+  assert.equal(await source.loadCoarseChunk(region, 0, 0), exact);
+  // A supergroup chunk is replaced once its fine group loads.
+  const fromSuper = await source.loadCoarseChunk(region, 2, 0);
+  assert.equal(calls.length, 2);
+  await source.loadChunk(region, 8, 0); // group (2, 0)
+  assert.equal(calls.length, 3);
+  const replaced = await source.loadCoarseChunk(region, 2, 0);
+  assert.notEqual(replaced, fromSuper);
+  assert.equal(
+    replaced.top[5 * CHUNK_COLUMNS],
+    fromSuper.top[5 * CHUNK_COLUMNS],
+  );
+});
+
+test('loadCoarseChunk: a failed supergroup rejects its waiting chunks and is asked again', async () => {
+  const region = createRegion({ lon0: 0.5, lat0: 51.5, blockM: 30 });
+  const { fetchValues, calls } = fakeValues({
+    nativeM: 30,
+    heightAt: () => 12,
+    fail: 1,
+  });
+  const source = createChunkSource({ fetchValues, createChunk });
+  const results = await Promise.allSettled([
+    source.loadCoarseChunk(region, 0, 0),
+    source.loadCoarseChunk(region, 1, 1),
+  ]);
+  assert.deepEqual(
+    results.map((r) => r.status),
+    ['rejected', 'rejected'],
+  );
+  assert.equal(results[0].reason.status, 503);
+  assert.equal(calls.length, 1);
+  assert.equal(source.size(), 0);
+  const coarse = await source.loadCoarseChunk(region, 1, 1);
+  assert.equal(calls.length, 2);
+  assert.equal(coarse.top[0], 0); // 12 m in 120 m blocks
 });
 
 test('loadChunk: a failure rejects with its status and is asked again', async () => {

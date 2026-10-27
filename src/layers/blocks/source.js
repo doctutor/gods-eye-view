@@ -6,7 +6,11 @@
 // ground at 4 × blockM for the ring beyond the fine render distance. So a
 // 1 m view asks about 20 times, not 270 (each Earth Engine answer counts a
 // tile against the day's budget); the server's 30-day disk cache keeps the
-// answers too. Heights are mean sea level as the DEM stack reports them; a column
+// answers too. The coarse ring beyond the fine chunks is fetched by
+// supergroup: one request of 256 cells over SUPERGROUP × SUPERGROUP groups
+// (1,024 blocks a side, so 4 × blockM cells) answers 16 coarse chunks, and
+// a fine group's own coarse chunk, the mean of its fine columns, replaces
+// its supergroup one whenever the fine group is loaded. Heights are mean sea level as the DEM stack reports them; a column
 // at or below 0 m is the sea, water at level 0 over a seabed below it.
 //
 // A region (grid.js) is used through lon0, lat0, blockM, chunkBounds and
@@ -26,6 +30,8 @@ export const MAX_CHUNKS = 1024;
 export const CHUNK_GROUP = 4;
 /** Cells a group request asks for a side (under the server's 512). */
 export const GROUP_COLUMNS = CHUNK_COLUMNS * CHUNK_GROUP;
+/** Groups a supergroup side: one request answers SUPERGROUP² coarse chunks. */
+export const SUPERGROUP = 4;
 /** Probe sides, metres: the first resolves cells of 1–64 m, the next 64 m–4 km. */
 const PROBE_SIDES_M = [CHUNK_COLUMNS, CHUNK_COLUMNS * CHUNK_COLUMNS];
 const M_PER_DEG = 111_319.49;
@@ -73,12 +79,19 @@ export function probeBox(lon, lat, sideM) {
  * over its box and may be a cell short of the asked count when the native
  * cell is the block, so columns are looked up by place, not index.
  */
-export function sampleBlock(region, i0, j0, size, { header, values }) {
+export const sampleBlock = (region, i0, j0, size, answer) =>
+  samplePlaces(answer, size, (i, j) => region.columnCentre(i0 + i, j0 + j));
+
+/**
+ * A size × size grid of heights, index j × size + i, each read from the
+ * answer's cell under placeOf(i, j) → {lon, lat}; NaN outside it.
+ */
+export function samplePlaces({ header, values }, size, placeOf) {
   const { west, south, east, north, cols, rows } = header;
   const heights = new Float32Array(size * size);
   for (let j = 0; j < size; j++) {
     for (let i = 0; i < size; i++) {
-      const { lon, lat } = region.columnCentre(i0 + i, j0 + j);
+      const { lon, lat } = placeOf(i, j);
       const col = Math.floor(((lon - west) / (east - west)) * cols);
       const row = Math.floor(((north - lat) / (north - south)) * rows);
       heights[j * size + i] =
@@ -106,12 +119,26 @@ export const groupOf = (ci, cj) => ({
   gj: Math.floor(cj / CHUNK_GROUP),
 });
 
+/** The supergroup a group is in. */
+export const supergroupOf = (gi, gj) => ({
+  si: Math.floor(gi / SUPERGROUP),
+  sj: Math.floor(gj / SUPERGROUP),
+});
+
 /** A group's extent in degrees: the box around its corner chunks' boxes. */
-export function groupBounds(region, gi, gj) {
-  const c0 = gi * CHUNK_GROUP;
-  const r0 = gj * CHUNK_GROUP;
-  const c1 = c0 + CHUNK_GROUP - 1;
-  const r1 = r0 + CHUNK_GROUP - 1;
+export const groupBounds = (region, gi, gj) =>
+  chunksBounds(region, gi * CHUNK_GROUP, gj * CHUNK_GROUP, CHUNK_GROUP);
+
+/** A supergroup's extent in degrees: the box around its corner chunks' boxes. */
+export const supergroupBounds = (region, si, sj) => {
+  const side = CHUNK_GROUP * SUPERGROUP;
+  return chunksBounds(region, si * side, sj * side, side);
+};
+
+/** The box around the corner chunks of n × n chunks from (c0, r0). */
+function chunksBounds(region, c0, r0, n) {
+  const c1 = c0 + n - 1;
+  const r1 = r0 + n - 1;
   const boxes = [
     [c0, r0],
     [c1, r0],
@@ -126,7 +153,10 @@ export function groupBounds(region, gi, gj) {
   };
 }
 
-/** Chunk (a, b) of a group's GROUP_COLUMNS² heights, in columnIndex order. */
+/**
+ * Chunk (a, b) of GROUP_COLUMNS² heights (a group's fine columns, or a
+ * supergroup's coarse ones), in columnIndex order.
+ */
 function chunkOfGroup(heights, a, b) {
   const out = new Float32Array(CHUNK_COLUMNS * CHUNK_COLUMNS);
   for (let j = 0; j < CHUNK_COLUMNS; j++) {
@@ -212,6 +242,7 @@ export function createChunkSource({
   }
   const held = new Map(); // key → Promise<chunk>, least recently used first
   const groups = new Map(); // key → Promise<group>, while in flight
+  const supergroups = new Map(); // key → Promise<Map<key, chunk>>, while in flight
 
   function remember(key, promise) {
     held.delete(key);
@@ -222,15 +253,19 @@ export function createChunkSource({
   const ask = (box, cells) =>
     fetchValues({ layer: ELEVATION_LAYER, mode: '', box, cells });
 
+  const groupKey = (region, gi, gj) => `${regionKey(region)}|g${gi}:${gj}`;
+  const coarseKey = (region, gi, gj) => `${regionKey(region)}|c${gi}:${gj}`;
+
   /**
    * A group's 16 chunks and its coarse chunk from one request. Once built
-   * they all go into the cache, so the neighbours come free.
+   * they all go into the cache, so the neighbours come free; the coarse
+   * chunk, the mean of the fine columns, replaces a supergroup's.
    * @returns {Promise<{chunks: Map<string, object>, coarse: object,
    *   coarseKey: string}>}
    */
   function loadGroup(region, gi, gj) {
     const prefix = regionKey(region);
-    const key = `${prefix}|g${gi}:${gj}`;
+    const key = groupKey(region, gi, gj);
     const inFlight = groups.get(key);
     if (inFlight) return inFlight;
     const promise = (async () => {
@@ -264,16 +299,15 @@ export function createChunkSource({
           region.blockM * CHUNK_GROUP,
         ),
       });
-      return { chunks, coarse, coarseKey: `${prefix}|c${gi}:${gj}` };
+      return { chunks, coarse, coarseKey: coarseKey(region, gi, gj) };
     })();
     groups.set(key, promise);
     promise
       .then(
-        ({ chunks, coarse, coarseKey }) => {
+        ({ chunks, coarse, coarseKey: exactKey }) => {
           for (const [chunkKey, chunk] of chunks)
             if (!held.has(chunkKey)) remember(chunkKey, Promise.resolve(chunk));
-          if (!held.has(coarseKey))
-            remember(coarseKey, Promise.resolve(coarse));
+          remember(exactKey, Promise.resolve(coarse));
         },
         () => {},
       )
@@ -281,14 +315,62 @@ export function createChunkSource({
     return promise;
   }
 
-  /** A cached chunk, or one taken from its group's answer; failures are not kept. */
-  function fromGroup(key, region, gi, gj, pick) {
+  /**
+   * A supergroup's 16 coarse chunks from one request of GROUP_COLUMNS
+   * cells over its 16 × 16 chunks: each cell is a coarse column (4 ×
+   * blockM), read at the column's centre. Those not already held (a fine
+   * group's are better) go into the cache.
+   * @returns {Promise<Map<string, object>>} coarse key → chunk
+   */
+  function loadSupergroup(region, si, sj) {
+    const key = `${regionKey(region)}|s${si}:${sj}`;
+    const inFlight = supergroups.get(key);
+    if (inFlight) return inFlight;
+    const coarseM = region.blockM * CHUNK_GROUP;
+    const promise = (async () => {
+      const answer = await ask(supergroupBounds(region, si, sj), GROUP_COLUMNS);
+      const i0 = si * GROUP_COLUMNS;
+      const j0 = sj * GROUP_COLUMNS;
+      const heights = samplePlaces(answer, GROUP_COLUMNS, (i, j) =>
+        region.toLonLat((i0 + i + 0.5) * coarseM, (j0 + j + 0.5) * coarseM),
+      );
+      const chunks = new Map();
+      for (let b = 0; b < SUPERGROUP; b++)
+        for (let a = 0; a < SUPERGROUP; a++) {
+          const gi = si * SUPERGROUP + a;
+          const gj = sj * SUPERGROUP + b;
+          const columns = columnsFromHeights(
+            chunkOfGroup(heights, a, b),
+            coarseM,
+          );
+          chunks.set(
+            coarseKey(region, gi, gj),
+            createChunk({ ci: gi, cj: gj, ...columns }),
+          );
+        }
+      return chunks;
+    })();
+    supergroups.set(key, promise);
+    promise
+      .then(
+        (chunks) => {
+          for (const [chunkKey, chunk] of chunks)
+            if (!held.has(chunkKey)) remember(chunkKey, Promise.resolve(chunk));
+        },
+        () => {},
+      )
+      .then(() => supergroups.delete(key));
+    return promise;
+  }
+
+  /** A cached chunk, or one load() makes; failures are not kept. */
+  function cached(key, load) {
     const known = held.get(key);
     if (known) {
       remember(key, known);
       return known;
     }
-    const promise = loadGroup(region, gi, gj).then(pick);
+    const promise = load();
     remember(key, promise);
     // A failure is not kept: the controller's retry asks again.
     promise.catch(() => {
@@ -326,23 +408,26 @@ export function createChunkSource({
     loadChunk(region, ci, cj) {
       const key = `${regionKey(region)}|${ci}:${cj}`;
       const { gi, gj } = groupOf(ci, cj);
-      return fromGroup(key, region, gi, gj, ({ chunks }) => chunks.get(key));
+      return cached(key, () =>
+        loadGroup(region, gi, gj).then(({ chunks }) => chunks.get(key)),
+      );
     },
 
     /**
      * A group's coarse chunk: 64 × 64 columns of CHUNK_GROUP × blockM over
      * the group's ground (chunk gi, gj of a region of that block size at
-     * the same origin), each the mean of the 4 × 4 fine columns under it,
-     * from the same request as the group's fine chunks.
+     * the same origin). From the fine group when it is loaded or in flight
+     * (each column the mean of the 4 × 4 fine columns under it), else from
+     * its supergroup's one request (the server's cell at 4 × blockM).
      */
     loadCoarseChunk(region, gi, gj) {
-      return fromGroup(
-        `${regionKey(region)}|c${gi}:${gj}`,
-        region,
-        gi,
-        gj,
-        ({ coarse }) => coarse,
-      );
+      const key = coarseKey(region, gi, gj);
+      return cached(key, () => {
+        if (groups.has(groupKey(region, gi, gj)))
+          return loadGroup(region, gi, gj).then(({ coarse }) => coarse);
+        const { si, sj } = supergroupOf(gi, gj);
+        return loadSupergroup(region, si, sj).then((chunks) => chunks.get(key));
+      });
     },
 
     /** Chunks held, fine and coarse (for tests and the status line). */
