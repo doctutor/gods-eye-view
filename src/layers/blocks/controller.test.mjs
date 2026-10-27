@@ -12,6 +12,8 @@ import {
   STUDY_SUN,
   chunkDistance,
   chunkRing,
+  fineRing,
+  groupOf,
   createBlocksController,
   needsReanchor,
   sourceName,
@@ -45,6 +47,11 @@ const fakeGrid = {
       columnOf: (x, y) => ({
         i: Math.floor(x / blockM),
         j: Math.floor(y / blockM),
+      }),
+      chunkOrigin: (ci, cj) => ({
+        x: ci * C * blockM,
+        y: cj * C * blockM,
+        z: 0,
       }),
     };
   },
@@ -381,38 +388,42 @@ test('the budget doubles for 30 m blocks; the region says when it is left (grid.
   }
 });
 
-test('hysteresis: chunks are dropped only beyond 1.25 × the render distance; new ones load ahead', async () => {
+test('hysteresis: fine chunks are dropped a group at a time, only beyond 1.25 × the render distance', async () => {
   const { controller, viewer, renderer } = setup();
   await drain(controller);
-  const ring = chunkRing({
+  const ring = fineRing({
     i: 0,
     j: 0,
     radius: RENDER_DISTANCE_BLOCKS,
     chunkColumns: C,
   });
   assert.equal(renderer.shown.size, ring.length);
+  assert.equal(ring.length % 16, 0, 'whole groups');
   assert.equal(controller.getStatus().state, 'ready');
   assert.equal(controller.getStatus().chunks, ring.length);
-  // 100 m east: everything is still within 640 columns; chunks ahead load.
+  // 100 m east: every group is still within 640 columns; nothing dropped.
   viewer.moveTo(east(100));
   await drain(controller);
   assert.ok(
     renderer.calls.every(([kind]) => kind !== 'remove'),
     'nothing dropped yet',
   );
-  assert.ok(!ring.some((c) => c.ci === 9));
-  assert.ok(
-    renderer.shown.has('9:0'),
-    'ahead: 576 columns from the start, 476 from the camera',
-  );
-  // 1 km east: the far western chunks go, those within 640 columns stay.
+  for (const { ci, cj } of fineRing({
+    i: 100,
+    j: 0,
+    radius: RENDER_DISTANCE_BLOCKS,
+    chunkColumns: C,
+  }))
+    assert.ok(renderer.shown.has(`${ci}:${cj}`), `${ci}:${cj}`);
+  // 1 km east: the western groups go whole, those within 640 columns stay.
   viewer.moveTo(east(1000));
   await drain(controller);
-  const local = Math.floor(1000 * 1);
+  const local = 1000;
   for (const key of renderer.shown.keys()) {
     const [ci, cj] = key.split(':').map(Number);
+    const { gi, gj } = groupOf(ci, cj);
     assert.ok(
-      chunkDistance({ x: local + 0.5, y: 0.5 }, ci, cj, C) <=
+      chunkDistance({ x: local + 0.5, y: 0.5 }, gi, gj, C * 4) <=
         RENDER_DISTANCE_BLOCKS * REMOVE_FACTOR,
       key,
     );
@@ -420,13 +431,15 @@ test('hysteresis: chunks are dropped only beyond 1.25 × the render distance; ne
   const removed = renderer.calls
     .filter(([kind]) => kind === 'remove')
     .map(([, key]) => key);
-  assert.ok(removed.includes('-8:0'));
+  // Group −2 (columns −512 … −256) is 1,256 columns behind: all 16 go.
+  for (let ci = -8; ci < -4; ci++)
+    for (let cj = 0; cj < 4; cj++)
+      assert.ok(removed.includes(`${ci}:${cj}`), `${ci}:${cj}`);
   assert.ok(
     renderer.shown.has('7:0'),
-    '7:0 is 1000 − 512 = 488 columns behind: kept',
+    'group 1 (columns 256 … 512) is 488 columns behind: kept',
   );
-  // Every chunk within the render distance of the new place is drawn.
-  for (const { ci, cj } of chunkRing({
+  for (const { ci, cj } of fineRing({
     i: local,
     j: 0,
     radius: RENDER_DISTANCE_BLOCKS,
@@ -832,7 +845,7 @@ test('with the real grid, store and mesher: chunks meshed against their neighbou
     Math.abs(region.lon0 - LON0) < 0.001 &&
       Math.abs(region.lat0 - LAT0) < 0.001,
   );
-  const ring = chunkRing({ i: 0, j: 0, radius: 100, chunkColumns: N });
+  const ring = fineRing({ i: 0, j: 0, radius: 100, chunkColumns: N });
   assert.equal(renderer.shown.size, ring.length);
   for (const mesh of renderer.shown.values()) {
     assert.ok(mesh.indices.length > 0);
@@ -934,4 +947,185 @@ test('a chunk that fails is asked again after a backoff (2 s, 4 s, …), and giv
   } finally {
     console.warn = warn;
   }
+});
+
+/** A source with the coarse ring: loadCoarseChunk(region, gi, gj). */
+function coarseSource({ hold = false, holdCoarse = false } = {}) {
+  const base = fakeSource({ hold });
+  const coarse = [];
+  base.coarse = coarse;
+  base.loadCoarseChunk = (region, gi, gj) => {
+    const chunk = { gi, gj, coarse: true, version: 0 };
+    if (!holdCoarse) {
+      coarse.push({ gi, gj });
+      return Promise.resolve(chunk);
+    }
+    return new Promise((resolve) =>
+      coarse.push({ gi, gj, resolve: () => resolve(chunk) }),
+    );
+  };
+  return base;
+}
+
+test('the rings: fine chunks in whole 4 × 4 groups within R1, coarse groups out to R2 = 4·R1', async () => {
+  const { groupRing, coarseKey, GROUP_CHUNKS, COARSE_REACH } =
+    await import('./index.js');
+  assert.equal(GROUP_CHUNKS, 4);
+  assert.equal(COARSE_REACH, 4);
+  const fine = fineRing({ i: 10, j: 20, radius: 512, chunkColumns: C });
+  const groups = groupRing({ i: 10, j: 20, radius: 512, chunkColumns: C });
+  // Every chunk of every group within R1, and nothing else.
+  assert.equal(fine.length, groups.length * 16);
+  const inGroups = new Set(groups.map(({ gi, gj }) => `${gi}:${gj}`));
+  for (const { ci, cj } of fine) {
+    const { gi, gj } = groupOf(ci, cj);
+    assert.ok(inGroups.has(`${gi}:${gj}`), `${ci}:${cj}`);
+  }
+  // Nearest first, the camera's chunk at the head; a superset of chunkRing.
+  assert.deepEqual(fine[0], { ci: 0, cj: 0, distance: 0 });
+  for (let n = 1; n < fine.length; n++)
+    assert.ok(fine[n].distance >= fine[n - 1].distance);
+  const keys = new Set(fine.map(({ ci, cj }) => `${ci}:${cj}`));
+  for (const { ci, cj } of chunkRing({
+    i: 10,
+    j: 20,
+    radius: 512,
+    chunkColumns: C,
+  }))
+    assert.ok(keys.has(`${ci}:${cj}`), `${ci}:${cj}`);
+  // The coarse ring: groups (256 columns) within 2,048 columns.
+  const far = groupRing({ i: 10, j: 20, radius: 2048, chunkColumns: C });
+  assert.deepEqual(far[0], { gi: 0, gj: 0, distance: 0 });
+  assert.ok(far.every((g) => g.distance <= 2048));
+  assert.ok(far.length > 200 && far.length < 260, String(far.length));
+  assert.ok(
+    far.some((g) => g.gi === 8 && g.gj === 0),
+    '2,048 columns east',
+  );
+  assert.ok(!far.some((g) => g.gi === 9 && g.gj === 0));
+  assert.equal(coarseKey(-3, 2), 'c:-3:2');
+  assert.deepEqual(groupOf(-1, 7), { gi: -1, gj: 1 });
+});
+
+test('the coarse ring: drawn at 4 × the block size from the group’s corner, removed when its 16 fine chunks are drawn, back when one goes', async () => {
+  const source = coarseSource({ hold: true });
+  const { controller, renderer, meshes, viewer } = setup({
+    source,
+    radiusBlocks: 128,
+  });
+  await settle();
+  // Both pools start at once: 8 fine and 8 coarse in flight.
+  assert.equal(source.loads.length, 8);
+  assert.equal(source.coarse.length, 8);
+  await drain(controller, 40);
+  // No fine chunk has arrived: the inner groups are coarse for now.
+  assert.ok(renderer.shown.has('c:0:0'));
+  const coarseMesh = meshes.find(
+    (m) => m.chunk.coarse && m.chunk.gi === 0 && m.chunk.gj === 0,
+  );
+  assert.equal(coarseMesh.options.blockM, 4, '4 × 1 m');
+  assert.deepEqual(renderer.shown.get('c:0:0').origin, { x: 0, y: 0, z: 0 });
+  assert.deepEqual(renderer.shown.get('c:1:-1').origin, {
+    x: 256,
+    y: -256,
+    z: 0,
+  });
+  assert.equal(controller.getStatus().chunks, 0);
+  assert.ok(controller.getStatus().coarse > 0);
+  // The fine chunks arrive: R1 = 128 columns takes the four groups around
+  // the camera (−1 … 0 each way); their coarse chunks go, the rest stay.
+  for (let n = 0; n < 60; n++) {
+    source.loads.forEach((l) => l.resolve());
+    await settle();
+    controller.tick();
+  }
+  for (let ci = -4; ci < 4; ci++)
+    for (let cj = -4; cj < 4; cj++)
+      assert.ok(renderer.shown.has(`${ci}:${cj}`));
+  for (const key of ['c:0:0', 'c:-1:0', 'c:0:-1', 'c:-1:-1'])
+    assert.ok(!renderer.shown.has(key), `${key} covered: removed`);
+  assert.ok(
+    renderer.calls.some(([k, key]) => k === 'remove' && key === 'c:0:0'),
+  );
+  assert.ok(renderer.shown.has('c:1:0'), 'beyond R1: still coarse');
+  assert.equal(controller.getStatus().chunks, 64);
+  // Everything arrives; then the camera moves 500 m east: group 0:0's fine
+  // chunks are dropped (244 columns behind, past 1.25 × 128 = 160) while
+  // its coarse chunk is kept (within 1.25 × 512) and comes back from its
+  // kept mesh, without the mesher.
+  for (let n = 0; n < 60; n++) {
+    source.loads.forEach((l) => l.resolve());
+    await settle();
+    controller.tick();
+  }
+  await drain(controller);
+  const meshedBefore = meshes.filter(
+    (m) => m.chunk.coarse && m.chunk.gi === 0 && m.chunk.gj === 0,
+  ).length;
+  viewer.moveTo(east(500));
+  for (let n = 0; n < 60; n++) {
+    source.loads.forEach((l) => l.resolve());
+    await settle();
+    controller.tick();
+  }
+  await drain(controller);
+  assert.ok(!renderer.shown.has('0:0'), 'the fine chunk dropped');
+  assert.ok(renderer.shown.has('c:0:0'), 'the coarse one back');
+  assert.equal(
+    meshes.filter((m) => m.chunk.coarse && m.chunk.gi === 0 && m.chunk.gj === 0)
+      .length,
+    meshedBefore,
+    'from its kept mesh',
+  );
+  // No group is drawn both ways once settled.
+  for (const key of renderer.shown.keys()) {
+    if (!key.startsWith('c:')) continue;
+    const [gi, gj] = key.slice(2).split(':').map(Number);
+    let all = true;
+    for (let ci = gi * 4; ci < gi * 4 + 4; ci++)
+      for (let cj = gj * 4; cj < gj * 4 + 4; cj++)
+        all &&= renderer.shown.has(`${ci}:${cj}`);
+    assert.ok(!all, `${key} drawn over its fine chunks`);
+  }
+  controller.destroy();
+  assert.equal(renderer.shown.size, 0);
+});
+
+test('fog from the far ring: 0.7 to 1 × R2 with the coarse ring, × R1 without; and the status line', async () => {
+  const { fogFor } = await import('./index.js');
+  assert.deepEqual(fogFor(512, 1, true), { startM: 0.7 * 2048, endM: 2048 });
+  assert.deepEqual(fogFor(512, 1, false), { startM: 0.7 * 512, endM: 512 });
+  assert.deepEqual(fogFor(512, 30, true), {
+    startM: 0.7 * 61_440,
+    endM: 61_440,
+  });
+  const withCoarse = setup({ source: coarseSource(), radiusBlocks: 64 });
+  await drain(withCoarse.controller);
+  const fog = withCoarse.renderer.calls.find(([k]) => k === 'fog')[1];
+  assert.deepEqual(fog, { startM: 0.7 * 256, endM: 256 });
+  const status = withCoarse.controller.getStatus();
+  assert.ok(status.chunks > 0 && status.coarse > 0);
+  assert.equal(
+    blocksStatusText({ ...status, sunFixed: false }),
+    `Blocks: 1 m cubes · ${status.chunks} + ${status.coarse} coarse · 3DEP 1 m`,
+  );
+  assert.equal(
+    blocksStatusText({
+      state: 'ready',
+      blockM: 1,
+      chunks: 274,
+      coarse: 48,
+      source: '3DEP 1 m',
+    }),
+    'Blocks: 1 m cubes · 274 + 48 coarse · 3DEP 1 m',
+  );
+  withCoarse.controller.destroy();
+  const without = setup({ radiusBlocks: 64 });
+  await drain(without.controller);
+  assert.deepEqual(without.renderer.calls.find(([k]) => k === 'fog')[1], {
+    startM: 0.7 * 64,
+    endM: 64,
+  });
+  assert.equal(without.controller.getStatus().coarse, 0);
+  without.controller.destroy();
 });

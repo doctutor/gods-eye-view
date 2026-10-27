@@ -6,7 +6,10 @@
 // render distance are loaded (source.loadChunk), meshed with their
 // neighbours (mesh.js buildChunkMesh) and handed to the renderer
 // (renderer.js), nearest the camera's column first and a few per tick;
-// chunks that fall far behind are dropped. The modules it drives are passed
+// chunks that fall far behind are dropped. Beyond them, out to four times
+// the distance, a coarse ring: a chunk of 4 × 4 groups at four times the
+// block size (source.loadCoarseChunk), drawn until the 16 fine chunks under
+// it are. The modules it drives are passed
 // in (src/app/blocks.js wires the real ones), so this file stays pure enough
 // to test on fakes. Not part of upstream God's Eye View.
 
@@ -17,6 +20,12 @@ import { setBlocksFloorM, setBlocksScene } from './floor.js';
 export const RENDER_DISTANCE_BLOCKS = 512;
 /** Chunks beyond this many times the render distance are removed. */
 export const REMOVE_FACTOR = 1.25;
+/** A coarse chunk covers this many fine chunks a side (4 × 4). */
+export const GROUP_CHUNKS = 4;
+/** The coarse ring reaches this many times the render distance (R2 = 4·R1). */
+export const COARSE_REACH = 4;
+/** Fog from this fraction of the farthest ring drawn to its edge. */
+export const FOG_START = 0.7;
 /**
  * Chunks loaded (in flight) and meshed per tick, at most: the mesher takes
  * 10 to 65 ms a chunk warm, so 8 is about half a tick at 1 m.
@@ -124,6 +133,71 @@ export function chunkRing({ i, j, radius, chunkColumns }) {
   return ring.map(({ ci, cj, distance }) => ({ ci, cj, distance }));
 }
 
+/**
+ * The fine chunks to draw: every chunk of each 4 × 4 group within `radius`
+ * columns, so a group is either all fine or coarse (a coarse chunk cannot
+ * hide part of itself), nearest first as chunkRing orders them.
+ * @returns {{ci: number, cj: number, distance: number}[]}
+ */
+export function fineRing({ i, j, radius, chunkColumns }) {
+  const x = i + 0.5;
+  const y = j + 0.5;
+  const size = chunkColumns;
+  const out = [];
+  for (const { gi, gj } of groupRing({ i, j, radius, chunkColumns }))
+    for (let dj = 0; dj < GROUP_CHUNKS; dj++)
+      for (let di = 0; di < GROUP_CHUNKS; di++) {
+        const ci = gi * GROUP_CHUNKS + di;
+        const cj = gj * GROUP_CHUNKS + dj;
+        out.push({
+          ci,
+          cj,
+          distance: chunkDistance({ x, y }, ci, cj, size),
+          centre: Math.hypot((ci + 0.5) * size - x, (cj + 0.5) * size - y),
+        });
+      }
+  out.sort(
+    (a, b) =>
+      a.distance - b.distance ||
+      a.centre - b.centre ||
+      a.ci - b.ci ||
+      a.cj - b.cj,
+  );
+  return out.map(({ ci, cj, distance }) => ({ ci, cj, distance }));
+}
+
+/**
+ * The 4 × 4 groups within `radius` columns, nearest first (chunkRing on
+ * squares four chunks wide).
+ * @returns {{gi: number, gj: number, distance: number}[]}
+ */
+export function groupRing({ i, j, radius, chunkColumns }) {
+  return chunkRing({
+    i,
+    j,
+    radius,
+    chunkColumns: chunkColumns * GROUP_CHUNKS,
+  }).map(({ ci, cj, distance }) => ({ gi: ci, gj: cj, distance }));
+}
+
+/** The group a fine chunk is in. */
+export const groupOf = (ci, cj) => ({
+  gi: Math.floor(ci / GROUP_CHUNKS),
+  gj: Math.floor(cj / GROUP_CHUNKS),
+});
+
+/** A coarse chunk's renderer key: 'c:gi:gj'. */
+export const coarseKey = (gi, gj) => `c:${gi}:${gj}`;
+
+/**
+ * The fog for a region: from FOG_START of the farthest ring drawn to its
+ * edge, the coarse ring's when there is one (R2 = 4·R1), else the fine.
+ */
+export function fogFor(radiusBlocks, blockM, coarse) {
+  const reach = radiusBlocks * (coarse ? COARSE_REACH : 1) * blockM;
+  return { startM: FOG_START * reach, endM: reach };
+}
+
 /** Columns from the point {x, y} (in columns) to the chunk's square. */
 export function chunkDistance({ x, y }, ci, cj, size) {
   const dx = Math.max(ci * size - x, 0, x - (ci + 1) * size);
@@ -164,7 +238,8 @@ export function sourceName(source) {
  *   viewer?: object|null,
  *   store: {getMode: () => string, subscribe: Function},
  *   layers: {isEnabled: (id: string) => boolean, subscribeActivity?: Function},
- *   source: {regionFor: Function, loadChunk: Function},
+ *   source: {regionFor: Function, loadChunk: Function,
+ *     loadCoarseChunk?: Function},
  *   renderer: {setRegion: Function, upsert: Function, remove: Function,
  *     setSun?: Function, setFog?: Function, destroy?: Function},
  *   grid: {createRegion: Function, chunkKey: Function, CHUNK_COLUMNS: number},
@@ -211,6 +286,10 @@ export function createBlocksController({
   let _globeBefore = true;
   /** key → {key, ci, cj, chunk, loading, failed, signature, shown} */
   const _chunks = new Map();
+  /** 'c:gi:gj' → the same, for the coarse ring ({gi, gj}, and its mesh kept). */
+  const _coarse = new Map();
+  /** Whether the source draws a coarse ring (loadCoarseChunk). */
+  const coarseOn = () => typeof source.loadCoarseChunk === 'function';
   const _listeners = new Set();
   const _removers = [];
 
@@ -229,7 +308,9 @@ export function createBlocksController({
       Object.keys(status).every((key) => status[key] === _status[key]);
     _status = status;
     setBlocksFloorM(
-      status.state === 'ready' && status.chunks > 0 ? status.blockM : null,
+      status.state === 'ready' && status.chunks + (status.coarse || 0) > 0
+        ? status.blockM
+        : null,
     );
     if (!same) emit();
   };
@@ -264,7 +345,7 @@ export function createBlocksController({
   function clearAll(state) {
     _generation++;
     _anchoring = null;
-    for (const entry of _chunks.values())
+    for (const entry of [..._chunks.values(), ..._coarse.values()])
       if (entry.shown) {
         try {
           renderer.remove(entry.key);
@@ -273,6 +354,7 @@ export function createBlocksController({
         }
       }
     _chunks.clear();
+    _coarse.clear();
     _region = null;
     stopTicking();
     setStatus({ state });
@@ -282,6 +364,7 @@ export function createBlocksController({
   function statusNow() {
     if (!_region) return;
     let shown = 0;
+    let coarse = 0;
     let failed = 0;
     let pending = 0;
     for (const entry of _chunks.values()) {
@@ -289,10 +372,20 @@ export function createBlocksController({
       else if (entry.failed) failed++;
       else pending++;
     }
+    for (const entry of _coarse.values()) {
+      if (entry.shown) coarse++;
+      else if (entry.failed) failed++;
+      else if (!entry.chunk) pending++;
+    }
     setStatus({
-      state: pending ? 'loading' : shown || !failed ? 'ready' : 'failed',
+      state: pending
+        ? 'loading'
+        : shown || coarse || !failed
+          ? 'ready'
+          : 'failed',
       blockM: _region.blockM,
       chunks: shown,
+      coarse,
       pending,
       failed,
       source: _region.sourceName,
@@ -340,10 +433,7 @@ export function createBlocksController({
             console.warn('[Blocks] region not set:', error?.message || error),
         );
         renderer.setSun?.(light.dir, { fixed: Boolean(light.fixed) });
-        renderer.setFog?.({
-          startM: radiusBlocks * blockM * 0.6,
-          endM: radiusBlocks * blockM,
-        });
+        renderer.setFog?.(fogFor(radiusBlocks, blockM, coarseOn()));
         _region = {
           region,
           blockM,
@@ -386,18 +476,19 @@ export function createBlocksController({
   function load(entry) {
     const generation = _generation;
     const { region } = _region;
+    const held = entry.coarse ? _coarse : _chunks;
     entry.loading = call(() =>
-      source.loadChunk(region, entry.ci, entry.cj),
+      entry.coarse
+        ? source.loadCoarseChunk(region, entry.gi, entry.gj)
+        : source.loadChunk(region, entry.ci, entry.cj),
     ).then(
       (chunk) => {
-        if (generation !== _generation || _chunks.get(entry.key) !== entry)
-          return;
+        if (generation !== _generation || held.get(entry.key) !== entry) return;
         entry.loading = null;
         entry.chunk = chunk;
       },
       (error) => {
-        if (generation !== _generation || _chunks.get(entry.key) !== entry)
-          return;
+        if (generation !== _generation || held.get(entry.key) !== entry) return;
         entry.loading = null;
         entry.failed = true;
         entry.attempts += 1;
@@ -421,10 +512,13 @@ export function createBlocksController({
    * wall), so a chunk is meshed again when any of the eight arrives.
    */
   function neighboursOf(entry) {
-    const at = (ci, cj) => _chunks.get(grid.chunkKey(ci, cj))?.chunk || null;
+    const at = entry.coarse
+      ? (gi, gj) => _coarse.get(coarseKey(gi, gj))?.chunk || null
+      : (ci, cj) => _chunks.get(grid.chunkKey(ci, cj))?.chunk || null;
+    const [a, b] = entry.coarse ? [entry.gi, entry.gj] : [entry.ci, entry.cj];
     const out = {};
     for (const [name, di, dj] of NEIGHBOURS) {
-      const chunk = at(entry.ci + di, entry.cj + dj);
+      const chunk = at(a + di, b + dj);
       if (chunk) out[name] = chunk;
     }
     return out;
@@ -437,12 +531,45 @@ export function createBlocksController({
   function mesh(entry, neighbours, signature) {
     const built = buildChunkMesh(entry.chunk, {
       neighbours,
-      blockM: _region.blockM,
+      // A coarse chunk's levels are in its own unit, four blocks.
+      blockM: _region.blockM * (entry.coarse ? GROUP_CHUNKS : 1),
       sunDir: _region.sun.dir,
     });
+    if (entry.coarse) {
+      // The renderer cannot read a 'c:' key: the group's south-west corner.
+      built.origin = _region.region.chunkOrigin(
+        entry.gi * GROUP_CHUNKS,
+        entry.gj * GROUP_CHUNKS,
+      );
+      entry.mesh = built;
+    }
     renderer.upsert(entry.key, built);
     entry.signature = signature;
     entry.shown = true;
+  }
+
+  const newEntry = (fields) => ({
+    chunk: null,
+    loading: null,
+    failed: false,
+    attempts: 0,
+    retryAt: 0,
+    signature: '',
+    shown: false,
+    ...fields,
+  });
+
+  /** Whether all 16 fine chunks under a group are drawn. */
+  function groupDrawn(gi, gj) {
+    for (let dj = 0; dj < GROUP_CHUNKS; dj++)
+      for (let di = 0; di < GROUP_CHUNKS; di++)
+        if (
+          !_chunks.get(
+            grid.chunkKey(gi * GROUP_CHUNKS + di, gj * GROUP_CHUNKS + dj),
+          )?.shown
+        )
+          return false;
+    return true;
   }
 
   /**
@@ -515,96 +642,162 @@ export function createBlocksController({
     const local = region.toLocal(camera.lon, camera.lat);
     const { i, j } = region.columnOf(local.x, local.y);
     const size = grid.CHUNK_COLUMNS;
-    // Drop what fell behind.
+    // Drop what fell behind: fine chunks a group at a time.
+    const at = { x: i + 0.5, y: j + 0.5 };
+    const groupSize = size * GROUP_CHUNKS;
     const far = radiusBlocks * REMOVE_FACTOR;
     let changed = false;
     for (const entry of [..._chunks.values()]) {
-      if (
-        chunkDistance({ x: i + 0.5, y: j + 0.5 }, entry.ci, entry.cj, size) <=
-        far
-      )
-        continue;
+      const { gi, gj } = groupOf(entry.ci, entry.cj);
+      if (chunkDistance(at, gi, gj, groupSize) <= far) continue;
       if (entry.shown) {
         renderer.remove(entry.key);
         changed = true;
       }
       _chunks.delete(entry.key);
     }
-    // Start loads, nearest first, while fewer than `budget` are in flight.
-    const ring = chunkRing({ i, j, radius: radiusBlocks, chunkColumns: size });
-    const perTick = tickBudget(budget, _region.blockM);
-    let inFlight = 0;
-    for (const entry of _chunks.values()) if (entry.loading) inFlight++;
-    const time = now();
-    for (const { ci, cj } of ring) {
-      if (inFlight >= perTick) break;
-      const key = grid.chunkKey(ci, cj);
-      const known = _chunks.get(key);
-      if (known) {
-        // A failed chunk is asked again once its backoff is over.
-        if (known.failed && known.retryAt <= time) {
-          known.failed = false;
-          load(known);
-          inFlight++;
-        }
+    const coarseFar = radiusBlocks * COARSE_REACH * REMOVE_FACTOR;
+    for (const entry of [..._coarse.values()]) {
+      if (chunkDistance(at, entry.gi, entry.gj, groupSize) <= coarseFar)
         continue;
+      if (entry.shown) {
+        renderer.remove(entry.key);
+        changed = true;
       }
-      const entry = {
-        key,
-        ci,
-        cj,
-        chunk: null,
-        loading: null,
-        failed: false,
-        attempts: 0,
-        retryAt: 0,
-        signature: '',
-        shown: false,
-      };
-      _chunks.set(key, entry);
-      load(entry);
-      inFlight++;
+      _coarse.delete(entry.key);
     }
-    // Mesh what arrived or changed (its version, or a neighbour's), nearest first.
-    let meshed = 0;
-    for (const { ci, cj } of ring) {
-      if (meshed >= perTick) break;
-      const entry = _chunks.get(grid.chunkKey(ci, cj));
-      if (!entry?.chunk) continue;
-      const neighbours = neighboursOf(entry);
-      const signature = signatureOf(entry.chunk, neighbours);
-      if (entry.shown && entry.signature === signature) continue;
-      try {
-        mesh(entry, neighbours, signature);
-      } catch (error) {
-        entry.failed = true;
-        entry.chunk = null;
-        console.warn(
-          `[Blocks] chunk ${entry.key} not meshed:`,
-          error?.message || error,
-        );
+    const ring = fineRing({ i, j, radius: radiusBlocks, chunkColumns: size });
+    const groups = coarseOn()
+      ? groupRing({
+          i,
+          j,
+          radius: radiusBlocks * COARSE_REACH,
+          chunkColumns: size,
+        })
+      : [];
+    const perTick = tickBudget(budget, _region.blockM);
+    const time = now();
+    // Start loads, nearest first, while fewer than the budget are in flight:
+    // the fine chunks, and the coarse ring with a budget of its own (a
+    // coarse chunk costs what a fine one does and covers 16).
+    const startLoads = (wanted, held, keyOf, make) => {
+      let inFlight = 0;
+      for (const entry of held.values()) if (entry.loading) inFlight++;
+      for (const place of wanted) {
+        if (inFlight >= perTick) break;
+        const key = keyOf(place);
+        const known = held.get(key);
+        if (known) {
+          // A failed chunk is asked again once its backoff is over.
+          if (known.failed && known.retryAt <= time) {
+            known.failed = false;
+            load(known);
+            inFlight++;
+          }
+          continue;
+        }
+        const entry = make(key, place);
+        held.set(key, entry);
+        load(entry);
+        inFlight++;
       }
-      meshed++;
-      changed = true;
-    }
+    };
+    startLoads(
+      ring,
+      _chunks,
+      ({ ci, cj }) => grid.chunkKey(ci, cj),
+      (key, { ci, cj }) => newEntry({ key, ci, cj }),
+    );
+    startLoads(
+      groups,
+      _coarse,
+      ({ gi, gj }) => coarseKey(gi, gj),
+      (key, { gi, gj }) => newEntry({ key, gi, gj, coarse: true }),
+    );
+    // Mesh what arrived or changed (its version, or a neighbour's), nearest
+    // first; a coarse chunk goes when the 16 fine chunks under it are drawn
+    // and comes back (its mesh kept) when one of them is dropped.
+    const meshEach = (wanted, held, keyOf, covered = () => false) => {
+      let meshed = 0;
+      for (const place of wanted) {
+        if (meshed >= perTick) break;
+        const entry = held.get(keyOf(place));
+        if (!entry?.chunk) continue;
+        if (covered(entry)) {
+          if (entry.shown) {
+            renderer.remove(entry.key);
+            entry.shown = false;
+            changed = true;
+          }
+          continue;
+        }
+        const neighbours = neighboursOf(entry);
+        const signature = signatureOf(entry.chunk, neighbours);
+        if (entry.shown && entry.signature === signature) continue;
+        if (!entry.shown && entry.mesh && entry.signature === signature) {
+          renderer.upsert(entry.key, entry.mesh);
+          entry.shown = true;
+          changed = true;
+          continue;
+        }
+        try {
+          mesh(entry, neighbours, signature);
+        } catch (error) {
+          entry.failed = true;
+          entry.retryAt = Infinity;
+          entry.chunk = null;
+          console.warn(
+            `[Blocks] chunk ${entry.key} not meshed:`,
+            error?.message || error,
+          );
+        }
+        meshed++;
+        changed = true;
+      }
+    };
+    meshEach(ring, _chunks, ({ ci, cj }) => grid.chunkKey(ci, cj));
+    meshEach(
+      groups,
+      _coarse,
+      ({ gi, gj }) => coarseKey(gi, gj),
+      (entry) => groupDrawn(entry.gi, entry.gj),
+    );
     statusNow();
     if (changed) requestRender('blocks-chunks');
     // Keep ticking while moving or while work remains; stop when settled.
-    if (_moving || hasWork(ring)) startTicking();
+    if (_moving || hasWork(ring, groups)) startTicking();
     else stopTicking();
   }
 
-  /** Whether a load is in flight, a chunk in range is unloaded, or a mesh is stale. */
-  function hasWork(ring) {
-    for (const entry of _chunks.values()) if (entry.loading) return true;
+  /**
+   * Whether a load is in flight, a chunk in range is unloaded or waits for
+   * a retry, a mesh is stale, or a coarse chunk is shown when it should not
+   * be, or the other way round.
+   */
+  function hasWork(ring, groups = []) {
+    for (const entry of [..._chunks.values(), ..._coarse.values()])
+      if (entry.loading) return true;
+    // Not asked yet, or a retry still to come.
+    const waiting = (entry) =>
+      !entry || (entry.failed && entry.retryAt !== Infinity);
     for (const { ci, cj } of ring) {
       const entry = _chunks.get(grid.chunkKey(ci, cj));
-      if (!entry) return true;
-      // A retry still to come keeps the tick going.
-      if (entry.failed && entry.retryAt !== Infinity) return true;
+      if (waiting(entry)) return true;
       if (!entry.chunk) continue;
       if (
         !entry.shown ||
+        entry.signature !== signatureOf(entry.chunk, neighboursOf(entry))
+      )
+        return true;
+    }
+    for (const { gi, gj } of groups) {
+      const entry = _coarse.get(coarseKey(gi, gj));
+      if (waiting(entry)) return true;
+      if (!entry.chunk) continue;
+      const covered = groupDrawn(gi, gj);
+      if (covered === entry.shown) return true;
+      if (
+        !covered &&
         entry.signature !== signatureOf(entry.chunk, neighboursOf(entry))
       )
         return true;
@@ -664,6 +857,7 @@ export function createBlocksController({
     _state: () => ({
       region: _region,
       chunks: _chunks,
+      coarse: _coarse,
       ticking: _interval !== null,
       moving: _moving,
     }),

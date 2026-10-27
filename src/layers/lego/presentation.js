@@ -97,8 +97,8 @@ export function legoStatusText(status) {
 
 /**
  * The status line in Blocks: "Blocks: 1 m cubes · 412 chunks · 3DEP 1 m"
- * (the block size, the chunks drawn, the elevation source), or why there
- * is nothing.
+ * (the block size, the chunks drawn, the elevation source), "· 274 + 48
+ * coarse" with the coarse ring, or why there is nothing.
  */
 export function blocksStatusText(status) {
   switch (status?.state) {
@@ -115,11 +115,20 @@ export function blocksStatusText(status) {
       const values = {
         size: formatNumber(Math.round(status.blockM * 10) / 10),
         count: formatNumber(status.chunks),
+        coarse: formatNumber(status.coarse || 0),
         source: status.source,
       };
-      let text = status.source
-        ? t('Blocks: {size} m cubes · {count} chunks · {source}', values)
-        : t('Blocks: {size} m cubes · {count} chunks', values);
+      // With the coarse ring: "274 + 48 coarse".
+      let text = status.coarse
+        ? status.source
+          ? t(
+              'Blocks: {size} m cubes · {count} + {coarse} coarse · {source}',
+              values,
+            )
+          : t('Blocks: {size} m cubes · {count} + {coarse} coarse', values)
+        : status.source
+          ? t('Blocks: {size} m cubes · {count} chunks · {source}', values)
+          : t('Blocks: {size} m cubes · {count} chunks', values);
       // The real sun is under 15°: lit by the fixed study sun.
       if (status.sunFixed) text = `${text} · ${t('study sun')}`;
       return status.state === 'loading'
