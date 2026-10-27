@@ -833,7 +833,8 @@
       "src/navigation/binding.js",
       "src/navigation/target.js",
       "src/navigation/targeting.js",
-      "src/navigation/entry.js"
+      "src/navigation/entry.js",
+      "src/navigation/gamepad.js"
     ],
     "external": ["cesium"]
   },
@@ -2763,6 +2764,7 @@
       "src/navigation/target.js",
       "src/navigation/targeting.js",
       "src/navigation/entry.js",
+      "src/navigation/gamepad.js",
       "src/data/earthEngineBudget.js"
     ],
     "external": [
