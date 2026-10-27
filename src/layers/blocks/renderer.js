@@ -395,15 +395,17 @@ export function chunkMatrix(frame, origin, result = new Cesium.Matrix4()) {
 }
 
 /**
- * @param {{viewer: object, edges?: boolean|object, dither?: boolean|object}}
- *   options edges: a line on every block edge (EDGE_DEFAULTS, on by
- *   default); dither: a per-block tone on top faces (DITHER_DEFAULTS, on
- *   by default). Water faces get neither.
+ * @param {{viewer: object, edges?: boolean|object, dither?: boolean|object,
+ *   now?: () => number}} options edges: a line on every block edge
+ *   (EDGE_DEFAULTS, on by default); dither: a per-block tone on top faces
+ *   (DITHER_DEFAULTS, on by default). Water faces get neither. now: the
+ *   wall clock the sky fog's sun is read on (Date.now).
  */
 export function createBlocksRenderer({
   viewer,
   edges = true,
   dither = true,
+  now = () => Date.now(),
 } = {}) {
   const scene = viewer.scene;
   const collection = scene.primitives.add(
@@ -461,12 +463,14 @@ export function createBlocksRenderer({
     }
   }
 
-  /** The camera's height and the sun's elevation over it, at the viewer's clock. */
+  /**
+   * The camera's height and the sun's elevation over it, on the wall clock
+   * (`now`), the one the HUD's SUN and the Blocks sun read.
+   */
   function viewNow() {
     const place = scene.camera?.positionCartographic;
     if (!place) return { heightM: NaN, sunElevationDeg: 90 };
-    const time = viewer.clock?.currentTime;
-    const ms = time ? Cesium.JulianDate.toDate(time).getTime() : Date.now();
+    const ms = now();
     const lat = Cesium.Math.toDegrees(place.latitude);
     const lon = Cesium.Math.toDegrees(place.longitude);
     return {

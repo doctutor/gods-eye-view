@@ -60,6 +60,26 @@ export const NEIGHBOURS = Object.freeze([
 ]);
 /** The tick while the camera moves, or while chunks are still coming. */
 export const TICK_MS = 500;
+/**
+ * How often the sun is read again at the camera, ms: a view left open
+ * follows the day (the study sun's switch at 15°, the light's direction).
+ */
+export const SUN_TICK_MS = 60_000;
+/**
+ * How far the real sun moves, degrees, before the chunks are meshed again
+ * (the light is baked into the meshes): about 12 minutes of the day.
+ */
+export const SUN_REMESH_DEG = 3;
+
+/** The angle between two {east, north, up} directions, degrees. */
+function angleDeg(a, b) {
+  const dot = a.east * b.east + a.north * b.north + a.up * b.up;
+  const lengths =
+    Math.hypot(a.east, a.north, a.up) * Math.hypot(b.east, b.north, b.up);
+  return (
+    (Math.acos(Math.max(-1, Math.min(1, dot / (lengths || 1)))) * 180) / Math.PI
+  );
+}
 /** The window the source looks at to pick a region's block size, metres. */
 export const REGION_WINDOW_M = 1024;
 /**
@@ -290,7 +310,10 @@ export function sourceName(source) {
  *   radiusBlocks?: number, budget?: number, tickMs?: number,
  *   requestRender?: Function, now?: () => number,
  *   setIntervalImpl?: typeof setInterval, clearIntervalImpl?: typeof clearInterval,
- * }} options
+ *   setSunIntervalImpl?: typeof setInterval,
+ *   clearSunIntervalImpl?: typeof clearInterval,
+ * }} options sun: (lon, lat) → the light at the camera, read when a
+ *   region is anchored and every SUN_TICK_MS after.
  */
 export function createBlocksController({
   viewer = null,
@@ -312,12 +335,20 @@ export function createBlocksController({
   now = () => Date.now(),
   setIntervalImpl = (...args) => setInterval(...args),
   clearIntervalImpl = (...args) => clearInterval(...args),
+  // The sun's own interval (SUN_TICK_MS), not holding a process open.
+  setSunIntervalImpl = (callback, ms) => {
+    const handle = setInterval(callback, ms);
+    handle?.unref?.();
+    return handle;
+  },
+  clearSunIntervalImpl = (handle) => clearInterval(handle),
 }) {
   let _viewer = viewer;
   let _region = null; // {region, blockM, sourceName, sun}
   let _anchoring = null; // the regionFor promise in flight
   let _generation = 0;
   let _interval = null;
+  let _sunInterval = null;
   let _moving = false;
   let _destroyed = false;
   let _status = { state: 'off' };
@@ -392,6 +423,42 @@ export function createBlocksController({
     _interval = setIntervalImpl(() => tick(), tickMs);
   }
 
+  /**
+   * Read the sun again at the camera (SUN_TICK_MS): the status line's
+   * study-sun flag follows the day, and when the sun switches between the
+   * real one and the study sun, or the real one has moved SUN_REMESH_DEG,
+   * the chunks are meshed again in the new light, nearest first.
+   * @returns {boolean} whether the light changed
+   */
+  function refreshSun() {
+    if (!_region || _destroyed || !active()) return false;
+    const camera = cameraLonLat();
+    if (!camera) return false;
+    const light = sun(camera.lon, camera.lat) || STUDY_SUN;
+    const before = _region.sun;
+    const changed =
+      Boolean(light.fixed) !== Boolean(before?.fixed) ||
+      !before?.dir ||
+      angleDeg(light.dir, before.dir) > SUN_REMESH_DEG;
+    if (!changed) return false;
+    _region.sun = light;
+    _region.sunEpoch = (_region.sunEpoch ?? 0) + 1;
+    renderer.setSun?.(light.dir, { fixed: Boolean(light.fixed) });
+    statusNow();
+    startTicking();
+    requestRender('blocks-sun');
+    return true;
+  }
+  function startSunTicking() {
+    if (_sunInterval !== null || _destroyed) return;
+    _sunInterval = setSunIntervalImpl(() => refreshSun(), SUN_TICK_MS);
+  }
+  function stopSunTicking() {
+    if (_sunInterval === null) return;
+    clearSunIntervalImpl(_sunInterval);
+    _sunInterval = null;
+  }
+
   /** Every chunk off the renderer and forgotten; the region too. */
   function clearAll(state) {
     _generation++;
@@ -409,6 +476,7 @@ export function createBlocksController({
     _groupBuildings.clear();
     _region = null;
     stopTicking();
+    stopSunTicking();
     setStatus({ state });
     requestRender('blocks-clear');
   }
@@ -501,9 +569,11 @@ export function createBlocksController({
           blockM,
           sourceName: sourceName(found.source),
           sun: light,
+          sunEpoch: 0,
           flat,
           datumOffsetM,
         };
+        startSunTicking();
         tick();
       },
       (error) => fail(error, [404, 501, 503].includes(Number(error?.status))),
@@ -682,7 +752,8 @@ export function createBlocksController({
     return {
       neighbours,
       skirt,
-      signature: `${signatureOf(entry.chunk, neighbours)}|${floors}`,
+      // The sun's epoch too: the light is baked, so a new sun meshes again.
+      signature: `${signatureOf(entry.chunk, neighbours)}|${floors}|s${_region.sunEpoch ?? 0}`,
     };
   }
 
@@ -1160,6 +1231,8 @@ export function createBlocksController({
   return {
     attach,
     tick,
+    /** Read the sun again now (it is read every SUN_TICK_MS); true if the light changed. */
+    refreshSun,
     getStatus: () => _status,
     /** Whether buildings are drawn (the Buildings switch, where Overpass answers). */
     getBuildings: () => buildingsOn(),

@@ -629,12 +629,13 @@ test('the renderer fog follows the sky at eye level, the background high up, and
   scene.camera = {
     positionCartographic: Cesium.Cartographic.fromDegrees(-76.61, 39.29, 1.7),
   };
+  // The wall clock the renderer reads (the HUD's SUN reads the same).
+  let clock = Date.UTC(2026, 5, 21, 17);
+  // A frozen scene clock (the app never animates it) is not what it reads.
   viewer.clock = {
-    currentTime: Cesium.JulianDate.fromDate(
-      new Date(Date.UTC(2026, 5, 21, 17)),
-    ),
+    currentTime: Cesium.JulianDate.fromDate(new Date(Date.UTC(2026, 5, 21, 5))),
   };
-  const renderer = createBlocksRenderer({ viewer });
+  const renderer = createBlocksRenderer({ viewer, now: () => clock });
   renderer.setRegion(stubRegion());
   renderer.upsert('0:0', tinyMesh());
   const uniforms = () =>
@@ -644,9 +645,7 @@ test('the renderer fog follows the sky at eye level, the background high up, and
   assert.deepEqual(fog.color, [...HORIZON_SKY_DAY, 1]);
   assert.ok(Math.abs(uniforms().fogColor.blue - HORIZON_SKY_DAY[2]) < 1e-6);
   // At night the horizon is dusk blue.
-  viewer.clock.currentTime = Cesium.JulianDate.fromDate(
-    new Date(Date.UTC(2026, 5, 21, 5)),
-  );
+  clock = Date.UTC(2026, 5, 21, 5);
   scene.preRender.raiseEvent(scene);
   assert.deepEqual(renderer.getState().fog.color, [...HORIZON_SKY_DUSK, 1]);
   // High up the fog meets the background again.
