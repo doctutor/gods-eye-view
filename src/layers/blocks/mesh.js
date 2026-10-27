@@ -268,29 +268,58 @@ export function buildChunkMesh(
   return writeQuads(opaque, water, { blockM, sunDir, counts });
 }
 
-/** The typed arrays for merged quads, opaque first, then water. */
+/** Whether a quad's four corners are shaded alike (its AO counts in `key`). */
+const evenlyShaded = (key) => {
+  const ao = key & 0xff;
+  return ao === 0 || ao === 0x55 || ao === 0xaa || ao === 0xff;
+};
+
+/**
+ * The typed arrays for merged quads, opaque first, then water. Quad n's
+ * corners are vertices 4n … 4n + 3. A quad whose corners are shaded alike
+ * is two triangles; one whose shading varies (a dark corner at a step) is
+ * four, around a centre vertex at the corners' mean shading, appended
+ * after every quad's corners: two triangles would carry a dark corner
+ * across half the face (at 10 m blocks, a dark fin standing at each step
+ * of a staircase, 2026-10-27).
+ */
 function writeQuads(opaque, water, { blockM, sunDir, counts }) {
   const quads = opaque.concat(water);
-  const positions = new Float32Array(quads.length * 12);
-  const normals = new Float32Array(quads.length * 12);
-  const colors = new Uint8Array(quads.length * 16);
-  const indices = new Uint32Array(quads.length * 6);
-  // Colour bytes by material, direction and occlusion, made once each.
+  const fanned = quads.filter((rect) => !evenlyShaded(rect.key)).length;
+  const vertices = quads.length * 4 + fanned;
+  const positions = new Float32Array(vertices * 3);
+  const normals = new Float32Array(vertices * 3);
+  const colors = new Uint8Array(vertices * 4);
+  const indices = new Uint32Array(quads.length * 6 + fanned * 6);
+  // Colour bytes by material, direction and light, made once each.
   const palette = new Map();
-  const colorOf = (material, dirIndex, ao) => {
-    const id = (material * 6 + dirIndex) * 4 + ao;
+  const colorOf = (material, dirIndex, occlusion) => {
+    const id = `${material}:${dirIndex}:${occlusion}`;
     let color = palette.get(id);
     if (!color) {
       const d = DIRECTIONS[dirIndex];
       color = litColor(
         material,
-        FACE_SHADE[d.name] * AO[ao] * sunTerm(d.normal, sunDir),
+        FACE_SHADE[d.name] * occlusion * sunTerm(d.normal, sunDir),
       );
       palette.set(id, color);
     }
     return color;
   };
+  const writeVertex = (vertex, d, color) => {
+    normals[vertex * 3] = d.normal[0];
+    normals[vertex * 3 + 1] = d.normal[1];
+    normals[vertex * 3 + 2] = d.normal[2];
+    colors[vertex * 4] = color[0];
+    colors[vertex * 4 + 1] = color[1];
+    colors[vertex * 4 + 2] = color[2];
+    colors[vertex * 4 + 3] = color[3];
+  };
+  let centre = quads.length * 4;
+  let index = 0;
+  let opaqueIndexCount = 0;
   for (let n = 0; n < quads.length; n += 1) {
+    if (n === opaque.length) opaqueIndexCount = index;
     const rect = quads[n];
     const d = DIRECTIONS[rect.dirIndex];
     const material = rect.key >> 8;
@@ -299,31 +328,34 @@ function writeQuads(opaque, water, { blockM, sunDir, counts }) {
     const v0 = rect.v * blockM;
     const u1 = (rect.u + rect.w) * blockM;
     const v1 = (rect.v + rect.h) * blockM;
-    let light02 = 0;
-    let light13 = 0;
+    let light = 0;
     for (let c = 0; c < 4; c += 1) {
       const vertex = n * 4 + c;
       positions[vertex * 3 + d.axis] = plane;
       positions[vertex * 3 + d.u] = c === 1 || c === 2 ? u1 : u0;
       positions[vertex * 3 + d.v] = c >= 2 ? v1 : v0;
-      normals[vertex * 3] = d.normal[0];
-      normals[vertex * 3 + 1] = d.normal[1];
-      normals[vertex * 3 + 2] = d.normal[2];
-      const ao = (rect.key >> (6 - 2 * c)) & 3;
-      const color = colorOf(material, rect.dirIndex, ao);
-      colors[vertex * 4] = color[0];
-      colors[vertex * 4 + 1] = color[1];
-      colors[vertex * 4 + 2] = color[2];
-      colors[vertex * 4 + 3] = color[3];
-      if (c % 2 === 0) light02 += AO[ao];
-      else light13 += AO[ao];
+      const occlusion = AO[(rect.key >> (6 - 2 * c)) & 3];
+      light += occlusion;
+      writeVertex(vertex, d, colorOf(material, rect.dirIndex, occlusion));
     }
-    // Split along the brighter diagonal, so a dark corner darkens one
-    // triangle rather than smearing across the quad.
     const base = n * 4;
-    const triangles = light02 >= light13 ? TRIANGLES_02 : TRIANGLES_13;
-    for (let k = 0; k < 6; k += 1) indices[n * 6 + k] = base + triangles[k];
+    if (evenlyShaded(rect.key)) {
+      for (let k = 0; k < 6; k += 1) indices[index++] = base + TRIANGLES[k];
+      continue;
+    }
+    // Four triangles around the centre, at the corners' mean shading.
+    positions[centre * 3 + d.axis] = plane;
+    positions[centre * 3 + d.u] = (u0 + u1) / 2;
+    positions[centre * 3 + d.v] = (v0 + v1) / 2;
+    writeVertex(centre, d, colorOf(material, rect.dirIndex, light / 4));
+    for (let c = 0; c < 4; c += 1) {
+      indices[index++] = base + c;
+      indices[index++] = base + ((c + 1) % 4);
+      indices[index++] = centre;
+    }
+    centre += 1;
   }
+  if (opaque.length === quads.length) opaqueIndexCount = index;
   const stats = Object.fromEntries(
     STAT_NAMES.map((name, dirIndex) => [name, counts[dirIndex]]),
   );
@@ -334,13 +366,12 @@ function writeQuads(opaque, water, { blockM, sunDir, counts }) {
     colors,
     indices,
     faces: quads.length,
-    opaqueIndexCount: opaque.length * 6,
+    opaqueIndexCount,
     stats,
   };
 }
 
-const TRIANGLES_02 = [0, 1, 2, 0, 2, 3];
-const TRIANGLES_13 = [1, 2, 3, 1, 3, 0];
+const TRIANGLES = [0, 1, 2, 0, 2, 3];
 
 /**
  * Greedy rectangles over one plane's cells ([u, v, key] triples), on a

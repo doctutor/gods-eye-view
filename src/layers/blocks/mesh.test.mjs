@@ -155,7 +155,8 @@ test('a water column: a translucent surface over the bed, drawn after the opaque
   for (const side of ['north', 'south', 'east', 'west'])
     assert.equal(mesh.stats[side], 3, side);
   assert.equal(mesh.faces, N * N + 12 + 1);
-  assert.equal(mesh.opaqueIndexCount, (mesh.faces - 1) * 6);
+  // The water surface's two triangles come last.
+  assert.equal(mesh.indices.length - mesh.opaqueIndexCount, 6);
   const water = quadsOf(mesh).at(-1);
   assert.ok(
     water.corners.every((c) => c.p[2] === 6 * 2),
@@ -169,8 +170,8 @@ test('a water column: a translucent surface over the bed, drawn after the opaque
   assert.ok(water.corners.every((c) => c.color[3] < 255));
   assert.deepEqual(water.normal, [0, 0, 1]);
   // Every opaque vertex is opaque.
-  for (let k = 3; k < (mesh.opaqueIndexCount / 6) * 16; k += 4)
-    assert.equal(mesh.colors[k], 255);
+  for (let k = 0; k < mesh.opaqueIndexCount; k += 1)
+    assert.equal(mesh.colors[mesh.indices[k] * 4 + 3], 255);
   // Sea at level 0 over a bed at -3: one surface per column, merged to one.
   const sea = chunkAt(-3, {
     waters: Array.from({ length: N * N }, (_, k) => [
@@ -439,4 +440,63 @@ test('mesh validator: on a terraced hill, no zero-area or inward triangle, no ov
     );
     assert.equal(covered.size, expected.size, `greedy ${greedy}`);
   }
+});
+
+test('a quad whose corners are shaded unalike is four triangles round a centre at the mean; an even one two', () => {
+  // The inside corner of the AO test: (10, 10)'s top has one corner at 0.5,
+  // two at 0.8 and one at 1.0.
+  const chunk = chunkAt(5, {
+    tops: [
+      [11, 10, 6],
+      [10, 11, 6],
+      [11, 11, 6],
+    ],
+  });
+  const mesh = buildChunkMesh(chunk, {
+    neighbours: flatAround(5),
+    greedy: false,
+  });
+  const quadOf = (x, y) =>
+    quadsOf(mesh).findIndex(
+      (q) =>
+        q.normal[2] === 1 &&
+        q.corners.every((c) => c.p[2] === 6) &&
+        Math.min(...q.corners.map((c) => c.p[0])) === x &&
+        Math.min(...q.corners.map((c) => c.p[1])) === y,
+    );
+  /** The triangles (as vertex triples) that use a quad's corners. */
+  const trianglesOf = (n) => {
+    const found = [];
+    for (let t = 0; t < mesh.indices.length; t += 3) {
+      const tri = [...mesh.indices.subarray(t, t + 3)];
+      if (tri.some((v) => v >= n * 4 && v < n * 4 + 4)) found.push(tri);
+    }
+    return found;
+  };
+  const corner = quadOf(10, 10);
+  const fan = trianglesOf(corner);
+  assert.equal(fan.length, 4);
+  const centre = fan[0].find((v) => v >= mesh.faces * 4);
+  assert.ok(
+    fan.every((tri) => tri.includes(centre)),
+    'one shared centre',
+  );
+  assert.deepEqual(
+    [...mesh.positions.subarray(centre * 3, centre * 3 + 3)],
+    [10.5, 10.5, 6],
+  );
+  const base = MATERIAL_COLORS[MATERIALS.TERRAIN][0];
+  const mean = (AO[3] + AO[1] + AO[1] + AO[0]) / 4;
+  assert.equal(
+    mesh.colors[centre * 4],
+    Math.round(base * FACE_SHADE.up * mean * sunTerm([0, 0, 1])),
+  );
+  // An evenly lit top far from the step: two triangles, no centre.
+  const even = trianglesOf(quadOf(40, 40));
+  assert.equal(even.length, 2);
+  assert.ok(even.flat().every((v) => v < mesh.faces * 4));
+  // The flat chunk has no centres at all.
+  const flat = buildChunkMesh(chunkAt(5), { neighbours: flatAround(5) });
+  assert.equal(flat.positions.length, flat.faces * 12);
+  assert.equal(flat.indices.length, flat.faces * 6);
 });
