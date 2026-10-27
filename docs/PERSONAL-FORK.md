@@ -7293,6 +7293,22 @@ Spectator, so older links read the same) and opens in the mode
   are taken in the capture phase, outside form fields, so the app's own
   shortcuts (D cycles detection) wait. No Ctrl anywhere: Ctrl+W closes the
   browser tab, and a page cannot stop it.
+- **The targeted block** (Minecraft's F3, lessons 10–11;
+  `src/navigation/targeting.js`, `target.js`, `src/hud/blockTarget.js`).
+  While Blocks is drawn, in any mode, the HUD's pose block shows a BLOCK
+  line for the block under the crosshair (Walk, Fly) or under the mouse
+  pointer (Spectator): "39.321408 -76.629200 · L47 (47 m) · terrain · 3DEP
+  1 m", the column's centre to half a block (6 decimals at 1 m, 4 at
+  30 m), the level and its base above sea level, the material (terrain,
+  building) and the elevation source; the tooltip names the chunk and the
+  block's region column. The ray (the camera's direction, or Cesium's
+  pick ray at the pointer) is walked through the store's occupancy in the
+  Blocks region's frame, up to 2,048 blocks (20 km at most); where that
+  finds nothing (it leaves the loaded chunks, or starts outside them), the
+  depth pick there is snapped to the block it lies on. Looked for at most
+  every 100 ms after a frame, and at once on a pointer move; hidden when
+  nothing is targeted. The same facts ride on the Walk/Fly block outline's
+  lines as their `id`, for a later click to dig.
 - **The model** (`src/navigation/movement.js`, `worlds.js`) is pure:
   state, keys and a time step give the next state, with the body a column
   1.8 m tall, sliding along walls, a ceiling stopping a jump, and the
