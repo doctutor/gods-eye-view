@@ -4,15 +4,17 @@ import { RELIEF_FACTORS } from './photoreal.js';
 
 /**
  * Personal fork: what the Lego mode says: the drop-down beside the
- * ANALYSIS heading (Render: Colour / Lego, and Lego's elevation
+ * ANALYSIS heading (Render: Colour / Lego / Blocks, and Lego's elevation
  * exaggeration), its status line, and a clicked column's card; and the
  * two ways of seeing elevation with the Google 3D tiles (photoreal.js):
- * Relief ×N and Photoreal on bricks.
+ * Relief ×N and Photoreal on bricks. Blocks (src/layers/blocks/) says its
+ * status on the same line.
  */
 
 export const RENDER_LABELS = Object.freeze({
   colour: msg('Render: Colour'),
   lego: msg('Render: Lego'),
+  blocks: msg('Render: Blocks'),
 });
 
 /** The card's lines for a column. */
@@ -94,8 +96,43 @@ export function legoStatusText(status) {
 }
 
 /**
+ * The status line in Blocks: "Blocks: 1 m cubes · 412 chunks · 3DEP 1 m"
+ * (the block size, the chunks drawn, the elevation source), or why there
+ * is nothing.
+ */
+export function blocksStatusText(status) {
+  switch (status?.state) {
+    case 'no-elevation':
+      return t('Blocks needs the Elevation layer on');
+    case 'anchoring':
+      return t('Blocks: finding the block size…');
+    case 'unavailable':
+      return t('Blocks needs the raster values service (/api/raster/values)');
+    case 'failed':
+      return t('Blocks unavailable');
+    case 'loading':
+    case 'ready': {
+      const values = {
+        size: formatNumber(Math.round(status.blockM * 10) / 10),
+        count: formatNumber(status.chunks),
+        source: status.source,
+      };
+      const text = status.source
+        ? t('Blocks: {size} m cubes · {count} chunks · {source}', values)
+        : t('Blocks: {size} m cubes · {count} chunks', values);
+      return status.state === 'loading'
+        ? `${text} · ${t('{count} loading', { count: formatNumber(status.pending) })}`
+        : text;
+    }
+    default:
+      return '';
+  }
+}
+
+/**
  * The heading control: a <select> for the render mode, a <select> for the
- * exaggeration (shown in Lego), and the status line.
+ * exaggeration (shown in Lego), and the status line (Lego's, or in Blocks
+ * the Blocks controller's).
  * @param {Document} doc
  * @param {{getMode: () => string, setMode: (mode: string) => void,
  *   getExaggeration: () => number, setExaggeration: (value: number) => void,
@@ -103,18 +140,25 @@ export function legoStatusText(status) {
  * @param {{getState: () => {relief: number, bricks: boolean},
  *   setRelief: Function, setBricks: Function, getStatus: () => object,
  *   subscribe: Function}|null} [photoreal] Relief ×N and Photoreal on bricks
+ * @param {{getStatus: () => object, subscribe: Function}|null} [blocks]
+ *   the Blocks controller (src/layers/blocks/index.js)
  * @returns {{element: HTMLElement, destroy: () => void}}
  */
-export function createLegoHeadingControl(doc, lego, photoreal = null) {
+export function createLegoHeadingControl(
+  doc,
+  lego,
+  photoreal = null,
+  blocks = null,
+) {
   const wrap = doc.createElement('span');
   wrap.className = 'data-layer-group-control lego-render-control';
   const mode = doc.createElement('select');
   mode.className = 'lego-render-select';
   mode.setAttribute('aria-label', t('Render mode for raster layers'));
   mode.title = t(
-    'Colour: the layers as images. Lego: each cell a column of 2×2 bricks, as tall as its value',
+    'Colour: the layers as images. Lego: each cell a column of 2×2 bricks, as tall as its value. Blocks: the ground as cubes the size of the elevation’s cells, on a grid fixed to the world (needs the Elevation layer)',
   );
-  for (const key of ['colour', 'lego']) {
+  for (const key of ['colour', 'lego', 'blocks']) {
     const option = doc.createElement('option');
     option.value = key;
     option.textContent = t(RENDER_LABELS[key]);
@@ -199,7 +243,11 @@ export function createLegoHeadingControl(doc, lego, photoreal = null) {
     exaggeration.value = String(lego.getExaggeration());
     exaggeration.hidden = lego.getMode() !== 'lego';
     let text =
-      lego.getMode() === 'lego' ? legoStatusText(lego.getStatus()) : '';
+      lego.getMode() === 'lego'
+        ? legoStatusText(lego.getStatus())
+        : lego.getMode() === 'blocks'
+          ? blocksStatusText(blocks?.getStatus?.())
+          : '';
     if (photoreal) {
       const state = photoreal.getState();
       relief.value = String(state.relief);
@@ -227,6 +275,7 @@ export function createLegoHeadingControl(doc, lego, photoreal = null) {
   brickMode?.addEventListener('change', onBrickMode);
   sides?.addEventListener('change', onSides);
   const unsubscribePhotoreal = photoreal?.subscribe?.(sync);
+  const unsubscribeBlocks = blocks?.subscribe?.(sync);
   const onExaggeration = () => lego.setExaggeration(Number(exaggeration.value));
   mode.addEventListener('change', onMode);
   exaggeration.addEventListener('change', onExaggeration);
@@ -240,6 +289,7 @@ export function createLegoHeadingControl(doc, lego, photoreal = null) {
     destroy() {
       unsubscribe?.();
       unsubscribePhotoreal?.();
+      unsubscribeBlocks?.();
       relief?.removeEventListener('change', onRelief);
       bricks?.removeEventListener('change', onBricks);
       brickMode?.removeEventListener('change', onBrickMode);

@@ -5970,6 +5970,92 @@ Tests (`src/layers/lego/photoreal.test.mjs`, `src/layers/lego/topTexture.test.mj
   cancelling the build before, coming down lifting again, a failed window
   not retried, off taking it all off.
 
+## Blocks
+
+A third **Render** mode beside Colour and Lego: the ground around the
+camera as cubes on a grid fixed to the world, the way Minecraft shows
+terrain, read by shape and light rather than by a colour ramp. The design,
+the decisions and the module contracts are in `docs/BLOCKS-PLAN.md`; the
+code is `src/layers/blocks/` (grid, store, mesh, lighting, source,
+renderer and the controller) with its wiring in `src/app/blocks.js`.
+
+**Turning it on.** The drop-down beside the **ANALYSIS** heading reads
+**Render: Colour / Lego / Blocks**, kept as `gev.render.mode` like the
+others. Blocks needs the **Elevation** layer on; without it nothing is
+built and the line under the heading says "Blocks needs the Elevation layer
+on". With it, the line says what is drawn: "Blocks: 1 m cubes · 412 chunks
+· 3DEP 1 m" (the block size, the chunks drawn, the elevation source), with
+"· N loading" while chunks are still coming. The share link carries it as
+`bk=1`: a link with `bk=1` opens in Blocks without overwriting the stored
+mode, and a link without `bk` (every link from before Blocks) keeps the
+stored mode as before. While Blocks draws, the HUD's floor note beside AGL
+names the blocks ("· Blocks 1 m") and the camera readout's precision stops
+at the block size, as it does for any surface.
+
+**The grid.** A region is a local east-north-up frame anchored near the
+camera with one block size, the elevation source's own cell there: 1 m on
+3DEP lidar, 10 m on 3DEP 10 m, 30 m on FABDEM, 2 m on ArcticDEM. Columns
+are integer steps east and north of its origin, levels integer steps up
+from mean sea level, chunks 64 columns a side. A column at or below 0 m is
+water at sea level; below the top every block is filled. The store keeps an
+edits overlay per chunk from the start (for later breaking and stacking).
+
+**Streaming** (`src/layers/blocks/index.js`). On the camera's `moveEnd`,
+and every 500 ms while it moves or while chunks are still coming, the
+controller:
+
+- anchors a region at the camera on the first tick, asking the source for
+  the block size there, and anchors a new one (every chunk replaced) when
+  the camera is more than 20 km from the origin, or twice the render
+  distance for coarse blocks (31 km at 30 m);
+- lists the chunks within the render distance, 512 blocks (512 m at 1 m,
+  15 km at 30 m), nearest first: a chunk's distance is from the camera's
+  column to the nearest point of the chunk's square, so the camera's own
+  chunk comes first, then those it touches;
+- starts loads until 8 are in flight, and meshes at most 8 chunks a tick,
+  each with its four neighbours so the faces on a chunk's border are culled
+  against them; a chunk is meshed again when a neighbour arrives or its
+  version changes (an edit);
+- drops chunks only beyond 1.25 × the render distance (640 blocks), so a
+  camera going back and forth does not reload its edge.
+
+The sun is fixed when the region is anchored: the real sun when it is more
+than 15° up, otherwise a study sun 60° up from the south-west; mesh.js
+bakes it into the colours with per-face shading and ambient occlusion.
+Fog closes in from 60 % of the render distance to its edge. Turning
+Elevation off, or picking Colour or Lego, removes every chunk; the
+renderer is made the first time a region is anchored, so a page that never
+picks Blocks adds nothing to the scene.
+
+**The comparison harness** (`scripts/qa-blocks-compare.mjs`). Milestone 1
+is judged by eye: Blocks should read elevation better than the colour map.
+The script opens a production build in headless Chrome at map=blank-black
+with Elevation on at Baltimore (lat 39.3214, lon −76.6292, 300 m up,
+heading 0, pitch −30), once in Render: Colour and once in Render: Blocks
+(`bk=1`), and writes `colour.png` and `blocks.png`:
+
+```sh
+node scripts/qa-blocks-compare.mjs --build --out <a directory outside the repository>
+node scripts/qa-blocks-compare.mjs --dist <an existing vite build> --out <dir>
+```
+
+No server and no port: request interception serves the build's files, and
+answers `/api/raster/values` and the Elevation layer's Earth Engine catalog
+and tiles from a synthetic heightfield (64 × 64 cells at 10 m, 600 m north
+of the camera: a hill to 77 m, a spur, and a river valley cut to 2 m,
+on a 12 m plain), painted in the PET rainbow over 0 to 100 m for Colour.
+Other `/api/` routes answer 404 and other hosts are refused. The script
+prints each shot's status line, how many values and tiles it answered, and
+any page error.
+
+**Tests.** `src/layers/blocks/controller.test.mjs`, on a fake grid,
+source, renderer and camera: the ring's order, the budget, re-meshing on a
+neighbour or a version, the hysteresis, re-anchoring at 25 km, the
+Elevation-off and Colour cases, the tick, failures (no values service, a
+chunk that fails), the status line and the HUD floor. The mode, `bk` and
+the drop-down are in `src/layers/lego/lego.test.mjs`, the link in
+`src/sharelink.camera.test.mjs`, the floor in `src/hud/precision.test.mjs`.
+
 ## Colour scales: palettes and a window per layer
 
 Every layer that paints a value through a colour ramp gets a **SCALE**

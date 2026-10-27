@@ -102,6 +102,19 @@ test('which surface is under the camera, and its floor', () => {
   assert.equal(dataFloor().id, 'flat');
 });
 
+test('Render: Blocks names its block size as the floor, over whatever is beneath', () => {
+  const floor = dataFloor({ tilesetShown: true, terrainId: 'world', blocksM: 1 });
+  assert.deepEqual({ ...floor }, { id: 'blocks', name: 'Blocks 1 m', floorM: 1 });
+  assert.equal(dataFloor({ blocksM: 30 }).name, 'Blocks 30 m');
+  assert.equal(dataFloor({ blocksM: null, terrainId: 'world' }).id, 'world');
+  assert.equal(dataFloor({ blocksM: 0 }).id, 'flat');
+  // 1 m blocks: lengths to the metre at most, as on 3DEP 1 m.
+  assert.equal(
+    viewPrecision({ footprintM: 0.05, floor: dataFloor({ blocksM: 1 }) }).stepM,
+    1,
+  );
+});
+
 test('latitude and longitude: the decimals that resolve the footprint', () => {
   // 1 decimal ≈ 11 km, 2 ≈ 1.1 km, 3 ≈ 110 m, 4 ≈ 11 m, 5 ≈ 1.1 m, 6 ≈ 0.11 m.
   assert.equal(degreeDecimals(200_000), 0);

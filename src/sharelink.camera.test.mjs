@@ -167,3 +167,19 @@ test('older links (integers, 4 decimals, no fov) still read, at 60°', () => {
   const wide = makeManager(HARBOR, '#v=2&lat=1&lon=2&fov=400').manager;
   assert.equal(wide.parseInitialHash().fov, 150);
 });
+
+test('Render: Blocks is in the link as bk=1, and only then', async () => {
+  const { renderModeStore } = await import('./layers/lego/renderMode.js');
+  const { manager } = makeManager(HARBOR);
+  const mode = renderModeStore();
+  try {
+    assert.equal(manager._buildHashParams().has('bk'), false);
+    mode.setMode('blocks');
+    assert.equal(manager._buildHashParams().get('bk'), '1');
+    mode.setMode('lego');
+    assert.equal(manager._buildHashParams().has('bk'), false);
+  } finally {
+    mode.setMode('colour');
+    manager.destroy?.();
+  }
+});
