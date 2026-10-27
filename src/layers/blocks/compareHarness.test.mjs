@@ -171,3 +171,66 @@ test('the synthetic Overpass answer: the buildings in the query’s box, read by
   });
   assert.deepEqual(overpassAnswer(far).elements, []);
 });
+
+test('--live: which routes go to the running server, whether one answers, and the eye standing on live ground', async () => {
+  const { isLiveRoute, liveServerUp, liveEyeView, LIVE_ROUTES } =
+    await import('../../../scripts/qa-blocks-compare.mjs');
+  const { encodeRasterValues } = await import('../../data/rasterValues.js');
+  assert.deepEqual(LIVE_ROUTES, [
+    '/api/raster/values',
+    '/api/overpass',
+    '/api/earth-engine/',
+  ]);
+  assert.equal(isLiveRoute('/api/raster/values'), true);
+  assert.equal(isLiveRoute('/api/overpass'), true);
+  assert.equal(isLiveRoute('/api/earth-engine/layers'), true);
+  assert.equal(
+    isLiveRoute('/api/earth-engine/tile/ee-elevation/zoom/default/17/1/2'),
+    true,
+  );
+  assert.equal(isLiveRoute('/api/raster/values/extra'), false);
+  assert.equal(isLiveRoute('/api/cctv/featured/pending'), false);
+  // A server that answers, one that errors, none at all.
+  assert.equal(
+    await liveServerUp('http://x', async () => ({ status: 200 })),
+    true,
+  );
+  assert.equal(
+    await liveServerUp('http://x', async () => ({ status: 503 })),
+    false,
+  );
+  assert.equal(
+    await liveServerUp('http://x', async () => {
+      throw new Error('ECONNREFUSED');
+    }),
+    false,
+  );
+  // The eye: 1.7 m over the top of the block holding the highest probe value.
+  let asked = '';
+  const body = encodeRasterValues(
+    {
+      layer: 'ee-elevation',
+      mode: '',
+      cols: 2,
+      rows: 2,
+      west: 0,
+      south: 0,
+      east: 1,
+      north: 1,
+      cellSizeM: 2,
+    },
+    new Float32Array([41.2, 42.9, NaN, 40]),
+  );
+  const eye = await liveEyeView('http://x', async (url) => {
+    asked = url;
+    return {
+      ok: true,
+      arrayBuffer: async () =>
+        body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength),
+    };
+  });
+  assert.match(asked, /^http:\/\/x\/api\/raster\/values\?layer=ee-elevation/);
+  assert.equal(eye.alt, 43 + 1.7);
+  assert.equal(eye.pitch, -5);
+  assert.equal(eye.lat, VIEW.lat);
+});
