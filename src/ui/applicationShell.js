@@ -364,12 +364,15 @@ export class StyleManager extends ShellFacade {
       // Personal fork: the camera readout's surface (Google's tiles when the
       // map stack shows them, else the globe's terrain) and, after an edit,
       // the share link, which a field-of-view change would not move.
-      surfaceSource: () => ({
-        tilesetShown: Boolean(
-          this.mapStackController?.getImageryHostTileset?.(),
-        ),
-        terrainId: viewer.terrainProvider?.gevTerrainId ?? null,
-      }),
+      surfaceSource: () => {
+        const tileset =
+          this.mapStackController?.getImageryHostTileset?.() ?? null;
+        return {
+          tilesetShown: Boolean(tileset),
+          tileset,
+          terrainId: viewer.terrainProvider?.gevTerrainId ?? null,
+        };
+      },
       onCameraEdited: () => this.shareLinkManager?.onCameraChange(),
     });
     this._recording.hud = this.hud;

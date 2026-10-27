@@ -36,7 +36,7 @@ const rad = (deg) => (deg * Math.PI) / 180;
 let surfaceAnswer = () => 12.4;
 
 /** A camera over the Inner Harbor and a scene whose surface is 12.4 m up. */
-function setup() {
+function setup({ surfaceSource } = {}) {
   const views = [];
   let moveEnds = 0;
   const camera = {
@@ -84,7 +84,10 @@ function setup() {
     removeEventListener() {},
   };
   let edited = 0;
-  const hud = new IntelHUD(viewer, { onCameraEdited: () => edited++ });
+  const hud = new IntelHUD(viewer, {
+    onCameraEdited: () => edited++,
+    ...(surfaceSource ? { surfaceSource } : {}),
+  });
   return {
     hud,
     camera,
@@ -156,6 +159,41 @@ test('a surface sampled at -23.8 km is not the ground: AGL waits, then takes a s
     surfaceAnswer = () => 12.4;
     s.hud.destroy();
   }
+});
+
+test('a tile load re-samples a missing surface at once: AGL resolves as the leaves arrive', () => {
+  // The tileset under the view, with Cesium's tileLoad and allTilesLoaded.
+  const listeners = { tileLoad: new Set(), allTilesLoaded: new Set() };
+  const event = (name) => ({
+    addEventListener: (f) => listeners[name].add(f),
+    removeEventListener: (f) => listeners[name].delete(f),
+  });
+  const tileset = {
+    tileLoad: event('tileLoad'),
+    allTilesLoaded: event('allTilesLoaded'),
+  };
+  surfaceAnswer = () => Number.NaN;
+  const s = setup({
+    surfaceSource: () => ({ tilesetShown: true, tileset }),
+  });
+  try {
+    s.hud._updateCameraData();
+    assert.ok(Number.isNaN(s.hud._latestMetrics.aglM));
+    assert.equal(listeners.tileLoad.size, 1);
+    assert.equal(listeners.allTilesLoaded.size, 1);
+    // The leaves load: the next tick samples again, not a second later.
+    surfaceAnswer = () => 12.4;
+    s.hud._updateCameraData();
+    assert.ok(Number.isNaN(s.hud._latestMetrics.aglM), 'no load, no retry yet');
+    for (const f of listeners.tileLoad) f({});
+    s.hud._updateCameraData();
+    assert.ok(Math.abs(s.hud._latestMetrics.aglM - (500 - 12.4)) < 1e-6);
+  } finally {
+    surfaceAnswer = () => 12.4;
+    s.hud.destroy();
+  }
+  assert.equal(listeners.tileLoad.size, 0, 'destroy stops listening');
+  assert.equal(listeners.allTilesLoaded.size, 0);
 });
 
 test('the live diagnostics handle comes and goes with the HUD', () => {

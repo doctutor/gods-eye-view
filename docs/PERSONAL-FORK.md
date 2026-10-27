@@ -7017,15 +7017,40 @@ AIS stay). The summary wraps to three lines instead of clipping.
   small type ("AGL 4.2 m · Google"). The surface under the camera
   (`surfaceUnderCamera`, `src/hud/cameraState.js`) is a ray straight down
   from the camera through the scene (`pickFromRay`, so it meets the tiles
-  the view loaded near the camera), else `scene.sampleHeight`, else the
-  shown globe's terrain; an answer outside −500 … 9,000 m is a miss, not
-  the ground. On 2026-10-27 over Lake Tahoe on Google's tiles, 4 m above
-  the water, AGL read 25,700 m from a sample at −23.8 km (the sag of a
-  coarse tile's chord, it seems; sampleHeight's ray starts 9 km up). AGL is
-  "—" until a plausible answer, sampled again on settling and at most once
-  a second while it has none or the camera has left it.
+  the view loaded near the camera), else a ray down from 9 km as
+  `scene.sampleHeight` casts it but through `pickFromRay` (sampleHeight
+  itself only where the scene cannot pick from a ray), else the shown
+  globe's terrain; an answer outside −500 … 9,000 m is a miss, not the
+  ground. On 2026-10-27 over Lake Tahoe on Google's tiles, 4 m above the
+  water, AGL read 25,700 m from a sample at −23.8 km. AGL is "—" until a
+  plausible answer, sampled again on settling, when the tileset under the
+  view loads a tile (`tileLoad`, `allTilesLoaded`), and at most once a
+  second while it has none or the camera has left it.
   `window.__gevHudCamera.diagnostics()` in a live tab lists every way's raw
-  answer beside the ones used.
+  answer beside the ones used, with the geometric error of the tile each
+  ray met.
+- **Coarse tiles are not the ground** (`src/surfaceTrust.js`). While
+  Google's leaves stream in, Cesium draws and picks a coarse ancestor tile,
+  and its chord can lie far off the ground. Over Baltimore on 2026-10-27,
+  the camera at 80 m, every sample read +535 m: AGL showed −455.5 m, and
+  Cesium's own camera collision (`enableCollision` on the Google tileset)
+  lifted the eye to 536 m (535 + `minimumZoomDistance`), where it stayed;
+  the arrival ground guard was not involved (it lifts to the surface +
+  120 m). A hit on a tile is trusted only when the tile is no coarser than
+  Cesium itself would draw at that distance from the camera, twice over
+  (`TILE_SSE_SLACK` 2 × the tileset's `maximumScreenSpaceError` × a
+  pixel's footprint there), and always at `TRUSTED_TILE_ERROR_M` (8 m) or
+  finer; Google's leaves are about 0.5–2 m. The tile is the pick result's
+  `object.content.tile`. AGL, the centre distance (the depth pick is
+  judged by `scene.pick` at the centre), the arrival ground guard
+  (`src/cameraGroundGuard.js`: coarse answers are waited out for up to
+  15 s without spending an attempt) and Cesium's camera collision
+  (`gateCollisionOnRefinedTiles`, installed in `src/app/viewer.js`: the
+  scene's `globeHeight` is answered from trusted tiles under the camera
+  only, found as `Cesium3DTileset.getHeight` finds them but keeping the
+  tile) take only trusted hits. A synthetic tileset in Chromium (a 1,100 m
+  root at +535 m, its 1.2 m leaf at 25.4 m held back) reproduced the lift
+  to 536 m without the gate and kept the camera at 80 m with it.
 - **Bottom right, pose:** HEADING, PITCH, ROLL, FOV, then PX (one pixel's
   ground footprint) and SUN.
 - **Editing.** A click on LAT, LON, ALT, AGL, HEADING, PITCH, ROLL or FOV

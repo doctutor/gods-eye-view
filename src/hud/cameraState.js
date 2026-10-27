@@ -10,6 +10,12 @@
  */
 import * as Cesium from 'cesium';
 import { DEFAULT_FOV_DEG } from './precision.js';
+import {
+  judgeHit,
+  judgedRayHit,
+  pickedTile,
+  surfaceAt,
+} from '../surfaceTrust.js';
 
 /** The field of view a camera can be given, degrees. */
 export const MIN_FOV_DEG = 1;
@@ -97,14 +103,14 @@ const heightOf = (position, cesium) => {
   }
 };
 
-/** The first hit of a ray through the scene (primitives and globe), or null. */
-function rayHit(scene, ray) {
-  if (!ray || typeof scene?.pickFromRay !== 'function') return null;
-  try {
-    return scene.pickFromRay(ray, [])?.position ?? null;
-  } catch {
-    return null;
-  }
+/**
+ * The first hit of a ray through the scene (primitives and globe), or
+ * null; a hit on a tile coarser than the view trusts (src/surfaceTrust.js)
+ * is a miss.
+ */
+function rayHit(viewer, ray) {
+  const hit = judgedRayHit(viewer, ray);
+  return hit?.trusted ? hit.position : null;
 }
 
 /** The canvas's centre in window coordinates (CSS pixels, as picks take). */
@@ -154,6 +160,10 @@ export function centreDistanceM(viewer, cesium = Cesium) {
   const taken = (position, via) => {
     if (!position || !plausibleSurfaceM(heightOf(position, cesium)))
       return null;
+    // The depth buffer holds whatever tile is drawn: what lies at the
+    // centre is picked to judge it (a coarse tile's depth is a miss).
+    if (via === 'depth' && !depthTrusted(viewer, centre, position, cesium))
+      return null;
     const distanceM = cesium.Cartesian3.distance(camera.positionWC, position);
     return Number.isFinite(distanceM) && distanceM > 0
       ? { distanceM, hit: true, via }
@@ -174,7 +184,7 @@ export function centreDistanceM(viewer, cesium = Cesium) {
     ray = null;
   }
   if (!ray) return fallback;
-  found = taken(rayHit(scene, ray), 'ray');
+  found = taken(rayHit(viewer, ray), 'ray');
   if (!found && scene.globe?.show !== false)
     try {
       found = taken(scene.globe.pick(ray, scene), 'globe');
@@ -184,7 +194,22 @@ export function centreDistanceM(viewer, cesium = Cesium) {
   return found || fallback;
 }
 
-/** Cesium's sampleHeight at a place, as the ground guard samples it. */
+/**
+ * Whether a depth hit at a window position lies on a tile fine enough for
+ * the view: the object drawn there is picked, and its tile judged.
+ */
+function depthTrusted(viewer, windowPosition, position, cesium) {
+  let object;
+  try {
+    object = viewer.scene.pick?.(windowPosition);
+  } catch {
+    return true;
+  }
+  if (!pickedTile(object)) return true;
+  return judgeHit(viewer, { object, position }, cesium)?.trusted !== false;
+}
+
+/** Cesium's sampleHeight at a place, raw (the diagnostics show it). */
 export function sampledHeightM(viewer, lat, lon, cesium = Cesium) {
   const scene = viewer?.scene;
   if (typeof scene?.sampleHeight !== 'function') return Number.NaN;
@@ -218,9 +243,11 @@ export function globeHeightM(viewer, lat, lon, cesium = Cesium) {
  * The rendered surface's height above the ellipsoid under the camera, and
  * how it was found: a ray straight down from the camera through the scene
  * (`down`: from the camera, so it meets the tiles the view loaded near it),
- * else Cesium's sampleHeight (`sample`: its ray starts 9 km up, and can
- * meet coarser tiles), else the shown globe's terrain (`globe`). The first
- * plausible answer wins; NaN until one is.
+ * else a ray down from 9 km as Cesium's sampleHeight casts it (`above`;
+ * sampleHeight itself, `sample`, where the scene cannot pick from a ray),
+ * else the shown globe's terrain (`globe`). A hit on a tile coarser than
+ * the view trusts is a miss (src/surfaceTrust.js: Baltimore's +535 m while
+ * the leaves streamed in); the first plausible answer wins, NaN until one is.
  * @returns {{heightM: number, via: string|null}}
  */
 export function surfaceUnderCamera(viewer, cesium = Cesium) {
@@ -230,15 +257,16 @@ export function surfaceUnderCamera(viewer, cesium = Cesium) {
   if (!scene || !camera?.positionWC || !carto)
     return { heightM: Number.NaN, via: null };
   try {
-    const heightM = heightOf(rayHit(scene, downRay(camera, cesium)), cesium);
+    const heightM = heightOf(rayHit(viewer, downRay(camera, cesium)), cesium);
     if (plausibleSurfaceM(heightM)) return { heightM, via: 'down' };
   } catch {
     /* no ray: the next way */
   }
   const lat = cesium.Math.toDegrees(carto.latitude);
   const lon = cesium.Math.toDegrees(carto.longitude);
-  const sampled = sampledHeightM(viewer, lat, lon, cesium);
-  if (plausibleSurfaceM(sampled)) return { heightM: sampled, via: 'sample' };
+  const above = surfaceAt(viewer, lat, lon, cesium);
+  if (plausibleSurfaceM(above.heightM))
+    return { heightM: above.heightM, via: above.via };
   const globe = globeHeightM(viewer, lat, lon, cesium);
   if (plausibleSurfaceM(globe)) return { heightM: globe, via: 'globe' };
   return { heightM: Number.NaN, via: null };
@@ -272,8 +300,9 @@ export function viewDiagnostics(viewer, cesium = Cesium) {
   } catch {
     ray = null;
   }
-  const centreHit = rayHit(scene, ray);
-  const downHit = rayHit(scene, downRay(camera, cesium));
+  const centreHit = judgedRayHit(viewer, ray, cesium);
+  const downHit = judgedRayHit(viewer, downRay(camera, cesium), cesium);
+  const above = surfaceAt(viewer, lat, lon, cesium);
   return {
     camera: { lat, lon, heightM: carto.height },
     canvas: {
@@ -288,11 +317,19 @@ export function viewDiagnostics(viewer, cesium = Cesium) {
     centre: {
       pickPositionM: distance(picked),
       pickPositionHeightM: heightOf(picked, cesium),
-      rayM: distance(centreHit),
-      rayHeightM: heightOf(centreHit, cesium),
+      rayM: distance(centreHit?.position),
+      rayHeightM: heightOf(centreHit?.position, cesium),
+      rayTileErrorM: centreHit?.tileErrorM ?? null,
+      rayTrusted: centreHit?.trusted ?? null,
     },
     surface: {
-      downHeightM: heightOf(downHit, cesium),
+      downHeightM: heightOf(downHit?.position, cesium),
+      downTileErrorM: downHit?.tileErrorM ?? null,
+      downAllowedM: downHit?.allowedM ?? null,
+      downTrusted: downHit?.trusted ?? null,
+      aboveHeightM: above.rawHeightM,
+      aboveTileErrorM: above.tileErrorM,
+      aboveTrusted: above.via ? above.trusted : null,
       sampleHeightM: sampledHeightM(viewer, lat, lon, cesium),
       globeHeightM: globeHeightM(viewer, lat, lon, cesium),
     },
