@@ -1841,3 +1841,62 @@ test('in flight: held however low; anchored once it lands, with or without a mov
   assert.equal(moving.regions.length, 1, 'anchored on moveEnd');
   second.destroy();
 });
+
+test('no coarse chunks asked for a supergroup whose 16 groups all lie within R1', async () => {
+  const source = coarseSource();
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  // A region anchored 512 m south-west of the camera, so the camera sits
+  // in the middle of supergroup (0, 0): columns 512, 512.
+  const offsetGrid = {
+    ...fakeGrid,
+    createRegion: ({ lon0, lat0, blockM }) =>
+      fakeGrid.createRegion({
+        lon0: east(-512, lon0),
+        lat0: lat0 - 512 / M_PER_DEG,
+        blockM,
+      }),
+  };
+  const viewer = fakeViewer();
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer: fakeRenderer(),
+    grid: offsetGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    supergroupGroups: 4,
+    radiusBlocks: 512,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller, 400);
+  const asked = new Set(source.coarse.map(({ gi, gj }) => `${gi}:${gj}`));
+  assert.ok(asked.size > 0, 'the coarse ring is asked for');
+  for (let gi = 0; gi < 4; gi++)
+    for (let gj = 0; gj < 4; gj++)
+      assert.ok(!asked.has(`${gi}:${gj}`), `${gi}:${gj} is all fine`);
+  // A supergroup that reaches past R1 is still asked for, inner groups too.
+  assert.ok(asked.has('4:0') || asked.has('4:1'));
+  assert.ok(asked.has('-1:0'));
+  controller.destroy();
+
+  // Without the option, nothing is skipped.
+  const plain = coarseSource();
+  const again = createBlocksController({
+    viewer: fakeViewer(),
+    store,
+    layers: fakeLayers(true),
+    source: plain,
+    renderer: fakeRenderer(),
+    grid: offsetGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    radiusBlocks: 512,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(again, 400);
+  assert.ok(plain.coarse.some(({ gi, gj }) => gi === 1 && gj === 1));
+  again.destroy();
+});

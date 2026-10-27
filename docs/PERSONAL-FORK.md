@@ -6050,7 +6050,11 @@ controller:
   under it are, removed then, and drawn again (its mesh kept) when one of
   them is dropped; fine chunks go a group at a time, so a group is drawn
   either fine or coarse. The coarse chunks have a load budget of their
-  own;
+  own; a supergroup (the source's coarse request, 4 × 4 groups) all of
+  whose groups lie within R1 is not asked for at all, since its coarse
+  chunks would never be drawn (it happens once the camera has moved half
+  a supergroup from where the region was anchored: a region starts with
+  the camera at a supergroup corner);
 - starts loads until 8 are in flight, and meshes at most 8 chunks a tick,
   each with its four neighbours so the faces on a chunk's border are culled
   against them; a chunk is meshed again when a neighbour arrives or its
@@ -6091,7 +6095,10 @@ switch with the reason. Turning it off takes the buildings off every chunk
 in place (their columns cleared, the chunks meshed again); on puts them
 back from the source's cache. A failed query is asked again with the
 chunks' backoff. The status line counts the buildings drawn, each once
-across groups.
+across groups. The fine groups ask for their buildings a supergroup (4 × 4
+groups) at a time: one Overpass query over the supergroup's box, each
+group keeping the footprints that reach into its own box and taking its
+ground from its own chunks (the per-group query stays for other callers).
 
 **Meshing off the main thread.** Chunks are meshed by the worker pool
 (`meshPool.js`, worker1's: `meshChunkAsync`, buildChunkMesh's arguments,

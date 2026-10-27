@@ -31,6 +31,8 @@ import {
   groupBounds,
   groupOf,
   regionKey,
+  supergroupBounds,
+  supergroupOf,
 } from './source.js';
 import { MATERIALS, NONE } from './store.js';
 
@@ -366,6 +368,22 @@ export function applyStructures(chunk, levels, material = BUILDING) {
   return count;
 }
 
+/** Whether a footprint's rings reach into a box (degrees). */
+export function footprintIn(footprint, { west, south, east, north }) {
+  let w = Infinity;
+  let s = Infinity;
+  let e = -Infinity;
+  let n = -Infinity;
+  for (const ring of footprint.rings)
+    for (const { lon, lat } of ring) {
+      if (lon < w) w = lon;
+      if (lon > e) e = lon;
+      if (lat < s) s = lat;
+      if (lat > n) n = lat;
+    }
+  return w <= east && e >= west && s <= north && n >= south;
+}
+
 /** One Overpass query at a time, so the view client never aborts one for the next. */
 function serialQuery(client) {
   let chain = Promise.resolve();
@@ -396,6 +414,47 @@ export function createStructuresSource({
   if (!query)
     query = serialQuery(createOverpassViewClient({ minGapMs: QUERY_GAP_MS }));
   const held = new Map(); // group key → Promise<Map<chunk key, levels|null>>
+  // supergroup key → Promise<footprints>: one query for its 16 groups.
+  const supers = new Map();
+
+  /**
+   * A supergroup's footprints from one Overpass query over its box,
+   * cached like the groups; a failure is not kept.
+   */
+  function loadSupergroup(region, si, sj) {
+    const key = `${regionKey(region)}|s${si}:${sj}`;
+    const known = supers.get(key);
+    if (known) {
+      supers.delete(key);
+      supers.set(key, known);
+      return known;
+    }
+    const promise = query(
+      buildingsQuery(supergroupBounds(region, si, sj)),
+    ).then(({ elements }) => parseFootprints(elements));
+    supers.set(key, promise);
+    while (supers.size > Math.max(4, Math.ceil(maxGroups / 16)))
+      supers.delete(supers.keys().next().value);
+    promise.catch(() => {
+      if (supers.get(key) === promise) supers.delete(key);
+    });
+    return promise;
+  }
+
+  /**
+   * A group's footprints: from its supergroup's one query (those reaching
+   * into the group's box) when `viaSupergroup`, else its own query.
+   */
+  async function groupFootprints(region, gi, gj, viaSupergroup) {
+    const bounds = groupBounds(region, gi, gj);
+    if (!viaSupergroup) {
+      const { elements } = await query(buildingsQuery(bounds));
+      return parseFootprints(elements);
+    }
+    const { si, sj } = supergroupOf(gi, gj);
+    const all = await loadSupergroup(region, si, sj);
+    return all.filter((footprint) => footprintIn(footprint, bounds));
+  }
 
   function remember(key, promise) {
     held.delete(key);
@@ -403,8 +462,12 @@ export function createStructuresSource({
     while (held.size > maxGroups) held.delete(held.keys().next().value);
   }
 
-  /** A group's buildings by chunk key 'ci:cj': {top, bottom} levels, or null. */
-  function loadGroup(region, gi, gj) {
+  /**
+   * A group's buildings by chunk key 'ci:cj': {top, bottom} levels, or
+   * null. `viaSupergroup`: its footprints from the supergroup's one query
+   * (a view's fine groups share a few), else from a query of its own.
+   */
+  function loadGroup(region, gi, gj, { viaSupergroup = false } = {}) {
     const key = `${regionKey(region)}|g${gi}:${gj}`;
     const known = held.get(key);
     if (known) {
@@ -422,11 +485,10 @@ export function createStructuresSource({
             cj: gj * CHUNK_GROUP + b,
           });
       // The ground comes with the elevation source's one group request.
-      const [{ elements }, terrain] = await Promise.all([
-        query(buildingsQuery(groupBounds(region, gi, gj))),
+      const [footprints, terrain] = await Promise.all([
+        groupFootprints(region, gi, gj, viaSupergroup),
         Promise.all(cells.map(({ ci, cj }) => loadChunk(region, ci, cj))),
       ]);
-      const footprints = parseFootprints(elements);
       const levels = structureLevels(
         region,
         gi,
@@ -458,16 +520,21 @@ export function createStructuresSource({
      * its group's one query.
      * @returns {Promise<{top: Int32Array, bottom: Int32Array}|null>}
      */
-    async loadChunkStructures(region, ci, cj) {
+    async loadChunkStructures(region, ci, cj, options) {
       const { gi, gj } = groupOf(ci, cj);
-      return (await loadGroup(region, gi, gj)).get(`${ci}:${cj}`) ?? null;
+      return (
+        (await loadGroup(region, gi, gj, options)).get(`${ci}:${cj}`) ?? null
+      );
     },
-    /** The ids of the buildings in a group, from its one query. */
-    async loadGroupBuildings(region, gi, gj) {
-      return (await loadGroup(region, gi, gj)).buildings ?? [];
+    /** The ids of the buildings in a group. */
+    async loadGroupBuildings(region, gi, gj, options) {
+      return (await loadGroup(region, gi, gj, options)).buildings ?? [];
     },
     /** Groups held (for tests). */
     size: () => held.size,
-    clear: () => held.clear(),
+    clear: () => {
+      held.clear();
+      supers.clear();
+    },
   };
 }

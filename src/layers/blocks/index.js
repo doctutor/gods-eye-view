@@ -311,6 +311,9 @@ export function sourceName(source) {
  *     Overpass answers,
  *   sun?: (lon: number, lat: number) => {dir: {east: number, north: number,
  *     up: number}, fixed: boolean},
+ *   supergroupGroups?: number, the groups a side of the source's coarse
+ *     request (source.js SUPERGROUP): a supergroup all of whose groups
+ *     are drawn fine is not asked for (0: none skipped),
  *   inFlight?: () => boolean, a camera flight or arrival correction in
  *     progress (cameraInFlight on the viewer unless given),
  *   flatStyle?: () => boolean, whether the map is a drawn style (blank,
@@ -336,6 +339,7 @@ export function createBlocksController({
   datum = FLAT_DATUM,
   flatStyle = () => false,
   inFlight = null,
+  supergroupGroups = 0,
   radiusBlocks = RENDER_DISTANCE_BLOCKS,
   budget = CHUNK_BUDGET,
   tickMs = TICK_MS,
@@ -900,6 +904,23 @@ export function createBlocksController({
     ...fields,
   });
 
+  /**
+   * Whether every group of the supergroup holding (gi, gj) lies within
+   * the fine ring (radius columns of the camera, as fineRing measures): its
+   * coarse chunks would never be drawn, so the source's request for them
+   * is not made.
+   */
+  function supergroupInside(at, gi, gj, groupSize, radius) {
+    const n = supergroupGroups;
+    if (!(n > 0)) return false;
+    const si = Math.floor(gi / n) * n;
+    const sj = Math.floor(gj / n) * n;
+    for (let b = 0; b < n; b++)
+      for (let a = 0; a < n; a++)
+        if (chunkDistance(at, si + a, sj + b, groupSize) > radius) return false;
+    return true;
+  }
+
   /** Whether all 16 fine chunks under a group are drawn. */
   function groupDrawn(gi, gj) {
     for (let dj = 0; dj < GROUP_CHUNKS; dj++)
@@ -1058,7 +1079,10 @@ export function createBlocksController({
           j,
           radius: radiusBlocks * COARSE_REACH,
           chunkColumns: size,
-        })
+        }).filter(
+          ({ gi, gj }) =>
+            !supergroupInside(at, gi, gj, groupSize, radiusBlocks),
+        )
       : [];
     const perTick = tickBudget(budget, _region.blockM);
     const time = now();
