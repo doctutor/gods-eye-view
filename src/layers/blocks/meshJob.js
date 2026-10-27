@@ -62,7 +62,7 @@ function unpackEdits(packed) {
  * chunk, column by column: before the edits, which are kept or dropped
  * against what the heightfield and the structures put there.
  */
-function restoreStructures(chunk, columns, tops, materials) {
+function restoreStructures(chunk, columns, tops, materials, bottoms) {
   if (!tops) return;
   columns.forEach((column, k) => {
     if (tops[k] === NONE) return;
@@ -71,6 +71,7 @@ function restoreStructures(chunk, columns, tops, materials) {
       Math.floor(column / N),
       tops[k],
       materials[k],
+      bottoms ? bottoms[k] : NONE,
     );
   });
 }
@@ -92,6 +93,7 @@ export function snapshotChunk(chunk) {
   if (chunk.structure) {
     snapshot.structureTop = chunk.structure.top.slice();
     snapshot.structureMaterial = chunk.structure.material.slice();
+    snapshot.structureBottom = chunk.structure.bottom.slice();
   }
   return snapshot;
 }
@@ -110,6 +112,7 @@ export function restoreChunk(snapshot) {
     [...Array(N * N).keys()],
     snapshot.structureTop,
     snapshot.structureMaterial,
+    snapshot.structureBottom,
   );
   applyEdits(chunk, unpackEdits(snapshot.edits));
   return chunk;
@@ -135,6 +138,10 @@ export function snapshotNeighbour(chunk, key) {
     snapshot.structureMaterial = Uint8Array.from(
       columns,
       (c) => structure.material[c],
+    );
+    snapshot.structureBottom = Int32Array.from(
+      columns,
+      (c) => structure.bottom[c],
     );
   }
   return snapshot;
@@ -165,6 +172,7 @@ export function restoreNeighbour(snapshot) {
     snapshot.columns,
     snapshot.structureTop,
     snapshot.structureMaterial,
+    snapshot.structureBottom,
   );
   applyEdits(chunk, unpackEdits(snapshot.edits));
   return chunk;
@@ -179,6 +187,7 @@ const buffersOf = (snapshot) =>
     'columns',
     'structureTop',
     'structureMaterial',
+    'structureBottom',
   ]
     .map((key) => snapshot[key]?.buffer)
     .filter(Boolean);
