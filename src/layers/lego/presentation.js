@@ -142,8 +142,10 @@ export function blocksStatusText(status) {
           : t('Blocks: {size} m cubes · {count} chunks', values);
       // The real sun is under 15°: lit by the fixed study sun.
       if (status.sunFixed) text = `${text} · ${t('study sun')}`;
-      // OpenStreetMap buildings drawn as blocks, when any are.
-      if (status.buildings > 0)
+      // OpenStreetMap buildings drawn as blocks, when any are; counted once
+      // every drawn group's are in.
+      if (status.buildingsPending) text = `${text} · ${t('buildings…')}`;
+      else if (status.buildings > 0)
         text = `${text} · ${tn(status.buildings, '{count} building', '{count} buildings', { count: formatNumber(status.buildings) })}`;
       return status.state === 'loading'
         ? `${text} · ${t('{count} loading', { count: formatNumber(status.pending) })}`

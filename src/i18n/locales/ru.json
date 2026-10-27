@@ -3580,6 +3580,7 @@
     "many": "{count} зданий",
     "other": "{count} здания"
   },
+  "buildings…": "здания…",
   "OpenStreetMap buildings as blocks, from their height or storeys": "Здания OpenStreetMap блоками, по их высоте или этажности",
   "Buildings need an Overpass server for this app": "Для зданий нужен сервер Overpass для этого приложения",
   "{count} bricks = {value}": {

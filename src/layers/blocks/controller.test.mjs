@@ -289,13 +289,14 @@ test('the budget: 8 loads in flight at most, nearest first; 8 meshes a tick at m
     CHUNK_BUDGET,
     'none started while 8 are in flight',
   );
-  // Three arrive: three more start, and the three are meshed.
+  // Three arrive: three more start; the three wait for their neighbours
+  // in the ring (meshed once, not again as each lands).
   source.loads.slice(0, 3).forEach((l) => l.resolve());
   await settle();
   controller.tick();
   assert.equal(source.loads.length, CHUNK_BUDGET + 3);
-  assert.equal(new Set(meshes.map((m) => m.key)).size, 3);
-  assert.equal(renderer.shown.size, 3);
+  assert.equal(meshes.length, 0, 'waiting for their neighbours');
+  assert.equal(renderer.shown.size, 0);
   // Twenty arrive at once: at most 8 meshes in one tick.
   for (let n = 0; n < 30; n++) {
     source.loads.forEach((l) => l.resolve());
@@ -313,42 +314,58 @@ test('the budget: 8 loads in flight at most, nearest first; 8 meshes a tick at m
   controller.destroy();
 });
 
-test('a chunk is meshed again when a neighbour arrives (its border faces) or its version changes', async () => {
+test('a chunk waits for its neighbours in the ring, is meshed once with all eight, and again when its version changes; at the ring’s edge the neighbours beyond do not count', async () => {
   const source = fakeSource({ hold: true });
-  const { controller, meshes } = setup({ source });
+  const { controller, meshes } = setup({ source, radiusBlocks: 128 });
   await settle();
-  const first = source.loads.find((l) => l.ci === 0 && l.cj === 0);
-  first.resolve();
+  const ofOrigin = () => meshes.filter((m) => m.key === '0:0');
+  const around = (l) => Math.abs(l.ci) <= 1 && Math.abs(l.cj) <= 1;
+  // 0:0 arrives alone: it waits.
+  source.loads.find((l) => l.ci === 0 && l.cj === 0).resolve();
   await settle();
   controller.tick();
-  const ofOrigin = () => meshes.filter((m) => m.key === '0:0');
-  assert.equal(ofOrigin().length, 1);
-  assert.deepEqual(ofOrigin()[0].options.neighbours, {}, 'none loaded yet');
-  assert.equal(ofOrigin()[0].options.blockM, 1);
-  assert.deepEqual(ofOrigin()[0].options.sunDir, STUDY_SUN.dir);
-  // Its east neighbour arrives: 0:0 is meshed again, now with it.
+  assert.equal(ofOrigin().length, 0);
+  // Its east neighbour too: still waiting for the rest.
   source.loads.find((l) => l.ci === 1 && l.cj === 0).resolve();
   await settle();
   controller.tick();
-  assert.equal(ofOrigin().length, 2);
-  assert.equal(ofOrigin()[1].options.neighbours.e.ci, 1);
+  assert.equal(ofOrigin().length, 0);
+  // All eight in: meshed once, with all eight.
+  for (let n = 0; n < 10; n++) {
+    source.loads.filter(around).forEach((l) => l.resolve());
+    await settle();
+    controller.tick();
+  }
+  assert.equal(ofOrigin().length, 1);
+  assert.deepEqual(Object.keys(ofOrigin()[0].options.neighbours).sort(), [
+    'e',
+    'n',
+    'ne',
+    'nw',
+    's',
+    'se',
+    'sw',
+    'w',
+  ]);
+  assert.equal(ofOrigin()[0].options.blockM, 1);
+  assert.deepEqual(ofOrigin()[0].options.sunDir, STUDY_SUN.dir);
   // Nothing changed: not meshed again.
   controller.tick();
-  assert.equal(ofOrigin().length, 2);
-  // A diagonal arrives (ambient occlusion at the corner): meshed again.
-  source.loads.find((l) => l.ci === -1 && l.cj === -1).resolve();
-  await settle();
-  controller.tick();
-  assert.equal(ofOrigin().length, 3);
-  assert.deepEqual(Object.keys(ofOrigin()[2].options.neighbours).sort(), [
-    'e',
-    'sw',
-  ]);
-  assert.equal(ofOrigin()[2].options.neighbours.sw.ci, -1);
+  assert.equal(ofOrigin().length, 1);
   // An edit bumps its version: meshed again.
-  ofOrigin()[2].chunk.version = 1;
+  ofOrigin()[0].chunk.version = 1;
   controller.tick();
-  assert.equal(ofOrigin().length, 4);
+  assert.equal(ofOrigin().length, 2);
+  // The ring's edge (R1 128: chunks −4 … 3): 3:0's east neighbour is not in
+  // the ring, so once its neighbours in the ring are in, it is meshed.
+  for (let n = 0; n < 20; n++) {
+    source.loads.forEach((l) => l.resolve());
+    await settle();
+    controller.tick();
+  }
+  const edge = meshes.filter((m) => m.key === '3:0');
+  assert.equal(edge.length, 1);
+  assert.equal(edge[0].options.neighbours.e, undefined, 'beyond the ring');
   controller.destroy();
 });
 
@@ -1250,18 +1267,13 @@ test('skirts wait for what is coming: none toward a fine neighbour still loading
     await settle();
     run.controller.tick();
   }
-  const first = run.meshes.find((m) => m.key === '0:0');
-  assert.ok(first, 'meshed');
-  // All four of 0:0's side neighbours are among the first loads, still
-  // loading: they will cull its borders, so no skirt at all.
-  for (const [di, dj] of [
-    [0, 1],
-    [0, -1],
-    [1, 0],
-    [-1, 0],
-  ])
-    assert.ok(held.loads.some((l) => l.ci === di && l.cj === dj));
-  assert.equal(first.options.skirt, undefined);
+  // Its neighbours are still loading: it waits (and so hangs no skirt
+  // toward them).
+  assert.equal(
+    run.meshes.find((m) => m.key === '0:0'),
+    undefined,
+    'not meshed while its neighbours load',
+  );
   run.controller.destroy();
 });
 
@@ -1472,7 +1484,9 @@ test('the pool’s worker path (snapshot, structured clone, restore) meshes a ch
 async function buildingsSetup({
   structuresError = null,
   radiusBlocks = 64,
+  holdIds = false,
 } = {}) {
+  const idWaits = [];
   const { createChunk } = await import('./store.js');
   const { applyStructures } = await import('./structures.js');
   const N = 64;
@@ -1507,16 +1521,20 @@ async function buildingsSetup({
         }
       return Promise.resolve({ top, bottom });
     },
-    groupBuildings: (region, gi, gj) =>
-      Promise.resolve([`way/${gi}:${gj}:a`, `way/${gi}:${gj}:b`, 'way/shared']),
+    groupBuildings: (region, gi, gj) => {
+      const ids = [`way/${gi}:${gj}:a`, `way/${gi}:${gj}:b`, 'way/shared'];
+      if (!holdIds) return Promise.resolve(ids);
+      return new Promise((resolve) => idWaits.push(() => resolve(ids)));
+    },
     apply: applyStructures,
   };
+  const viewer = fakeViewer();
   const store = createRenderModeStore({ storage: memoryStorage() });
   store.setMode('blocks');
   const renderer = fakeRenderer();
   const meshes = [];
   const controller = createBlocksController({
-    viewer: fakeViewer(),
+    viewer,
     store,
     layers: fakeLayers(true),
     source,
@@ -1538,7 +1556,7 @@ async function buildingsSetup({
     setIntervalImpl: () => 1,
     clearIntervalImpl: () => {},
   });
-  return { controller, store, renderer, meshes, asked };
+  return { controller, store, renderer, meshes, asked, idWaits, viewer };
 }
 
 test('buildings: asked for every fine chunk (never the coarse ring), put into its structures layer, the chunk meshed again; counted once each', async () => {
@@ -1547,10 +1565,9 @@ test('buildings: asked for every fine chunk (never the coarse ring), put into it
   const fine = fineRing({ i: 0, j: 0, radius: 64, chunkColumns: C });
   assert.equal(new Set(asked).size, fine.length, 'every fine chunk');
   assert.ok(asked.every((key) => !key.startsWith('c:')));
-  // 0:0 was meshed bare, then again with its building (its version moved on).
+  // 0:0 is drawn with its building (its version moved on when it came).
   const ofOrigin = meshes.filter((m) => m.key === '0:0');
-  assert.ok(ofOrigin.length >= 2);
-  assert.equal(ofOrigin[0].version, 0);
+  assert.ok(ofOrigin.length >= 1);
   assert.ok(ofOrigin.at(-1).version > 0);
   assert.equal(
     ofOrigin.at(-1).chunk.structureTop(0, 0),
@@ -2049,12 +2066,18 @@ test('with the pool: up to 24 loads and 24 mesh submits a tick, none while its q
   });
   await settle();
   assert.equal(source.loads.length, ASYNC_BUDGET, '24 loads in flight, not 8');
-  // 30 arrive: at most 24 submitted this tick.
-  source.loads.slice(0, 24).forEach((l) => l.resolve());
-  await settle();
-  controller.tick();
-  assert.ok(mesher.jobs.length > CHUNK_BUDGET, 'more than the old 8');
-  assert.ok(mesher.jobs.length <= ASYNC_BUDGET);
+  // Loads arrive tick after tick: the most submitted in one tick is more
+  // than the old 8 and never more than 24.
+  let most = 0;
+  for (let n = 0; n < 12; n++) {
+    source.loads.forEach((l) => l.resolve());
+    await settle();
+    const before = mesher.jobs.length;
+    controller.tick();
+    most = Math.max(most, mesher.jobs.length - before);
+  }
+  assert.ok(most > CHUNK_BUDGET, `more than the old 8 (${most})`);
+  assert.ok(most <= ASYNC_BUDGET);
   // The pool's queue deep (7 > 2 × 3): nothing submitted, loads go on.
   backlog = { waiting: 7, workers: 3 };
   const submitted = mesher.jobs.length;
@@ -2146,4 +2169,210 @@ test('leaving Blocks keeps the region’s chunks hidden for 60 s (back is instan
   plain.store.setMode('colour');
   assert.equal(plain.renderer.shown.size, 0);
   plain.controller.destroy();
+});
+
+test('parked: a pooled mesh that lands after leaving Blocks is drawn into the hidden renderer, but Blocks stays off (no status, no HUD floor)', async () => {
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const renderer = fakeRenderer();
+  renderer.setVisible = () => {};
+  const mesher = deferredMesher();
+  const seen = [];
+  const controller = createBlocksController({
+    viewer: fakeViewer(),
+    store,
+    layers: fakeLayers(true),
+    source: fakeSource(),
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: () => {
+      throw new Error('in-thread mesher used');
+    },
+    meshAsync: mesher.meshAsync,
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+    setTimeoutImpl: () => ({}),
+    clearTimeoutImpl: () => {},
+  });
+  controller.subscribe((status) => seen.push(status.state));
+  for (let n = 0; n < 20; n++) {
+    await settle();
+    controller.tick();
+  }
+  assert.ok(mesher.jobs.length > 0);
+  // Render: Colour with the jobs still out.
+  store.setMode('colour');
+  assert.equal(controller.getStatus().state, 'off');
+  const afterPark = seen.length;
+  const upserts = renderer.calls.filter(([k]) => k === 'upsert').length;
+  for (const job of mesher.jobs) job.resolve();
+  await settle();
+  assert.ok(
+    renderer.calls.filter(([k]) => k === 'upsert').length > upserts,
+    'drawn into the hidden renderer',
+  );
+  assert.equal(controller.getStatus().state, 'off', 'still off');
+  assert.equal(seen.length, afterPark, 'no status from the late meshes');
+  assert.equal(blocksFloorM(), null, 'no HUD floor in Colour');
+  controller.destroy();
+});
+
+test('a failed mesh is tried again after the loads’ backoff; a rejected pooled mesh clears its job', async () => {
+  let clock = 1_000_000;
+  let fail = true;
+  const meshes = [];
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const controller = createBlocksController({
+      viewer: fakeViewer(),
+      store,
+      layers: fakeLayers(true),
+      source: fakeSource(),
+      renderer: fakeRenderer(),
+      grid: fakeGrid,
+      buildChunkMesh(chunk) {
+        if (chunk.ci === 0 && chunk.cj === 0 && fail) {
+          fail = false;
+          throw new Error('mesher fell over');
+        }
+        meshes.push(`${chunk.ci}:${chunk.cj}`);
+        return { faces: 1, chunk };
+      },
+      radiusBlocks: 64,
+      now: () => clock,
+      setIntervalImpl: () => 1,
+      clearIntervalImpl: () => {},
+    });
+    await drain(controller);
+    const entry = controller._state().chunks.get('0:0');
+    assert.equal(entry.failed, true);
+    assert.equal(
+      entry.retryAt,
+      clock + 2000,
+      'the loads’ backoff, not forever',
+    );
+    clock += 2000;
+    await drain(controller);
+    assert.ok(meshes.includes('0:0'), 'meshed on the second try');
+    controller.destroy();
+
+    // Pooled: a rejected job clears entry.meshing (no endless tick).
+    const mesher = deferredMesher();
+    const pooled = createBlocksController({
+      viewer: fakeViewer(),
+      store,
+      layers: fakeLayers(true),
+      source: fakeSource(),
+      renderer: fakeRenderer(),
+      grid: fakeGrid,
+      buildChunkMesh: () => {
+        throw new Error('in-thread');
+      },
+      meshAsync: mesher.meshAsync,
+      radiusBlocks: 64,
+      now: () => clock,
+      setIntervalImpl: () => 1,
+      clearIntervalImpl: () => {},
+    });
+    for (let n = 0; n < 20; n++) {
+      await settle();
+      pooled.tick();
+    }
+    const job = mesher.jobs[0];
+    const key = `${job.chunk.ci}:${job.chunk.cj}`;
+    assert.ok(pooled._state().chunks.get(key).meshing);
+    job.reject(new Error('worker timed out'));
+    await settle();
+    const after = pooled._state().chunks.get(key);
+    assert.equal(after.meshing, null);
+    assert.equal(after.failed, true);
+    assert.ok(after.retryAt < Infinity);
+    pooled.destroy();
+  } finally {
+    console.warn = warn;
+  }
+});
+
+test('building ids go with the groups dropped behind', async () => {
+  const { controller, viewer } = await buildingsSetup({ radiusBlocks: 64 });
+  await drain(controller);
+  const ids = controller._state().groupBuildings;
+  assert.ok(ids.has('0:0') && ids.has('-1:-1'));
+  // 2 km east: the old groups are dropped, their ids with them.
+  viewer.moveTo(east(2000));
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.ok(!ids.has('0:0') && !ids.has('-1:-1'), [...ids.keys()].join(' '));
+  assert.ok([...ids.keys()].every((key) => Number(key.split(':')[0]) >= 6));
+  controller.destroy();
+});
+
+test('the globe through a flight hold: hidden on a drawn style (no colour tiles for nothing); shown while too high to build', async () => {
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  let flying = true;
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source: fakeSource(),
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    inFlight: () => flying,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await settle();
+  assert.equal(controller.getStatus().state, 'flying');
+  assert.equal(viewer.scene.globe.show, false, 'hidden from the start');
+  const { blocksScene } = await import('./floor.js');
+  assert.equal(blocksScene().active, true, 'the row says Shown as blocks');
+  // Too high to build: shown.
+  flying = false;
+  viewer.camera.positionCartographic = {
+    ...viewer.camera.positionCartographic,
+    height: 500_000,
+  };
+  controller.tick();
+  assert.equal(controller.getStatus().state, 'too-high');
+  assert.equal(viewer.scene.globe.show, true);
+  assert.equal(blocksScene().active, false);
+  controller.destroy();
+});
+
+test('the building count waits for every drawn group’s ids: “buildings…” until then, then the same number every time', async () => {
+  const { controller, idWaits } = await buildingsSetup({ holdIds: true });
+  await drain(controller);
+  const pending = controller.getStatus();
+  assert.equal(pending.buildingsPending, true);
+  assert.equal(pending.buildings, 0);
+  assert.match(
+    blocksStatusText({ ...pending, sunFixed: false }),
+    /· buildings…$/,
+  );
+  // One group's ids in: still waiting for the others.
+  idWaits[0]();
+  await settle();
+  controller.tick();
+  assert.equal(controller.getStatus().buildingsPending, true);
+  // All in: counted.
+  for (const resolve of idWaits) resolve();
+  await settle();
+  controller.tick();
+  const done = controller.getStatus();
+  assert.equal(done.buildingsPending, false);
+  assert.equal(done.buildings, 9);
+  assert.match(
+    blocksStatusText({ ...done, sunFixed: false }),
+    /· 9 buildings$/,
+  );
+  controller.destroy();
 });

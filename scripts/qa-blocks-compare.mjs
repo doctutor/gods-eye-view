@@ -764,7 +764,12 @@ async function shoot({
         () => {
           const text =
             document.querySelector('.lego-render-status')?.textContent || '';
-          return / cubes /.test(text) && !/loading/.test(text);
+          // Settled: nothing loading, the buildings counted.
+          return (
+            / cubes /.test(text) &&
+            !/loading/.test(text) &&
+            !/buildings…/.test(text)
+          );
         },
         { timeout: 180_000, polling: 250 },
       )
@@ -791,6 +796,8 @@ async function shoot({
   );
   const file = path.join(out, `${name}.png`);
   await page.screenshot({ path: file });
+  // What the shot itself cost, before the harness's own leave-Blocks probe.
+  log.tilesAtShot = log.tiles;
   const scene = [await probe(page)];
   if (blocks) {
     // Leave Blocks from the drop-down, the camera still: the globe comes
@@ -913,7 +920,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (result.ringMs)
       console.log(`  fresh ring: ${(result.ringMs / 1000).toFixed(1)} s`);
     console.log(
-      `  values answered: ${result.values}, colour tiles: ${result.tiles}, Overpass queries: ${result.overpass} (${result.buildings} buildings)`,
+      `  values answered: ${result.values}, colour tiles: ${result.tiles} (${result.tilesAtShot} by the shot), Overpass queries: ${result.overpass} (${result.buildings} buildings)`,
     );
     for (const [kind, count] of Object.entries(result.kinds))
       console.log(`    raster values, ${kind}: ${count}`);
@@ -943,6 +950,7 @@ export async function main(argv = process.argv.slice(2)) {
       valuesByKind: result.kinds,
       overpass: result.overpass,
       colourTiles: result.tiles,
+      colourTilesAtShot: result.tilesAtShot ?? null,
       live: result.live,
       scene: result.scene,
       errors: result.errors,

@@ -3498,6 +3498,7 @@
     "many": "{count} edificios",
     "other": "{count} edificios"
   },
+  "buildings…": "edificios…",
   "OpenStreetMap buildings as blocks, from their height or storeys": "Edificios de OpenStreetMap como bloques, según su altura o sus plantas",
   "Buildings need an Overpass server for this app": "Los edificios necesitan un servidor Overpass para esta aplicación",
   "{count} bricks = {value}": {
