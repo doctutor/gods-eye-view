@@ -6084,7 +6084,10 @@ is judged by eye: Blocks should read elevation better than the colour map.
 The script opens a production build in headless Chrome at map=blank-black
 with Elevation on at Baltimore (lat 39.3214, lon −76.6292, 300 m up,
 heading 0, pitch −30), once in Render: Colour and once in Render: Blocks
-(`bk=1`), and writes `colour.png` and `blocks.png`:
+(`bk=1`), and writes `colour.png` and `blocks.png`; a second pair,
+`colour-eye.png` and `blocks-eye.png`, from the same place at eye level
+(1.7 m above the top of the block underfoot, looking 5° down; `--views
+judgement,eye` is the default, either alone with `--views eye`):
 
 ```sh
 node scripts/qa-blocks-compare.mjs --build --out <a directory outside the repository>
