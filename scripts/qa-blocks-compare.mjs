@@ -866,6 +866,15 @@ function probe(page) {
         }
       })(),
       hudShown: gev.styleManager?.hud?._visible ?? null,
+      // Walk and Fly: the stored view and the MODE line.
+      navView: (() => {
+        try {
+          return localStorage.getItem('gev.nav.view');
+        } catch {
+          return null;
+        }
+      })(),
+      navLine: document.getElementById('hud-nav')?.textContent || '',
       drapes: gev.viewer.imageryLayers.length,
     };
   });
