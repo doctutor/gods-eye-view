@@ -114,6 +114,9 @@ function occupancyVolume(chunk, neighbours) {
   const tops = new Float64Array(count);
   const waters = new Float64Array(count);
   const materials = new Uint8Array(count);
+  // The structures layer (store.js): a top and material per column.
+  const structureTops = new Float64Array(count);
+  const structureMaterials = new Uint8Array(count);
   const low = new Float64Array(count);
   const up = new Float64Array(count);
   const edits = new Array(count);
@@ -125,12 +128,15 @@ function occupancyVolume(chunk, neighbours) {
       const index = columnIndex(li, lj);
       const top = owner.top[index];
       const water = owner.water[index];
+      const structure = owner.structure;
+      const structureTop = structure ? structure.top[index] : NONE;
       const columnEdits = owner.columnEdits(li, lj);
       // The lowest level this column may be open at (its top, or an edit
       // below it), and the highest that holds anything.
       let lowest = top === NONE ? Infinity : top;
       let highest = top === NONE ? -Infinity : top;
       if (water !== NONE) highest = Math.max(highest, water);
+      if (structureTop !== NONE) highest = Math.max(highest, structureTop);
       for (const [y] of columnEdits) {
         lowest = Math.min(lowest, y);
         highest = Math.max(highest, y);
@@ -138,6 +144,8 @@ function occupancyVolume(chunk, neighbours) {
       tops[k] = top === NONE ? -Infinity : top;
       waters[k] = water === NONE ? -Infinity : water;
       materials[k] = owner.material[index];
+      structureTops[k] = structureTop === NONE ? -Infinity : structureTop;
+      structureMaterials[k] = structure ? structure.material[index] : 0;
       low[k] = lowest;
       up[k] = highest;
       edits[k] = columnEdits;
@@ -157,6 +165,13 @@ function occupancyVolume(chunk, neighbours) {
     cells.fill(materials[k], start, start + solidTo);
     if (waterTo > solidTo)
       cells.fill(MATERIALS.WATER, start + solidTo, start + waterTo);
+    // A structure stands on the top, over any water.
+    const structureTo = Math.min(
+      levels,
+      Math.max(0, structureTops[k] - yMin + 1),
+    );
+    if (structureTo > solidTo)
+      cells.fill(structureMaterials[k], start + solidTo, start + structureTo);
     for (const [y, value] of edits[k])
       if (y - yMin >= 0 && y - yMin < levels) cells[start + y - yMin] = value;
   }

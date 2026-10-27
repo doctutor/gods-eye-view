@@ -82,11 +82,14 @@ export function sunTerm(normal, sunDir = STUDY_SUN_DIR) {
 
 /**
  * Material colours, RGBA bytes. Milestone 1 has one terrain material, a
- * light neutral so the light carries the shape, and translucent water.
+ * light neutral so the light carries the shape, and translucent water;
+ * milestone 3's buildings are a warm grey-brown beside it.
  */
 export const MATERIAL_COLORS = Object.freeze({
   [MATERIALS.TERRAIN]: Object.freeze([200, 194, 176, 255]),
   [MATERIALS.WATER]: Object.freeze([58, 112, 190, 170]),
+  // Buildings (structures.js): a warm grey-brown, apart from the terrain.
+  [MATERIALS.BUILDING]: Object.freeze([158, 132, 112, 255]),
 });
 const UNKNOWN_COLOR = Object.freeze([255, 0, 255, 255]);
 
