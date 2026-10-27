@@ -10,10 +10,15 @@ import { CHUNK_COLUMNS, columnIndex, createRegion } from './grid.js';
 import { MATERIALS, NONE, createChunk } from './store.js';
 import { buildChunkMesh } from './mesh.js';
 import { MATERIAL_COLORS } from './lighting.js';
+import { MATERIAL_NAMES } from '../../navigation/target.js';
 import { sanitizeOverpassBody } from '../../../server/providers/overpass/query.js';
 import { GROUP_COLUMNS, groupBounds } from './source.js';
 import {
+  BRIDGE_CLEARANCE_M,
   BUILDING,
+  bridgeLevels,
+  bridgeLiftBlocks,
+  isBridge,
   applyStructures,
   assembleRings,
   buildingHeightBlocks,
@@ -1289,4 +1294,250 @@ test('groupQuery asks for rivers, streams and canals; above 2 m blocks no stream
     sanitizeOverpassBody(`data=${encodeURIComponent(coarse)}`).ok,
     true,
   );
+});
+
+test('bridgeLiftBlocks: 5 m over the ground, layer × 5 m from layer 1 (at most 3), at least a block', () => {
+  assert.equal(bridgeLiftBlocks({ bridge: 'yes' }, 1), 5);
+  assert.equal(bridgeLiftBlocks({ bridge: 'viaduct', layer: '2' }, 1), 10);
+  assert.equal(bridgeLiftBlocks({ bridge: 'yes', layer: '5' }, 1), 15);
+  assert.equal(bridgeLiftBlocks({ bridge: 'yes', layer: '-1' }, 1), 5);
+  assert.equal(bridgeLiftBlocks({ bridge: 'yes' }, 2), 3); // 2.5 rounds up
+  assert.equal(bridgeLiftBlocks({ bridge: 'yes' }, 10), 1);
+  assert.equal(bridgeLiftBlocks({ bridge: 'yes' }, 30), 1);
+  assert.equal(BRIDGE_CLEARANCE_M, 5);
+  assert.ok(isBridge({ bridge: 'yes' }));
+  assert.ok(isBridge({ bridge: 'aqueduct' }));
+  assert.ok(!isBridge({ bridge: 'no' }));
+  assert.ok(!isBridge({ highway: 'primary' }));
+});
+
+test('parseFeatures: bridge roads and railways and man_made=bridge areas are bridges, not ground', () => {
+  const p = (lat, lon) => ({ lat, lon });
+  const { lines, bridges, areas } = parseFeatures([
+    {
+      type: 'way',
+      id: 1,
+      tags: { highway: 'motorway', bridge: 'yes' },
+      geometry: [p(0, 0), p(0, 1)],
+    },
+    {
+      type: 'way',
+      id: 2,
+      tags: { railway: 'rail', bridge: 'viaduct', layer: '1' },
+      geometry: [p(1, 0), p(1, 1)],
+    },
+    {
+      type: 'way',
+      id: 3,
+      tags: { highway: 'primary', bridge: 'no' },
+      geometry: [p(2, 0), p(2, 1)],
+    },
+    {
+      type: 'way',
+      id: 4,
+      tags: { man_made: 'bridge' },
+      geometry: [p(0, 0), p(0, 1), p(1, 1), p(0, 0)],
+    },
+  ]);
+  assert.deepEqual(
+    bridges.map((b) => [b.id, b.widthM ?? 'area']),
+    [
+      ['way/1', 6],
+      ['way/2', 3],
+      ['way/4', 'area'],
+    ],
+  );
+  assert.deepEqual(
+    lines.map((l) => l.id),
+    ['way/3'],
+  );
+  assert.deepEqual(areas, []);
+  const box = { west: -76.62, south: 39.28, east: -76.6, north: 39.3 };
+  const ql = groupQuery(box, 1);
+  assert.ok(ql.includes('way["man_made"="bridge"](39.2800000,'));
+  assert.ok(ql.includes('relation["man_made"="bridge"](39.2800000,'));
+  assert.equal(sanitizeOverpassBody(`data=${encodeURIComponent(ql)}`).ok, true);
+});
+
+/** Ground: banks at level 10, a valley 31 rows wide at level 2 around y = 50. */
+const valley = (i, j) => (Math.abs(j - 50) <= 15 ? 2 : 10);
+
+test('a span over a valley: a deck 5 m over the highest ground under it, a hollow under, the river still water', async () => {
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  // bridgeLevels alone: a 6 m motorway bridge along x = 30 from y = 20 to 80.
+  const levels = {
+    top: new Int32Array(GROUP_COLUMNS * GROUP_COLUMNS).fill(NONE),
+    bottom: new Int32Array(GROUP_COLUMNS * GROUP_COLUMNS).fill(NONE),
+  };
+  const decks = bridgeLevels(
+    region,
+    0,
+    0,
+    [
+      {
+        id: 'b',
+        tags: { highway: 'motorway', bridge: 'yes' },
+        widthM: 6,
+        points: [region.toLonLat(30, 20), region.toLonLat(30, 80)],
+      },
+    ],
+    groundOf(valley),
+    levels,
+  );
+  // Columns 27 … 32 across, 17 … 82 along (the ends' buffer included),
+  // less the four corners the round end caps leave out.
+  assert.equal(decks, 6 * 66 - 4);
+  for (const [i, j] of [
+    [27, 20],
+    [30, 17],
+    [30, 50],
+    [32, 80],
+  ]) {
+    assert.equal(levels.top[at(i, j)], 15, `deck at ${i}, ${j}`);
+    assert.equal(levels.bottom[at(i, j)], 15);
+    assert.equal(levels.structure[at(i, j)], MATERIALS.ROAD);
+  }
+  assert.equal(levels.top[at(27, 17)], NONE);
+  assert.equal(levels.top[at(33, 50)], NONE);
+  assert.equal(levels.top[at(30, 83)], NONE);
+
+  // Through the source and into a chunk: the river along y = 50 under it.
+  const closed = (x0, y0, x1, y1) => {
+    const r = squareAt(region, {}, x0, y0, x1, y1).rings[0];
+    return [...r, r[0]];
+  };
+  const elements = [
+    {
+      type: 'way',
+      id: 1,
+      tags: { waterway: 'river' },
+      geometry: [region.toLonLat(0, 50.5), region.toLonLat(100, 50.5)],
+    },
+    {
+      type: 'way',
+      id: 2,
+      tags: { highway: 'motorway', bridge: 'yes' },
+      geometry: [region.toLonLat(30, 20), region.toLonLat(30, 80)],
+    },
+    // A building on the bank where the deck would pass keeps its column.
+    {
+      type: 'way',
+      id: 3,
+      tags: { building: 'yes', height: '3' },
+      geometry: closed(28, 22, 30, 24),
+    },
+  ];
+  const chunks = new Map();
+  const source = createStructuresSource({
+    query: async () => ({ elements }),
+    loadChunk: async (r, ci, cj) => {
+      const key = `${ci}:${cj}`;
+      if (!chunks.has(key)) {
+        const top = new Int32Array(COLUMNS);
+        for (let j = 0; j < CHUNK_COLUMNS; j++)
+          for (let i = 0; i < CHUNK_COLUMNS; i++)
+            top[columnIndex(i, j)] = valley(
+              ci * CHUNK_COLUMNS + i,
+              cj * CHUNK_COLUMNS + j,
+            );
+        chunks.set(key, createChunk({ ci, cj, top }));
+      }
+      return chunks.get(key);
+    },
+  });
+  const chunkLevels = await source.loadChunkStructures(region, 0, 0);
+  const chunk = chunks.get('0:0'); // the elevation source's chunk the levels go into
+  // The surface under the deck is the river's, not road.
+  assert.equal(chunkLevels.material[columnIndex(30, 50)], MATERIALS.WATER);
+  assert.equal(chunkLevels.material[columnIndex(40, 50)], MATERIALS.WATER);
+  assert.equal(chunkLevels.material[columnIndex(30, 30)], 0); // the bank under the deck: terrain
+  assert.equal(chunkLevels.structure[columnIndex(30, 30)], MATERIALS.ROAD);
+  assert.equal(chunkLevels.structure[columnIndex(29, 23)], 0); // the building's
+  applyStructures(chunk, chunkLevels);
+  // Over the river: water at level 2 (its top), a hollow, the deck at 15.
+  assert.equal(chunk.occupancy(30, 50, 1), MATERIALS.TERRAIN);
+  assert.equal(chunk.occupancy(30, 50, 2), MATERIALS.WATER);
+  assert.equal(chunk.occupancy(30, 50, 3), MATERIALS.AIR);
+  assert.equal(chunk.occupancy(30, 50, 14), MATERIALS.AIR);
+  assert.equal(chunk.occupancy(30, 50, 15), MATERIALS.ROAD);
+  assert.equal(chunk.occupancy(30, 50, 16), MATERIALS.AIR);
+  assert.equal(chunk.topSolid(30, 50), 15);
+  // Over the bank: the ground at 10, the deck at 15.
+  assert.equal(chunk.occupancy(30, 25, 10), MATERIALS.TERRAIN);
+  assert.equal(chunk.occupancy(30, 25, 12), MATERIALS.AIR);
+  assert.equal(chunk.occupancy(30, 25, 15), MATERIALS.ROAD);
+  // The building where the deck would have been.
+  assert.equal(chunk.occupancy(29, 23, 11), BUILDING);
+  assert.equal(chunk.occupancy(29, 23, 15), MATERIALS.AIR);
+  // The HUD's BLOCK line reads a deck as road.
+  assert.equal(MATERIAL_NAMES[MATERIALS.ROAD], 'road');
+});
+
+test('a layered viaduct, a bridge area, and the higher of two crossing decks', () => {
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  const fresh = () => ({
+    top: new Int32Array(GROUP_COLUMNS * GROUP_COLUMNS).fill(NONE),
+    bottom: new Int32Array(GROUP_COLUMNS * GROUP_COLUMNS).fill(NONE),
+  });
+  const line = (tags, from, to) => ({
+    id: 'l',
+    tags,
+    widthM: 6,
+    points: [region.toLonLat(...from), region.toLonLat(...to)],
+  });
+  // A viaduct at layer 2 over flat ground at 4: deck 4 + 10.
+  const viaduct = fresh();
+  bridgeLevels(
+    region,
+    0,
+    0,
+    [
+      line(
+        { railway: 'rail', bridge: 'viaduct', layer: '2' },
+        [10, 40],
+        [90, 40],
+      ),
+    ],
+    groundOf(() => 4),
+    viaduct,
+  );
+  assert.equal(viaduct.top[at(50, 40)], 14);
+  // A man_made=bridge area over the valley: its own highest ground (10) + 5.
+  const area = fresh();
+  bridgeLevels(
+    region,
+    0,
+    0,
+    [
+      {
+        id: 'a',
+        tags: { man_made: 'bridge' },
+        rings: squareAt(region, {}, 60, 30, 70, 70).rings,
+      },
+    ],
+    groundOf(valley),
+    area,
+  );
+  assert.equal(area.top[at(65, 50)], 15);
+  assert.equal(area.bottom[at(65, 50)], 15);
+  assert.equal(area.top[at(71, 50)], NONE);
+  // Two decks crossing: the higher keeps the shared columns.
+  const crossing = fresh();
+  bridgeLevels(
+    region,
+    0,
+    0,
+    [
+      line(
+        { highway: 'primary', bridge: 'yes', layer: '3' },
+        [50, 0],
+        [50, 100],
+      ),
+      line({ highway: 'primary', bridge: 'yes' }, [0, 50], [100, 50]),
+    ],
+    groundOf(() => 0),
+    crossing,
+  );
+  assert.equal(crossing.top[at(50, 50)], 15);
+  assert.equal(crossing.top[at(80, 50)], 5);
 });

@@ -6342,8 +6342,20 @@ rivers 20 m, streams 3 m, canals 8 m. The half-width is never under a
 block's half-diagonal, so a road narrower than a block is still an
 unbroken line of blocks. Tunnels and culverts are left out. Where they
 meet, the first of these wins: a building, a water area, a road, a
-waterway line (so a bridge stays road), forest, grass, the terrain. The
-HUD's BLOCK line names grass, forest and road.
+waterway line, forest, grass, the terrain. The HUD's BLOCK line names
+grass, forest and road.
+
+**Bridges.** A road or railway with a `bridge` tag (any value but `no`),
+and a `man_made=bridge` area, is not ground but a deck in the air: one
+block thick, road-coloured, in the structures layer, at the highest
+ground under its columns (its ends included) plus 5 m, or `layer` × 5 m
+for layers 1 to 3, at least one block; buffered as a road is. The ground
+under it keeps its own surface, so the Jones Falls stays water under I-83,
+and the hollow between is air. A building keeps its column; where two
+decks cross, the higher one. With the Buildings switch off the decks go
+with the buildings. One 1 m group on I-83 (layer 1): 2,691 deck columns,
+439 of them over the river; one at North Avenue: 20,627 deck columns in
+three layers (+5, +10 and +15 m).
 
 **Above 2 m blocks** the query leaves out what a block cannot show:
 buildings with a perimeter under 8 blocks (Overpass's `if:length()`),
