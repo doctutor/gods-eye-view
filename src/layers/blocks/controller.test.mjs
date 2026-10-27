@@ -10,6 +10,8 @@ import {
   RENDER_DISTANCE_BLOCKS,
   REMOVE_FACTOR,
   STUDY_SUN,
+  SUN_REMESH_DEG,
+  SUN_TICK_MS,
   chunkDistance,
   chunkRing,
   fineRing,
@@ -1899,4 +1901,97 @@ test('no coarse chunks asked for a supergroup whose 16 groups all lie within R1'
   await drain(again, 400);
   assert.ok(plain.coarse.some(({ gi, gj }) => gi === 1 && gj === 1));
   again.destroy();
+});
+
+test('the sun is read again at the camera every minute: the study-sun flag follows the day, and a new light meshes again', async () => {
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  const renderer = fakeRenderer();
+  const meshes = [];
+  const up = (deg) => ({
+    east: 0,
+    north: -Math.cos(deg * RAD),
+    up: Math.sin(deg * RAD),
+  });
+  // At anchoring the real sun is under 15°: the study sun.
+  let light = { dir: up(45), fixed: true };
+  const reads = [];
+  const sunTimer = { callback: null, ms: 0, cleared: 0 };
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source: fakeSource(),
+    renderer,
+    grid: fakeGrid,
+    radiusBlocks: 64,
+    buildChunkMesh(chunk, options) {
+      meshes.push({ key: `${chunk.ci}:${chunk.cj}`, sunDir: options.sunDir });
+      return { faces: 1, chunk };
+    },
+    sun(lon, lat) {
+      reads.push([lon, lat]);
+      return light;
+    },
+    setIntervalImpl: () => 1,
+    clearIntervalImpl() {},
+    setSunIntervalImpl(callback, ms) {
+      sunTimer.callback = callback;
+      sunTimer.ms = ms;
+      return 7;
+    },
+    clearSunIntervalImpl() {
+      sunTimer.callback = null;
+      sunTimer.cleared++;
+    },
+  });
+  await drain(controller);
+  assert.equal(controller.getStatus().sunFixed, true);
+  assert.equal(sunTimer.ms, SUN_TICK_MS);
+  assert.equal(SUN_TICK_MS, 60_000);
+  assert.ok(
+    Math.abs(reads[0][0] - LON0) < 1e-9 && Math.abs(reads[0][1] - LAT0) < 1e-9,
+  );
+  const meshedFirst = meshes.length;
+  assert.ok(meshedFirst > 0);
+  // A minute on, the same light: nothing changes.
+  sunTimer.callback();
+  await drain(controller);
+  assert.equal(meshes.length, meshedFirst);
+  // The sun has risen past 15°, and the camera moved: read at the camera,
+  // the flag goes, the renderer is told, and every chunk is meshed again.
+  viewer.moveTo(LON0 + 0.0001, LAT0);
+  light = { dir: up(20), fixed: false };
+  sunTimer.callback();
+  assert.ok(Math.abs(reads.at(-1)[0] - (LON0 + 0.0001)) < 1e-9);
+  assert.equal(controller.getStatus().sunFixed, false);
+  assert.deepEqual(
+    renderer.calls.filter(([kind]) => kind === 'sun').at(-1)[2],
+    {
+      fixed: false,
+    },
+  );
+  await drain(controller);
+  const remeshed = meshes.slice(meshedFirst);
+  // Every chunk drawn is meshed again (the first pass meshed some twice, as
+  // their neighbours arrived).
+  const drawn = new Set(meshes.slice(0, meshedFirst).map((m) => m.key));
+  assert.deepEqual(new Set(remeshed.map((m) => m.key)), drawn);
+  assert.ok(remeshed.every((m) => m.sunDir.up === light.dir.up));
+  // A degree later: under SUN_REMESH_DEG, no meshing; four degrees: again.
+  const before = meshes.length;
+  light = { dir: up(21), fixed: false };
+  assert.equal(controller.refreshSun(), false);
+  await drain(controller);
+  assert.equal(meshes.length, before);
+  assert.ok(SUN_REMESH_DEG >= 1 && SUN_REMESH_DEG < 4);
+  light = { dir: up(24), fixed: false };
+  assert.equal(controller.refreshSun(), true);
+  await drain(controller);
+  assert.ok(meshes.length > before);
+  // Destroying stops the sun's interval.
+  controller.destroy();
+  assert.equal(sunTimer.callback, null);
+  assert.ok(sunTimer.cleared >= 1);
 });

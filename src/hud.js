@@ -61,6 +61,7 @@ import {
 } from './hud/cameraState.js';
 import { dataFloor, pixelFootprintM, viewPrecision } from './hud/precision.js';
 import { formatBlockTarget } from './hud/blockTarget.js';
+import { sunPosition } from './data/solarDaylight.js';
 
 /** Color palettes keyed by shader mode; applied as CSS custom properties. */
 const HUD_COLORS = {
@@ -832,39 +833,17 @@ export class IntelHUD {
   }
 
   /**
-   * Estimate current solar elevation angle above the horizon.
-   *
-   * Uses a simplified astronomical model: solar declination is approximated
-   * from the day of year, and elevation is derived from the standard
-   * sin(elevation) formula involving latitude, declination, and hour angle.
+   * The sun's elevation above the horizon now, degrees (negative below):
+   * NOAA's solar position (src/data/solarDaylight.js), the one the Blocks
+   * render mode lights by, on the same wall clock, so the SUN readout and
+   * the Blocks study-sun rule (under 15°) agree.
    *
    * @param {number} lat - Observer latitude in decimal degrees.
    * @param {number} lon - Observer longitude in decimal degrees.
-   * @returns {number} Estimated sun elevation in degrees (negative = below horizon).
+   * @returns {number} Sun elevation in degrees (negative = below horizon).
    */
   _estimateSunElevation(lat, lon) {
-    const now = new Date();
-    // Approximate local solar time by shifting UTC hours by longitude offset
-    const hours = now.getUTCHours() + now.getUTCMinutes() / 60 + lon / 15;
-    const solarNoon = 12;
-    const hourAngle = (hours - solarNoon) * 15;
-    // Solar declination approximation (~23.45 deg amplitude sinusoidal over the year)
-    const declination =
-      23.45 *
-      Math.sin(
-        Cesium.Math.toRadians(
-          (360 / 365) * (now.getUTCDate() + 30 * now.getUTCMonth() - 81),
-        ),
-      );
-    const latRad = Cesium.Math.toRadians(lat);
-    const decRad = Cesium.Math.toRadians(declination);
-    const haRad = Cesium.Math.toRadians(hourAngle);
-    // Standard formula: sin(el) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(ha)
-    const sinEl =
-      Math.sin(latRad) * Math.sin(decRad) +
-      Math.cos(latRad) * Math.cos(decRad) * Math.cos(haRad);
-    // Clamp to [-1,1] to guard against floating-point drift before asin
-    return Cesium.Math.toDegrees(Math.asin(Math.max(-1, Math.min(1, sinEl))));
+    return sunPosition(Date.now(), lat, lon).elevation;
   }
 
   /**
