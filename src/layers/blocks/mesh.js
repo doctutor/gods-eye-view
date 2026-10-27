@@ -113,6 +113,7 @@ function occupancyVolume(chunk, neighbours) {
   const materials = new Uint8Array(count);
   // The structures layer (store.js): a top and material per column.
   const structureTops = new Float64Array(count);
+  const structureBottoms = new Float64Array(count);
   const structureMaterials = new Uint8Array(count);
   const low = new Float64Array(count);
   const up = new Float64Array(count);
@@ -142,6 +143,8 @@ function occupancyVolume(chunk, neighbours) {
       waters[k] = water === NONE ? -Infinity : water;
       materials[k] = owner.material[index];
       structureTops[k] = structureTop === NONE ? -Infinity : structureTop;
+      structureBottoms[k] =
+        structure && structure.bottom ? structure.bottom[index] : -Infinity;
       structureMaterials[k] = structure ? structure.material[index] : 0;
       low[k] = lowest;
       up[k] = highest;
@@ -162,13 +165,22 @@ function occupancyVolume(chunk, neighbours) {
     cells.fill(materials[k], start, start + solidTo);
     if (waterTo > solidTo)
       cells.fill(MATERIALS.WATER, start + solidTo, start + waterTo);
-    // A structure stands on the top, over any water.
+    // A structure stands from its bottom (by default on the top) to its
+    // top, over any water; a higher bottom leaves a hollow under it.
     const structureTo = Math.min(
       levels,
       Math.max(0, structureTops[k] - yMin + 1),
     );
-    if (structureTo > solidTo)
-      cells.fill(structureMaterials[k], start + solidTo, start + structureTo);
+    const structureFrom = Math.max(
+      solidTo,
+      Math.min(levels, structureBottoms[k] - yMin),
+    );
+    if (structureTo > structureFrom)
+      cells.fill(
+        structureMaterials[k],
+        start + structureFrom,
+        start + structureTo,
+      );
     for (const [y, value] of edits[k])
       if (y - yMin >= 0 && y - yMin < levels) cells[start + y - yMin] = value;
   }
