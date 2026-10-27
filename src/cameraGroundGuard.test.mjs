@@ -169,3 +169,33 @@ for (const handoff of ['Director', 'tracking', 'follow', 'keyboard', 'UI',
     navigation.destroy();
   });
 }
+
+test('a coarse tile streaming in does not lift the arrival; the leaves are waited for (Baltimore, 2026-10-27)', async () => {
+  // A ray pick over Baltimore: first the coarse ancestor tile's chord at
+  // +535 m, then a 1.2 m leaf at 25.4 m. The camera is at 80 m.
+  const viewer = fakeViewer({ cameraHeightM: 80, surfaceM: 535 });
+  let leaves = false;
+  viewer.scene.pickFromRay = (ray) => ({
+    position: Cesium.Cartesian3.fromRadians(
+      Cesium.Cartographic.fromCartesian(ray.origin).longitude,
+      Cesium.Cartographic.fromCartesian(ray.origin).latitude,
+      leaves ? 25.4 : 535,
+    ),
+    object: { content: { tile: { geometricError: leaves ? 1.2 : 1100 } } },
+  });
+  guardCameraAboveGround(
+    viewer,
+    { lat: 30.3125, lon: -97.765 },
+    { intervalMs: 1, attempts: 2 },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(viewer.flights.length, 0, 'not lifted to 655 m by the chord');
+  // More than `attempts` tries have passed; coarse answers spent none.
+  leaves = true;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(viewer.flights.length, 1, 'lifted from the leaves');
+  const lifted = Cesium.Cartographic.fromCartesian(
+    viewer.flights[0].destination,
+  );
+  assert.ok(Math.abs(lifted.height - (25.4 + MIN_EYE_CLEARANCE_M)) < 0.5);
+});
