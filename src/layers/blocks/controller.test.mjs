@@ -1262,3 +1262,437 @@ test('skirts wait for what is coming: none toward a fine neighbour still loading
   assert.equal(first.options.skirt, undefined);
   run.controller.destroy();
 });
+
+/** A mesher whose jobs wait until released: meshAsync for the controller. */
+function deferredMesher() {
+  const jobs = [];
+  return {
+    jobs,
+    meshAsync(chunk, options) {
+      return new Promise((resolve, reject) =>
+        jobs.push({
+          chunk,
+          options,
+          version: chunk.version,
+          resolve: () => resolve({ faces: 1, chunk, from: chunk.version }),
+          reject,
+        }),
+      );
+    },
+  };
+}
+
+function asyncSetup({ source = fakeSource(), radiusBlocks = 64 } = {}) {
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  const renderer = fakeRenderer();
+  const mesher = deferredMesher();
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: () => {
+      throw new Error('in-thread mesher used');
+    },
+    meshAsync: mesher.meshAsync,
+    radiusBlocks,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  return { controller, viewer, renderer, mesher, store, source };
+}
+
+/** What a job was asked to mesh from: the chunk, its version, neighbours and skirts. */
+const inputsOf = (job) =>
+  [
+    `${job.chunk.ci}:${job.chunk.cj}`,
+    job.version,
+    Object.keys(job.options.neighbours)
+      .sort()
+      .map((name) => `${name}${job.options.neighbours[name].version}`)
+      .join(','),
+    JSON.stringify(job.options.skirt ?? null),
+  ].join('|');
+
+/** Tick until every chunk in range is loaded (the mesher holds its jobs). */
+async function loadAll(controller, ticks = 40) {
+  for (let n = 0; n < ticks; n++) {
+    await settle();
+    controller.tick();
+  }
+}
+
+test('pooled meshing: at most the budget submitted a tick, none twice for the same inputs, drawn when they come back', async () => {
+  const { controller, renderer, mesher } = asyncSetup({ radiusBlocks: 128 });
+  await settle();
+  controller.tick();
+  assert.ok(mesher.jobs.length <= CHUNK_BUDGET, 'the first tick');
+  await loadAll(controller);
+  // Submitted, not drawn yet; each set of inputs once (a chunk is asked
+  // again when a neighbour arrives, and the older answer is then dropped).
+  assert.ok(mesher.jobs.length > 0);
+  assert.equal(renderer.shown.size, 0);
+  const asked = mesher.jobs.map(inputsOf);
+  assert.equal(new Set(asked).size, asked.length, 'no inputs twice');
+  // Settled inputs: another tick submits nothing new for them.
+  const before = mesher.jobs.length;
+  controller.tick();
+  controller.tick();
+  assert.ok(mesher.jobs.length - before <= 2 * CHUNK_BUDGET);
+  // Released, newest first per chunk: drawn, and the status counts them.
+  const latest = new Map();
+  for (const job of mesher.jobs)
+    latest.set(`${job.chunk.ci}:${job.chunk.cj}`, job);
+  for (const job of latest.values()) job.resolve();
+  await settle();
+  assert.ok(renderer.shown.has('0:0'));
+  assert.ok(controller.getStatus().chunks >= 1);
+  controller.destroy();
+});
+
+test('pooled meshing drops a mesh whose chunk moved on, was dropped, or whose region was anchored again', async () => {
+  const { controller, renderer, mesher, viewer } = asyncSetup({
+    radiusBlocks: 64,
+  });
+  await loadAll(controller);
+  const ofOrigin = () =>
+    mesher.jobs.filter((j) => j.chunk.ci === 0 && j.chunk.cj === 0);
+  // Moved on: an edit after submitting; the stale mesh is not drawn and
+  // the chunk is submitted again from what it is now.
+  const job = ofOrigin().at(-1);
+  job.chunk.version = 7;
+  const asked = ofOrigin().length;
+  job.resolve();
+  await settle();
+  assert.ok(!renderer.shown.has('0:0'), 'stale mesh dropped');
+  controller.tick();
+  assert.equal(ofOrigin().length, asked + 1, 'submitted again');
+  assert.equal(ofOrigin().at(-1).version, 7);
+  ofOrigin().at(-1).resolve();
+  await settle();
+  assert.ok(renderer.shown.has('0:0'));
+  // Re-anchored (25 km away): everything pending is thrown away.
+  const pending = mesher.jobs.filter(
+    (j) => !renderer.shown.has(`${j.chunk.ci}:${j.chunk.cj}`),
+  );
+  assert.ok(pending.length > 0);
+  viewer.moveTo(east(25_000));
+  controller.tick();
+  await settle();
+  const upsertsBefore = renderer.calls.filter(([k]) => k === 'upsert').length;
+  for (const j of pending) j.resolve();
+  await settle();
+  assert.equal(
+    renderer.calls.filter(([k]) => k === 'upsert').length,
+    upsertsBefore,
+    'nothing from the old region drawn',
+  );
+  controller.destroy();
+});
+
+test('the pool’s worker path (snapshot, structured clone, restore) meshes a chunk with buildings as the in-thread mesher does', async () => {
+  const { buildChunkMesh } = await import('./mesh.js');
+  const { createChunk } = await import('./store.js');
+  const { createMeshPool } = await import('./meshPool.js');
+  const { runMeshJob } = await import('./meshJob.js');
+  const { applyStructures } = await import('./structures.js');
+  const N = 64;
+  const top = new Int32Array(N * N).fill(10);
+  const material = new Uint8Array(N * N).fill(1);
+  const water = new Int32Array(N * N).fill(-2147483648);
+  const chunk = createChunk({ ci: 0, cj: 0, top, material, water });
+  const east = createChunk({
+    ci: 1,
+    cj: 0,
+    top: top.slice(),
+    material: material.slice(),
+    water: water.slice(),
+  });
+  // A building over an 8 × 6 footprint, levels 11 to 22, with a hollow
+  // under part of it (min_height: from level 16).
+  const levels = {
+    top: new Int32Array(N * N).fill(-2147483648),
+    bottom: new Int32Array(N * N).fill(-2147483648),
+  };
+  for (let j = 20; j < 26; j++)
+    for (let i = 30; i < 38; i++) {
+      levels.top[j * N + i] = 22;
+      levels.bottom[j * N + i] = i < 34 ? 11 : 16;
+    }
+  assert.ok(applyStructures(chunk, levels) > 0);
+  assert.ok(chunk.structure, 'the store holds the buildings');
+  // A worker that does what meshWorker.js does, across a structured clone.
+  const fakeWorker = () => {
+    const listeners = { message: [], error: [] };
+    return {
+      addEventListener: (type, fn) => listeners[type].push(fn),
+      postMessage({ id, job }) {
+        const copy = structuredClone(job);
+        queueMicrotask(() => {
+          const mesh = runMeshJob(copy);
+          for (const fn of listeners.message) fn({ data: { id, mesh } });
+        });
+      },
+      terminate() {},
+    };
+  };
+  const pool = createMeshPool({ size: 1, createWorker: fakeWorker });
+  const options = {
+    neighbours: { e: east },
+    blockM: 1,
+    sunDir: STUDY_SUN.dir,
+    skirt: { n: 4, s: null, e: null, w: 4 },
+  };
+  const pooled = await pool.meshChunkAsync(chunk, options);
+  const direct = buildChunkMesh(chunk, options);
+  assert.equal(pooled.faces, direct.faces);
+  assert.deepEqual([...pooled.positions], [...direct.positions]);
+  assert.deepEqual([...pooled.colors], [...direct.colors]);
+  assert.deepEqual([...pooled.indices], [...direct.indices]);
+  // And the building is in it: more faces than the bare chunk.
+  const bare = createChunk({
+    ci: 0,
+    cj: 0,
+    top: top.slice(),
+    material: material.slice(),
+    water: water.slice(),
+  });
+  assert.ok(direct.faces > buildChunkMesh(bare, options).faces);
+  pool.destroy?.();
+});
+
+/** Real store chunks (flat ground at level 10) and real buildings. */
+async function buildingsSetup({
+  structuresError = null,
+  radiusBlocks = 64,
+} = {}) {
+  const { createChunk } = await import('./store.js');
+  const { applyStructures } = await import('./structures.js');
+  const N = 64;
+  const source = {
+    regionFor: () => Promise.resolve({ blockM: 1, source: '3DEP 1 m' }),
+    loadChunk: (region, ci, cj) =>
+      Promise.resolve(
+        createChunk({
+          ci,
+          cj,
+          top: new Int32Array(N * N).fill(10),
+          material: new Uint8Array(N * N).fill(1),
+          water: new Int32Array(N * N).fill(-2147483648),
+        }),
+      ),
+    loadCoarseChunk: (region, gi, gj) =>
+      Promise.resolve({ gi, gj, coarse: true, version: 0, topSolid: () => 2 }),
+  };
+  const asked = [];
+  const structures = {
+    loadChunk(region, ci, cj) {
+      asked.push(`${ci}:${cj}`);
+      if (structuresError) return Promise.reject(structuresError);
+      // A 4 × 4 building, 20 blocks tall over the ground (level 10), in
+      // every chunk's corner: levels 11 to 30.
+      const top = new Int32Array(N * N).fill(-2147483648);
+      const bottom = new Int32Array(N * N).fill(-2147483648);
+      for (let j = 0; j < 4; j++)
+        for (let i = 0; i < 4; i++) {
+          top[j * N + i] = 30;
+          bottom[j * N + i] = 11;
+        }
+      return Promise.resolve({ top, bottom });
+    },
+    groupBuildings: (region, gi, gj) =>
+      Promise.resolve([`way/${gi}:${gj}:a`, `way/${gi}:${gj}:b`, 'way/shared']),
+    apply: applyStructures,
+  };
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const renderer = fakeRenderer();
+  const meshes = [];
+  const controller = createBlocksController({
+    viewer: fakeViewer(),
+    store,
+    layers: fakeLayers(true),
+    source,
+    structures,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh(chunk, options) {
+      meshes.push({
+        key: chunk.coarse
+          ? `c:${chunk.gi}:${chunk.gj}`
+          : `${chunk.ci}:${chunk.cj}`,
+        chunk,
+        version: chunk.version,
+        options,
+      });
+      return { faces: 1, chunk };
+    },
+    radiusBlocks,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  return { controller, store, renderer, meshes, asked };
+}
+
+test('buildings: asked for every fine chunk (never the coarse ring), put into its structures layer, the chunk meshed again; counted once each', async () => {
+  const { controller, meshes, asked } = await buildingsSetup();
+  await drain(controller);
+  const fine = fineRing({ i: 0, j: 0, radius: 64, chunkColumns: C });
+  assert.equal(new Set(asked).size, fine.length, 'every fine chunk');
+  assert.ok(asked.every((key) => !key.startsWith('c:')));
+  // 0:0 was meshed bare, then again with its building (its version moved on).
+  const ofOrigin = meshes.filter((m) => m.key === '0:0');
+  assert.ok(ofOrigin.length >= 2);
+  assert.equal(ofOrigin[0].version, 0);
+  assert.ok(ofOrigin.at(-1).version > 0);
+  assert.equal(
+    ofOrigin.at(-1).chunk.structureTop(0, 0),
+    30,
+    'level 10 + 20 blocks',
+  );
+  // Four fine groups, two buildings each and one they share: 9.
+  const status = controller.getStatus();
+  assert.equal(status.buildings, 9);
+  assert.equal(status.buildingsOn, true);
+  assert.equal(controller.getBuildings(), true, 'unchosen: on');
+  assert.match(
+    blocksStatusText({ ...status, sunFixed: false }),
+    /· 9 buildings$/,
+  );
+  assert.equal(
+    blocksStatusText({
+      state: 'ready',
+      blockM: 1,
+      chunks: 274,
+      coarse: 48,
+      source: '3DEP 1 m',
+      buildings: 1204,
+    }),
+    'Blocks: 1 m cubes · 274 + 48 coarse · 3DEP 1 m · 1,204 buildings',
+  );
+  controller.destroy();
+});
+
+test('the Buildings switch: off takes them off every chunk in place (meshed again, nothing asked); on puts them back', async () => {
+  const { controller, store, meshes, asked } = await buildingsSetup();
+  await drain(controller);
+  const chunk = meshes.find((m) => m.key === '0:0').chunk;
+  assert.equal(chunk.structureTop(0, 0), 30);
+  const askedBefore = asked.length;
+  const meshedBefore = meshes.filter((m) => m.key === '0:0').length;
+  store.setBuildings(false);
+  await drain(controller);
+  assert.equal(chunk.structureTop(0, 0), -2147483648, 'cleared in place');
+  assert.ok(
+    meshes.filter((m) => m.key === '0:0').length > meshedBefore,
+    'meshed again',
+  );
+  assert.equal(asked.length, askedBefore, 'nothing asked while off');
+  assert.equal(controller.getStatus().buildings, 0);
+  assert.equal(controller.getBuildings(), false);
+  assert.equal(store.param(), '1.b0');
+  store.setBuildings(true);
+  await drain(controller);
+  assert.equal(chunk.structureTop(0, 0), 30, 'back');
+  assert.equal(controller.getStatus().buildings, 9);
+  controller.destroy();
+});
+
+test('Overpass not configured: buildings end for the page, the switch says why', async () => {
+  const error = Object.assign(new Error('not configured'), {
+    code: 'unconfigured',
+  });
+  const { controller, asked } = await buildingsSetup({
+    structuresError: error,
+  });
+  await drain(controller);
+  const askedOnce = asked.length;
+  assert.ok(askedOnce >= 1 && askedOnce <= CHUNK_BUDGET);
+  for (let n = 0; n < 5; n++) controller.tick();
+  await drain(controller);
+  assert.equal(asked.length, askedOnce, 'not asked again');
+  assert.equal(controller.buildingsAvailable(), false);
+  assert.equal(controller.getBuildings(), false);
+  assert.equal(controller.getStatus().buildingsOn, false);
+  assert.equal(
+    controller.getStatus().state,
+    'ready',
+    'the terrain still drawn',
+  );
+  controller.destroy();
+});
+
+test('the heading control: a Buildings switch in Blocks, disabled where Overpass is missing', async () => {
+  const { createLegoHeadingControl } = await import('../lego/presentation.js');
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  const lego = {
+    getMode: () => store.getMode(),
+    setMode: (mode) => store.setMode(mode),
+    getExaggeration: () => 1,
+    setExaggeration: () => {},
+    getStatus: () => ({ state: 'off' }),
+    subscribe: (listener) => store.subscribe(listener),
+  };
+  let available = true;
+  const listeners = new Set();
+  const blocks = {
+    getStatus: () => ({
+      state: 'ready',
+      blockM: 1,
+      chunks: 4,
+      source: '',
+      buildings: 0,
+    }),
+    getBuildings: () => available && store.getBuildings() !== false,
+    setBuildings: (on) => store.setBuildings(on),
+    buildingsAvailable: () => available,
+    subscribe: (listener) => (
+      listeners.add(listener),
+      () => listeners.delete(listener)
+    ),
+  };
+  const nodes = [];
+  const element = (tag) => {
+    const handlers = new Map();
+    const node = {
+      tag,
+      children: [],
+      hidden: false,
+      setAttribute() {},
+      append: (...kids) => node.children.push(...kids),
+      appendChild: (kid) => node.children.push(kid),
+      addEventListener: (type, fn) => handlers.set(type, fn),
+      removeEventListener: (type) => handlers.delete(type),
+      fire: (type) => handlers.get(type)?.({ stopPropagation() {} }),
+    };
+    nodes.push(node);
+    return node;
+  };
+  const doc = {
+    createElement: element,
+    createTextNode: (text) => ({ textContent: text }),
+  };
+  const control = createLegoHeadingControl(doc, lego, null, blocks);
+  const label = nodes.find((n) => n.className === 'blocks-buildings-toggle');
+  const box = label.children[0];
+  assert.equal(label.children[1].textContent, ' Buildings');
+  assert.equal(label.hidden, true, 'hidden in Colour');
+  store.setMode('blocks');
+  assert.equal(label.hidden, false);
+  assert.equal(box.checked, true, 'unchosen: on');
+  box.checked = false;
+  box.fire('change');
+  assert.equal(store.getBuildings(), false);
+  assert.equal(box.checked, false);
+  // Overpass missing: unchecked and disabled, with the reason.
+  available = false;
+  for (const listener of listeners) listener();
+  assert.equal(box.disabled, true);
+  assert.equal(box.checked, false);
+  assert.equal(label.title, 'Buildings need an Overpass server for this app');
+  control.destroy();
+});

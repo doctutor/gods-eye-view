@@ -426,16 +426,20 @@ export function createStructuresSource({
         query(buildingsQuery(groupBounds(region, gi, gj))),
         Promise.all(cells.map(({ ci, cj }) => loadChunk(region, ci, cj))),
       ]);
+      const footprints = parseFootprints(elements);
       const levels = structureLevels(
         region,
         gi,
         gj,
-        parseFootprints(elements),
+        footprints,
         groupTerrain(terrain),
       );
       const chunks = new Map();
       for (const { a, b, ci, cj } of cells)
         chunks.set(`${ci}:${cj}`, chunkLevels(levels, a, b));
+      // The ids of the group's buildings, beside the chunks (the Blocks
+      // status line counts them once across groups).
+      chunks.buildings = footprints.map((footprint) => footprint.id);
       return chunks;
     })();
     remember(key, promise);
@@ -457,6 +461,10 @@ export function createStructuresSource({
     async loadChunkStructures(region, ci, cj) {
       const { gi, gj } = groupOf(ci, cj);
       return (await loadGroup(region, gi, gj)).get(`${ci}:${cj}`) ?? null;
+    },
+    /** The ids of the buildings in a group, from its one query. */
+    async loadGroupBuildings(region, gi, gj) {
+      return (await loadGroup(region, gi, gj)).buildings ?? [];
     },
     /** Groups held (for tests). */
     size: () => held.size,

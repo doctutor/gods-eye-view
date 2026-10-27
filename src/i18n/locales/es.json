@@ -3491,6 +3491,13 @@
   "Blocks: {size} m cubes · {count} + {coarse} coarse": "Bloques: cubos de {size} m · {count} + {coarse} gruesos",
   "{count} loading": "{count} cargando",
   "study sun": "sol de estudio",
+  "{count} buildings": {
+    "one": "{count} edificio",
+    "many": "{count} edificios",
+    "other": "{count} edificios"
+  },
+  "OpenStreetMap buildings as blocks, from their height or storeys": "Edificios de OpenStreetMap como bloques, según su altura o sus plantas",
+  "Buildings need an Overpass server for this app": "Los edificios necesitan un servidor Overpass para esta aplicación",
   "{count} bricks = {value}": {
     "one": "{count} ladrillo = {value}",
     "many": "{count} ladrillos = {value}",
@@ -3605,11 +3612,6 @@
   "Reading the property records…": "Leyendo los registros de propiedad…",
   "Property records unavailable": "Registros de propiedad no disponibles",
   "buildings below {height} km": "edificios por debajo de {height} km",
-  "{count} buildings": {
-    "one": "{count} edificio",
-    "many": "{count} edificios",
-    "other": "{count} edificios"
-  },
   "a sample; zoom in for all": "una muestra; acércate para verlos todos",
   "{count} records in the index": "{count} registros en el índice",
   "{count} bd": "{count} dorm.",

@@ -5978,7 +5978,8 @@ camera as cubes on a grid fixed to the world, the way Minecraft shows
 terrain, read by shape and light rather than by a colour ramp. The design,
 the decisions and the module contracts are in `docs/BLOCKS-PLAN.md`; the
 code is `src/layers/blocks/` (grid, store, mesh, lighting, source,
-renderer and the controller) with its wiring in `src/app/blocks.js`.
+structures, the mesh pool, renderer and the controller) with its wiring
+in `src/app/blocks.js`.
 
 **Turning it on.** The drop-down beside the **ANALYSIS** heading reads
 **Render: Colour / Lego / Blocks**, kept as `gev.render.mode` like the
@@ -5987,11 +5988,11 @@ built and the line under the heading says "Blocks needs the Elevation layer
 on". With it, the line says what is drawn: "Blocks: 1 m cubes · 412 chunks
 · 3DEP 1 m" (the block size, the chunks drawn, the elevation source;
 "274 + 48 coarse" with the coarse ring), with
-"· study sun" when the real sun is under 15° and "· N loading" while
-chunks are still coming. The share link carries it as
-`bk=1`: a link with `bk=1` opens in Blocks without overwriting the stored
-mode, and a link without `bk` (every link from before Blocks) keeps the
-stored mode as before. While Blocks draws, the HUD's floor note beside AGL
+"· study sun" when the real sun is under 15°, "· 1,204 buildings" when
+buildings are drawn, and "· N loading" while chunks are still coming. The
+share link carries it as `bk=1`: a link with `bk=1` opens in Blocks
+without overwriting the stored mode, and a link without `bk` (every link
+from before Blocks) keeps the stored mode as before. While Blocks draws, the HUD's floor note beside AGL
 names the blocks ("· Blocks 1 m") and the camera readout's precision stops
 at the block size, as it does for any surface.
 
@@ -6060,6 +6061,32 @@ its neighbours and hangs a skirt toward it, down to the group's lowest
 fine ground (in coarse levels), for where the coarse ground is the higher;
 no skirts toward other coarse chunks.
 
+**Buildings.** OpenStreetMap buildings stand on the fine ring as stacked
+blocks (`structures.js`, worker2's): one Overpass query per 4 × 4 group
+through the app's `/api/overpass`, each footprint filled onto the columns
+with its levels from its tags (worker2's roofs and parts: `height` or
+storeys, `min_height` for a part that starts above the ground) and put
+into the chunk's structures layer, between the terrain and the edits; the
+source takes its ground from the elevation source's same chunks. A chunk asks for its buildings once its terrain is in; when
+they arrive its version moves on and it is meshed again. Never on the
+coarse ring. A **Buildings** switch sits beside Render while Blocks is on:
+on unless turned off (kept as `gev.render.blocksBuildings`, and in the
+link as `bk=1.b0`; `bk=1` reads as before) or until Overpass answers that
+it is not configured, which ends buildings for the page and greys the
+switch with the reason. Turning it off takes the buildings off every chunk
+in place (their columns cleared, the chunks meshed again); on puts them
+back from the source's cache. A failed query is asked again with the
+chunks' backoff. The status line counts the buildings drawn, each once
+across groups.
+
+**Meshing off the main thread.** Chunks are meshed by the worker pool
+(`meshPool.js`, worker1's: `meshChunkAsync`, buildChunkMesh's arguments,
+a promise of its mesh), at most the budget submitted a tick and none twice
+for the same inputs. A mesh that comes back after its chunk moved on (its
+version, a neighbour, a skirt), was dropped, or the region was anchored
+again is thrown away and the chunk meshed from what it is now. Where
+Workers cannot be made the pool meshes in-thread.
+
 The sun is fixed when the region is anchored: the real sun when it is more
 than 15° up, otherwise a study sun 60° up from the south-west; mesh.js
 bakes it into the colours with per-face shading and ambient occlusion.
@@ -6110,7 +6137,10 @@ of the camera: a hill to 77 m, a spur, and a river valley cut to 2 m),
 served at 1 m as 3DEP's lidar is (read between the 10 m cells) and tiled
 by reflection beyond its edges, so the blocks have the live size and the
 coarse ring has ground to 2 km; painted in the PET rainbow over 0 to
-100 m for Colour.
+100 m for Colour; `/api/overpass` answers a small synthetic town north of
+the camera (seven footprints, 6 to 80 m, by height, storeys or neither;
+one starts 6 m up, `min_height`, so a hollow shows under it),
+so the Blocks shots show buildings.
 Other `/api/` routes answer 404 and other hosts are refused, the terrain's
 too, so the globe there is flat ground and the shots show the flat case
 (offset 0). The script
@@ -6123,7 +6153,12 @@ neighbour or a version, the hysteresis, re-anchoring at 25 km, the
 Elevation-off and Colour cases, the tick, failures (no values service, a
 chunk that fails), the datum offset (0 on flat ground, the geoid on
 terrain, a re-anchor when the ground flips, 0 when the geoid fails), the
-status line and the HUD floor. The mode, `bk` and
+status line and the HUD floor; the coarse ring and its handover, the
+skirts both ways, pooled meshing (the budget, results dropped when stale,
+the worker path against the in-thread mesh for a chunk with buildings),
+and buildings (asked for fine chunks only, applied and meshed again,
+counted, the switch off and on in place, Overpass not configured). The
+mode, `bk` and
 the drop-down are in `src/layers/lego/lego.test.mjs`, the link in
 `src/sharelink.camera.test.mjs`, the floor in `src/hud/precision.test.mjs`.
 
