@@ -28,11 +28,13 @@
 // make a column's top a water surface at its own level; parks, grass and
 // pitches make it GRASS, woods and forests FOREST; highway areas and
 // area:highway polygons, and road and railway lines buffered by their
-// width (the width tag, else a default by class), ROAD. Where they meet,
-// building > water > road > forest > grass > terrain. Above 2 m blocks the
-// query leaves out what a block cannot show (buildings with a perimeter
-// under 8 blocks, footways and service roads), so a 10 m group answers
-// in a few MB, not tens.
+// width (the width tag, else a default by class), ROAD; waterway lines
+// (river, stream, canal) buffered the same way (river 20 m, stream 3 m,
+// canal 8 m), WATER. Where they meet, building > water area > road >
+// waterway line (a bridge stays road) > forest > grass > terrain. Above
+// 2 m blocks the query leaves out what a block cannot show (buildings with
+// a perimeter under 8 blocks, footways and service roads, streams), so a
+// 10 m group answers in a few MB, not tens.
 
 import { createOverpassViewClient } from '../../sources/overpassView.js';
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
@@ -156,6 +158,7 @@ export function groupQuery({ west, south, east, north }, blockM = 1) {
     `way${highway}(${bbox});` +
     `way["area:highway"](${bbox});` +
     `way["railway"~"^(${RAILWAYS.join('|')})$"](${bbox});` +
+    `way["waterway"~"^(${(coarse ? ['river', 'canal'] : WATERWAYS).join('|')})$"](${bbox});` +
     ');out geom qt;'
   );
 }
@@ -196,6 +199,26 @@ export const LINE_WIDTH_M = Object.freeze({
   railway: 3,
 });
 const NOT_DRAWN = ['proposed', 'abandoned', 'razed', 'platform'];
+
+/** Waterway lines drawn as water, and their widths, metres, with no width tag. */
+const WATERWAYS = ['river', 'stream', 'canal'];
+export const WATERWAY_WIDTH_M = Object.freeze({
+  river: 20,
+  stream: 3,
+  canal: 8,
+});
+
+/**
+ * A waterway line's width in metres (the width tag, else WATERWAY_WIDTH_M:
+ * river 20, stream 3, canal 8), or 0 when it is not drawn: another kind,
+ * or underground (a tunnel or culvert).
+ */
+export function waterwayWidthM(tags = {}) {
+  if (!WATERWAYS.includes(tags.waterway)) return 0;
+  if (tags.tunnel && tags.tunnel !== 'no') return 0;
+  const width = parseLengthM(tags.width);
+  return width > 0 ? width : WATERWAY_WIDTH_M[tags.waterway];
+}
 
 /**
  * A road or railway line's width in metres (the width tag, else
@@ -264,9 +287,23 @@ export function parseFeatures(elements = []) {
       areas.push({ id: shape.id, rings: shape.rings, material });
       continue;
     }
-    const widthM = lineWidthM(tags);
-    if (widthM > 0 && shape.points)
-      lines.push({ id: shape.id, points: shape.points, widthM });
+    if (!shape.points) continue;
+    const roadM = lineWidthM(tags);
+    if (roadM > 0)
+      lines.push({
+        id: shape.id,
+        points: shape.points,
+        widthM: roadM,
+        material: MATERIALS.ROAD,
+      });
+    const waterM = waterwayWidthM(tags);
+    if (waterM > 0)
+      lines.push({
+        id: shape.id,
+        points: shape.points,
+        widthM: waterM,
+        material: MATERIALS.WATER,
+      });
   }
   return { footprints, areas, lines };
 }
@@ -460,13 +497,17 @@ export function scanLine(points, halfM, { blockM, i0, j0, size }, visit) {
   }
 }
 
-/** Surfaces' precedence: water over road over forest over grass. */
-const SURFACE_RANK = {
+/**
+ * Surfaces' precedence: water areas over roads over waterway lines (so a
+ * bridge stays road) over forest over grass.
+ */
+const AREA_RANK = {
   [MATERIALS.GRASS]: 1,
   [MATERIALS.FOREST]: 2,
-  [MATERIALS.ROAD]: 3,
-  [MATERIALS.WATER]: 4,
+  [MATERIALS.ROAD]: 4,
+  [MATERIALS.WATER]: 5,
 };
+const LINE_RANK = { [MATERIALS.ROAD]: 4, [MATERIALS.WATER]: 3 };
 
 /**
  * A line's half-width in metres for blocks of blockM: half its width, but
@@ -479,7 +520,8 @@ export const lineHalfWidthM = (widthM, blockM) =>
 /**
  * A group's top-block surfaces, GROUP_COLUMNS² (index j × GROUP_COLUMNS +
  * i; 0 where the terrain stays): areas filled (even-odd) and lines
- * buffered by lineHalfWidthM, the higher in SURFACE_RANK winning.
+ * buffered by lineHalfWidthM, the higher in AREA_RANK and LINE_RANK
+ * winning.
  */
 export function surfaceMaterials(region, gi, gj, { areas = [], lines = [] }) {
   const out = new Uint8Array(GROUP_COLUMNS * GROUP_COLUMNS);
@@ -491,19 +533,28 @@ export function surfaceMaterials(region, gi, gj, { areas = [], lines = [] }) {
   };
   const local = (points) =>
     points.map(({ lon, lat }) => region.toLocal(lon, lat));
-  const paint = (material) => (index) => {
-    if ((SURFACE_RANK[out[index]] ?? 0) < SURFACE_RANK[material])
+  const ranks = new Uint8Array(out.length);
+  const paint = (material, rank) => (index) => {
+    if (ranks[index] < rank) {
+      ranks[index] = rank;
       out[index] = material;
+    }
   };
   for (const area of areas)
-    scanFootprint(area.rings.map(local), grid, paint(area.material));
-  for (const line of lines)
+    scanFootprint(
+      area.rings.map(local),
+      grid,
+      paint(area.material, AREA_RANK[area.material]),
+    );
+  for (const line of lines) {
+    const material = line.material ?? MATERIALS.ROAD;
     scanLine(
       local(line.points),
       lineHalfWidthM(line.widthM, region.blockM),
       grid,
-      paint(MATERIALS.ROAD),
+      paint(material, LINE_RANK[material]),
     );
+  }
   return out;
 }
 

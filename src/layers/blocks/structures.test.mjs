@@ -24,6 +24,8 @@ import {
   parseFeatures,
   surfaceMaterial,
   surfaceMaterials,
+  WATERWAY_WIDTH_M,
+  waterwayWidthM,
   createStructuresSource,
   fillFootprint,
   parseFootprints,
@@ -1147,4 +1149,144 @@ test('buildings by supergroup: one query for its 16 groups at fine block sizes, 
   const coarse = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 10 });
   await source.loadChunkStructures(coarse, 1, 0, via);
   assert.equal(queries.at(-1), groupQuery(groupBounds(coarse, 0, 0), 10));
+});
+
+test('waterwayWidthM: rivers, streams and canals by width tag or default; underground ones not drawn', () => {
+  assert.equal(waterwayWidthM({ waterway: 'river' }), 20);
+  assert.equal(waterwayWidthM({ waterway: 'stream' }), 3);
+  assert.equal(waterwayWidthM({ waterway: 'canal' }), 8);
+  assert.equal(waterwayWidthM({ waterway: 'river', width: '45 m' }), 45);
+  assert.equal(waterwayWidthM({ waterway: 'stream', tunnel: 'culvert' }), 0);
+  assert.equal(waterwayWidthM({ waterway: 'river', tunnel: 'yes' }), 0);
+  assert.equal(waterwayWidthM({ waterway: 'ditch' }), 0);
+  assert.equal(waterwayWidthM({ waterway: 'riverbank' }), 0);
+  assert.equal(waterwayWidthM({ highway: 'primary' }), 0);
+  assert.deepEqual(WATERWAY_WIDTH_M, { river: 20, stream: 3, canal: 8 });
+  // A river line is a WATER line; a closed riverbank is a WATER area.
+  const p = (lat, lon) => ({ lat, lon });
+  const { lines, areas } = parseFeatures([
+    {
+      type: 'way',
+      id: 1,
+      tags: { waterway: 'river' },
+      geometry: [p(0, 0), p(1, 1)],
+    },
+    {
+      type: 'way',
+      id: 2,
+      tags: { highway: 'primary' },
+      geometry: [p(0, 0), p(1, 0)],
+    },
+    {
+      type: 'way',
+      id: 3,
+      tags: { waterway: 'riverbank' },
+      geometry: [p(0, 0), p(0, 1), p(1, 1), p(0, 0)],
+    },
+  ]);
+  assert.deepEqual(
+    lines.map((l) => [l.id, l.widthM, l.material]),
+    [
+      ['way/1', 20, MATERIALS.WATER],
+      ['way/2', 6, MATERIALS.ROAD],
+    ],
+  );
+  assert.deepEqual(
+    areas.map((a) => [a.id, a.material]),
+    [['way/3', MATERIALS.WATER]],
+  );
+});
+
+test('waterway lines as water: buffer width in blocks, a bridge stays road, a road through a pond does not', () => {
+  const { WATER, ROAD, FOREST } = MATERIALS;
+  const river = (region, y, widthM) => ({
+    ...lineAt(
+      region,
+      [
+        [0, y],
+        [100 * region.blockM, y],
+      ],
+      widthM,
+    ),
+    material: WATER,
+  });
+  const rows = (blockM, y, widthM) => {
+    const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM });
+    const out = surfaceMaterials(region, 0, 0, {
+      lines: [river(region, y, widthM)],
+    });
+    const set = [];
+    for (let j = 0; j < GROUP_COLUMNS; j++)
+      if (out[at(50, j)] === WATER) set.push(j);
+    return set;
+  };
+  // 1 m blocks: a 20 m river on y = 50 covers the 20 rows within 10 m.
+  assert.deepEqual(
+    rows(1, 50, 20),
+    [...Array(20).keys()].map((k) => 40 + k),
+  );
+  // A 3 m stream: 3 rows.
+  assert.deepEqual(rows(1, 50.5, 3), [49, 50, 51]);
+  // 10 m blocks: a 22 m river is 3 blocks wide (a 20 m one is on the edge
+  // of the third: its half-width meets the next row's centre), a 3 m
+  // stream still one.
+  assert.deepEqual(rows(10, 505, 22), [49, 50, 51]);
+  assert.deepEqual(rows(10, 505, 3), [50]);
+
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  // A road crossing the river: the crossing is road (a bridge).
+  const crossing = surfaceMaterials(region, 0, 0, {
+    areas: [areaAt(region, FOREST, 0, 0, 100, 100)],
+    lines: [
+      river(region, 50, 20),
+      {
+        ...lineAt(
+          region,
+          [
+            [30, 0],
+            [30, 100],
+          ],
+          6,
+        ),
+        material: ROAD,
+      },
+    ],
+  });
+  assert.equal(crossing[at(30, 50)], ROAD); // the bridge
+  assert.equal(crossing[at(60, 50)], WATER); // the river through the forest
+  assert.equal(crossing[at(60, 80)], FOREST);
+  // A road across a water area (a pond, a lake) stays water: areas outrank roads.
+  const pond = surfaceMaterials(region, 0, 0, {
+    areas: [areaAt(region, WATER, 20, 20, 40, 40)],
+    lines: [
+      {
+        ...lineAt(
+          region,
+          [
+            [30, 0],
+            [30, 100],
+          ],
+          6,
+        ),
+        material: ROAD,
+      },
+    ],
+  });
+  assert.equal(pond[at(30, 30)], WATER);
+  assert.equal(pond[at(30, 60)], ROAD);
+});
+
+test('groupQuery asks for rivers, streams and canals; above 2 m blocks no streams', () => {
+  const box = { west: -76.62, south: 39.28, east: -76.6, north: 39.3 };
+  assert.ok(
+    groupQuery(box, 1).includes(
+      'way["waterway"~"^(river|stream|canal)$"](39.2800000,',
+    ),
+  );
+  const coarse = groupQuery(box, 10);
+  assert.ok(coarse.includes('way["waterway"~"^(river|canal)$"](39.2800000,'));
+  assert.equal(
+    sanitizeOverpassBody(`data=${encodeURIComponent(coarse)}`).ok,
+    true,
+  );
 });
