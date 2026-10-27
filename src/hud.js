@@ -3,10 +3,12 @@ import { applicationServices } from './services/application.js';
  * @module hud
  * @description Intelligence HUD Overlay — NRO/NGA Satellite Aesthetic.
  *
- * Renders authentic reconnaissance metadata over the Cesium canvas:
- * classification banners, live MGRS/lat-lon coordinates, sensor metrics
- * (GSD, NIIRS, ONA), timestamps, and orbital data — all updating in
- * real-time at configurable cadences.
+ * Renders a classification banner, the style mode, a rolling summary,
+ * timestamps and, personal fork, the camera's real view state over the
+ * Cesium canvas: position (lat/lon, DMS, MGRS, height above sea level and
+ * above the surface) and pose (heading, pitch, roll, field of view), what a
+ * pixel covers and the sun's elevation, each to the precision the view
+ * supports and editable where it can be set (src/hud/cameraReadout.js).
  *
  * The HUD auto-activates when a military-style shader (NVG, FLIR, CRT) is
  * selected and supports three layout variants: tactical, operator, minimal.
@@ -38,8 +40,25 @@ import {
 } from './hudLayouts.js';
 import { formatNumber, msg, t } from './i18n/index.js';
 import { localizeLayerName } from './ui/layerPanel.js';
-// Personal fork: the HUD's coordinate notation, shared with the Grid layer.
-import { formatDms } from './ui/dms.js';
+// Personal fork: the camera readout, its precision and the view it edits.
+import {
+  CAMERA_FIELDS,
+  FLOOR_NOTE_ID,
+  attachCameraEditing,
+  cameraFieldsHtml,
+  editedView,
+  fieldElementId,
+  floorNoteText,
+  formatCameraReadout,
+} from './hud/cameraReadout.js';
+import {
+  applyCameraView,
+  canvasSpanPx,
+  centreDistanceM,
+  readCameraView,
+  surfaceHeightM,
+} from './hud/cameraState.js';
+import { dataFloor, pixelFootprintM, viewPrecision } from './hud/precision.js';
 
 /** Color palettes keyed by shader mode; applied as CSS custom properties. */
 const HUD_COLORS = {
@@ -150,6 +169,16 @@ const HUD_SUMMARY_INTERVAL_MS = 15000;
  */
 const HUD_GEOID_CELL_DEG = 0.01;
 
+/**
+ * Personal fork: the surface under the camera is sampled again at most this
+ * often while the camera has left the last sample (or none answered yet:
+ * sampling fails until the tiles there stream in); a sample older than
+ * twice this is not shown once the camera has left it.
+ */
+const SURFACE_RETRY_MS = 1000;
+/** A sample still stands for the camera within this many metres of it. */
+const SURFACE_NEAR_M = 25;
+
 /** Flattened list of all city POIs for nearest-point lookups. */
 const NEARBY_POINTS = Object.values(CITY_POIS).flatMap((city) =>
   city.pois.map((poi) => ({
@@ -180,8 +209,25 @@ export class IntelHUD {
       summaryPolicy = {},
       basemapContext = {},
       summaryService = applicationServices.summary,
+      // Personal fork: what the surface under the camera is (the map stack's
+      // tileset or the globe's terrain), and who to tell after an edit.
+      surfaceSource = null,
+      onCameraEdited = null,
     } = {},
   ) {
+    this._surfaceSource =
+      typeof surfaceSource === 'function'
+        ? surfaceSource
+        : () => ({
+            tilesetShown: viewer?.scene?.globe?.show === false,
+            terrainId: viewer?.terrainProvider?.gevTerrainId ?? null,
+          });
+    this._onCameraEdited =
+      typeof onCameraEdited === 'function' ? onCameraEdited : null;
+    this._surface = null;
+    this._lastDistanceM = Number.NaN;
+    this._cameraFields = null;
+    this._cameraEditing = null;
     this.summaryService = summaryService;
     this.summaryPolicy = summaryPolicy;
     this.basemapContext = basemapContext;
@@ -227,6 +273,8 @@ export class IntelHUD {
     this._geoidCorrectionApplied = false;
     this._onCameraMoveEnd = () => {
       this._markSummaryDirty();
+      // Personal fork: the surface under a settled camera, sampled afresh.
+      if (this._visible) this._sampleSurface();
       // The 250 ms telemetry timer and 15 s semantic-summary timer must not
       // leave the prior city on-screen after a long CCTV focus flight.
       // Refresh deterministic camera context synchronously on settle; the AI
@@ -243,12 +291,6 @@ export class IntelHUD {
       }
     };
 
-    // Session-consistent pseudorandom identifiers (generated once at construction)
-    this._missionId = `KH11-${4000 + Math.floor(Math.random() * 200)}`;
-    this._sensorId = `OPS-${4100 + Math.floor(Math.random() * 100)}`;
-    this._orbitNum = 47000 + Math.floor(Math.random() * 1000);
-    this._passNum = 100 + Math.floor(Math.random() * 200);
-
     this._buildDOM();
     this.viewer.camera.moveEnd.addEventListener(this._onCameraMoveEnd);
     this._startTimers();
@@ -256,20 +298,19 @@ export class IntelHUD {
 
   /**
    * Construct the HUD DOM structure inside the existing `#intel-hud` element.
-   * Populates corner brackets, classification banners, sensor readouts,
-   * edge metadata strips, and the bottom summary bar.
+   * Populates corner brackets, the classification banner, the camera
+   * readout's two corners, the edge clock, and the bottom summary bar.
    */
   _buildDOM() {
     this._el = document.getElementById('intel-hud');
     if (!this._el) return;
 
-    // i18n-ignore: sensor codes and a classification banner; the rest uses t()
+    // i18n-ignore: a classification banner; the rest uses t()
     this._el.innerHTML = `
       <div class="hud-sonar" aria-hidden="true"></div>
 
       <div class="hud-top-bar">
         <span class="hud-top-bar-left">TOP SECRET // SI-TK // NOFORN</span>
-        <span class="hud-top-bar-center">${this._missionId}</span>
         <span class="hud-top-bar-right">PAGE 1/1</span>
       </div>
 
@@ -277,7 +318,6 @@ export class IntelHUD {
         <div class="hud-bracket">┌</div>
         <div class="hud-content">
           <div class="hud-classification">TOP SECRET // SI-TK // NOFORN</div>
-          <div class="hud-system">${this._missionId}  ${this._sensorId}</div>
           <div class="hud-mode" id="hud-mode">${t(MODE_LABELS.normal)}</div>
           <div class="hud-summary-wrap">
             <div class="hud-summary-label">${t('SUMMARY')}</div>
@@ -289,23 +329,18 @@ export class IntelHUD {
       <div class="hud-corner hud-top-right">
         <div class="hud-content" style="text-align:right">
           <div class="hud-rec"><span id="hud-rec-dot">●</span> ${t('REC')}  <span id="hud-timestamp">2026-01-01 00:00:00Z</span></div>
-          <div class="hud-orbital">ORB: ${this._orbitNum}  PASS: DESC-${this._passNum}</div>
         </div>
         <div class="hud-bracket">┐</div>
       </div>
 
       <div class="hud-corner hud-bottom-left">
         <div class="hud-bracket">└</div>
-        <div class="hud-content">
-          <div id="hud-mgrs">MGRS: ---</div>
-          <div id="hud-latlon">--°--'--"N ---°--'--"W</div>
-        </div>
+        <div class="hud-content hud-cam" id="hud-position">${cameraFieldsHtml('position')}</div>
       </div>
 
       <div class="hud-corner hud-bottom-right">
-        <div class="hud-content" style="text-align:right">
-          <div id="hud-gsd">GSD: --m  NIIRS: --</div>
-          <div id="hud-alt">ALT: --m   SUN: --° EL</div>
+        <div class="hud-content hud-cam" id="hud-pose" style="text-align:right">
+          ${cameraFieldsHtml('pose')}
           <div id="hud-ais-vessel" class="hud-ais-vessel">${t('AIS: --')}</div>
         </div>
         <div class="hud-bracket">┘</div>
@@ -313,13 +348,6 @@ export class IntelHUD {
 
       <div class="hud-edge hud-left-edge">
         <div id="hud-coll">COLL: --:--:--Z</div>
-        <div id="hud-ona">ONA: --°</div>
-      </div>
-
-      <div class="hud-edge hud-right-edge">
-        <div>BAND: PAN</div>
-        <div>BITS: 11</div>
-        <div>LVL: 1A</div>
       </div>
 
       <div class="hud-bottom-bar">
@@ -327,6 +355,16 @@ export class IntelHUD {
       </div>
     `;
     this._el.dataset.variant = this._variant;
+    // Personal fork: a click on an editable number opens it for typing.
+    this._cameraEditing = attachCameraEditing({
+      roots: [
+        document.getElementById('hud-position'),
+        document.getElementById('hud-pose'),
+      ],
+      value: (field) => this._editValue(field),
+      apply: (field, value) => this._applyCameraEdit(field, value),
+      onChange: () => this._updateCameraData(),
+    });
   }
 
   /**
@@ -410,74 +448,153 @@ export class IntelHUD {
   }
 
   /**
+   * Personal fork: the precision the camera is written to now: what one
+   * pixel covers at the screen's centre, bounded by the surface under the
+   * camera (src/hud/precision.js). The share link writes the camera at it.
+   */
+  cameraPrecision() {
+    const view = readCameraView(this.viewer);
+    const { distanceM } = centreDistanceM(this.viewer);
+    this._lastDistanceM = distanceM;
+    const footprintM = pixelFootprintM({
+      distanceM,
+      fovRad: Cesium.Math.toRadians(view?.fovDeg ?? 60),
+      widthPx: canvasSpanPx(this.viewer),
+    });
+    let floor = null;
+    try {
+      floor = dataFloor(this._surfaceSource() || {});
+    } catch {
+      floor = dataFloor();
+    }
+    return viewPrecision({ footprintM, floor });
+  }
+
+  /** Personal fork: sample the rendered surface under the camera now. */
+  _sampleSurface(view = readCameraView(this.viewer)) {
+    if (!view) return Number.NaN;
+    const heightM = surfaceHeightM(this.viewer, view.lat, view.lon);
+    this._surface = {
+      lat: view.lat,
+      lon: view.lon,
+      heightM,
+      at: Date.now(),
+    };
+    return heightM;
+  }
+
+  /**
+   * Personal fork: the surface's ellipsoidal height under the camera, NaN
+   * until one answers: the last sample while the camera is near it (or it
+   * is fresh), sampled again at most once a SURFACE_RETRY_MS otherwise.
+   */
+  _surfaceUnderCamera(view) {
+    const sample = this._surface;
+    const now = Date.now();
+    const offM = sample
+      ? this._haversineKm(sample.lat, sample.lon, view.lat, view.lon) * 1000
+      : Infinity;
+    const usable = sample && Number.isFinite(sample.heightM);
+    if (usable && offM <= SURFACE_NEAR_M) return sample.heightM;
+    if (!sample || now - sample.at >= SURFACE_RETRY_MS)
+      return this._sampleSurface(view);
+    return usable && now - sample.at < 2 * SURFACE_RETRY_MS
+      ? sample.heightM
+      : Number.NaN;
+  }
+
+  /** Personal fork: the number an edit box opens with: the one shown. */
+  _editValue(field) {
+    const text = this._cameraFields?.[field]?.text || '';
+    return /^-?\d+(\.\d+)?/.exec(text)?.[0] || '';
+  }
+
+  /**
+   * Personal fork: apply a typed number to the camera, the other numbers
+   * held (src/hud/cameraReadout.js editedView); false when it does not
+   * take. A field-of-view change is a view change without a camera move,
+   * so the moveEnd listeners are told; the share link is told either way.
+   */
+  _applyCameraEdit(field, value) {
+    const view = readCameraView(this.viewer);
+    if (!view) return false;
+    const surfaceM =
+      field === 'agl' ? this._sampleSurface(view) : this._surface?.heightM;
+    const next = editedView(view, field, value, {
+      surfaceM,
+      geoidN: this._geoidUndulationM(view.lat, view.lon),
+    });
+    if (!next) return false;
+    try {
+      applyCameraView(this.viewer, next);
+    } catch (error) {
+      console.warn('[HUD] camera edit not applied:', error?.message);
+      return false;
+    }
+    if (field === 'fov') this.viewer.camera.moveEnd?.raiseEvent?.();
+    this._onCameraEdited?.();
+    return true;
+  }
+
+  /**
    * Derive all camera-based telemetry and push values to the DOM.
-   * Reads the viewer camera's cartographic position and computes MGRS,
-   * lat/lon DMS, GSD, NIIRS, sun elevation, off-nadir angle, and
-   * collection timestamp. Stores results in {@link _latestMetrics}.
+   * Personal fork: the camera readout's fields (src/hud/cameraReadout.js),
+   * each to the view's precision with its tooltip, the bottom line, sun
+   * elevation and the collection clock. Stores results in
+   * {@link _latestMetrics}.
    */
   _updateCameraData() {
-    const camera = this.viewer.camera;
-    const cartographic = camera.positionCartographic;
-    if (!cartographic) return;
+    const view = readCameraView(this.viewer);
+    if (!view) return;
 
-    const lonDeg = Cesium.Math.toDegrees(cartographic.longitude);
-    const latDeg = Cesium.Math.toDegrees(cartographic.latitude);
-    const altM = cartographic.height;
-    const latDMS = this._toDMS(latDeg, 'lat');
-    const lonDMS = this._toDMS(lonDeg, 'lon');
-    let mgrsLabel = '---';
-
-    // MGRS
-    try {
-      const mgrsStr = toMGRS([lonDeg, latDeg], 4); // 4 = 10m precision
-      // Format: 18SUJ23370716 → 18S UJ 2337 0716
-      const formatted = this._formatMGRS(mgrsStr);
-      mgrsLabel = formatted;
-      const el = document.getElementById('hud-mgrs');
-      // i18n-ignore: sensor codes
-      if (el) el.textContent = `MGRS: ${formatted}`;
-    } catch {
-      const el = document.getElementById('hud-mgrs');
-      // i18n-ignore: sensor codes
-      if (el) el.textContent = 'MGRS: ---';
-    }
-
-    // Lat/Lon DMS
-    const llEl = document.getElementById('hud-latlon');
-    if (llEl) llEl.textContent = `${latDMS} ${lonDMS}`;
-    const bottomEl = document.getElementById('hud-bottom-line');
-    if (bottomEl) {
-      // i18n-ignore: sensor codes
-      bottomEl.textContent = `MGRS: ${mgrsLabel}  LAT: ${latDMS}  LON: ${lonDMS}`;
-    }
-
-    // GSD (Ground Sample Distance): approximate resolution in meters per pixel
-    // derived from camera altitude. NIIRS (National Imagery Interpretability
-    // Rating Scale): 0-9 quality rating computed via the General Image Quality
-    // Equation (GIQE) simplified form: NIIRS = 10.25 - 3.32 * log10(GSD_inches).
-    const gsd = Math.max(0.01, altM * 0.000375);
-    const gsdInches = gsd * 39.37;
-    const niirs = Math.max(
-      0,
-      Math.min(9, 10.25 - 3.32 * Math.log10(gsdInches)),
-    );
-    const gsdEl = document.getElementById('hud-gsd');
-    if (gsdEl)
-      // i18n-ignore: sensor codes
-      gsdEl.textContent = `GSD: ${gsd.toFixed(2)}m  NIIRS: ${niirs.toFixed(1)}`;
+    const lonDeg = view.lon;
+    const latDeg = view.lat;
+    const altM = view.heightM;
 
     // Altitude — reported as height above MEAN SEA LEVEL. `altM` is the raw
     // ellipsoidal camera height, which reads far below zero wherever the geoid
     // sits under the ellipsoid: a cockpit parked on the SFO deck (N ≈ -32 m)
     // showed "ALT: -15m", and JFK "ALT: -18m". Subtracting N restores the
     // number a viewer expects without touching the camera or any render path.
-    const altEl = document.getElementById('hud-alt');
     const geoidN = this._geoidUndulationM(latDeg, lonDeg);
     const altMslM = ellipsoidalToMslDisplayM(altM, geoidN);
     const sunEl = this._estimateSunElevation(latDeg, lonDeg);
-    if (altEl)
+    const precision = this.cameraPrecision();
+    const surfaceM = this._surfaceUnderCamera(view);
+    const aglM = Number.isFinite(surfaceM) ? altM - surfaceM : Number.NaN;
+    const spanPx = canvasSpanPx(this.viewer);
+    const fields = formatCameraReadout(
+      {
+        view,
+        altMslM,
+        geoidApplied: Number.isFinite(geoidN),
+        aglM,
+        footprintM: precision.footprintM,
+        distanceM: this._lastDistanceM,
+        sunElDeg: sunEl,
+        pixelDeg: spanPx > 0 ? view.fovDeg / spanPx : Number.NaN,
+      },
+      precision,
+      {
+        mgrs: (lon, lat, digits) =>
+          this._formatMGRS(toMGRS([lon, lat], digits)),
+      },
+    );
+    this._cameraFields = fields;
+    const editing = this._cameraEditing?.editing?.() ?? null;
+    for (const { id } of CAMERA_FIELDS) {
+      const el = document.getElementById(fieldElementId(id));
+      if (!el) continue;
+      el.title = fields[id].title;
+      if (id !== editing) el.textContent = fields[id].text;
+    }
+    const floorEl = document.getElementById(FLOOR_NOTE_ID);
+    if (floorEl) floorEl.textContent = floorNoteText(precision);
+    const bottomEl = document.getElementById('hud-bottom-line');
+    if (bottomEl) {
       // i18n-ignore: sensor codes
-      altEl.textContent = `ALT: ${Math.round(altMslM)}m   SUN: ${sunEl.toFixed(1)}° EL`;
+      bottomEl.textContent = `MGRS: ${fields.mgrs.text}  LAT: ${fields.lat.text}  LON: ${fields.lon.text}`;
+    }
 
     // Collection timestamp
     const collEl = document.getElementById('hud-coll');
@@ -490,24 +607,16 @@ export class IntelHUD {
       collEl.textContent = `COLL: ${h}:${m}:${s}Z`;
     }
 
-    // Off-nadir angle (ONA): camera pitch of -90 deg is nadir (straight down),
-    // so ONA = 90 + pitch gives 0 at nadir and increases toward the horizon.
-    const pitchDeg = Cesium.Math.toDegrees(camera.pitch);
-    const ona = Math.max(0, 90 + pitchDeg);
-    const onaEl = document.getElementById('hud-ona');
-    // i18n-ignore: sensor codes
-    if (onaEl) onaEl.textContent = `ONA: ${ona.toFixed(1)}°`;
-
-    // `altM` stays the raw ellipsoidal camera height the sensor model reads
-    // (GSD/NIIRS, view band). `altMslM` is the ADDITIVE display datum — the
-    // only one any readout string should print.
+    // `altM` stays the raw ellipsoidal camera height the view band reads.
+    // `altMslM` is the ADDITIVE display datum — the only one any readout
+    // string should print.
     this._latestMetrics = {
       latDeg,
       lonDeg,
       altM,
       altMslM,
+      aglM,
       sunEl,
-      ona,
     };
 
     // First time we have real telemetry: replace the "Awaiting telemetry..."
@@ -550,18 +659,6 @@ export class IntelHUD {
     const easting = coords.slice(0, half);
     const northing = coords.slice(half);
     return `${zone} ${square} ${easting} ${northing}`;
-  }
-
-  /**
-   * Convert a decimal-degree value to a degrees-minutes-seconds string.
-   * @param {number} decimal - Coordinate in decimal degrees.
-   * @param {'lat'|'lon'} type - Axis selector; controls hemisphere letter
-   *   and zero-padding width (2 digits for lat, 3 for lon).
-   * @returns {string} Formatted DMS string, e.g. `"38°53'23.10"N"`.
-   */
-  _toDMS(decimal, type) {
-    // Personal fork: shared with the Grid layer's labels (src/ui/dms.js).
-    return formatDms(decimal, type);
   }
 
   /**
@@ -702,7 +799,7 @@ export class IntelHUD {
   /**
    * Build the one-line semantic summary string from the latest camera metrics.
    * Includes mode, observation band, nearest POI or lat/lon sector, region,
-   * altitude, view window dimensions, sun elevation, ONA, and local timezone.
+   * altitude, view window dimensions, sun elevation, and local timezone.
    * @returns {string} Formatted summary line for the HUD summary readout.
    */
   _composeSummary() {
@@ -742,9 +839,9 @@ export class IntelHUD {
     const provenance = localizedProvenanceTag(
       hudTelemetryProvenance(this._dataManager?.getAll?.() || []),
     );
-    // ALT, SUN and ONA are sensor codes, as in the corner readouts.
+    // ALT and SUN are sensor codes, as in the corner readouts.
     const line = t(
-      '{mode} {band} {locality} | {region} | ALT {alt} | WINDOW {window} | SUN {sun}° | ONA {ona}° | {zone}',
+      '{mode} {band} {locality} | {region} | ALT {alt} | WINDOW {window} | SUN {sun}° | {zone}',
       {
         mode: modeLabel,
         band: viewBandLabel(band),
@@ -753,7 +850,6 @@ export class IntelHUD {
         alt: altTag,
         window: winTag,
         sun: formatNumber(Math.round(m.sunEl)),
-        ona: formatNumber(Math.round(m.ona)),
         zone: localTag,
       },
     );
@@ -1038,6 +1134,7 @@ export class IntelHUD {
     clearInterval(this._timestampInterval);
     clearInterval(this._summaryInterval);
     clearInterval(this._summaryTypingInterval);
+    this._cameraEditing?.detach();
     this.viewer.camera.moveEnd.removeEventListener(this._onCameraMoveEnd);
     this._dataManagerUnsubscribe?.();
     this._summaryRequest?.abort();

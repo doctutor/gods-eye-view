@@ -150,10 +150,6 @@
   justify-content: center;
 }
 
-.hud-top-bar-center {
-  opacity: 0.84;
-}
-
 .hud-top-bar-left,
 .hud-top-bar-right {
   opacity: 0.6;
@@ -241,15 +237,19 @@
   opacity: 0.55;
 }
 
+/* Personal fork: up to three lines, then an ellipsis, not one clipped line. */
 .hud-summary {
   margin-top: 2px;
   min-height: 16px;
   font-size: 11px;
   letter-spacing: 1.2px;
   opacity: 0.88;
-  white-space: nowrap;
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
 }
 
 .hud-rec {
@@ -264,10 +264,57 @@
   vertical-align: middle;
 }
 
-.hud-orbital {
-  font-size: 12px;
+/* Personal fork: the camera readout (src/hud/cameraReadout.js). Each value
+   takes the pointer for its tooltip, the editable ones for a click too; units
+   keep their case (m, not M), over the HUD's uppercase. */
+.hud-cam-row {
+  white-space: nowrap;
+}
+
+.hud-cam-label {
   opacity: 0.7;
-  letter-spacing: 1.5px;
+}
+
+#intel-hud .hud-cam-value,
+#intel-hud .hud-cam-floor {
+  text-transform: none;
+}
+
+.hud-cam-value {
+  pointer-events: auto;
+  cursor: default;
+}
+
+.hud-cam-value[data-cam-editable] {
+  cursor: text;
+  border-bottom: 1px dotted var(--hud-border);
+}
+
+.hud-cam-value[data-cam-editable]:hover,
+.hud-cam-value[data-cam-editable]:focus-visible {
+  outline: 1px solid var(--hud-border);
+  outline-offset: 1px;
+}
+
+.hud-cam-floor {
+  font-size: 9px;
+  letter-spacing: 1px;
+  opacity: 0.6;
+}
+
+#intel-hud .hud-cam-input {
+  width: 12ch;
+  padding: 0 3px;
+  border: 1px solid var(--hud-color);
+  background: rgba(0, 0, 0, 0.7);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: none;
+  pointer-events: auto;
+}
+
+#intel-hud .hud-cam-input.invalid {
+  border-color: #ff5555;
 }
 
 /* Edge annotations (vertical text) */

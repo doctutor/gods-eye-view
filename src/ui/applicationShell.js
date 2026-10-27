@@ -361,6 +361,16 @@ export class StyleManager extends ShellFacade {
     this.hud = new IntelHUD(viewer, {
       placeSearch,
       summaryService: requestServices?.summary,
+      // Personal fork: the camera readout's surface (Google's tiles when the
+      // map stack shows them, else the globe's terrain) and, after an edit,
+      // the share link, which a field-of-view change would not move.
+      surfaceSource: () => ({
+        tilesetShown: Boolean(
+          this.mapStackController?.getImageryHostTileset?.(),
+        ),
+        terrainId: viewer.terrainProvider?.gevTerrainId ?? null,
+      }),
+      onCameraEdited: () => this.shareLinkManager?.onCameraChange(),
     });
     this._recording.hud = this.hud;
     this._cockpitCoordinator = new CockpitCoordinator({
@@ -431,6 +441,10 @@ export class StyleManager extends ShellFacade {
     });
     this.shareLinkManager.setPanelStateProvider(() =>
       this._buildSharePanelState(),
+    );
+    // Personal fork: the camera in the link at the HUD's precision.
+    this.shareLinkManager.setCameraPrecisionProvider(() =>
+      this.hud?.cameraPrecision(),
     );
     // Personal fork: the panel's Titles toggle travels in the link too.
     const titles = titlesPreference();

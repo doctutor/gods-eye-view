@@ -5,6 +5,16 @@ import { createTerrainRetryPolicy } from './terrainRetry.js';
 export const KEYLESS_TERRAIN_URL =
   'https://terrain.reearth.land/cesium-mesh/ellipsoid';
 
+/**
+ * Personal fork: each provider says which terrain it is (`gevTerrainId`),
+ * so the HUD's camera readout knows what bounds its precision
+ * (src/hud/precision.js DATA_FLOORS: world 10 m, keyless 30 m, flat).
+ */
+function tagged(provider, id) {
+  if (provider && typeof provider === 'object') provider.gevTerrainId = id;
+  return provider;
+}
+
 /** These factories are lazy: a hidden globe must not trigger terrain loading. */
 export async function createWorldTerrain(accessToken, { signal } = {}) {
   accessToken = String(accessToken || '').trim();
@@ -14,11 +24,14 @@ export async function createWorldTerrain(accessToken, { signal } = {}) {
   const resource = await Cesium.IonResource.fromAssetId(1, { accessToken });
   signal?.throwIfAborted();
   return {
-    provider: await Cesium.CesiumTerrainProvider.fromUrl(resource, {
-      requestVertexNormals: true,
-      requestWaterMask: false,
-      ellipsoid: Cesium.Ellipsoid.WGS84,
-    }),
+    provider: tagged(
+      await Cesium.CesiumTerrainProvider.fromUrl(resource, {
+        requestVertexNormals: true,
+        requestWaterMask: false,
+        ellipsoid: Cesium.Ellipsoid.WGS84,
+      }),
+      'world',
+    ),
   };
 }
 
@@ -50,8 +63,11 @@ export function createKeylessTerrainResource(
 export async function createKeylessTerrain() {
   try {
     return {
-      provider: await Cesium.CesiumTerrainProvider.fromUrl(
-        createKeylessTerrainResource(),
+      provider: tagged(
+        await Cesium.CesiumTerrainProvider.fromUrl(
+          createKeylessTerrainResource(),
+        ),
+        'keyless',
       ),
     };
   } catch (error) {
@@ -59,6 +75,9 @@ export async function createKeylessTerrain() {
       '[MapStack] Re:Earth terrain unavailable, falling back to flat ellipsoid terrain:',
       error,
     );
-    return { provider: new Cesium.EllipsoidTerrainProvider(), fallback: true };
+    return {
+      provider: tagged(new Cesium.EllipsoidTerrainProvider(), 'flat'),
+      fallback: true,
+    };
   }
 }
