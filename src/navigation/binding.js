@@ -22,6 +22,8 @@ import {
   step,
 } from './movement.js';
 import { createBlockWorld, createHeightfieldWorld } from './worlds.js';
+import { EXIT_FLIGHT_S, MODE_HINTS, entryPose, exitView } from './entry.js';
+import { t } from '../i18n/index.js';
 import { blocksWorldNow } from './blocksSource.js';
 import { createRegion } from '../layers/blocks/grid.js';
 import { CHUNK_COLUMNS } from '../layers/blocks/grid.js';
@@ -74,6 +76,8 @@ export function createDoubleTap(windowMs = DOUBLE_TAP_MS) {
 export const LAND_ABOVE_M = 50;
 /** The surface frame is anchored again when the camera is this far out. */
 const REANCHOR_M = 2000;
+/** How long the keys hint stays over the crosshair on entering a mode. */
+export const HINT_MS = 4000;
 /** The outline is looked for at most this often. */
 const OUTLINE_MS = 100;
 /** The camera moved by someone else when it is this far from where it was put. */
@@ -442,6 +446,24 @@ export function createNavigationBinding({
     (viewer.container ?? canvas.parentElement)?.appendChild?.(crosshair);
   }
 
+  // The keys hint over the crosshair, for HINT_MS on entering a mode.
+  const hint = documentRef?.createElement?.('div') ?? null;
+  let hintTimer = null;
+  if (hint) {
+    hint.className = 'gev-nav-hint';
+    hint.setAttribute('role', 'status');
+    hint.hidden = true;
+    (viewer.container ?? canvas.parentElement)?.appendChild?.(hint);
+  }
+  const showHint = (forMode) => {
+    if (!hint) return;
+    clearTimeout(hintTimer);
+    const text = MODE_HINTS[forMode];
+    hint.textContent = text ? t(text) : '';
+    hint.hidden = !text;
+    hintTimer = text ? setTimeout(() => (hint.hidden = true), HINT_MS) : null;
+  };
+
   // ── Input ───────────────────────────────────────────────────────────
 
   const onKey = (event) => {
@@ -629,18 +651,127 @@ export function createNavigationBinding({
     scene.requestRender();
   };
 
+  /**
+   * Leaving for Spectator: a short flight up and back to a view of where
+   * the walker stood (entry.js exitView), so the user keeps their place.
+   */
+  const liftFrom = (frame, state) => {
+    if (!frame || !state) return;
+    try {
+      const place = frame.toCartographic(state.x, state.y, state.z);
+      const eye = Cesium.Cartesian3.fromDegrees(
+        place.lon,
+        place.lat,
+        place.heightM,
+      );
+      const view = exitView({ yaw: state.yaw });
+      const destination = Cesium.Matrix4.multiplyByPoint(
+        Cesium.Transforms.eastNorthUpToFixedFrame(eye),
+        new Cesium.Cartesian3(view.east, view.north, view.up),
+        new Cesium.Cartesian3(),
+      );
+      camera.flyTo({
+        destination,
+        orientation: { heading: view.heading, pitch: view.pitch, roll: 0 },
+        duration: EXIT_FLIGHT_S,
+      });
+    } catch {
+      /* no lift: the camera stays where the walker was */
+    }
+  };
+
   const apply = (next) => {
     const previous = mode;
     mode = next;
-    if (next === 'spectator') leave();
-    else if (previous === 'spectator') enter();
-    else if (active) {
+    if (next === 'spectator') {
+      const left = active && { frame: active.frame, state: active.state };
+      leave();
+      showHint(null);
+      if (left && previous !== 'spectator') liftFrom(left.frame, left.state);
+    } else if (previous === 'spectator') {
+      enter();
+      showHint(next);
+    } else {
       // Walk ⇄ Fly: the same place, the vertical speed dropped.
-      active.state = { ...active.state, vz: 0 };
-      if (next === 'walk') active.resync = true;
+      if (active) {
+        active.state = { ...active.state, vz: 0 };
+        if (next === 'walk') active.resync = true;
+      }
+      showHint(next);
     }
     status(active ? statusOf(active.frame, active.state ?? {}) : {});
   };
+
+  /**
+   * "Walk here" / "Fly here" from Spectator: the walker on the targeted
+   * block (the block under the pointer: entry.js entryPose), facing the
+   * camera's heading with its pitch kept; with nothing targeted, on the
+   * surface under the view's centre; with nothing there, from the camera.
+   */
+  const enterHere = (next) => {
+    if (mode !== 'spectator') return;
+    const view = readCameraView(viewer);
+    let place = null;
+    const source = blocks();
+    if (target && source) {
+      try {
+        const frame = blocksFrame(source);
+        const pose = entryPose({
+          facts: target,
+          occupancy: frame.world.occupancy,
+          headingRad: camera.heading,
+          pitchRad: camera.pitch,
+        });
+        place = frame.toCartographic(pose.x, pose.y, pose.z);
+        place.pitchDeg = Cesium.Math.toDegrees(pose.pitch);
+      } catch {
+        place = null;
+      }
+    }
+    if (!place) {
+      const centre = new Cesium.Cartesian2(
+        (canvas.clientWidth || canvas.width) / 2,
+        (canvas.clientHeight || canvas.height) / 2,
+      );
+      let picked;
+      try {
+        picked = scene.pickPositionSupported
+          ? scene.pickPosition(centre)
+          : undefined;
+      } catch {
+        picked = undefined;
+      }
+      const carto = picked && Cesium.Cartographic.fromCartesian(picked);
+      if (carto && plausibleSurfaceM(carto.height))
+        place = {
+          lon: Cesium.Math.toDegrees(carto.longitude),
+          lat: Cesium.Math.toDegrees(carto.latitude),
+          heightM: carto.height + EYE_HEIGHT_M,
+        };
+    }
+    if (place && view)
+      applyCameraView(viewer, {
+        lon: place.lon,
+        lat: place.lat,
+        heightM: place.heightM,
+        headingDeg: view.headingDeg,
+        pitchDeg: place.pitchDeg ?? Math.max(-89.5, view.pitchDeg),
+        rollDeg: 0,
+        fovDeg: view.fovDeg,
+      });
+    store.set(next);
+  };
+
+  // G walks here, Shift+G flies here (in Spectator, outside form fields).
+  const onEntryKey = (event) => {
+    if (event.code !== 'KeyG' || mode !== 'spectator') return;
+    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+    if (isFormTarget(event.target)) return;
+    event.preventDefault();
+    store.requestEntry?.(event.shiftKey ? 'fly' : 'walk');
+  };
+  documentRef?.addEventListener?.('keydown', onEntryKey);
+  const offEntry = store.onEntry?.(enterHere);
 
   const unsubscribe = store.subscribe(apply);
   apply(store.get());
@@ -663,9 +794,15 @@ export function createNavigationBinding({
     },
     destroy() {
       unsubscribe();
+      offEntry?.();
+      documentRef?.removeEventListener?.('keydown', onEntryKey);
       mode = 'spectator';
       leave();
+      clearTimeout(hintTimer);
       crosshair?.remove?.();
+      hint?.remove?.();
     },
+    /** Walk or Fly here (as G and Shift+G do). */
+    enterHere,
   };
 }

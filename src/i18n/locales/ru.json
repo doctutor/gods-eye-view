@@ -4026,5 +4026,12 @@
   "water": "вода",
   "building": "здание",
   "L{level} ({height} m)": "У{level} ({height} м)",
-  "Chunk {chunk}, column {i} {j}, level {level}: {size} m blocks": "Чанк {chunk}, столбец {i} {j}, уровень {level}: блоки по {size} м"
+  "Chunk {chunk}, column {i} {j}, level {level}: {size} m blocks": "Чанк {chunk}, столбец {i} {j}, уровень {level}: блоки по {size} м",
+  "WASD move · Space jump · Shift sprint · Esc release": "WASD — движение · Пробел — прыжок · Shift — бег · Esc — отпустить",
+  "WASD move · Space/Shift up/down · W twice faster · Esc release": "WASD — движение · Пробел/Shift — вверх/вниз · W дважды — быстрее · Esc — отпустить",
+  "Here": "Сюда",
+  "Walk here (G): onto the block under the pointer, or the ground at the view’s centre. Shift-click or Shift+G flies there": "Пешком сюда (G): на блок под указателем или на землю в центре вида. Shift+щелчок или Shift+G — полёт туда",
+  "Walk: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space jumps, Shift or W twice sprints": "Пешком: WASD или стрелки — движение, мышь — обзор (щелчок по глобусу захватывает, Esc отпускает), Пробел — прыжок, Shift или W дважды — бег",
+  "Fly: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space up, Shift down, W twice doubles the speed": "Полёт: WASD или стрелки — движение, мышь — обзор (щелчок по глобусу захватывает, Esc отпускает), Пробел вверх, Shift вниз, W дважды — вдвое быстрее",
+  "Spectator: the usual camera. G walks onto the block under the pointer (or the ground at the centre), Shift+G flies there": "Наблюдатель: обычная камера. G — пешком на блок под указателем (или на землю в центре), Shift+G — полёт туда"
 }

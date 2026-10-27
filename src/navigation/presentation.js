@@ -27,10 +27,25 @@ export function createNavigationHeadingControl(doc, store) {
     option.textContent = t(NAV_LABELS[key]);
     select.appendChild(option);
   }
-  wrap.append(select);
+  // "Walk here": in Spectator, onto the block under the pointer (or the
+  // view's centre); Shift-click flies there. G and Shift+G do the same.
+  const here = doc.createElement('button');
+  here.type = 'button';
+  here.className = 'nav-here-btn';
+  here.textContent = t('Here');
+  here.title = t(
+    'Walk here (G): onto the block under the pointer, or the ground at the view’s centre. Shift-click or Shift+G flies there',
+  );
+  wrap.append(select, here);
   const sync = () => {
     select.value = store.get();
+    here.hidden = store.get() !== 'spectator';
   };
+  const onHere = (event) => {
+    store.requestEntry?.(event.shiftKey ? 'fly' : 'walk');
+    here.blur();
+  };
+  here.addEventListener('click', onHere);
   const onChange = () => {
     store.set(select.value);
     // The keys go to the walker, not to the drop-down.
@@ -46,6 +61,7 @@ export function createNavigationHeadingControl(doc, store) {
     destroy() {
       unsubscribe();
       select.removeEventListener('change', onChange);
+      here.removeEventListener('click', onHere);
       wrap.removeEventListener('click', stop);
     },
   };
