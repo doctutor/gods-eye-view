@@ -17,6 +17,8 @@
  *
  *   node scripts/qa-blocks-compare.mjs --dist <vite build dir> --out <dir>
  *   node scripts/qa-blocks-compare.mjs --build --out <dir>   # builds first
+ *   ... --views judgement,eye   # the default: both pairs (the eye pair
+ *                               # 1.7 m above the ground, pitch -5)
  *
  * --build runs `vite build` into <out>/dist. --out must be outside the
  * repository (the PNGs are not committed). PUPPETEER_EXECUTABLE_PATH or
@@ -319,14 +321,40 @@ export function earthEngineCatalog() {
 
 // ── The page ────────────────────────────────────────────────────────────
 
+/** A person's eye above the ground they stand on, metres. */
+export const EYE_HEIGHT_M = 1.7;
+
+/**
+ * The eye-level view: the judgement view's place and heading, the camera
+ * 1.7 m above the top of the block under it (the ground's level, a whole
+ * block, and its top face one block up), looking 5° down.
+ */
+export function eyeView(field) {
+  const ground = heightAt(VIEW.lon, VIEW.lat, field);
+  const top = (Math.floor(ground / NATIVE_M) + 1) * NATIVE_M;
+  return {
+    ...VIEW,
+    alt: Math.round((top + EYE_HEIGHT_M) * 10) / 10,
+    pitch: -5,
+  };
+}
+
+/** The views a run can shoot: name → {view, suffix} (the PNGs' names). */
+export function views(field) {
+  return {
+    judgement: { view: VIEW, suffix: '' },
+    eye: { view: eyeView(field), suffix: '-eye' },
+  };
+}
+
 /**
  * The link: the view, the blank black map, no layer from the link's layer
  * list (Earth Engine layers are not in it: the page turns Elevation on),
  * the Elevation layer's colour scale PET 0–100 m; Blocks with bk=1.
  */
-export function pageHash({ blocks }) {
+export function pageHash({ blocks, view = VIEW }) {
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(VIEW))
+  for (const [key, value] of Object.entries(view))
     params.set(key, String(value));
   params.set('map', 'blank-black');
   encodeLayerStateParams(params, { enabledLayerIds: [], options: {} });
@@ -429,7 +457,7 @@ function argValue(argv, name, fallback = null) {
   return at >= 0 ? argv[at + 1] : fallback;
 }
 
-async function shoot({ browser, dist, field, out, blocks }) {
+async function shoot({ browser, dist, field, out, blocks, view, suffix }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   const log = { values: 0, tiles: 0, missing: new Set(), errors: [] };
@@ -443,8 +471,8 @@ async function shoot({ browser, dist, field, out, blocks }) {
       log.errors.push(`respond: ${error?.message || error}`),
     );
   });
-  const name = blocks ? 'blocks' : 'colour';
-  await page.goto(`${ORIGIN}/${pageHash({ blocks })}`, {
+  const name = `${blocks ? 'blocks' : 'colour'}${suffix}`;
+  await page.goto(`${ORIGIN}/${pageHash({ blocks, view })}`, {
     waitUntil: 'domcontentloaded',
   });
   await page.waitForFunction(() => Boolean(window.__godsEyeView?.viewer), {
@@ -470,7 +498,7 @@ async function shoot({ browser, dist, field, out, blocks }) {
         () => {
           const text =
             document.querySelector('.lego-render-status')?.textContent || '';
-          return /chunks/.test(text) && !/loading/.test(text);
+          return / cubes /.test(text) && !/loading/.test(text);
         },
         { timeout: 180_000, polling: 500 },
       )
@@ -589,8 +617,19 @@ export async function main(argv = process.argv.slice(2)) {
   const field = syntheticField();
   const results = [];
   try {
-    for (const blocks of [false, true])
-      results.push(await shoot({ browser, dist, field, out, blocks }));
+    const shots = views(field);
+    const wanted = String(argValue(argv, '--views', 'judgement,eye'))
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean);
+    for (const name of wanted) {
+      const shot = shots[name];
+      if (!shot) throw new Error(`unknown view ${name} (judgement, eye)`);
+      for (const blocks of [false, true])
+        results.push(
+          await shoot({ browser, dist, field, out, blocks, ...shot }),
+        );
+    }
   } finally {
     await browser.close();
   }

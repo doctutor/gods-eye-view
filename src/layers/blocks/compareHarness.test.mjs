@@ -6,8 +6,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  EYE_HEIGHT_M,
   FIELD_CELLS,
   NATIVE_M,
+  VIEW,
+  eyeView,
+  views,
   mirrorCell,
   colourTile,
   earthEngineCatalog,
@@ -109,4 +113,30 @@ test('the colour tiles are PNGs in the PET rainbow; the catalog passes the clien
   assert.equal(colour.get('cs'), 'el.r.0.100.n');
   assert.equal(colour.has('bk'), false);
   assert.equal(decodeBlocksParam(blocks.get('bk')), true);
+});
+
+test('two views: the judgement view (300 m, −30°) and eye level (1.7 m above the block underfoot, −5°)', () => {
+  const field = syntheticField();
+  const shots = views(field);
+  assert.deepEqual(Object.keys(shots), ['judgement', 'eye']);
+  assert.equal(shots.judgement.view, VIEW);
+  assert.equal(shots.judgement.suffix, '');
+  assert.equal(shots.eye.suffix, '-eye');
+  const eye = eyeView(field);
+  const ground = heightAt(VIEW.lon, VIEW.lat, field);
+  // The block holding the ground, its top face one block up, then the eye.
+  const top = Math.floor(ground) + 1;
+  assert.equal(EYE_HEIGHT_M, 1.7);
+  assert.ok(
+    Math.abs(eye.alt - (top + 1.7)) < 0.051,
+    `${eye.alt} vs ${top + 1.7}`,
+  );
+  assert.equal(eye.pitch, -5);
+  assert.equal(eye.lat, VIEW.lat);
+  assert.equal(eye.heading, VIEW.heading);
+  const hash = new URLSearchParams(
+    pageHash({ blocks: true, view: eye }).slice(1),
+  );
+  assert.equal(hash.get('alt'), String(eye.alt));
+  assert.equal(hash.get('pitch'), '-5');
 });
