@@ -2,7 +2,7 @@ import * as Cesium from 'cesium';
 import { createBlocksController } from '../layers/blocks/index.js';
 import * as grid from '../layers/blocks/grid.js';
 import { buildChunkMesh } from '../layers/blocks/mesh.js';
-import { meshChunkAsync } from '../layers/blocks/meshPool.js';
+import { meshChunkAsync, sharedMeshPool } from '../layers/blocks/meshPool.js';
 import {
   applyStructures,
   createStructuresSource,
@@ -55,8 +55,9 @@ export function createApplicationBlocks({
     buildChunkMesh,
     // Coarse chunks come a supergroup at a time (source.js).
     supergroupGroups: SUPERGROUP,
-    // Meshed off the main thread by the worker pool.
+    // Meshed off the main thread by the worker pool, its queue the brake.
     meshAsync: meshChunkAsync,
+    meshBacklog: () => sharedMeshPool().stats(),
     // Buildings on the fine ring, where Overpass answers.
     structures: {
       // One Overpass query per supergroup (4 × 4 groups), not per group.
@@ -120,6 +121,7 @@ export function lazyRenderer(make) {
     remove: (key) => renderer?.remove(key),
     setSun: (dir, options) => made().setSun?.(dir, options),
     setFog: (fog) => made().setFog?.(fog),
+    setVisible: (on) => renderer?.setVisible?.(on),
     keys: () => renderer?.keys?.() ?? [],
     destroy() {
       renderer?.destroy?.();

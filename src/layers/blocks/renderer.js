@@ -641,6 +641,12 @@ export function createBlocksRenderer({
 
     keys: () => [...chunks.keys()],
 
+    /** Show or hide every chunk at once (Blocks left for a while: kept, hidden). */
+    setVisible(on) {
+      collection.show = Boolean(on);
+      requestRender();
+    },
+
     getState: () => ({
       region,
       datumOffsetM,

@@ -59,6 +59,18 @@ export const FOG_START = 0.7;
  * 10 to 65 ms a chunk warm, so 8 is about half a tick at 1 m.
  */
 export const CHUNK_BUDGET = 8;
+/**
+ * With the worker pool meshing (meshAsync), a tick may start this many
+ * loads and submit this many meshes, fine and coarse each: the pool, not
+ * the tick, is then the bound (a fresh 1 m ring of about 530 chunks took
+ * 25 to 30 s at 8 a tick, the pool idle most of it). Meshes wait while the
+ * pool has more than BACKLOG_PER_WORKER × its workers queued.
+ */
+export const ASYNC_BUDGET = 24;
+export const BACKLOG_PER_WORKER = 2;
+/** How long the last region's chunks are kept, hidden, after leaving Blocks. */
+export const PARK_MS = 60_000;
+
 /** A chunk that fails is asked again this many times at most, backing off. */
 export const MAX_ATTEMPTS = 6;
 /** The backoff before attempt n + 1: 2 s, 4 s, 8 s … at most a minute. */
@@ -312,8 +324,12 @@ export function sourceName(source) {
  *   sun?: (lon: number, lat: number) => {dir: {east: number, north: number,
  *     up: number}, fixed: boolean},
  *   supergroupGroups?: number, the groups a side of the source's coarse
- *     request (source.js SUPERGROUP): a supergroup all of whose groups
- *     are drawn fine is not asked for (0: none skipped),
+ *     request (source.js SUPERGROUP): a region is anchored with the camera
+ *     in the middle of one, and a supergroup all of whose groups are drawn
+ *     fine is not asked for (0: neither),
+ *   meshBacklog?: () => {waiting: number, workers: number}, the pool's
+ *     queue (meshPool.js stats), for back-pressure on mesh submits,
+ *   setTimeoutImpl?: typeof setTimeout, clearTimeoutImpl?: typeof clearTimeout,
  *   inFlight?: () => boolean, a camera flight or arrival correction in
  *     progress (cameraInFlight on the viewer unless given),
  *   flatStyle?: () => boolean, whether the map is a drawn style (blank,
@@ -340,6 +356,9 @@ export function createBlocksController({
   flatStyle = () => false,
   inFlight = null,
   supergroupGroups = 0,
+  meshBacklog = null,
+  setTimeoutImpl = (...args) => setTimeout(...args),
+  clearTimeoutImpl = (...args) => clearTimeout(...args),
   radiusBlocks = RENDER_DISTANCE_BLOCKS,
   budget = CHUNK_BUDGET,
   tickMs = TICK_MS,
@@ -358,6 +377,8 @@ export function createBlocksController({
   let _status = { state: 'off' };
   let _globeHidden = false;
   let _globeBefore = true;
+  /** Left Blocks: the region's chunks kept, hidden, until this timer evicts them. */
+  let _parkTimer = null;
   /** key → {key, ci, cj, chunk, loading, failed, signature, shown} */
   const _chunks = new Map();
   /** 'c:gi:gj' → the same, for the coarse ring ({gi, gj}, and its mesh kept). */
@@ -514,8 +535,7 @@ export function createBlocksController({
         const blockM = Number(found?.blockM);
         if (!(blockM > 0)) throw new Error('no block size for this region');
         const region = grid.createRegion({
-          lon0: camera.lon,
-          lat0: camera.lat,
+          ...anchorPoint(camera, blockM),
           blockM,
         });
         // Where sea level is: the ellipsoid on flat ground, the geoid on terrain.
@@ -544,6 +564,25 @@ export function createBlocksController({
       (error) => fail(error, [404, 501, 503].includes(Number(error?.status))),
     );
     _anchoring.catch((error) => fail(error));
+  }
+
+  /**
+   * Where a region is anchored: half a supergroup (supergroupGroups × 4
+   * chunks × 64 columns / 2) south-west of the camera, so the camera stands
+   * in the middle of a supergroup and the fine ring reaches into as few as
+   * the ground allows (createRegion still snaps the point to the block
+   * graticule); the camera itself without supergroupGroups.
+   */
+  function anchorPoint(camera, blockM) {
+    const n = supergroupGroups;
+    if (!(n > 0)) return { lon0: camera.lon, lat0: camera.lat };
+    const halfM = (n * GROUP_CHUNKS * grid.CHUNK_COLUMNS * blockM) / 2;
+    const mPerDegLat = 111_320;
+    const mPerDegLon = mPerDegLat * Math.cos(camera.lat * RAD);
+    return {
+      lon0: camera.lon - halfM / mPerDegLon,
+      lat0: camera.lat - halfM / mPerDegLat,
+    };
   }
 
   /**
@@ -1000,15 +1039,47 @@ export function createBlocksController({
     return camera.height - ground;
   }
 
+  /**
+   * Leaving Blocks (another render mode, or Elevation off): the region's
+   * chunks are hidden, not dropped, for PARK_MS, so coming back is
+   * instant; then they go. Without a renderer that can hide, they go now.
+   */
+  function park() {
+    if (_parkTimer !== null) return;
+    if (!_region || typeof renderer.setVisible !== 'function') {
+      clearAll(statusOff());
+      return;
+    }
+    renderer.setVisible(false);
+    stopTicking();
+    setStatus({ state: statusOff() });
+    requestRender('blocks-park');
+    _parkTimer = setTimeoutImpl(() => {
+      _parkTimer = null;
+      clearAll(statusOff());
+      renderer.setVisible(true);
+    }, PARK_MS);
+  }
+
+  /** Back in Blocks while parked: the kept chunks shown again. */
+  function unpark() {
+    if (_parkTimer === null) return;
+    clearTimeoutImpl(_parkTimer);
+    _parkTimer = null;
+    renderer.setVisible?.(true);
+    requestRender('blocks-unpark');
+  }
+
   function tick() {
     const camera = active() ? cameraLonLat() : null;
     const held = holdFor(camera);
     applyGlobe(Boolean(held));
     if (!active()) {
-      if (_region || _anchoring || _chunks.size) clearAll(statusOff());
+      if (_region || _anchoring || _chunks.size) park();
       else setStatus({ state: statusOff() });
       return;
     }
+    unpark();
     if (!camera) return;
     if (held) {
       // Nothing anchored or asked for; what is drawn stays.
@@ -1084,7 +1155,10 @@ export function createBlocksController({
             !supergroupInside(at, gi, gj, groupSize, radiusBlocks),
         )
       : [];
-    const perTick = tickBudget(budget, _region.blockM);
+    // With the pool meshing, the pool is the bound, not the tick.
+    const perTick = meshAsync
+      ? Math.max(ASYNC_BUDGET, tickBudget(budget, _region.blockM))
+      : tickBudget(budget, _region.blockM);
     const time = now();
     // Start loads, nearest first, while fewer than the budget are in flight:
     // the fine chunks, and the coarse ring with a budget of its own (a
@@ -1128,8 +1202,13 @@ export function createBlocksController({
     // Mesh what arrived or changed (its version, or a neighbour's), nearest
     // first; a coarse chunk goes when the 16 fine chunks under it are drawn
     // and comes back (its mesh kept) when one of them is dropped.
+    // Back-pressure: no mesh submits while the pool's queue is deep.
+    const backlog = meshAsync ? meshBacklog?.() : null;
+    const poolFull =
+      Boolean(backlog) &&
+      backlog.waiting > BACKLOG_PER_WORKER * Math.max(1, backlog.workers || 0);
     const meshEach = (wanted, held, keyOf, covered = () => false) => {
-      let meshed = 0;
+      let meshed = poolFull ? perTick : 0;
       for (const place of wanted) {
         if (meshed >= perTick) break;
         const entry = held.get(keyOf(place));
@@ -1287,6 +1366,7 @@ export function createBlocksController({
     },
     /** For tests and the harness. */
     _state: () => ({
+      parked: _parkTimer !== null,
       region: _region,
       chunks: _chunks,
       coarse: _coarse,
@@ -1295,6 +1375,8 @@ export function createBlocksController({
     }),
     destroy() {
       if (_destroyed) return;
+      if (_parkTimer !== null) clearTimeoutImpl(_parkTimer);
+      _parkTimer = null;
       for (const remove of _removers.splice(0)) {
         try {
           remove?.();
