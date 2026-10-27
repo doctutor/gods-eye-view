@@ -156,7 +156,8 @@ void main() {
   v_positionEC = positionEC.xyz;
   v_normalEC = czm_normal * normal;
   v_color = color;
-  v_localPosition = position;
+  // A chunk in a batch is offset to the batch's origin: its own place again.
+  v_localPosition = position - czm_batchTable_blockOffset(batchId);
   v_localNormal = normal;
   v_chunk = czm_batchTable_blockChunk(batchId);
   gl_Position = czm_projection * vec4(positionEC.xyz * (1.0 - DEPTH_BIAS), 1.0);
@@ -326,8 +327,47 @@ export function splitMesh({
   return { opaque: part(0, cut), water: part(cut, indices.length) };
 }
 
-function meshGeometry({ positions, normals, colors, indices }) {
+/**
+ * A mesh part as the renderer keeps it to rebuild batches from: normals as
+ * normalized bytes (they are axis unit vectors, so exact) and indices as
+ * 16 bits where they fit; positions and colours as given.
+ */
+export function compactPart(part) {
+  if (!part) return null;
+  const { positions, normals, colors, indices } = part;
+  let bytes = normals;
+  if (!(normals instanceof Int8Array)) {
+    bytes = new Int8Array(normals.length);
+    for (let k = 0; k < normals.length; k++)
+      bytes[k] = Math.round(normals[k] * 127);
+  }
+  const short =
+    positions.length / 3 < 65536 && !(indices instanceof Uint16Array)
+      ? new Uint16Array(indices)
+      : indices;
+  return { positions, normals: bytes, colors, indices: short };
+}
+
+/** A kept part's bytes. */
+const partBytes = (part) =>
+  part
+    ? part.positions.byteLength +
+      part.normals.byteLength +
+      part.colors.byteLength +
+      part.indices.byteLength
+    : 0;
+
+function meshGeometry({ positions, normals, colors, indices }, offset = null) {
   const vertexCount = positions.length / 3;
+  if (offset && (offset.x || offset.y || offset.z)) {
+    const moved = new Float32Array(positions.length);
+    for (let k = 0; k < positions.length; k += 3) {
+      moved[k] = positions[k] + offset.x;
+      moved[k + 1] = positions[k + 1] + offset.y;
+      moved[k + 2] = positions[k + 2] + offset.z;
+    }
+    positions = moved;
+  }
   return new Cesium.Geometry({
     attributes: {
       position: new Cesium.GeometryAttribute({
@@ -335,11 +375,19 @@ function meshGeometry({ positions, normals, colors, indices }) {
         componentsPerAttribute: 3,
         values: positions,
       }),
-      normal: new Cesium.GeometryAttribute({
-        componentDatatype: Cesium.ComponentDatatype.FLOAT,
-        componentsPerAttribute: 3,
-        values: normals,
-      }),
+      normal:
+        normals instanceof Int8Array
+          ? new Cesium.GeometryAttribute({
+              componentDatatype: Cesium.ComponentDatatype.BYTE,
+              componentsPerAttribute: 3,
+              normalize: true,
+              values: normals,
+            })
+          : new Cesium.GeometryAttribute({
+              componentDatatype: Cesium.ComponentDatatype.FLOAT,
+              componentsPerAttribute: 3,
+              values: normals,
+            }),
       color: new Cesium.GeometryAttribute({
         componentDatatype: Cesium.ComponentDatatype.UNSIGNED_BYTE,
         componentsPerAttribute: 4,
@@ -349,8 +397,12 @@ function meshGeometry({ positions, normals, colors, indices }) {
     },
     indices:
       vertexCount < 65536
-        ? Uint16Array.from(indices)
-        : Uint32Array.from(indices),
+        ? indices instanceof Uint16Array
+          ? indices
+          : Uint16Array.from(indices)
+        : indices instanceof Uint32Array
+          ? indices
+          : Uint32Array.from(indices),
     primitiveType: Cesium.PrimitiveType.TRIANGLES,
     boundingSphere: Cesium.BoundingSphere.fromVertices(positions),
   });
@@ -385,6 +437,25 @@ export function regionFrame(region, datumOffsetM = 0) {
   );
 }
 
+/** Chunks a batch side: 4 × 4 chunks (a source.js group) draw as one primitive per kind. */
+export const BATCH_CHUNKS = 4;
+/** How long a batch's chunks are left alone before it is rebuilt with them, ms. */
+export const BATCH_QUIET_MS = 1500;
+
+/**
+ * The batch a chunk key draws in: fine chunks 'ci:cj' by their 4 × 4
+ * group, coarse ones 'c:gi:gj' by 4 × 4 coarse chunks; any other key alone.
+ */
+export function batchKeyOf(key) {
+  const fine = parseChunkKey(key);
+  if (fine)
+    return `g:${Math.floor(fine.ci / BATCH_CHUNKS)}:${Math.floor(fine.cj / BATCH_CHUNKS)}`;
+  const coarse = /^c:(-?\d+):(-?\d+)$/.exec(String(key));
+  if (coarse)
+    return `s:${Math.floor(Number(coarse[1]) / BATCH_CHUNKS)}:${Math.floor(Number(coarse[2]) / BATCH_CHUNKS)}`;
+  return `k:${key}`;
+}
+
 /** A chunk's model matrix: the region's frame moved to the chunk's origin. */
 export function chunkMatrix(frame, origin, result = new Cesium.Matrix4()) {
   return Cesium.Matrix4.multiplyByTranslation(
@@ -406,6 +477,13 @@ export function createBlocksRenderer({
   edges = true,
   dither = true,
   now = () => Date.now(),
+  quietMs = BATCH_QUIET_MS,
+  setTimeoutImpl = (callback, ms) => {
+    const handle = setTimeout(callback, ms);
+    handle?.unref?.();
+    return handle;
+  },
+  clearTimeoutImpl = (handle) => clearTimeout(handle),
 } = {}) {
   const scene = viewer.scene;
   const collection = scene.primitives.add(
@@ -415,7 +493,18 @@ export function createBlocksRenderer({
     opaque: blocksAppearance(false),
     water: blocksAppearance(true),
   };
-  const chunks = new Map(); // key → {origin, primitives: Primitive[]}
+  // Chunks draw in batches of 4 × 4 (batchKeyOf): one opaque and one water
+  // primitive a batch, one geometry instance a chunk, so hundreds of chunks
+  // are tens of draw calls. A chunk that arrives or changes draws alone at
+  // once (its old instance in the batch hidden), and the batch is rebuilt
+  // with it once it has been quiet for `quietMs`, one batch a frame, so
+  // neither streaming nor an edit waits on rebuilding sixteen chunks.
+  /** key → {batch, origin, parts: {opaque, water}, chunk: [ci, cj], alone: Primitive[], ids} */
+  const chunks = new Map();
+  /** batch key → {origin, members: Set, built: Map<key, ids>, primitives, changedAt} */
+  const batches = new Map();
+  const pending = new Set(); // batches with chunks drawn alone, or hidden
+  let wake = null;
   let region = null;
   let datumOffsetM = 0;
   let frame = null;
@@ -492,21 +581,198 @@ export function createBlocksRenderer({
 
   const removePreRender = scene.preRender?.addEventListener(() => {
     if (followBackground()) applyFog();
+    flush();
   });
   followBackground();
   applyFog();
 
+  /** A chunk's geometry instance: its place (the dither's global columns) and its offset in a batch (its own coordinates for the block edges). */
+  function chunkInstance(key, held, kind, offset, id) {
+    return new Cesium.GeometryInstance({
+      geometry: meshGeometry(held.parts[kind], offset),
+      id,
+      attributes: {
+        blockChunk: new Cesium.GeometryInstanceAttribute({
+          componentDatatype: Cesium.ComponentDatatype.FLOAT,
+          componentsPerAttribute: 2,
+          value: held.chunk,
+        }),
+        blockOffset: new Cesium.GeometryInstanceAttribute({
+          componentDatatype: Cesium.ComponentDatatype.FLOAT,
+          componentsPerAttribute: 3,
+          value: [offset.x, offset.y, offset.z],
+        }),
+        show: new Cesium.ShowGeometryInstanceAttribute(true),
+      },
+    });
+  }
+
+  function drawn(instances, kind, origin) {
+    return collection.add(
+      primitive3D({
+        geometryInstances: instances,
+        appearance: appearances[kind],
+        modelMatrix: chunkMatrix(frame, origin),
+        asynchronous: false,
+        compressVertices: false,
+        allowPicking: true,
+        shadows: Cesium.ShadowMode.DISABLED,
+      }),
+    );
+  }
+
+  /** A chunk drawn alone, at its own origin. */
+  function drawAlone(key, held) {
+    const zero = { x: 0, y: 0, z: 0 };
+    return ['opaque', 'water']
+      .filter((kind) => held.parts[kind])
+      .map((kind) =>
+        drawn(
+          [
+            chunkInstance(key, held, kind, zero, {
+              blocks: true,
+              key,
+              water: kind === 'water',
+            }),
+          ],
+          kind,
+          held.origin,
+        ),
+      );
+  }
+
+  /** Rebuild a batch from its chunks, each offset to the batch's origin; their lone primitives go. */
+  function rebuild(batchKey) {
+    const batch = batches.get(batchKey);
+    pending.delete(batchKey);
+    if (!batch) return;
+    batch.rebuildNow = false;
+    const instances = { opaque: [], water: [] };
+    const built = new Map();
+    for (const key of batch.members) {
+      const held = chunks.get(key);
+      const offset = {
+        x: held.origin.x - batch.origin.x,
+        y: held.origin.y - batch.origin.y,
+        z: (held.origin.z || 0) - (batch.origin.z || 0),
+      };
+      const ids = {};
+      for (const kind of ['opaque', 'water']) {
+        if (!held.parts[kind]) continue;
+        ids[kind] = { blocks: true, key, water: kind === 'water' };
+        instances[kind].push(chunkInstance(key, held, kind, offset, ids[kind]));
+      }
+      built.set(key, ids);
+    }
+    const before = batch.primitives;
+    batch.primitives = ['opaque', 'water']
+      .filter((kind) => instances[kind].length)
+      .map((kind) => drawn(instances[kind], kind, batch.origin));
+    batch.built = built;
+    for (const primitive of before) collection.remove(primitive);
+    for (const key of batch.members) {
+      const held = chunks.get(key);
+      for (const primitive of held.alone) collection.remove(primitive);
+      held.alone = [];
+    }
+    if (!batch.members.size) batches.delete(batchKey);
+  }
+
+  /**
+   * Hide a chunk's instance in its batch (it is drawn alone, or gone); a
+   * batch not drawn yet is rebuilt instead.
+   */
+  function hideInBatch(batch, key) {
+    const ids = batch.built.get(key);
+    if (!ids) return;
+    batch.built.delete(key);
+    for (const primitive of batch.primitives) {
+      const id =
+        primitive.appearance === appearances.water ? ids.water : ids.opaque;
+      if (!id) continue;
+      if (!primitive.ready) {
+        batch.rebuildNow = true; // not drawn yet: rebuilt on the next frame
+        continue;
+      }
+      const attributes = primitive.getGeometryInstanceAttributes(id);
+      if (attributes)
+        attributes.show = Cesium.ShowGeometryInstanceAttribute.toValue(false);
+    }
+  }
+
+  /** Wake a frame when a pending batch has been quiet long enough (requestRenderMode draws only on request). */
+  function scheduleWake() {
+    if (wake !== null || !pending.size || destroyed) return;
+    wake = setTimeoutImpl(() => {
+      wake = null;
+      requestRender();
+      scheduleWake();
+    }, quietMs);
+  }
+
+  function changed(batchKey, batch) {
+    batch.changedAt = now();
+    pending.add(batchKey);
+    scheduleWake();
+    requestRender();
+  }
+
+  /**
+   * Rebuild pending batches that have been quiet for `quietMs`: one a frame
+   * (each frame calls it), or every pending one with `{all: true}`.
+   * @returns {number} batches rebuilt
+   */
+  function flush({ all = false } = {}) {
+    if (!pending.size || !frame) return 0;
+    const time = now();
+    let rebuilt = 0;
+    for (const batchKey of [...pending]) {
+      const batch = batches.get(batchKey);
+      if (
+        !all &&
+        batch &&
+        !batch.rebuildNow &&
+        time - batch.changedAt < quietMs
+      )
+        continue;
+      rebuild(batchKey);
+      rebuilt++;
+      if (!all) break;
+    }
+    if (pending.size) requestRender();
+    return rebuilt;
+  }
+
   function dropChunk(key) {
     const held = chunks.get(key);
     if (!held) return false;
-    for (const primitive of held.primitives) collection.remove(primitive);
     chunks.delete(key);
+    for (const primitive of held.alone) collection.remove(primitive);
+    const batch = batches.get(held.batch);
+    if (batch) {
+      batch.members.delete(key);
+      hideInBatch(batch, key);
+      changed(held.batch, batch);
+    }
     return true;
   }
 
-  function placeAll() {
+  function dropAll() {
+    for (const batch of batches.values())
+      for (const primitive of batch.primitives) collection.remove(primitive);
     for (const held of chunks.values())
-      for (const primitive of held.primitives)
+      for (const primitive of held.alone) collection.remove(primitive);
+    batches.clear();
+    chunks.clear();
+    pending.clear();
+  }
+
+  function placeAll() {
+    for (const batch of batches.values())
+      for (const primitive of batch.primitives)
+        primitive.modelMatrix = chunkMatrix(frame, batch.origin);
+    for (const held of chunks.values())
+      for (const primitive of held.alone)
         primitive.modelMatrix = chunkMatrix(frame, held.origin);
   }
 
@@ -527,7 +793,7 @@ export function createBlocksRenderer({
         region.lat0 === next.lat0 &&
         region.blockM === next.blockM;
       if (same && offsetM === datumOffsetM) return api.getState();
-      if (!same) for (const key of [...chunks.keys()]) dropChunk(key);
+      if (!same) dropAll();
       region = next || null;
       datumOffsetM = offsetM;
       frame = region ? regionFrame(region, datumOffsetM) : null;
@@ -537,49 +803,56 @@ export function createBlocksRenderer({
       return api.getState();
     },
 
-    /** Draw or replace a chunk's mesh (mesh.js's buildChunkMesh). */
+    /**
+     * Draw or replace a chunk's mesh (mesh.js's buildChunkMesh). It draws
+     * alone at once, its old self in its batch hidden; the batch takes it
+     * in when it has been quiet for `quietMs`. The mesh's arrays are kept
+     * (as given: the mesher does not change them after) to rebuild from.
+     */
     upsert(key, mesh) {
       if (!region) throw new Error('Blocks renderer: setRegion first');
-      dropChunk(key);
       if (!mesh || !mesh.indices?.length) {
-        requestRender();
+        if (!dropChunk(key)) requestRender();
         return;
       }
       const parsed = parseChunkKey(key);
       const origin =
         mesh.origin || (parsed && region.chunkOrigin(parsed.ci, parsed.cj));
       if (!origin) throw new Error(`Blocks renderer: no origin for ${key}`);
-      const parts = splitMesh(mesh);
-      const primitives = [];
-      for (const kind of ['opaque', 'water']) {
-        if (!parts[kind]) continue;
-        primitives.push(
-          collection.add(
-            primitive3D({
-              geometryInstances: new Cesium.GeometryInstance({
-                geometry: meshGeometry(parts[kind]),
-                id: { blocks: true, key, water: kind === 'water' },
-                attributes: {
-                  // The chunk's place, so the dither's columns are global.
-                  blockChunk: new Cesium.GeometryInstanceAttribute({
-                    componentDatatype: Cesium.ComponentDatatype.FLOAT,
-                    componentsPerAttribute: 2,
-                    value: [parsed?.ci ?? 0, parsed?.cj ?? 0],
-                  }),
-                },
-              }),
-              appearance: appearances[kind],
-              modelMatrix: chunkMatrix(frame, origin),
-              asynchronous: false,
-              compressVertices: false,
-              allowPicking: true,
-              shadows: Cesium.ShadowMode.DISABLED,
-            }),
-          ),
-        );
+      const batchKey = batchKeyOf(key);
+      const before = chunks.get(key);
+      if (before) {
+        for (const primitive of before.alone) collection.remove(primitive);
+        if (before.batch !== batchKey) dropChunk(key);
       }
-      chunks.set(key, { origin, primitives });
-      requestRender();
+      let batch = batches.get(batchKey);
+      if (!batch) {
+        batch = {
+          origin,
+          members: new Set(),
+          built: new Map(),
+          primitives: [],
+          changedAt: 0,
+        };
+        batches.set(batchKey, batch);
+      }
+      batch.members.add(key);
+      hideInBatch(batch, key);
+      const held = {
+        batch: batchKey,
+        origin,
+        parts: Object.fromEntries(
+          Object.entries(splitMesh(mesh)).map(([kind, part]) => [
+            kind,
+            compactPart(part),
+          ]),
+        ),
+        chunk: [parsed?.ci ?? 0, parsed?.cj ?? 0],
+        alone: [],
+      };
+      chunks.set(key, held);
+      held.alone = drawAlone(key, held);
+      changed(batchKey, batch);
     },
 
     remove(key) {
@@ -645,6 +918,12 @@ export function createBlocksRenderer({
 
     keys: () => [...chunks.keys()],
 
+    /**
+     * Rebuild the quiet pending batches (each frame does it, one a frame);
+     * `{all: true}` rebuilds every pending one now. The number rebuilt.
+     */
+    flush,
+
     getState: () => ({
       region,
       datumOffsetM,
@@ -653,6 +932,14 @@ export function createBlocksRenderer({
         dither: style.dither && { ...style.dither },
       },
       chunks: chunks.size,
+      batches: batches.size,
+      // What is kept to rebuild batches from, MB.
+      retainedMB:
+        [...chunks.values()].reduce(
+          (sum, held) =>
+            sum + partBytes(held.parts.opaque) + partBytes(held.parts.water),
+          0,
+        ) / 1e6,
       primitives: collection.length,
       sun,
       fog: {
@@ -670,7 +957,9 @@ export function createBlocksRenderer({
       if (destroyed) return;
       destroyed = true;
       removePreRender?.();
-      chunks.clear();
+      if (wake !== null) clearTimeoutImpl(wake);
+      wake = null;
+      dropAll();
       scene.primitives.remove(collection);
       requestRender();
     },

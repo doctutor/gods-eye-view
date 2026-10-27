@@ -11,6 +11,9 @@ import { CHUNK_COLUMNS, createRegion } from './grid.js';
 import { createChunk } from './store.js';
 import { buildChunkMesh } from './mesh.js';
 import {
+  BATCH_CHUNKS,
+  compactPart,
+  batchKeyOf,
   DITHER_DEFAULTS,
   HORIZON_SKY_DAY,
   HORIZON_SKY_DUSK,
@@ -323,7 +326,7 @@ test('a real Cesium.Primitive from a tiny mesh: float local positions, per-verte
   assert.ok(primitive instanceof Cesium.Primitive);
   assert.equal(primitive.allowPicking, true);
   assert.equal(primitive.asynchronous, false);
-  const instance = primitive.geometryInstances;
+  const [instance] = primitive.geometryInstances;
   assert.deepEqual(instance.id, { blocks: true, key: '0:0', water: false });
   const { attributes, indices, boundingSphere } = instance.geometry;
   assert.equal(
@@ -334,6 +337,13 @@ test('a real Cesium.Primitive from a tiny mesh: float local positions, per-verte
     attributes.color.componentDatatype,
     Cesium.ComponentDatatype.UNSIGNED_BYTE,
   );
+  // Normals as normalized bytes (axis unit vectors: exact).
+  assert.equal(
+    attributes.normal.componentDatatype,
+    Cesium.ComponentDatatype.BYTE,
+  );
+  assert.equal(attributes.normal.normalize, true);
+  assert.deepEqual([...attributes.normal.values.slice(0, 3)], [0, 0, 127]);
   assert.equal(attributes.color.normalize, true);
   assert.ok(indices instanceof Uint16Array);
   assert.ok(boundingSphere.radius > 0 && boundingSphere.radius < 2);
@@ -483,8 +493,8 @@ test('the real mesher into the renderer: land and sea chunk, opaque and water pr
   assert.equal(opaque.appearance.isTranslucent(), false);
   assert.equal(sea.appearance.isTranslucent(), true);
   assert.equal(
-    opaque.geometryInstances.geometry.indices.length +
-      sea.geometryInstances.geometry.indices.length,
+    opaque.geometryInstances[0].geometry.indices.length +
+      sea.geometryInstances[0].geometry.indices.length,
     mesh.indices.length,
   );
   renderer.destroy();
@@ -509,13 +519,16 @@ test('block edges and top dither: on by default for land, never for water, block
   // Each chunk carries its place for global dither columns.
   for (const primitive of [land, sea])
     assert.deepEqual(
-      primitive.geometryInstances.attributes.blockChunk.value,
+      primitive.geometryInstances[0].attributes.blockChunk.value,
       [3, -2],
     );
   // The shaders: local position and normal through, lines by fwidth, the tone applied before the fog.
   const vs = land.appearance.vertexShaderSource;
   assert.match(vs, /v_chunk = czm_batchTable_blockChunk\(batchId\)/);
-  assert.match(vs, /v_localPosition = position;/);
+  assert.match(
+    vs,
+    /v_localPosition = position - czm_batchTable_blockOffset\(batchId\);/,
+  );
   const fs = land.appearance.getFragmentShaderSource();
   assert.match(fs, /fwidth\(f\)/);
   assert.match(fs, /ditherAmount_\d+ \* ditherFade \*/);
@@ -638,6 +651,7 @@ test('the renderer fog follows the sky at eye level, the background high up, and
   const renderer = createBlocksRenderer({ viewer, now: () => clock });
   renderer.setRegion(stubRegion());
   renderer.upsert('0:0', tinyMesh());
+  renderer.flush();
   const uniforms = () =>
     renderer.getCollection().get(0).appearance.material.uniforms;
   let fog = renderer.getState().fog;
@@ -672,5 +686,177 @@ test('the renderer fog follows the sky at eye level, the background high up, and
   // 'background' follows again: the sky, at eye level.
   renderer.setFog({ color: 'background' });
   assert.equal(renderer.getState().fog.source, 'sky');
+  renderer.destroy();
+});
+
+test('batchKeyOf: fine chunks by 4 × 4 group, coarse chunks by 4 × 4 coarse chunks', () => {
+  assert.equal(batchKeyOf('0:0'), 'g:0:0');
+  assert.equal(batchKeyOf('3:3'), 'g:0:0');
+  assert.equal(batchKeyOf('4:-1'), 'g:1:-1');
+  assert.equal(batchKeyOf('-5:7'), 'g:-2:1');
+  assert.equal(batchKeyOf('c:2:-3'), 's:0:-1');
+  assert.equal(batchKeyOf('c:-4:8'), 's:-1:2');
+  assert.equal(batchKeyOf('odd'), 'k:odd');
+  assert.equal(BATCH_CHUNKS, 4);
+});
+
+/** A renderer on a fake scene with frames (preRender), a clock and a captured wake timer. */
+function batchSetup() {
+  const viewer = fakeViewer();
+  viewer.scene.preRender = new Cesium.Event();
+  let clock = 1_000_000;
+  const wakes = [];
+  const renderer = createBlocksRenderer({
+    viewer,
+    now: () => clock,
+    quietMs: 1500,
+    setTimeoutImpl(callback, ms) {
+      wakes.push({ callback, ms });
+      return wakes.length;
+    },
+    clearTimeoutImpl() {},
+  });
+  renderer.setRegion(stubRegion({ blockM: 1 }));
+  return {
+    viewer,
+    renderer,
+    wakes,
+    advance: (ms) => (clock += ms),
+    frame: () => viewer.scene.preRender.raiseEvent(viewer.scene),
+  };
+}
+
+test('a group of 16 chunks draws alone at once, then as one batch when quiet', () => {
+  const { renderer, advance, frame, wakes } = batchSetup();
+  const collection = renderer.getCollection();
+  for (let ci = 4; ci < 8; ci++)
+    for (let cj = 0; cj < 4; cj++) renderer.upsert(`${ci}:${cj}`, tinyMesh());
+  // Each chunk alone first: no wait on the batch.
+  assert.equal(collection.length, 16);
+  assert.equal(renderer.getState().batches, 1);
+  // A frame before the batch has been quiet changes nothing …
+  frame();
+  assert.equal(collection.length, 16);
+  // … and a wake is set to draw a frame when it has been.
+  assert.equal(wakes.at(-1).ms, 1500);
+  advance(1500);
+  frame();
+  assert.equal(collection.length, 1, 'one primitive for the group');
+  const batch = collection.get(0);
+  assert.equal(batch.geometryInstances.length, 16);
+  // Each chunk's offset in the batch (from its first chunk, 4:0) is its own place.
+  const offsets = batch.geometryInstances.map((instance) => [
+    instance.id.key,
+    [...instance.attributes.blockOffset.value],
+    [...instance.attributes.blockChunk.value],
+  ]);
+  const sixOne = offsets.find(([key]) => key === '6:1');
+  assert.deepEqual(sixOne[1], [128, 64, 0]);
+  assert.deepEqual(sixOne[2], [6, 1]);
+  assert.ok(batch.geometryInstances.every((i) => i.attributes.show));
+  // Positions are moved by the offset: chunk 6:1's quad starts at x 128.
+  const six = batch.geometryInstances.find((i) => i.id.key === '6:1');
+  assert.equal(six.geometry.attributes.position.values[0], 128);
+  assert.equal(renderer.keys().length, 16);
+});
+
+test('a changed or removed chunk draws alone again and the batch takes it back when quiet', () => {
+  const { renderer, advance, frame } = batchSetup();
+  const collection = renderer.getCollection();
+  for (let ci = 0; ci < 4; ci++) renderer.upsert(`${ci}:0`, tinyMesh());
+  renderer.upsert('0:1', tinyMesh({ water: true }));
+  renderer.flush({ all: true });
+  // Opaque and water: two primitives for the batch.
+  assert.equal(collection.length, 2);
+  // A re-mesh: alone at once (its batch instance hidden, or the batch
+  // rebuilt next frame when not drawn yet, as here without a GPU).
+  renderer.upsert('2:0', tinyMesh());
+  assert.equal(collection.length, 3);
+  frame();
+  assert.equal(collection.length, 2);
+  // A removal: gone from the batch at the next quiet rebuild.
+  renderer.remove('1:0');
+  advance(1500);
+  frame();
+  const opaque = [...Array(collection.length).keys()]
+    .map((k) => collection.get(k))
+    .find((p) => !p.appearance.isTranslucent());
+  assert.deepEqual(opaque.geometryInstances.map((i) => i.id.key).sort(), [
+    '0:0',
+    '0:1',
+    '2:0',
+    '3:0',
+  ]);
+  // Removing every chunk takes the batch away.
+  for (const key of ['0:0', '0:1', '2:0', '3:0']) renderer.remove(key);
+  renderer.flush({ all: true });
+  assert.equal(collection.length, 0);
+  assert.equal(renderer.getState().batches, 0);
+});
+
+test('one batch a frame; flush({all}) does every pending one; a new region drops them all', () => {
+  const { renderer, advance, frame } = batchSetup();
+  const collection = renderer.getCollection();
+  renderer.upsert('0:0', tinyMesh());
+  renderer.upsert('4:0', tinyMesh()); // another group
+  renderer.upsert('c:8:0', {
+    ...tinyMesh(),
+    origin: { x: 2048, y: 0, z: -0.3 },
+  }); // a coarse chunk
+  advance(1500);
+  frame();
+  assert.equal(
+    collection.length,
+    3,
+    'one of three batches rebuilt (its chunk alone gone)',
+  );
+  frame();
+  frame();
+  assert.equal(collection.length, 3);
+  assert.equal(renderer.getState().batches, 3);
+  // The coarse batch keeps the coarse chunk's own origin (its z drop too).
+  const coarse = [...Array(collection.length).keys()]
+    .map((k) => collection.get(k))
+    .find((p) => p.geometryInstances.some((i) => i.id.key === 'c:8:0'));
+  assert.ok(
+    Math.abs(
+      Cesium.Matrix4.getTranslation(coarse.modelMatrix, new Cesium.Cartesian3())
+        .y - 2048,
+    ) < 1e-6,
+  );
+  // A new datum moves batches and lone chunks alike, 10 m up (+X at 0°, 0°).
+  renderer.upsert('1:0', tinyMesh());
+  const at = () =>
+    [...Array(collection.length).keys()].map((k) =>
+      Cesium.Matrix4.getTranslation(
+        collection.get(k).modelMatrix,
+        new Cesium.Cartesian3(),
+      ),
+    );
+  const before = at();
+  renderer.setRegion(stubRegion({ blockM: 1 }), { datumOffsetM: 10 });
+  at().forEach((t, k) => {
+    assert.ok(Math.abs(t.x - before[k].x - 10) < 1e-6);
+    assert.ok(Math.abs(t.y - before[k].y) < 1e-6);
+  });
+  renderer.flush({ all: true });
+  // Another region: nothing left.
+  renderer.setRegion(stubRegion({ lon0: 1, blockM: 1 }));
+  assert.equal(collection.length, 0);
+  assert.deepEqual(renderer.keys(), []);
+  renderer.destroy();
+});
+
+test('compactPart: byte normals and 16-bit indices, kept and counted', () => {
+  const part = compactPart(tinyMesh());
+  assert.ok(part.normals instanceof Int8Array);
+  assert.deepEqual([...part.normals.slice(0, 3)], [0, 0, 127]);
+  assert.ok(part.indices instanceof Uint16Array);
+  assert.equal(compactPart(null), null);
+  const renderer = createBlocksRenderer({ viewer: fakeViewer() });
+  renderer.setRegion(stubRegion());
+  renderer.upsert('0:0', tinyMesh());
+  // 4 vertices: 48 bytes of positions, 12 of normals, 16 of colours, 12 of indices.
+  assert.ok(Math.abs(renderer.getState().retainedMB - 88 / 1e6) < 1e-12);
   renderer.destroy();
 });
