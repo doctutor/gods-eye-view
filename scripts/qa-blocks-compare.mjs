@@ -13,7 +13,9 @@
  * tiled by reflection out past the coarse ring), so
  * neither Earth Engine nor the local server is needed; the colour tiles
  * paint it in the PET rainbow over 0 to 100 m, the `cs` the hash asks
- * for. Every other /api/ route answers 404 and other hosts are refused.
+ * for; /api/overpass answers a few synthetic buildings north of the
+ * camera (SYNTHETIC_BUILDINGS), so Blocks draws them. Every other /api/
+ * route answers 404 and other hosts are refused.
  *
  *   node scripts/qa-blocks-compare.mjs --dist <vite build dir> --out <dir>
  *   node scripts/qa-blocks-compare.mjs --build --out <dir>   # builds first
@@ -186,6 +188,103 @@ export function rasterValuesBody(query, field) {
     },
     values,
   );
+}
+
+// ── Buildings: a synthetic Overpass answer ─────────────────────────────
+
+/**
+ * A few buildings north of the camera, in view from both shots: where
+ * (metres north and east of the camera), how big, and the tags Overpass
+ * would give (a height, or storeys, or nothing; one starts 6 m up, so a
+ * hollow shows under it at eye level).
+ */
+export const SYNTHETIC_BUILDINGS = Object.freeze([
+  {
+    id: 1,
+    north: 170,
+    east: -70,
+    width: 30,
+    depth: 20,
+    tags: { height: '18' },
+  },
+  {
+    id: 2,
+    north: 210,
+    east: 10,
+    width: 24,
+    depth: 40,
+    tags: { 'building:levels': '6', min_height: '6' },
+  },
+  {
+    id: 3,
+    north: 270,
+    east: -130,
+    width: 40,
+    depth: 40,
+    tags: { height: '45 m' },
+  },
+  { id: 4, north: 330, east: 70, width: 20, depth: 20, tags: { height: '80' } },
+  {
+    id: 5,
+    north: 150,
+    east: 110,
+    width: 50,
+    depth: 15,
+    tags: { 'building:levels': '2' },
+  },
+  {
+    id: 6,
+    north: 430,
+    east: -20,
+    width: 60,
+    depth: 30,
+    tags: { 'building:levels': '4' },
+  },
+  { id: 7, north: 240, east: 160, width: 18, depth: 18, tags: {} },
+]);
+
+/** A building's ring (closed, lat/lon) around its centre. */
+function buildingRing({ north, east, width, depth }) {
+  const mLon = M_PER_DEG * Math.cos((VIEW.lat * Math.PI) / 180);
+  const at = (dn, de) => ({
+    lat: Math.round((VIEW.lat + (north + dn) / M_PER_DEG) * 1e7) / 1e7,
+    lon: Math.round((VIEW.lon + (east + de) / mLon) * 1e7) / 1e7,
+  });
+  const ring = [
+    at(-depth / 2, -width / 2),
+    at(-depth / 2, width / 2),
+    at(depth / 2, width / 2),
+    at(depth / 2, -width / 2),
+  ];
+  return [...ring, ring[0]];
+}
+
+/**
+ * The answer to an Overpass query from the Blocks buildings source
+ * (structures.js groupQuery): the synthetic buildings in the query's
+ * box, as `out geom` ways.
+ */
+export function overpassAnswer(query) {
+  const box = /\((-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)\)/.exec(
+    String(query),
+  );
+  if (!box) return { elements: [] };
+  const [south, west, north, east] = box.slice(1).map(Number);
+  const elements = [];
+  for (const building of SYNTHETIC_BUILDINGS) {
+    const geometry = buildingRing(building);
+    const inside = geometry.some(
+      (p) => p.lat >= south && p.lat <= north && p.lon >= west && p.lon <= east,
+    );
+    if (inside)
+      elements.push({
+        type: 'way',
+        id: building.id,
+        tags: { building: 'yes', ...building.tags },
+        geometry,
+      });
+  }
+  return { elements };
 }
 
 // ── The colour tiles: PET rainbow, 0 to 100 m ───────────────────────────
@@ -421,6 +520,13 @@ function respond(request, { dist, field, log }) {
   }
   if (url.pathname === '/api/earth-engine/layers')
     return json(200, earthEngineCatalog());
+  if (url.pathname === '/api/overpass') {
+    // The buildings source's queries (POST data=…): the synthetic town.
+    const body = new URLSearchParams(request.postData() || '');
+    const answer = overpassAnswer(body.get('data') || '');
+    log.buildings += answer.elements.length;
+    return json(200, answer);
+  }
   const tile =
     /^\/api\/earth-engine\/tile\/ee-elevation\/[^/]+\/[^/]+\/(\d+)\/(\d+)\/(\d+)$/.exec(
       url.pathname,
@@ -460,7 +566,13 @@ function argValue(argv, name, fallback = null) {
 async function shoot({ browser, dist, field, out, blocks, view, suffix }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
-  const log = { values: 0, tiles: 0, missing: new Set(), errors: [] };
+  const log = {
+    values: 0,
+    tiles: 0,
+    buildings: 0,
+    missing: new Set(),
+    errors: [],
+  };
   page.on('pageerror', (error) =>
     log.errors.push(String(error?.message || error)),
   );
@@ -637,7 +749,7 @@ export async function main(argv = process.argv.slice(2)) {
     console.log(`${result.name}: ${result.file}`);
     console.log(`  status line: ${result.status || '(none)'}`);
     console.log(
-      `  values answered: ${result.values}, colour tiles: ${result.tiles}`,
+      `  values answered: ${result.values}, colour tiles: ${result.tiles}, buildings answered: ${result.buildings}`,
     );
     for (const seen of result.scene)
       console.log(`  scene: ${JSON.stringify(seen)}`);

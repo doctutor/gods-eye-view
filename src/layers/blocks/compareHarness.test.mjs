@@ -140,3 +140,34 @@ test('two views: the judgement view (300 m, −30°) and eye level (1.7 m above 
   assert.equal(hash.get('alt'), String(eye.alt));
   assert.equal(hash.get('pitch'), '-5');
 });
+
+test('the synthetic Overpass answer: the buildings in the query’s box, read by the Blocks buildings source', async () => {
+  const { overpassAnswer, SYNTHETIC_BUILDINGS } =
+    await import('../../../scripts/qa-blocks-compare.mjs');
+  const { groupQuery, parseFootprints, buildingHeightM } =
+    await import('./structures.js');
+  const around = groupQuery({
+    west: VIEW.lon - 0.01,
+    south: VIEW.lat,
+    east: VIEW.lon + 0.01,
+    north: VIEW.lat + 0.01,
+  });
+  const all = overpassAnswer(around).elements;
+  assert.equal(all.length, SYNTHETIC_BUILDINGS.length);
+  const footprints = parseFootprints(all);
+  assert.equal(footprints.length, all.length);
+  assert.ok(footprints.every((f) => f.rings[0].length === 5));
+  // The tags give the heights: 18 m, 6 storeys, 45 m, 80 m, 2 storeys, 4, none.
+  assert.deepEqual(
+    footprints.map((f) => Math.round(buildingHeightM(f.tags) * 10) / 10),
+    [18, 19.2, 45, 80, 6.4, 12.8, 6.4],
+  );
+  // A box away from the town: nothing.
+  const far = groupQuery({
+    west: VIEW.lon + 0.1,
+    south: VIEW.lat + 0.1,
+    east: VIEW.lon + 0.11,
+    north: VIEW.lat + 0.11,
+  });
+  assert.deepEqual(overpassAnswer(far).elements, []);
+});

@@ -143,6 +143,25 @@ export function chunkRing({ i, j, radius, chunkColumns }) {
 }
 
 /**
+ * Take a chunk's buildings off (its structures layer cleared column by
+ * column, so its version moves on and it is meshed again).
+ * @returns {number} columns cleared
+ */
+export function clearStructures(chunk) {
+  if (!chunk?.structure || typeof chunk.setStructure !== 'function') return 0;
+  let cleared = 0;
+  // A column a value, a chunk square.
+  const n = Math.round(Math.sqrt(chunk.structure.top.length));
+  for (let j = 0; j < n; j++)
+    for (let i = 0; i < n; i++)
+      if (chunk.structureTop(i, j) !== NO_TOP) {
+        chunk.setStructure(i, j, NO_TOP);
+        cleared++;
+      }
+  return cleared;
+}
+
+/**
  * The fine chunks to draw: every chunk of each 4 × 4 group within `radius`
  * columns, so a group is either all fine or coarse (a coarse chunk cannot
  * hide part of itself), nearest first as chunkRing orders them.
@@ -253,6 +272,15 @@ export function sourceName(source) {
  *     setSun?: Function, setFog?: Function, destroy?: Function},
  *   grid: {createRegion: Function, chunkKey: Function, CHUNK_COLUMNS: number},
  *   buildChunkMesh: Function,
+ *   meshAsync?: (chunk: object, options: object) => Promise<object>, the
+ *     worker pool's meshChunkAsync (meshPool.js): buildChunkMesh's
+ *     arguments, a promise of its mesh; buildChunkMesh in-thread without,
+ *   structures?: {loadChunk: (region, ci, cj) => Promise<{top: Int32Array,
+ *     bottom: Int32Array}|null>, apply: (chunk, levels) => number,
+ *     groupBuildings?: (region, gi, gj)
+ *     => Promise<string[]>}, OpenStreetMap buildings (structures.js) for
+ *     the fine chunks, while store.getBuildings() is not false and
+ *     Overpass answers,
  *   sun?: (lon: number, lat: number) => {dir: {east: number, north: number,
  *     up: number}, fixed: boolean},
  *   flatStyle?: () => boolean, whether the map is a drawn style (blank,
@@ -272,6 +300,8 @@ export function createBlocksController({
   renderer,
   grid,
   buildChunkMesh,
+  meshAsync = null,
+  structures = null,
   sun = () => STUDY_SUN,
   datum = FLAT_DATUM,
   flatStyle = () => false,
@@ -297,6 +327,18 @@ export function createBlocksController({
   const _chunks = new Map();
   /** 'c:gi:gj' → the same, for the coarse ring ({gi, gj}, and its mesh kept). */
   const _coarse = new Map();
+  /** Overpass said it is not configured: no buildings this page. */
+  let _overpassMissing = false;
+  /** 'gi:gj' → the ids of the buildings placed in that group. */
+  const _groupBuildings = new Map();
+  /**
+   * Whether buildings are drawn: a structures source, Overpass not known
+   * to be missing, and the Buildings switch not turned off (unchosen is on).
+   */
+  const buildingsOn = () =>
+    Boolean(structures) &&
+    !_overpassMissing &&
+    store.getBuildings?.() !== false;
   /** Whether the source draws a coarse ring (loadCoarseChunk). */
   const coarseOn = () => typeof source.loadCoarseChunk === 'function';
   const _listeners = new Set();
@@ -364,6 +406,7 @@ export function createBlocksController({
       }
     _chunks.clear();
     _coarse.clear();
+    _groupBuildings.clear();
     _region = null;
     stopTicking();
     setStatus({ state });
@@ -386,6 +429,14 @@ export function createBlocksController({
       else if (entry.failed) failed++;
       else if (!entry.chunk) pending++;
     }
+    // Buildings drawn: those placed in groups with a fine chunk drawn
+    // with its buildings, each once.
+    const ids = new Set();
+    if (buildingsOn())
+      for (const [key, list] of _groupBuildings) {
+        const [gi, gj] = key.split(':').map(Number);
+        if (groupHasBuildings(gi, gj)) for (const id of list) ids.add(id);
+      }
     setStatus({
       state: pending
         ? 'loading'
@@ -398,6 +449,8 @@ export function createBlocksController({
       pending,
       failed,
       source: _region.sourceName,
+      buildings: ids.size,
+      buildingsOn: buildingsOn(),
       // The study sun (the real one is under 15°): said on the line.
       sunFixed: Boolean(_region.sun?.fixed),
     });
@@ -633,14 +686,17 @@ export function createBlocksController({
     };
   }
 
-  function mesh(entry, { neighbours, skirt, signature }) {
-    const built = buildChunkMesh(entry.chunk, {
-      neighbours,
-      // A coarse chunk's levels are in its own unit, four blocks.
-      blockM: _region.blockM * (entry.coarse ? GROUP_CHUNKS : 1),
-      sunDir: _region.sun.dir,
-      ...(skirt ? { skirt } : {}),
-    });
+  /** What buildChunkMesh (or meshAsync) is given: plain data but the chunks. */
+  const meshOptions = (entry, { neighbours, skirt }) => ({
+    neighbours,
+    // A coarse chunk's levels are in its own unit, four blocks.
+    blockM: _region.blockM * (entry.coarse ? GROUP_CHUNKS : 1),
+    sunDir: _region.sun.dir,
+    ...(skirt ? { skirt } : {}),
+  });
+
+  /** A mesh drawn for its entry, as meshed from `signature`. */
+  function place(entry, built, signature) {
     if (entry.coarse) {
       // The renderer cannot read a 'c:' key: the group's south-west corner.
       built.origin = _region.region.chunkOrigin(
@@ -649,9 +705,157 @@ export function createBlocksController({
       );
       entry.mesh = built;
     }
-    renderer.upsert(entry.key, built);
     entry.signature = signature;
+    // A coarse chunk covered meanwhile keeps the mesh for when it comes back.
+    if (entry.coarse && groupDrawn(entry.gi, entry.gj)) return;
+    renderer.upsert(entry.key, built);
     entry.shown = true;
+  }
+
+  function meshFailed(entry, error) {
+    entry.failed = true;
+    entry.retryAt = Infinity;
+    entry.chunk = null;
+    console.warn(
+      `[Blocks] chunk ${entry.key} not meshed:`,
+      error?.message || error,
+    );
+  }
+
+  /**
+   * Mesh a chunk: in this thread with buildChunkMesh, or through `meshAsync`
+   * (the worker pool, meshPool.js) when given. A pooled mesh that comes
+   * back after the region was anchored again, the chunk was dropped, or
+   * its inputs moved on (its version, a neighbour, a skirt) is thrown
+   * away: the next tick meshes it again from what it is now.
+   */
+  function mesh(entry, inputs) {
+    const options = meshOptions(entry, inputs);
+    if (!meshAsync) {
+      place(entry, buildChunkMesh(entry.chunk, options), inputs.signature);
+      return;
+    }
+    const generation = _generation;
+    const held = entry.coarse ? _coarse : _chunks;
+    entry.meshing = inputs.signature;
+    call(() => meshAsync(entry.chunk, options)).then(
+      (built) => {
+        if (generation !== _generation || held.get(entry.key) !== entry) return;
+        if (entry.meshing === inputs.signature) entry.meshing = null;
+        if (!entry.chunk || meshInputs(entry).signature !== inputs.signature)
+          return;
+        place(entry, built, inputs.signature);
+        statusNow();
+        requestRender('blocks-chunks');
+      },
+      (error) => {
+        if (generation !== _generation || held.get(entry.key) !== entry) return;
+        entry.meshing = null;
+        meshFailed(entry, error);
+      },
+    );
+  }
+
+  /** Whether a fine chunk of the group is drawn with its buildings. */
+  function groupHasBuildings(gi, gj) {
+    for (let dj = 0; dj < GROUP_CHUNKS; dj++)
+      for (let di = 0; di < GROUP_CHUNKS; di++) {
+        const entry = _chunks.get(
+          grid.chunkKey(gi * GROUP_CHUNKS + di, gj * GROUP_CHUNKS + dj),
+        );
+        if (entry?.shown && entry.structures === 'done') return true;
+      }
+    return false;
+  }
+
+  /**
+   * A fine chunk's buildings: asked of the structures source once its
+   * terrain is in, put into its structures layer (its version moves on, so
+   * it is meshed again), and its group's building ids kept for the count.
+   * A failure is asked again after the same backoff as a chunk; Overpass
+   * saying it is not configured ends buildings for this page.
+   */
+  function loadStructures(entry) {
+    const generation = _generation;
+    const { region } = _region;
+    entry.structures = 'loading';
+    const stale = () =>
+      generation !== _generation || _chunks.get(entry.key) !== entry;
+    call(() => structures.loadChunk(region, entry.ci, entry.cj)).then(
+      (levels) => {
+        if (stale()) return;
+        if (!buildingsOn() || !entry.chunk) {
+          entry.structures = undefined;
+          return;
+        }
+        if (levels) structures.apply(entry.chunk, levels);
+        entry.structures = 'done';
+        const { gi, gj } = groupOf(entry.ci, entry.cj);
+        const key = `${gi}:${gj}`;
+        if (structures.groupBuildings && !_groupBuildings.has(key)) {
+          _groupBuildings.set(key, []);
+          call(() => structures.groupBuildings(region, gi, gj)).then(
+            (list) => {
+              if (generation !== _generation || !_groupBuildings.has(key))
+                return;
+              _groupBuildings.set(key, Array.isArray(list) ? list : []);
+              statusNow();
+            },
+            () => {},
+          );
+        }
+      },
+      (error) => {
+        if (stale()) return;
+        if (error?.code === 'unconfigured') {
+          _overpassMissing = true;
+          entry.structures = undefined;
+          statusNow();
+          return;
+        }
+        entry.structuresAttempts = (entry.structuresAttempts || 0) + 1;
+        entry.structures = 'failed';
+        entry.structuresRetryAt =
+          entry.structuresAttempts < MAX_ATTEMPTS
+            ? now() + retryDelayMs(entry.structuresAttempts)
+            : Infinity;
+        console.warn(
+          `[Blocks] buildings for ${entry.key} not loaded:`,
+          error?.message || error,
+        );
+      },
+    );
+  }
+
+  /**
+   * Buildings for the fine ring, nearest first and under the budget, or,
+   * with the switch off, taken off every chunk that has them.
+   */
+  function syncStructures(ring, perTick, time) {
+    if (!structures) return;
+    if (!buildingsOn()) {
+      for (const entry of _chunks.values()) {
+        if (entry.structures === 'done' && entry.chunk)
+          clearStructures(entry.chunk);
+        entry.structures = undefined;
+      }
+      _groupBuildings.clear();
+      return;
+    }
+    let inFlight = 0;
+    for (const entry of _chunks.values())
+      if (entry.structures === 'loading') inFlight++;
+    for (const { ci, cj } of ring) {
+      if (inFlight >= perTick) break;
+      const entry = _chunks.get(grid.chunkKey(ci, cj));
+      if (!entry?.chunk) continue;
+      if (entry.structures === 'loading' || entry.structures === 'done')
+        continue;
+      if (entry.structures === 'failed' && !(entry.structuresRetryAt <= time))
+        continue;
+      loadStructures(entry);
+      inFlight++;
+    }
   }
 
   const newEntry = (fields) => ({
@@ -820,6 +1024,8 @@ export function createBlocksController({
       ({ gi, gj }) => coarseKey(gi, gj),
       (key, { gi, gj }) => newEntry({ key, gi, gj, coarse: true }),
     );
+    // The fine ring's buildings (never the coarse ring's).
+    syncStructures(ring, perTick, time);
     // Mesh what arrived or changed (its version, or a neighbour's), nearest
     // first; a coarse chunk goes when the 16 fine chunks under it are drawn
     // and comes back (its mesh kept) when one of them is dropped.
@@ -840,6 +1046,8 @@ export function createBlocksController({
         const inputs = meshInputs(entry);
         const { signature } = inputs;
         if (entry.shown && entry.signature === signature) continue;
+        // Already being meshed from what it is now (meshAsync).
+        if (entry.meshing === signature) continue;
         if (!entry.shown && entry.mesh && entry.signature === signature) {
           renderer.upsert(entry.key, entry.mesh);
           entry.shown = true;
@@ -849,13 +1057,7 @@ export function createBlocksController({
         try {
           mesh(entry, inputs);
         } catch (error) {
-          entry.failed = true;
-          entry.retryAt = Infinity;
-          entry.chunk = null;
-          console.warn(
-            `[Blocks] chunk ${entry.key} not meshed:`,
-            error?.message || error,
-          );
+          meshFailed(entry, error);
         }
         meshed++;
         changed = true;
@@ -882,14 +1084,24 @@ export function createBlocksController({
    */
   function hasWork(ring, groups = []) {
     for (const entry of [..._chunks.values(), ..._coarse.values()])
-      if (entry.loading) return true;
+      if (entry.loading || entry.meshing) return true;
     // Not asked yet, or a retry still to come.
     const waiting = (entry) =>
       !entry || (entry.failed && entry.retryAt !== Infinity);
+    const wantBuildings = buildingsOn();
     for (const { ci, cj } of ring) {
       const entry = _chunks.get(grid.chunkKey(ci, cj));
       if (waiting(entry)) return true;
       if (!entry.chunk) continue;
+      // Buildings still to come, or to be asked again.
+      if (
+        wantBuildings &&
+        (entry.structures === undefined ||
+          entry.structures === 'loading' ||
+          (entry.structures === 'failed' &&
+            entry.structuresRetryAt !== Infinity))
+      )
+        return true;
       if (!entry.shown || entry.signature !== meshInputs(entry).signature)
         return true;
     }
@@ -949,6 +1161,12 @@ export function createBlocksController({
     attach,
     tick,
     getStatus: () => _status,
+    /** Whether buildings are drawn (the Buildings switch, where Overpass answers). */
+    getBuildings: () => buildingsOn(),
+    /** The Buildings switch (kept in the render mode store and the link). */
+    setBuildings: (on) => store.setBuildings?.(on === true),
+    /** Whether buildings can be drawn: a structures source, and Overpass answering. */
+    buildingsAvailable: () => Boolean(structures) && !_overpassMissing,
     /**
      * The drawn world for Walk and Fly (src/navigation/blocksSource.js):
      * the region, its loaded chunks and the datum offset the renderer
