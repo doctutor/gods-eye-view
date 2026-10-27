@@ -9,7 +9,8 @@
  * No server and no port: every request is answered by request interception.
  * The build's files come from --dist; /api/raster/values and the Elevation
  * layer's Earth Engine catalog and tiles come from a synthetic heightfield
- * (a hill and a river valley, 64 × 64 cells at 10 m, on a plain), so
+ * (a hill and a river valley, 64 × 64 cells at 10 m, served at 1 m and
+ * tiled by reflection out past the coarse ring), so
  * neither Earth Engine nor the local server is needed; the colour tiles
  * paint it in the PET rainbow over 0 to 100 m, the `cs` the hash asks
  * for. Every other /api/ route answers 404 and other hosts are refused.
@@ -58,7 +59,7 @@ export const FIELD_CENTRE = Object.freeze({
   lat: VIEW.lat + 600 / M_PER_DEG,
   lon: VIEW.lon,
 });
-/** The plain around it, metres above sea level. */
+/** The field's base, metres above sea level (its low south-west corner). */
 export const PLAIN_M = 12;
 
 /**
@@ -106,23 +107,55 @@ export function fieldBounds() {
   };
 }
 
-/** A height at a place: the field's cell (nearest, as a 10 m DEM is), else the plain. */
-export function heightAt(lon, lat, field, bounds = fieldBounds()) {
-  const col = Math.floor(
-    ((lon - bounds.west) / (bounds.east - bounds.west)) * FIELD_CELLS,
-  );
-  const row = Math.floor(
-    ((bounds.north - lat) / (bounds.north - bounds.south)) * FIELD_CELLS,
-  );
-  if (col < 0 || row < 0 || col >= FIELD_CELLS || row >= FIELD_CELLS)
-    return PLAIN_M;
-  return field[row * FIELD_CELLS + col];
+/**
+ * The native cell the harness serves, metres: 1 m, as 3DEP's lidar is at
+ * Baltimore, so the shots have the live block size and render distances
+ * (R1 = 512 m, the coarse ring to 2 km).
+ */
+export const NATIVE_M = 1;
+
+/**
+ * Mirror a position in field cells into 0 … FIELD_CELLS: the field tiled
+ * by reflection, so it is continuous everywhere (no seam) and covers the
+ * coarse ring however far it reaches.
+ */
+export function mirrorCell(u) {
+  const period = 2 * FIELD_CELLS;
+  const t = ((u % period) + period) % period;
+  return t > FIELD_CELLS ? period - t : t;
 }
 
-/** A /api/raster/values answer for ee-elevation over the field, at 10 m native. */
+/**
+ * A height at a place: the field read between its 10 m cell centres
+ * (bilinear, as a finer DEM would show the same ground), tiled by
+ * reflection beyond its edges.
+ */
+export function heightAt(lon, lat, field, bounds = fieldBounds()) {
+  const u = mirrorCell(
+    ((lon - bounds.west) / (bounds.east - bounds.west)) * FIELD_CELLS,
+  );
+  const v = mirrorCell(
+    ((bounds.north - lat) / (bounds.north - bounds.south)) * FIELD_CELLS,
+  );
+  const x = Math.min(FIELD_CELLS - 1, Math.max(0, u - 0.5));
+  const y = Math.min(FIELD_CELLS - 1, Math.max(0, v - 0.5));
+  const c0 = Math.floor(x);
+  const r0 = Math.floor(y);
+  const c1 = Math.min(FIELD_CELLS - 1, c0 + 1);
+  const r1 = Math.min(FIELD_CELLS - 1, r0 + 1);
+  const fx = x - c0;
+  const fy = y - r0;
+  const at = (r, c) => field[r * FIELD_CELLS + c];
+  return (
+    (at(r0, c0) * (1 - fx) + at(r0, c1) * fx) * (1 - fy) +
+    (at(r1, c0) * (1 - fx) + at(r1, c1) * fx) * fy
+  );
+}
+
+/** A /api/raster/values answer for ee-elevation over the field, at NATIVE_M. */
 export function rasterValuesBody(query, field) {
   const box = query.box;
-  const { cols, rows, cellSizeM } = windowGrid(box, query.cells, FIELD_CELL_M);
+  const { cols, rows, cellSizeM } = windowGrid(box, query.cells, NATIVE_M);
   const values = new Float32Array(cols * rows);
   const bounds = fieldBounds();
   for (let row = 0; row < rows; row++)
@@ -145,7 +178,7 @@ export function rasterValuesBody(query, field) {
       max,
       legendMin: 0,
       legendMax: 100,
-      source: 'Synthetic 10 m',
+      source: `Synthetic ${NATIVE_M} m`,
       version: 'blocks-compare',
       aggregation: 'mean',
     },

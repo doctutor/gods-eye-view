@@ -3568,6 +3568,8 @@
   "Blocks unavailable": "Блоки недоступны",
   "Blocks: {size} m cubes · {count} chunks · {source}": "Блоки: кубы {size} м · фрагментов: {count} · {source}",
   "Blocks: {size} m cubes · {count} chunks": "Блоки: кубы {size} м · фрагментов: {count}",
+  "Blocks: {size} m cubes · {count} + {coarse} coarse · {source}": "Блоки: кубы {size} м · {count} + {coarse} грубых · {source}",
+  "Blocks: {size} m cubes · {count} + {coarse} coarse": "Блоки: кубы {size} м · {count} + {coarse} грубых",
   "{count} loading": "загружается: {count}",
   "study sun": "условное солнце",
   "{count} bricks = {value}": {

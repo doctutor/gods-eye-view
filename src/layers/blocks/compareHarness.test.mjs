@@ -7,7 +7,8 @@ import assert from 'node:assert/strict';
 
 import {
   FIELD_CELLS,
-  PLAIN_M,
+  NATIVE_M,
+  mirrorCell,
   colourTile,
   earthEngineCatalog,
   fieldBounds,
@@ -24,40 +25,71 @@ import {
 import { toCatalogLayer } from '../earthEngine/source.js';
 import { decodeBlocksParam } from '../lego/renderMode.js';
 
-test('the synthetic field: 64 × 64 at 10 m, a hill near 77 m and a valley cut to 2 m, the plain around it', () => {
+test('the synthetic field: 64 × 64 at 10 m, a hill near 77 m and a valley cut to 2 m, tiled by reflection', () => {
   const field = syntheticField();
   assert.equal(field.length, FIELD_CELLS * FIELD_CELLS);
   const max = Math.max(...field);
   const min = Math.min(...field);
   assert.ok(max > 70 && max < 100, String(max));
   assert.ok(Math.abs(min - 2) < 0.5, String(min));
+  // Mirrored: continuous, and the same ground a field's width either side.
+  assert.equal(mirrorCell(10), 10);
+  assert.equal(mirrorCell(70), 58);
+  assert.equal(mirrorCell(-6), 6);
+  assert.equal(mirrorCell(128 + 10), 10);
   const b = fieldBounds();
-  assert.equal(heightAt(b.west - 0.01, b.south, field), PLAIN_M);
-  assert.equal(
-    heightAt((b.west + b.east) / 2, (b.south + b.north) / 2, field),
-    field[(FIELD_CELLS / 2) * FIELD_CELLS + FIELD_CELLS / 2],
+  const w = b.east - b.west;
+  const mid = (b.south + b.north) / 2;
+  const inside = heightAt(b.west + w * 0.3, mid, field);
+  assert.ok(
+    Math.abs(heightAt(b.west - w * 0.3, mid, field) - inside) < 1e-6,
+    'reflected across the west edge',
   );
+  assert.ok(Math.abs(heightAt(b.west + w * 2.3, mid, field) - inside) < 1e-6);
+  // At a cell centre, the cell's own height.
+  const c = 20;
+  const r = 30;
+  assert.ok(
+    Math.abs(
+      heightAt(
+        b.west + ((c + 0.5) / FIELD_CELLS) * w,
+        b.north - ((r + 0.5) / FIELD_CELLS) * (b.north - b.south),
+        field,
+      ) - field[r * FIELD_CELLS + c],
+    ) < 1e-3,
+  );
+  // Everywhere covered: 3 km away is still ground from the field's range.
+  const far = heightAt(b.east + 0.03, mid + 0.02, field);
+  assert.ok(far >= min - 1e-6 && far <= max + 1e-6, String(far));
 });
 
-test('raster values: never finer than 10 m, decoded by the app’s own decoder', () => {
+test('raster values: at 1 m native, as 3DEP 1 m, decoded by the app’s own decoder', () => {
   const field = syntheticField();
   const b = fieldBounds();
+  const box = {
+    west: b.west,
+    south: b.south,
+    east: b.west + (b.east - b.west) / 10, // 64 m
+    north: b.south + (b.north - b.south) / 10,
+  };
   const query = parseRasterValuesQuery({
     layer: 'ee-elevation',
     mode: '',
-    west: String(b.west),
-    south: String(b.south),
-    east: String(b.east),
-    north: String(b.north),
-    cells: '512',
+    west: String(box.west),
+    south: String(box.south),
+    east: String(box.east),
+    north: String(box.north),
+    cells: '256',
   });
   assert.equal(query.ok, true);
   const { header, values } = decodeRasterValues(rasterValuesBody(query, field));
-  assert.equal(header.cols, 64);
-  assert.equal(header.rows, 64);
-  assert.ok(Math.abs(header.cellSizeM - 10) < 0.05, String(header.cellSizeM));
-  assert.equal(header.source, 'Synthetic 10 m');
-  assert.deepEqual([...values], [...field]);
+  assert.equal(NATIVE_M, 1);
+  assert.equal(header.cols, 64, 'never finer than 1 m');
+  assert.ok(Math.abs(header.cellSizeM - 1) < 0.02, String(header.cellSizeM));
+  assert.equal(header.source, 'Synthetic 1 m');
+  const lon = box.west + (10.5 / 64) * (box.east - box.west);
+  const lat = box.north - (20.5 / header.rows) * (box.north - box.south);
+  assert.ok(Math.abs(values[20 * 64 + 10] - heightAt(lon, lat, field)) < 1e-3);
 });
 
 test('the colour tiles are PNGs in the PET rainbow; the catalog passes the client’s check; the link', () => {

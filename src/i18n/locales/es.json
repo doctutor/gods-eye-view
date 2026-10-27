@@ -3487,6 +3487,8 @@
   "Blocks unavailable": "Bloques no disponible",
   "Blocks: {size} m cubes · {count} chunks · {source}": "Bloques: cubos de {size} m · {count} trozos · {source}",
   "Blocks: {size} m cubes · {count} chunks": "Bloques: cubos de {size} m · {count} trozos",
+  "Blocks: {size} m cubes · {count} + {coarse} coarse · {source}": "Bloques: cubos de {size} m · {count} + {coarse} gruesos · {source}",
+  "Blocks: {size} m cubes · {count} + {coarse} coarse": "Bloques: cubos de {size} m · {count} + {coarse} gruesos",
   "{count} loading": "{count} cargando",
   "study sun": "sol de estudio",
   "{count} bricks = {value}": {

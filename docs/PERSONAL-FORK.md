@@ -5984,7 +5984,8 @@ renderer and the controller) with its wiring in `src/app/blocks.js`.
 others. Blocks needs the **Elevation** layer on; without it nothing is
 built and the line under the heading says "Blocks needs the Elevation layer
 on". With it, the line says what is drawn: "Blocks: 1 m cubes · 412 chunks
-· 3DEP 1 m" (the block size, the chunks drawn, the elevation source), with
+· 3DEP 1 m" (the block size, the chunks drawn, the elevation source;
+"274 + 48 coarse" with the coarse ring), with
 "· study sun" when the real sun is under 15° and "· N loading" while
 chunks are still coming. The share link carries it as
 `bk=1`: a link with `bk=1` opens in Blocks without overwriting the stored
@@ -6021,16 +6022,25 @@ controller:
   the block size there, and anchors a new one (every chunk replaced) when
   the camera is more than 20 km from the origin, or twice the render
   distance for coarse blocks (31 km at 30 m);
-- lists the chunks within the render distance, 512 blocks (512 m at 1 m,
-  15 km at 30 m), nearest first: a chunk's distance is from the camera's
-  column to the nearest point of the chunk's square, so the camera's own
-  chunk comes first, then those it touches;
+- lists the chunks within the render distance R1, 512 blocks (512 m at
+  1 m, 15 km at 30 m), in whole groups of 4 × 4 chunks, nearest first: a
+  chunk's distance is from the camera's column to the nearest point of
+  the chunk's square, so the camera's own chunk comes first, then those it
+  touches;
+- beyond them, out to R2 = 4 × R1 (2 km at 1 m), a coarse ring: one chunk
+  per group, 64 × 64 columns at four times the block size
+  (`source.loadCoarseChunk`), drawn under a `c:gi:gj` key from the group's
+  south-west corner. A coarse chunk is drawn until all 16 fine chunks
+  under it are, removed then, and drawn again (its mesh kept) when one of
+  them is dropped; fine chunks go a group at a time, so a group is drawn
+  either fine or coarse. The coarse chunks have a load budget of their
+  own;
 - starts loads until 8 are in flight, and meshes at most 8 chunks a tick,
   each with its four neighbours so the faces on a chunk's border are culled
   against them; a chunk is meshed again when a neighbour arrives or its
   version changes (an edit);
-- drops chunks only beyond 1.25 × the render distance (640 blocks), so a
-  camera going back and forth does not reload its edge;
+- drops chunks only beyond 1.25 × their ring (640 blocks fine, 2,560
+  coarse), so a camera going back and forth does not reload its edge;
 - asks a chunk that failed again after 2 s, 4 s, 8 s … (at most a minute),
   six tries in all; the budget doubles for 30 m blocks.
 
@@ -6043,7 +6053,8 @@ neighbour arrives.
 The sun is fixed when the region is anchored: the real sun when it is more
 than 15° up, otherwise a study sun 60° up from the south-west; mesh.js
 bakes it into the colours with per-face shading and ambient occlusion.
-Fog closes in from 60 % of the render distance to its edge, toward the
+Fog closes in from 70 % of the farthest ring drawn to its edge (R2 with
+the coarse ring, 1,434 to 2,048 m at 1 m; R1 without it), toward the
 scene's background: the style's own (black on blank-black), which Blocks
 leaves as it is.
 
@@ -6082,8 +6093,11 @@ node scripts/qa-blocks-compare.mjs --dist <an existing vite build> --out <dir>
 No server and no port: request interception serves the build's files, and
 answers `/api/raster/values` and the Elevation layer's Earth Engine catalog
 and tiles from a synthetic heightfield (64 × 64 cells at 10 m, 600 m north
-of the camera: a hill to 77 m, a spur, and a river valley cut to 2 m,
-on a 12 m plain), painted in the PET rainbow over 0 to 100 m for Colour.
+of the camera: a hill to 77 m, a spur, and a river valley cut to 2 m),
+served at 1 m as 3DEP's lidar is (read between the 10 m cells) and tiled
+by reflection beyond its edges, so the blocks have the live size and the
+coarse ring has ground to 2 km; painted in the PET rainbow over 0 to
+100 m for Colour.
 Other `/api/` routes answer 404 and other hosts are refused, the terrain's
 too, so the globe there is flat ground and the shots show the flat case
 (offset 0). The script
