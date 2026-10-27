@@ -3,9 +3,12 @@
 // typed arrays, plus a second, translucent one for the chunk's water faces
 // (translucency is per appearance). Positions stay float, in metres east,
 // north and up of the chunk's origin, and the primitive's model matrix puts
-// them on the globe: the region's east-north-up frame at its origin lifted
-// by the geoid undulation (so level 0's base is mean sea level, the datum
-// the heights are in) and moved to the chunk's origin. Cesium composes the
+// them on the globe: the region's east-north-up frame at its origin,
+// raised by the controller's datum offset, and moved to the chunk's origin.
+// The offset is where mean sea level, the heights' datum, sits on the
+// ellipsoid: 0 on the flat basemaps, whose globe surface is the ellipsoid
+// (as Lego's columns are), and the geoid's undulation N on World Terrain
+// and the photoreal tiles. Cesium composes the
 // model-view matrix in double precision, so a 1 m block does not shimmer
 // 6,400 km from the Earth's centre, and the geometry is never projected to
 // 2D or moved to world coordinates on the CPU.
@@ -18,7 +21,6 @@
 // (scene.pickTranslucentDepth).
 
 import * as Cesium from 'cesium';
-import { ensureGeoidReady, geoidHeight } from '../../data/geoid.js';
 import { solarParameters, sunPosition } from '../../data/solarDaylight.js';
 
 /** The real sun lights the blocks above this elevation, else the study sun. */
@@ -42,13 +44,14 @@ export function sunVector(elevationDeg, azimuthDeg) {
 }
 
 /**
- * The sun the blocks are lit by at an instant and place: the real one when
+ * The sun the blocks are lit by at an instant (ms or a Date) and place: the real one when
  * it is more than 15° up, else the fixed study sun. `fixed` says which,
  * for the HUD.
  * @returns {{dir: {east: number, north: number, up: number}, fixed: boolean,
  *   elevationDeg: number, azimuthDeg: number, realElevationDeg: number}}
  */
-export function blocksSun(ms, lat, lon) {
+export function blocksSun(now, lat, lon) {
+  const ms = +now;
   const { elevation, hourAngle } = sunPosition(ms, lat, lon);
   const { declination } = solarParameters(ms);
   // Azimuth from north, clockwise, from the hour angle and declination.
@@ -239,10 +242,10 @@ export function primitive3D(options) {
   return primitive;
 }
 
-/** The region's frame: east-north-up at its origin on mean sea level. */
-export function regionFrame(region, undulationM = 0) {
+/** The region's frame: east-north-up at its origin, `datumOffsetM` above the ellipsoid. */
+export function regionFrame(region, datumOffsetM = 0) {
   return Cesium.Transforms.eastNorthUpToFixedFrame(
-    Cesium.Cartesian3.fromDegrees(region.lon0, region.lat0, undulationM || 0),
+    Cesium.Cartesian3.fromDegrees(region.lon0, region.lat0, datumOffsetM || 0),
   );
 }
 
@@ -261,20 +264,8 @@ export function parseChunkKey(key) {
   return { ci, cj };
 }
 
-const defaultUndulation = async (lat, lon) => {
-  await ensureGeoidReady();
-  return geoidHeight(lat, lon);
-};
-
-/**
- * @param {{viewer: object, undulation?: (lat: number, lon: number) =>
- *   Promise<number>|number}} options undulation: the geoid's N, metres
- *   (src/data/geoid.js by default).
- */
-export function createBlocksRenderer({
-  viewer,
-  undulation = defaultUndulation,
-} = {}) {
+/** @param {{viewer: object}} options */
+export function createBlocksRenderer({ viewer } = {}) {
   const scene = viewer.scene;
   const collection = scene.primitives.add(
     new Cesium.PrimitiveCollection({ destroyPrimitives: true }),
@@ -287,9 +278,8 @@ export function createBlocksRenderer({
   scene.pickTranslucentDepth = true;
   const chunks = new Map(); // key → {origin, primitives: Primitive[]}
   let region = null;
-  let undulationM = 0;
+  let datumOffsetM = 0;
   let frame = null;
-  let regionToken = 0;
   let sun = {
     dir: sunVector(STUDY_SUN.elevationDeg, STUDY_SUN.azimuthDeg),
     fixed: true,
@@ -315,37 +305,26 @@ export function createBlocksRenderer({
 
   const api = {
     /**
-     * Anchor the chunks to a region (grid.js). A different region drops
-     * every chunk, since chunk keys are the region's. Resolves once the
-     * geoid's undulation at the origin is applied.
+     * Anchor the chunks to a region (grid.js), its level 0 base
+     * `datumOffsetM` above the ellipsoid (the controller's call: 0 on a
+     * flat basemap, the geoid's N on terrain). A different region drops
+     * every chunk, since chunk keys are the region's; the same region at
+     * another offset keeps them and moves them. Takes effect at once.
      */
-    async setRegion(next) {
-      if (
+    setRegion(next, { datumOffsetM: offset = 0 } = {}) {
+      const offsetM = Number.isFinite(offset) ? offset : 0;
+      const same =
         region &&
         next &&
         region.lon0 === next.lon0 &&
         region.lat0 === next.lat0 &&
-        region.blockM === next.blockM
-      )
-        return api.getState();
-      for (const key of [...chunks.keys()]) dropChunk(key);
-      region = next;
-      undulationM = 0;
-      frame = region ? regionFrame(region, 0) : null;
-      const token = ++regionToken;
-      requestRender();
-      if (!region) return api.getState();
-      let n = 0;
-      try {
-        n = await undulation(region.lat0, region.lon0);
-      } catch {
-        n = 0; // no geoid: the ellipsoid, ~30 m off at worst
-      }
-      if (destroyed || token !== regionToken || !Number.isFinite(n))
-        return api.getState();
-      undulationM = n;
-      frame = regionFrame(region, n);
-      placeAll();
+        region.blockM === next.blockM;
+      if (same && offsetM === datumOffsetM) return api.getState();
+      if (!same) for (const key of [...chunks.keys()]) dropChunk(key);
+      region = next || null;
+      datumOffsetM = offsetM;
+      frame = region ? regionFrame(region, datumOffsetM) : null;
+      if (same) placeAll();
       requestRender();
       return api.getState();
     },
@@ -436,7 +415,7 @@ export function createBlocksRenderer({
 
     getState: () => ({
       region,
-      undulationM,
+      datumOffsetM,
       chunks: chunks.size,
       primitives: collection.length,
       sun,

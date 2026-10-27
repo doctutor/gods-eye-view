@@ -141,7 +141,7 @@ test('splitMesh: opaque and water faces apart, vertices compacted', () => {
 
 test('upsert, replace and remove by key', async () => {
   const viewer = fakeViewer();
-  const renderer = createBlocksRenderer({ viewer, undulation: () => 0 });
+  const renderer = createBlocksRenderer({ viewer });
   assert.equal(viewer.scene.primitives.length, 1); // the blocks collection
   assert.equal(viewer.scene.pickTranslucentDepth, true);
   await renderer.setRegion(stubRegion({ lon0: -76.6, lat0: 39.3, blockM: 1 }));
@@ -179,36 +179,41 @@ test('upsert, replace and remove by key', async () => {
   assert.equal(viewer.scene.pickTranslucentDepth, false);
 });
 
-test('model matrices: chunk origin from the key, lifted by the geoid', async () => {
+test('model matrices: chunk origin from the key, raised by the datum offset', () => {
   const viewer = fakeViewer();
-  let resolve;
-  const renderer = createBlocksRenderer({
-    viewer,
-    undulation: () => new Promise((r) => (resolve = r)),
-  });
+  const renderer = createBlocksRenderer({ viewer });
   const region = stubRegion({ lon0: 0, lat0: 0, blockM: 30 });
-  const settled = renderer.setRegion(region);
+  const a = Cesium.Ellipsoid.WGS84.maximumRadius;
+  // A flat basemap: level 0 sits on the ellipsoid. setRegion is not awaited.
+  renderer.setRegion(region);
   renderer.upsert('2:-1', tinyMesh());
   const primitive = renderer.getCollection().get(0);
-  const a = Cesium.Ellipsoid.WGS84.maximumRadius;
   let t = translation(primitive.modelMatrix);
-  assert.ok(Math.abs(t.x - a) < 1e-6, 'on the ellipsoid until the geoid loads');
+  assert.ok(Math.abs(t.x - a) < 1e-6, 'on the ellipsoid');
   assert.ok(Math.abs(t.y - 2 * 64 * 30) < 1e-6);
   assert.ok(Math.abs(t.z - -1 * 64 * 30) < 1e-6);
-  resolve(17.16); // EGM96 N at (0°, 0°)
-  const state = await settled;
-  assert.equal(state.undulationM, 17.16);
+  // Terrain: the controller passes the geoid's N; chunks stay and move.
+  const state = renderer.setRegion(region, { datumOffsetM: 17.16 });
+  assert.equal(state.datumOffsetM, 17.16);
+  assert.deepEqual(renderer.keys(), ['2:-1']);
+  assert.equal(renderer.getCollection().get(0), primitive);
   t = translation(primitive.modelMatrix);
   assert.ok(
     Math.abs(t.x - (a + 17.16)) < 1e-6,
     'level 0 base on mean sea level',
   );
+  renderer.upsert('0:0', tinyMesh());
+  t = translation(renderer.getCollection().get(1).modelMatrix);
+  assert.ok(Math.abs(t.x - (a + 17.16)) < 1e-6);
+  // Back to flat.
+  renderer.setRegion(region, { datumOffsetM: 0 });
+  assert.ok(Math.abs(translation(primitive.modelMatrix).x - a) < 1e-6);
   renderer.destroy();
 });
 
 test('setRegion: the same region keeps chunks, another drops them', async () => {
   const viewer = fakeViewer();
-  const renderer = createBlocksRenderer({ viewer, undulation: () => 0 });
+  const renderer = createBlocksRenderer({ viewer });
   await renderer.setRegion(stubRegion({ lon0: 1, lat0: 2, blockM: 10 }));
   renderer.upsert('0:0', tinyMesh());
   await renderer.setRegion(stubRegion({ lon0: 1, lat0: 2, blockM: 10 }));
@@ -228,7 +233,7 @@ test('setRegion: the same region keeps chunks, another drops them', async () => 
 
 test('setFog sets both appearances uniforms', async () => {
   const viewer = fakeViewer();
-  const renderer = createBlocksRenderer({ viewer, undulation: () => 0 });
+  const renderer = createBlocksRenderer({ viewer });
   await renderer.setRegion(stubRegion());
   renderer.upsert('0:0', tinyMesh({ water: true }));
   const fog = renderer.setFog({ startM: 300, endM: 640, color: '#a0c0e0' });
@@ -275,6 +280,11 @@ test('blocksSun: the real sun above 15°, else the study sun from the south-west
     `azimuth ${morning.azimuthDeg}`,
   );
   assert.ok(morning.dir.east > 0.5);
+  // A Date works as well as milliseconds.
+  assert.deepEqual(
+    blocksSun(new Date(Date.UTC(2026, 5, 21, 13)), 39.29, -76.61),
+    morning,
+  );
   // Night: the study sun.
   const night = blocksSun(Date.UTC(2026, 5, 21, 5), 39.29, -76.61);
   assert.equal(night.fixed, true);
@@ -291,7 +301,6 @@ test('blocksSun: the real sun above 15°, else the study sun from the south-west
 test('setSun keeps a unit direction and which sun it is', () => {
   const renderer = createBlocksRenderer({
     viewer: fakeViewer(),
-    undulation: () => 0,
   });
   const sun = renderer.setSun({ east: -2, north: -2, up: 4 }, { fixed: true });
   assert.ok(
@@ -305,7 +314,7 @@ test('setSun keeps a unit direction and which sun it is', () => {
 
 test('a real Cesium.Primitive from a tiny mesh: float local positions, per-vertex colour, picking', async () => {
   const viewer = fakeViewer();
-  const renderer = createBlocksRenderer({ viewer, undulation: () => 0 });
+  const renderer = createBlocksRenderer({ viewer });
   await renderer.setRegion(
     stubRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 }),
   );
