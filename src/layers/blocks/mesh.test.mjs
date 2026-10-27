@@ -500,3 +500,216 @@ test('a quad whose corners are shaded unalike is four triangles round a centre a
   assert.equal(flat.positions.length, flat.faces * 12);
   assert.equal(flat.indices.length, flat.faces * 6);
 });
+
+const SIDE_NAMES = {
+  '0,0,1': 'up',
+  '0,0,-1': 'down',
+  '1,0,0': 'east',
+  '-1,0,0': 'west',
+  '0,1,0': 'north',
+  '0,-1,0': 'south',
+};
+
+/**
+ * The block faces a mesh covers, as 'direction|i|j|level' keys, checking on
+ * the way that no triangle has zero area or faces inward, every quad is
+ * planar, and no face is covered twice.
+ */
+function coveredFaces(mesh, blockM) {
+  assertOutwardWinding(mesh);
+  const { positions: p, indices, normals } = mesh;
+  for (let t = 0; t < indices.length; t += 3) {
+    const [a, b, c] = [indices[t], indices[t + 1], indices[t + 2]];
+    const e1 = [0, 1, 2].map((k) => p[b * 3 + k] - p[a * 3 + k]);
+    const e2 = [0, 1, 2].map((k) => p[c * 3 + k] - p[a * 3 + k]);
+    const area = Math.hypot(
+      e1[1] * e2[2] - e1[2] * e2[1],
+      e1[2] * e2[0] - e1[0] * e2[2],
+      e1[0] * e2[1] - e1[1] * e2[0],
+    );
+    assert.ok(area > 1e-6, `zero-area triangle ${t / 3}`);
+  }
+  const covered = new Set();
+  for (let q = 0; q < mesh.faces; q += 1) {
+    const normal = [normals[q * 12], normals[q * 12 + 1], normals[q * 12 + 2]];
+    const axis = normal.findIndex((v) => v !== 0);
+    const corners = [0, 1, 2, 3].map((c) =>
+      [0, 1, 2].map((k) => p[(q * 4 + c) * 3 + k] / blockM),
+    );
+    assert.equal(new Set(corners.map((c) => c[axis])).size, 1, 'planar');
+    const lo = [0, 1, 2].map((k) => Math.min(...corners.map((c) => c[k])));
+    const hi = [0, 1, 2].map((k) => Math.max(...corners.map((c) => c[k])));
+    const base = lo.map((v, k) =>
+      k === axis ? v - (normal[k] > 0 ? 1 : 0) : v,
+    );
+    const span = hi.map((v, k) => (k === axis ? base[k] + 1 : v));
+    for (let x = base[0]; x < span[0]; x += 1)
+      for (let y = base[1]; y < span[1]; y += 1)
+        for (let z = base[2]; z < span[2]; z += 1) {
+          const key = `${SIDE_NAMES[normal.join(',')]}|${x}|${y}|${z}`;
+          assert.ok(!covered.has(key), `overlap at ${key}`);
+          covered.add(key);
+        }
+  }
+  return covered;
+}
+
+/** The east-facing faces on the chunk's east border, as 'j|level' keys. */
+const eastBorder = (covered) =>
+  new Set(
+    [...covered]
+      .filter((key) => key.startsWith(`east|${N - 1}|`))
+      .map((key) => key.split('|').slice(2).join('|')),
+  );
+
+const without = (around, ...keys) =>
+  Object.fromEntries(
+    Object.entries(around).filter(([key]) => !keys.includes(key)),
+  );
+
+test('skirt: an open border hangs the edge columns down to the floor; without it, none; a present neighbour ignores it', () => {
+  const chunk = chunkAt(5);
+  const open = without(flatAround(5), 'e');
+  const none = buildChunkMesh(chunk, { neighbours: open, greedy: false });
+  assert.equal(none.stats.east, 0);
+  assert.equal(none.stats.skirt, 0);
+  const skirted = buildChunkMesh(chunk, {
+    neighbours: open,
+    greedy: false,
+    skirt: { e: 2 },
+  });
+  // Levels 2 to 5 of all 64 edge columns.
+  assert.equal(skirted.stats.east, N * 4);
+  assert.equal(skirted.stats.skirt, N * 4);
+  assert.equal(skirted.faces, N * N + N * 4);
+  // Merged: one sheet, shaded as an east side without occlusion.
+  const merged = buildChunkMesh(chunk, { neighbours: open, skirt: { e: 2 } });
+  const sheet = quadsOf(merged).filter((q) => q.normal[0] === 1);
+  assert.equal(sheet.length, 1);
+  const zs = sheet[0].corners.map((c) => c.p[2]);
+  assert.deepEqual([Math.min(...zs), Math.max(...zs)], [2, 6]);
+  const base = MATERIAL_COLORS[MATERIALS.TERRAIN][0];
+  const lit = Math.round(
+    base * FACE_SHADE.east * AO[0] * sunTerm([1, 0, 0], STUDY_SUN_DIR),
+  );
+  assert.ok(sheet[0].corners.every((c) => c.color[0] === lit));
+  assert.equal(merged.faces, 2, 'the top and the skirt');
+  // A neighbour there: the option is ignored.
+  const closed = buildChunkMesh(chunk, {
+    neighbours: flatAround(5),
+    greedy: false,
+    skirt: { e: 2, w: 2, n: 2, s: 2 },
+  });
+  assert.equal(closed.stats.skirt, 0);
+  assert.equal(closed.faces, N * N);
+  // A floor above the top hangs nothing; null is no skirt.
+  for (const e of [6, 9, null])
+    assert.equal(
+      buildChunkMesh(chunk, { neighbours: open, skirt: { e } }).stats.skirt,
+      0,
+      String(e),
+    );
+  // A floor on the top itself: the top block's side alone.
+  assert.equal(
+    buildChunkMesh(chunk, { neighbours: open, greedy: false, skirt: { e: 5 } })
+      .stats.skirt,
+    N,
+  );
+});
+
+test('skirt: a floor far below the column makes no face below the floor', () => {
+  const blockM = 10;
+  const mesh = buildChunkMesh(chunkAt(5), {
+    neighbours: without(flatAround(5), 'e'),
+    blockM,
+    skirt: { e: -10 },
+  });
+  let lowest = Infinity;
+  for (let k = 2; k < mesh.positions.length; k += 3)
+    lowest = Math.min(lowest, mesh.positions[k]);
+  assert.equal(lowest, -10 * blockM, 'down to the floor, and no further');
+  const border = eastBorder(coveredFaces(mesh, blockM));
+  assert.equal(border.size, N * 16, 'levels -10 to 5');
+});
+
+test('skirt: a corner chunk hangs both borders; a hole in an edge column leaves a gap', () => {
+  const chunk = chunkAt(5);
+  chunk.setBlock(N - 1, 10, 4, MATERIALS.AIR);
+  const neighbours = without(flatAround(5), 'e', 'n', 'ne');
+  const mesh = buildChunkMesh(chunk, {
+    neighbours,
+    greedy: false,
+    skirt: { e: 2, n: 2 },
+  });
+  assert.equal(mesh.stats.skirt, N * 4 + N * 4 - 1);
+  const covered = coveredFaces(mesh, 1);
+  const border = eastBorder(covered);
+  assert.equal(border.has('10|4'), false, 'the hole');
+  assert.ok(border.has('10|3') && border.has('10|5'));
+  assert.equal(border.size, N * 4 - 1);
+  const north = [...covered].filter((key) =>
+    new RegExp(`^north\\|\\d+\\|${N - 1}\\|`).test(key),
+  );
+  assert.equal(north.length, N * 4);
+  // The merged mesh covers the same faces.
+  const merged = buildChunkMesh(chunk, { neighbours, skirt: { e: 2, n: 2 } });
+  assert.deepEqual([...coveredFaces(merged, 1)].sort(), [...covered].sort());
+});
+
+test('mesh validator with skirts: a terraced hill open to the east and north, skirted to a floor', () => {
+  const chunk = terracedHill(0, 0);
+  const neighbours = {
+    s: terracedHill(0, -1),
+    w: terracedHill(-1, 0),
+    sw: terracedHill(-1, -1),
+  };
+  const floor = -3;
+  // An absent neighbour reads as the edge column repeated.
+  const topAt = (i, j) => {
+    let ci = Math.floor(i / N);
+    let cj = Math.floor(j / N);
+    if (ci > 0) {
+      ci = 0;
+      i = N - 1;
+    }
+    if (cj > 0) {
+      cj = 0;
+      j = N - 1;
+    }
+    const owner = ci === 0 && cj === 0 ? chunk : terracedHill(ci, cj);
+    return owner.top[columnIndex(i - ci * N, j - cj * N)];
+  };
+  const expected = new Set();
+  for (let j = 0; j < N; j += 1)
+    for (let i = 0; i < N; i += 1) {
+      const top = topAt(i, j);
+      expected.add(`up|${i}|${j}|${top}`);
+      for (const [name, dx, dy] of [
+        ['east', 1, 0],
+        ['west', -1, 0],
+        ['north', 0, 1],
+        ['south', 0, -1],
+      ]) {
+        const skirted =
+          (name === 'east' && i === N - 1) || (name === 'north' && j === N - 1);
+        const from = skirted ? floor : topAt(i + dx, j + dy) + 1;
+        for (let y = from; y <= top; y += 1)
+          expected.add(`${name}|${i}|${j}|${y}`);
+      }
+    }
+  for (const greedy of [false, true]) {
+    const mesh = buildChunkMesh(chunk, {
+      neighbours,
+      blockM: 10,
+      greedy,
+      skirt: { e: floor, n: floor, w: floor, s: floor },
+    });
+    const covered = coveredFaces(mesh, 10);
+    assert.deepEqual(
+      [...covered].filter((key) => !expected.has(key)),
+      [],
+      'no face where none belongs',
+    );
+    assert.equal(covered.size, expected.size, `greedy ${greedy}`);
+  }
+});

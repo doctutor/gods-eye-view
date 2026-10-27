@@ -955,7 +955,14 @@ function coarseSource({ hold = false, holdCoarse = false } = {}) {
   const coarse = [];
   base.coarse = coarse;
   base.loadCoarseChunk = (region, gi, gj) => {
-    const chunk = { gi, gj, coarse: true, version: 0 };
+    // Its ground: lowest 5 + gi levels (coarse), a little higher inland.
+    const chunk = {
+      gi,
+      gj,
+      coarse: true,
+      version: 0,
+      topSolid: (i, j) => 5 + gi + ((i + j) % 3),
+    };
     if (!holdCoarse) {
       coarse.push({ gi, gj });
       return Promise.resolve(chunk);
@@ -1071,11 +1078,14 @@ test('the coarse ring: drawn at 4 × the block size from the group’s corner, r
   await drain(controller);
   assert.ok(!renderer.shown.has('0:0'), 'the fine chunk dropped');
   assert.ok(renderer.shown.has('c:0:0'), 'the coarse one back');
-  assert.equal(
+  // Back from its kept mesh, or meshed once more where its inputs changed:
+  // the groups beside it went from fine to coarse, so its skirts and the
+  // neighbours it culls against moved on.
+  assert.ok(
     meshes.filter((m) => m.chunk.coarse && m.chunk.gi === 0 && m.chunk.gj === 0)
-      .length,
-    meshedBefore,
-    'from its kept mesh',
+      .length <=
+      meshedBefore + 1,
+    'at most once more',
   );
   // No group is drawn both ways once settled.
   for (const key of renderer.shown.keys()) {
@@ -1144,4 +1154,111 @@ test('the world for Walk and Fly: the region, its loaded chunks and the datum of
   store.setMode('colour');
   assert.equal(controller.world(), null);
   controller.destroy();
+});
+
+test('skirts: a fine chunk with no fine neighbour beyond a border hangs its sides down to 4 × the lowest coarse level there', async () => {
+  const { SKIRT_SIDES } = await import('./index.js');
+  assert.deepEqual(
+    SKIRT_SIDES.map(([name]) => name),
+    ['n', 's', 'e', 'w'],
+  );
+  const source = coarseSource();
+  const { controller, meshes } = setup({ source, radiusBlocks: 128 });
+  await drain(controller);
+  // R1 = 128 columns: fine groups −1 … 0 each way, chunks −4 … 3.
+  const last = (key) => meshes.filter((m) => m.key === key).at(-1).options;
+  // The east edge of group 0: chunk 4:0 is not fine, c:1:0 is beyond (lowest 6).
+  assert.deepEqual(last('3:0').skirt, { n: null, s: null, e: 24, w: null });
+  // The north-west corner: skirts on two sides, from c:-1:1 (lowest 4) and c:-2:0 (3).
+  assert.deepEqual(last('-4:3').skirt, { n: 16, s: null, e: null, w: 12 });
+  // Inside the fine ring: none.
+  assert.equal(last('1:1').skirt, undefined);
+  // Coarse chunks toward other coarse chunks: none.
+  const coarse = meshes.filter((m) => m.chunk.coarse);
+  assert.ok(coarse.length > 0);
+  const lastCoarse = (gi, gj) =>
+    meshes
+      .filter((m) => m.chunk.coarse && m.chunk.gi === gi && m.chunk.gj === gj)
+      .at(-1).options;
+  assert.equal(lastCoarse(2, 0).skirt, undefined, 'only coarse around it');
+  controller.destroy();
+});
+
+test('coarse skirts: a coarse chunk beside a group drawn fine drops that neighbour and hangs a skirt to the lowest fine ground there', async () => {
+  const source = coarseSource();
+  // Fine ground: level 9 everywhere (fakeSource chunks get a topSolid here).
+  const load = source.loadChunk;
+  source.loadChunk = (region, ci, cj) =>
+    load(region, ci, cj).then((chunk) => ({ ...chunk, topSolid: () => 9 }));
+  const { controller, meshes } = setup({ source, radiusBlocks: 128 });
+  await drain(controller);
+  const lastCoarse = (gi, gj) =>
+    meshes
+      .filter((m) => m.chunk.coarse && m.chunk.gi === gi && m.chunk.gj === gj)
+      .at(-1).options;
+  // c:1:0 has group 0:0 (drawn fine) to its west: floor(9 / 4) = 2 there,
+  // and its west neighbour (the hidden c:0:0) left out.
+  const east = lastCoarse(1, 0);
+  assert.deepEqual(east.skirt, { n: null, s: null, e: null, w: 2 });
+  assert.equal(east.neighbours.w, undefined, 'the hidden coarse chunk dropped');
+  assert.ok(east.neighbours.e, 'its coarse neighbour kept');
+  // c:-2:-1 has group −1:−1 to its east.
+  assert.deepEqual(lastCoarse(-2, -1).skirt, {
+    n: null,
+    s: null,
+    e: 2,
+    w: null,
+  });
+  // c:0:1 has group 0:0 to its south.
+  assert.deepEqual(lastCoarse(0, 1).skirt, { n: null, s: 2, e: null, w: null });
+  // Beyond: coarse all round, none.
+  assert.equal(lastCoarse(2, 0).skirt, undefined);
+  controller.destroy();
+});
+
+test('skirts wait for what is coming: none toward a fine neighbour still loading; meshed again when the coarse chunk beyond arrives', async () => {
+  // The coarse ring held: the fine edge is meshed bare, then again with its skirt.
+  const source = coarseSource({ holdCoarse: true });
+  const { controller, meshes } = setup({ source, radiusBlocks: 128 });
+  await drain(controller, 40);
+  const ofEdge = () => meshes.filter((m) => m.key === '3:0');
+  assert.ok(ofEdge().length >= 1);
+  assert.equal(ofEdge().at(-1).options.skirt, undefined, 'nothing beyond yet');
+  for (let n = 0; n < 40; n++) {
+    source.coarse.forEach((c) => c.resolve?.());
+    await settle();
+    controller.tick();
+  }
+  await drain(controller);
+  assert.deepEqual(ofEdge().at(-1).options.skirt, {
+    n: null,
+    s: null,
+    e: 24,
+    w: null,
+  });
+  controller.destroy();
+
+  // A fine neighbour loading: no skirt toward it (it will cull the border).
+  const held = coarseSource({ hold: true });
+  const run = setup({ source: held, radiusBlocks: 128 });
+  await settle();
+  // Let only chunk 0:0 arrive; its neighbours are loading or not asked.
+  held.loads.find((l) => l.ci === 0 && l.cj === 0).resolve();
+  for (let n = 0; n < 5; n++) {
+    await settle();
+    run.controller.tick();
+  }
+  const first = run.meshes.find((m) => m.key === '0:0');
+  assert.ok(first, 'meshed');
+  // All four of 0:0's side neighbours are among the first loads, still
+  // loading: they will cull its borders, so no skirt at all.
+  for (const [di, dj] of [
+    [0, 1],
+    [0, -1],
+    [1, 0],
+    [-1, 0],
+  ])
+    assert.ok(held.loads.some((l) => l.ci === di && l.cj === dj));
+  assert.equal(first.options.skirt, undefined);
+  run.controller.destroy();
 });
