@@ -270,8 +270,8 @@ test('the render mode and exaggeration are kept in this browser', () => {
   assert.equal(storage.map.get(RENDER_MODE_STORAGE_KEY), 'lego');
   assert.equal(storage.map.get(EXAGGERATION_STORAGE_KEY), '2');
   assert.deepEqual(seen, [
-    { mode: 'lego', exaggeration: null },
-    { mode: 'lego', exaggeration: 2 },
+    { mode: 'lego', exaggeration: null, buildings: null },
+    { mode: 'lego', exaggeration: 2, buildings: null },
   ]);
   const again = createRenderModeStore({ storage });
   assert.equal(again.getMode(), 'lego');
@@ -576,12 +576,8 @@ test('the default exaggeration: 2× on drawn maps, 1× on imagery and photoreal,
 });
 
 test('Render: Blocks is a third mode, carried by the share link as bk=1; old links keep the stored mode', async () => {
-  const {
-    BLOCKS_PARAM,
-    RENDER_MODES,
-    decodeBlocksParam,
-    encodeBlocksParam,
-  } = await import('./renderMode.js');
+  const { BLOCKS_PARAM, RENDER_MODES, decodeBlocksParam, encodeBlocksParam } =
+    await import('./renderMode.js');
   assert.deepEqual(RENDER_MODES, ['colour', 'lego', 'blocks']);
   assert.equal(BLOCKS_PARAM, 'bk');
   assert.equal(encodeBlocksParam('blocks'), '1');
@@ -611,9 +607,8 @@ test('Render: Blocks is a third mode, carried by the share link as bk=1; old lin
 });
 
 test('the heading drop-down reads Colour | Lego | Blocks, and in Blocks the line is the Blocks controller’s', async () => {
-  const { createLegoHeadingControl, blocksStatusText } = await import(
-    './presentation.js'
-  );
+  const { createLegoHeadingControl, blocksStatusText } =
+    await import('./presentation.js');
   const doc = fakeDocument();
   const store = createRenderModeStore({ storage: memoryStorage() });
   const lego = {
@@ -655,7 +650,10 @@ test('the heading drop-down reads Colour | Lego | Blocks, and in Blocks the line
   assert.equal(status.textContent, 'Blocks: 1 m cubes · 412 chunks · 3DEP 1 m');
   assert.equal(status.textContent, blocksStatusText(blocksStatus));
   store.setMode('lego');
-  assert.equal(status.textContent, 'Turn on a raster layer to build it in bricks');
+  assert.equal(
+    status.textContent,
+    'Turn on a raster layer to build it in bricks',
+  );
   control.destroy();
   assert.equal(blocksListeners.size, 0);
   // Spanish and Russian say it too.
@@ -710,3 +708,49 @@ function fakeDocument() {
     createTextNode: (text) => ({ textContent: text }),
   };
 }
+
+test('Blocks’ Buildings switch: kept in this browser, in the link as bk=1.b0 when off; bk=1 as before', async () => {
+  const {
+    BUILDINGS_STORAGE_KEY,
+    decodeBlocksBuildings,
+    decodeBlocksParam,
+    encodeBlocksParam,
+  } = await import('./renderMode.js');
+  assert.equal(encodeBlocksParam('blocks'), '1');
+  assert.equal(encodeBlocksParam('blocks', null), '1');
+  assert.equal(encodeBlocksParam('blocks', true), '1');
+  assert.equal(encodeBlocksParam('blocks', false), '1.b0');
+  assert.equal(encodeBlocksParam('colour', false), '');
+  for (const value of ['1', '1.b0', '1.b1'])
+    assert.equal(decodeBlocksParam(value), true, value);
+  for (const value of ['1.b', '1.b2', '0', ''])
+    assert.equal(decodeBlocksParam(value), false, value);
+  assert.equal(decodeBlocksBuildings('1'), null);
+  assert.equal(decodeBlocksBuildings('1.b0'), false);
+  assert.equal(decodeBlocksBuildings('1.b1'), true);
+  // Chosen: kept, and written to the link when off.
+  const storage = memoryStorage();
+  const store = createRenderModeStore({ storage });
+  store.setMode('blocks');
+  assert.equal(store.getBuildings(), null, 'never chosen');
+  assert.equal(store.param(), '1');
+  const seen = [];
+  store.subscribe((state) => seen.push(state.buildings));
+  store.setBuildings(false);
+  assert.equal(storage.map.get(BUILDINGS_STORAGE_KEY), '0');
+  assert.equal(store.param(), '1.b0');
+  store.setBuildings(false);
+  store.setBuildings(true);
+  assert.deepEqual(seen, [false, true]);
+  assert.equal(store.param(), '1');
+  assert.equal(createRenderModeStore({ storage }).getBuildings(), true);
+  // A link with bk=1.b0: off for this page, the stored choice untouched.
+  const linked = createRenderModeStore({
+    storage,
+    linkBlocks: true,
+    linkBuildings: false,
+  });
+  assert.equal(linked.getMode(), 'blocks');
+  assert.equal(linked.getBuildings(), false);
+  assert.equal(storage.map.get(BUILDINGS_STORAGE_KEY), '1');
+});

@@ -131,6 +131,9 @@ export function blocksStatusText(status) {
           : t('Blocks: {size} m cubes · {count} chunks', values);
       // The real sun is under 15°: lit by the fixed study sun.
       if (status.sunFixed) text = `${text} · ${t('study sun')}`;
+      // OpenStreetMap buildings drawn as blocks, when any are.
+      if (status.buildings > 0)
+        text = `${text} · ${tn(status.buildings, '{count} building', '{count} buildings', { count: formatNumber(status.buildings) })}`;
       return status.state === 'loading'
         ? `${text} · ${t('{count} loading', { count: formatNumber(status.pending) })}`
         : text;
@@ -190,6 +193,17 @@ export function createLegoHeadingControl(
   const status = doc.createElement('span');
   status.className = 'lego-render-status';
   wrap.append(mode, exaggeration);
+  // Blocks' Buildings switch, shown in Blocks.
+  let buildings = null;
+  let buildingsLabel = null;
+  if (blocks?.getBuildings) {
+    buildingsLabel = doc.createElement('label');
+    buildingsLabel.className = 'blocks-buildings-toggle';
+    buildings = doc.createElement('input');
+    buildings.type = 'checkbox';
+    buildingsLabel.append(buildings, doc.createTextNode(` ${t('Buildings')}`));
+    wrap.append(buildingsLabel);
+  }
   // Relief ×N, on any map; Photoreal on bricks, in Lego.
   let relief = null;
   let bricks = null;
@@ -250,6 +264,15 @@ export function createLegoHeadingControl(
   wrap.append(status);
 
   const sync = () => {
+    if (buildings) {
+      const available = blocks.buildingsAvailable?.() !== false;
+      buildingsLabel.hidden = lego.getMode() !== 'blocks';
+      buildings.checked = Boolean(blocks.getBuildings());
+      buildings.disabled = !available;
+      buildingsLabel.title = available
+        ? t('OpenStreetMap buildings as blocks, from their height or storeys')
+        : t('Buildings need an Overpass server for this app');
+    }
     mode.value = lego.getMode();
     exaggeration.value = String(lego.getExaggeration());
     exaggeration.hidden = lego.getMode() !== 'lego';
@@ -277,6 +300,8 @@ export function createLegoHeadingControl(
     if (status.textContent !== text) status.textContent = text;
   };
   const onMode = () => lego.setMode(mode.value);
+  const onBuildings = () => blocks?.setBuildings?.(buildings.checked);
+  buildings?.addEventListener('change', onBuildings);
   const onRelief = () => photoreal?.setRelief(Number(relief.value));
   const onBricks = () => photoreal?.setBricks(bricks.checked);
   const onBrickMode = () => photoreal?.setBrickMode?.(brickMode.value);
@@ -301,6 +326,7 @@ export function createLegoHeadingControl(
       unsubscribe?.();
       unsubscribePhotoreal?.();
       unsubscribeBlocks?.();
+      buildings?.removeEventListener('change', onBuildings);
       relief?.removeEventListener('change', onRelief);
       bricks?.removeEventListener('change', onBricks);
       brickMode?.removeEventListener('change', onBrickMode);

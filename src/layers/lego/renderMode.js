@@ -7,23 +7,53 @@
 
 export const RENDER_MODE_STORAGE_KEY = 'gev.render.mode';
 export const EXAGGERATION_STORAGE_KEY = 'gev.render.legoExaggeration';
+/** Blocks' Buildings switch, when chosen ('1' or '0'); unchosen: on where Overpass answers. */
+export const BUILDINGS_STORAGE_KEY = 'gev.render.blocksBuildings';
 export const RENDER_MODES = Object.freeze(['colour', 'lego', 'blocks']);
-/** The share hash's Blocks switch: `bk=1` in Blocks, absent otherwise. */
+/**
+ * The share hash's Blocks switch: `bk=1` in Blocks, `bk=1.b0` in Blocks
+ * with its Buildings turned off, absent otherwise (links from before the
+ * Buildings switch read as they did).
+ */
 export const BLOCKS_PARAM = 'bk';
 
-/** `bk`'s value for a mode: '1' in Blocks, '' (not written) otherwise. */
-export const encodeBlocksParam = (mode) => (mode === 'blocks' ? '1' : '');
+/** `bk`'s value: '1' in Blocks, '1.b0' with Buildings off, '' otherwise. */
+export const encodeBlocksParam = (mode, buildings = null) =>
+  mode === 'blocks' ? (buildings === false ? '1.b0' : '1') : '';
 
-/** Whether `bk`'s value asks for Blocks; anything but '1' does not. */
-export const decodeBlocksParam = (value) => String(value ?? '').trim() === '1';
+const BLOCKS_VALUE = /^1(?:\.b([01]))?$/;
 
-/** Whether the page's hash asks for Blocks (`bk=1`). */
-function linkAsksForBlocks() {
+/** Whether `bk`'s value asks for Blocks ('1', '1.b0', '1.b1'). */
+export const decodeBlocksParam = (value) =>
+  BLOCKS_VALUE.test(String(value ?? '').trim());
+
+/** The Buildings choice in `bk`'s value: false for '.b0', true for '.b1', else null. */
+export function decodeBlocksBuildings(value) {
+  const match = BLOCKS_VALUE.exec(String(value ?? '').trim());
+  return match?.[1] === '0' ? false : match?.[1] === '1' ? true : null;
+}
+
+/** What the page's hash asks of Blocks: {blocks, buildings}. */
+function linkBlocksState() {
   try {
     const hash = String(globalThis.location?.hash || '').slice(1);
-    return decodeBlocksParam(new URLSearchParams(hash).get(BLOCKS_PARAM));
+    const value = new URLSearchParams(hash).get(BLOCKS_PARAM);
+    return {
+      blocks: decodeBlocksParam(value),
+      buildings: decodeBlocksBuildings(value),
+    };
   } catch {
-    return false;
+    return { blocks: false, buildings: null };
+  }
+}
+
+/** The stored Buildings choice: true, false, or null (never chosen). */
+export function readBuildings(storage) {
+  try {
+    const value = storage?.getItem(BUILDINGS_STORAGE_KEY);
+    return value === '1' ? true : value === '0' ? false : null;
+  } catch {
+    return null;
   }
 }
 
@@ -81,20 +111,27 @@ export function isFlatBasemap(stack) {
 }
 
 /**
- * @param {{storage?: Storage|null, linkBlocks?: boolean}} [options]
+ * @param {{storage?: Storage|null, linkBlocks?: boolean,
+ *   linkBuildings?: boolean|null}} [options]
  *   `linkBlocks`: a link asked for Blocks (`bk=1`), which wins over the
  *   stored mode for this page without overwriting it; a link without `bk`
- *   keeps the stored mode, as links did before Blocks.
+ *   keeps the stored mode, as links did before Blocks. `linkBuildings`:
+ *   the link's Buildings choice (`bk=1.b0`: off), for this page likewise.
  */
-export function createRenderModeStore({ storage, linkBlocks = false } = {}) {
+export function createRenderModeStore({
+  storage,
+  linkBlocks = false,
+  linkBuildings = null,
+} = {}) {
   const store = storageOf(storage);
   let mode = linkBlocks ? 'blocks' : readRenderMode(store);
   let exaggeration = readExaggeration(store);
+  let buildings = linkBuildings ?? readBuildings(store);
   const listeners = new Set();
   const emit = () => {
     for (const listener of listeners) {
       try {
-        listener({ mode, exaggeration });
+        listener({ mode, exaggeration, buildings });
       } catch (error) {
         console.warn('[Lego] render mode listener failed:', error);
       }
@@ -119,6 +156,15 @@ export function createRenderModeStore({ storage, linkBlocks = false } = {}) {
       save(RENDER_MODE_STORAGE_KEY, mode);
       emit();
     },
+    /** Blocks' Buildings choice: true, false, or null (never chosen). */
+    getBuildings: () => buildings,
+    setBuildings(next) {
+      const value = next === true;
+      if (value === buildings) return;
+      buildings = value;
+      save(BUILDINGS_STORAGE_KEY, value ? '1' : '0');
+      emit();
+    },
     setExaggeration(next) {
       const value = Math.round(Number(next));
       if (!(value >= 1 && value <= 5) || value === exaggeration) return;
@@ -133,7 +179,7 @@ export function createRenderModeStore({ storage, linkBlocks = false } = {}) {
     /** Whether the page's link asked for Blocks. */
     linkAskedForBlocks: () => linkBlocks,
     /** `bk`'s value now ('' when it is not written). */
-    param: () => encodeBlocksParam(mode),
+    param: () => encodeBlocksParam(mode, buildings),
   };
 }
 
@@ -144,6 +190,10 @@ let shared = null;
  * the page's hash (`bk`).
  */
 export function renderModeStore() {
-  shared ||= createRenderModeStore({ linkBlocks: linkAsksForBlocks() });
+  const link = linkBlocksState();
+  shared ||= createRenderModeStore({
+    linkBlocks: link.blocks,
+    linkBuildings: link.buildings,
+  });
   return shared;
 }

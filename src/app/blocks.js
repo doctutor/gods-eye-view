@@ -3,6 +3,10 @@ import { createBlocksController } from '../layers/blocks/index.js';
 import * as grid from '../layers/blocks/grid.js';
 import { buildChunkMesh } from '../layers/blocks/mesh.js';
 import { meshChunkAsync } from '../layers/blocks/meshPool.js';
+import {
+  applyStructures,
+  createStructuresSource,
+} from '../layers/blocks/structures.js';
 import { createChunk } from '../layers/blocks/store.js';
 import { createChunkSource } from '../layers/blocks/source.js';
 import { blocksSun, createBlocksRenderer } from '../layers/blocks/renderer.js';
@@ -29,6 +33,8 @@ export function createApplicationBlocks({
   mapStackController = null,
 }) {
   const values = createRasterValuesClient();
+  // OpenStreetMap buildings through the app's Overpass proxy (/api/overpass).
+  const buildings = createStructuresSource();
   const controller = createBlocksController({
     viewer,
     store,
@@ -45,6 +51,14 @@ export function createApplicationBlocks({
     buildChunkMesh,
     // Meshed off the main thread by the worker pool.
     meshAsync: meshChunkAsync,
+    // Buildings on the fine ring, where Overpass answers.
+    structures: {
+      loadChunk: (region, ci, cj) =>
+        buildings.loadChunkStructures(region, ci, cj),
+      groupBuildings: (region, gi, gj) =>
+        buildings.loadGroupBuildings(region, gi, gj),
+      apply: applyStructures,
+    },
     // The real sun when it is above 15°, else the study sun.
     sun: (lon, lat) => blocksSun(Date.now(), lat, lon),
     datum: blocksDatum({ viewer, mapStackController }),

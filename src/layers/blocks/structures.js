@@ -194,15 +194,17 @@ export function fillFootprint(rings, { blockM, i0, j0, size, out, value }) {
 
 /**
  * A group's building heights in blocks, GROUP_COLUMNS² (index j ×
- * GROUP_COLUMNS + i), from its footprints.
+ * GROUP_COLUMNS + i), from its footprints. `placed`, when given, collects
+ * the ids of the footprints that set a column (the Blocks status line's
+ * count of buildings).
  */
-export function rasteriseGroup(region, gi, gj, footprints) {
+export function rasteriseGroup(region, gi, gj, footprints, placed = null) {
   const out = new Uint16Array(GROUP_COLUMNS * GROUP_COLUMNS);
   for (const footprint of footprints) {
     const rings = footprint.rings.map((ring) =>
       ring.map(({ lon, lat }) => region.toLocal(lon, lat)),
     );
-    fillFootprint(rings, {
+    const set = fillFootprint(rings, {
       blockM: region.blockM,
       i0: gi * GROUP_COLUMNS,
       j0: gj * GROUP_COLUMNS,
@@ -213,6 +215,7 @@ export function rasteriseGroup(region, gi, gj, footprints) {
         buildingHeightBlocks(footprint.tags, region.blockM),
       ),
     });
+    if (placed && set > 0) placed.push(footprint.id);
   }
   return out;
 }
@@ -293,8 +296,17 @@ export function createStructuresSource({ query, maxGroups = MAX_GROUPS } = {}) {
       const { elements } = await query(
         buildingsQuery(groupBounds(region, gi, gj)),
       );
-      const heights = rasteriseGroup(region, gi, gj, parseFootprints(elements));
+      const placed = [];
+      const heights = rasteriseGroup(
+        region,
+        gi,
+        gj,
+        parseFootprints(elements),
+        placed,
+      );
       const chunks = new Map();
+      // The buildings placed in the group (their ids), beside the chunks.
+      chunks.buildings = placed;
       for (let b = 0; b < CHUNK_GROUP; b++)
         for (let a = 0; a < CHUNK_GROUP; a++)
           chunks.set(
@@ -321,6 +333,10 @@ export function createStructuresSource({ query, maxGroups = MAX_GROUPS } = {}) {
     async loadChunkStructures(region, ci, cj) {
       const { gi, gj } = groupOf(ci, cj);
       return (await loadGroup(region, gi, gj)).get(`${ci}:${cj}`) ?? null;
+    },
+    /** The ids of the buildings placed in a group, from its one query. */
+    async loadGroupBuildings(region, gi, gj) {
+      return (await loadGroup(region, gi, gj)).buildings ?? [];
     },
     /** Groups held (for tests). */
     size: () => held.size,

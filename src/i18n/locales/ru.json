@@ -3572,6 +3572,14 @@
   "Blocks: {size} m cubes · {count} + {coarse} coarse": "Блоки: кубы {size} м · {count} + {coarse} грубых",
   "{count} loading": "загружается: {count}",
   "study sun": "условное солнце",
+  "{count} buildings": {
+    "one": "{count} здание",
+    "few": "{count} здания",
+    "many": "{count} зданий",
+    "other": "{count} здания"
+  },
+  "OpenStreetMap buildings as blocks, from their height or storeys": "Здания OpenStreetMap блоками, по их высоте или этажности",
+  "Buildings need an Overpass server for this app": "Для зданий нужен сервер Overpass для этого приложения",
   "{count} bricks = {value}": {
     "one": "{count} кубик = {value}",
     "few": "{count} кубика = {value}",
@@ -3688,12 +3696,6 @@
   "Reading the property records…": "Чтение записей о недвижимости…",
   "Property records unavailable": "Записи о недвижимости недоступны",
   "buildings below {height} km": "здания ниже {height} км",
-  "{count} buildings": {
-    "one": "{count} здание",
-    "few": "{count} здания",
-    "many": "{count} зданий",
-    "other": "{count} здания"
-  },
   "a sample; zoom in for all": "выборка; приблизьте, чтобы увидеть все",
   "{count} records in the index": "записей в индексе: {count}",
   "{count} bd": "спален: {count}",
@@ -4017,7 +4019,6 @@
   "Walk: on the ground, WASD and the mouse (click the globe to look, Esc releases), Space jumps, Shift or W twice sprints. Fly: Space up, Shift down, W twice doubles the speed. Spectator: the usual camera": "Пешком: по земле, WASD и мышь (щелчок по глобусу — обзор, Esc отпускает), Пробел — прыжок, Shift или W дважды — бег. Полёт: Пробел вверх, Shift вниз, W дважды — вдвое быстрее. Наблюдатель: обычная камера",
   "SPECTATOR": "НАБЛЮДАТЕЛЬ",
   "MODE": "РЕЖИМ",
-  "Blocks {size} m": "Блоки {size} м",
   "no surface: hovering": "нет поверхности: зависание",
   "click to look": "щёлкните для обзора"
 }
