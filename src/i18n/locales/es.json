@@ -3930,6 +3930,9 @@
   "terrain": "terreno",
   "water": "agua",
   "building": "edificio",
+  "grass": "hierba",
+  "forest": "bosque",
+  "road": "carretera",
   "L{level} ({height} m)": "N{level} ({height} m)",
   "Chunk {chunk}, column {i} {j}, level {level}: {size} m blocks": "Trozo {chunk}, columna {i} {j}, nivel {level}: bloques de {size} m"
 }

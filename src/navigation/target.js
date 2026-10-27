@@ -13,6 +13,9 @@ export const MATERIAL_NAMES = Object.freeze({
   [MATERIALS.TERRAIN]: 'terrain',
   [MATERIALS.WATER]: 'water',
   [MATERIALS.BUILDING]: 'building',
+  [MATERIALS.GRASS]: 'grass',
+  [MATERIALS.FOREST]: 'forest',
+  [MATERIALS.ROAD]: 'road',
 });
 
 /**
