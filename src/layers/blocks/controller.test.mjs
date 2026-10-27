@@ -935,3 +935,19 @@ test('a chunk that fails is asked again after a backoff (2 s, 4 s, …), and giv
     console.warn = warn;
   }
 });
+
+test('the world for Walk and Fly: the region, its loaded chunks and the datum offset; none while Blocks is off', async () => {
+  const terrain = fakeDatum({ flat: false, undulation: -33.2 });
+  const { controller, store } = setup({ datum: terrain, radiusBlocks: 64 });
+  assert.equal(controller.world(), null, 'no region yet');
+  await drain(controller);
+  const world = controller.world();
+  assert.equal(world.region, controller._state().region.region);
+  assert.equal(world.geoidM, -33.2);
+  const [key, entry] = [...controller._state().chunks].find(([, e]) => e.chunk);
+  assert.equal(world.chunkAt(entry.ci, entry.cj), entry.chunk, key);
+  assert.equal(world.chunkAt(9999, 9999), null, 'not loaded');
+  store.setMode('colour');
+  assert.equal(controller.world(), null);
+  controller.destroy();
+});

@@ -656,6 +656,19 @@ export function createBlocksController({
     attach,
     tick,
     getStatus: () => _status,
+    /**
+     * The drawn world for Walk and Fly (src/navigation/blocksSource.js):
+     * the region, its loaded chunks and the datum offset the renderer
+     * lifts it by; null while Blocks is not drawn.
+     */
+    world() {
+      if (!_region || !active()) return null;
+      return {
+        region: _region.region,
+        geoidM: _region.datumOffsetM || 0,
+        chunkAt: (ci, cj) => _chunks.get(grid.chunkKey(ci, cj))?.chunk || null,
+      };
+    },
     subscribe(listener) {
       _listeners.add(listener);
       return () => _listeners.delete(listener);
