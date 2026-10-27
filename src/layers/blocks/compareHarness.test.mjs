@@ -144,9 +144,9 @@ test('two views: the judgement view (300 m, −30°) and eye level (1.7 m above 
 test('the synthetic Overpass answer: the buildings in the query’s box, read by the Blocks buildings source', async () => {
   const { overpassAnswer, SYNTHETIC_BUILDINGS } =
     await import('../../../scripts/qa-blocks-compare.mjs');
-  const { buildingsQuery, parseFootprints, buildingHeightM } =
+  const { groupQuery, parseFootprints, buildingHeightM } =
     await import('./structures.js');
-  const around = buildingsQuery({
+  const around = groupQuery({
     west: VIEW.lon - 0.01,
     south: VIEW.lat,
     east: VIEW.lon + 0.01,
@@ -163,7 +163,7 @@ test('the synthetic Overpass answer: the buildings in the query’s box, read by
     [18, 19.2, 45, 80, 6.4, 12.8, 6.4],
   );
   // A box away from the town: nothing.
-  const far = buildingsQuery({
+  const far = groupQuery({
     west: VIEW.lon + 0.1,
     south: VIEW.lat + 0.1,
     east: VIEW.lon + 0.11,
