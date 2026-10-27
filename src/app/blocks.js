@@ -33,8 +33,15 @@ export function createApplicationBlocks({
   mapStackController = null,
 }) {
   const values = createRasterValuesClient();
-  // OpenStreetMap buildings through the app's Overpass proxy (/api/overpass).
-  const buildings = createStructuresSource();
+  const chunks = createChunkSource({
+    fetchValues: (request) => values.get(request),
+    createChunk,
+  });
+  // OpenStreetMap buildings through the app's Overpass proxy (/api/overpass),
+  // standing on the ground of the same chunks.
+  const buildings = createStructuresSource({
+    loadChunk: (region, ci, cj) => chunks.loadChunk(region, ci, cj),
+  });
   const controller = createBlocksController({
     viewer,
     store,
@@ -42,10 +49,7 @@ export function createApplicationBlocks({
       isEnabled: (id) => dataManager.isEnabled(id),
       subscribeActivity: (listener) => dataManager.subscribeActivity(listener),
     },
-    source: createChunkSource({
-      fetchValues: (request) => values.get(request),
-      createChunk,
-    }),
+    source: chunks,
     renderer: lazyRenderer(() => createBlocksRenderer({ viewer })),
     grid,
     buildChunkMesh,

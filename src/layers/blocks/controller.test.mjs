@@ -1412,11 +1412,18 @@ test('the pool’s worker path (snapshot, structured clone, restore) meshes a ch
     material: material.slice(),
     water: water.slice(),
   });
-  // A building 12 blocks tall over an 8 × 6 footprint.
-  const heights = new Uint16Array(N * N);
+  // A building over an 8 × 6 footprint, levels 11 to 22, with a hollow
+  // under part of it (min_height: from level 16).
+  const levels = {
+    top: new Int32Array(N * N).fill(-2147483648),
+    bottom: new Int32Array(N * N).fill(-2147483648),
+  };
   for (let j = 20; j < 26; j++)
-    for (let i = 30; i < 38; i++) heights[j * N + i] = 12;
-  assert.ok(applyStructures(chunk, heights) > 0);
+    for (let i = 30; i < 38; i++) {
+      levels.top[j * N + i] = 22;
+      levels.bottom[j * N + i] = i < 34 ? 11 : 16;
+    }
+  assert.ok(applyStructures(chunk, levels) > 0);
   assert.ok(chunk.structure, 'the store holds the buildings');
   // A worker that does what meshWorker.js does, across a structured clone.
   const fakeWorker = () => {
@@ -1486,11 +1493,16 @@ async function buildingsSetup({
     loadChunk(region, ci, cj) {
       asked.push(`${ci}:${cj}`);
       if (structuresError) return Promise.reject(structuresError);
-      // A 4 × 4 building, 20 blocks tall, in every chunk's corner.
-      const heights = new Uint16Array(N * N);
+      // A 4 × 4 building, 20 blocks tall over the ground (level 10), in
+      // every chunk's corner: levels 11 to 30.
+      const top = new Int32Array(N * N).fill(-2147483648);
+      const bottom = new Int32Array(N * N).fill(-2147483648);
       for (let j = 0; j < 4; j++)
-        for (let i = 0; i < 4; i++) heights[j * N + i] = 20;
-      return Promise.resolve(heights);
+        for (let i = 0; i < 4; i++) {
+          top[j * N + i] = 30;
+          bottom[j * N + i] = 11;
+        }
+      return Promise.resolve({ top, bottom });
     },
     groupBuildings: (region, gi, gj) =>
       Promise.resolve([`way/${gi}:${gj}:a`, `way/${gi}:${gj}:b`, 'way/shared']),

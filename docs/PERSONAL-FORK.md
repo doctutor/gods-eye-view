@@ -6064,9 +6064,10 @@ no skirts toward other coarse chunks.
 **Buildings.** OpenStreetMap buildings stand on the fine ring as stacked
 blocks (`structures.js`, worker2's): one Overpass query per 4 × 4 group
 through the app's `/api/overpass`, each footprint filled onto the columns
-with its height (the `height` tag, else `building:levels` × 3.2 m, else
-6.4 m) and put into the chunk's structures layer, between the terrain and
-the edits. A chunk asks for its buildings once its terrain is in; when
+with its levels from its tags (worker2's roofs and parts: `height` or
+storeys, `min_height` for a part that starts above the ground) and put
+into the chunk's structures layer, between the terrain and the edits; the
+source takes its ground from the elevation source's same chunks. A chunk asks for its buildings once its terrain is in; when
 they arrive its version moves on and it is meshed again. Never on the
 coarse ring. A **Buildings** switch sits beside Render while Blocks is on:
 on unless turned off (kept as `gev.render.blocksBuildings`, and in the
@@ -6137,7 +6138,8 @@ served at 1 m as 3DEP's lidar is (read between the 10 m cells) and tiled
 by reflection beyond its edges, so the blocks have the live size and the
 coarse ring has ground to 2 km; painted in the PET rainbow over 0 to
 100 m for Colour; `/api/overpass` answers a small synthetic town north of
-the camera (seven footprints, 6 to 80 m, by height, storeys or neither),
+the camera (seven footprints, 6 to 80 m, by height, storeys or neither;
+one starts 6 m up, `min_height`, so a hollow shows under it),
 so the Blocks shots show buildings.
 Other `/api/` routes answer 404 and other hosts are refused, the terrain's
 too, so the globe there is flat ground and the shots show the flat case

@@ -195,7 +195,8 @@ export function rasterValuesBody(query, field) {
 /**
  * A few buildings north of the camera, in view from both shots: where
  * (metres north and east of the camera), how big, and the tags Overpass
- * would give (a height, or storeys, or nothing).
+ * would give (a height, or storeys, or nothing; one starts 6 m up, so a
+ * hollow shows under it at eye level).
  */
 export const SYNTHETIC_BUILDINGS = Object.freeze([
   {
@@ -212,7 +213,7 @@ export const SYNTHETIC_BUILDINGS = Object.freeze([
     east: 10,
     width: 24,
     depth: 40,
-    tags: { 'building:levels': '6' },
+    tags: { 'building:levels': '6', min_height: '6' },
   },
   {
     id: 3,

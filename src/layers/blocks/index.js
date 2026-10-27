@@ -275,8 +275,9 @@ export function sourceName(source) {
  *   meshAsync?: (chunk: object, options: object) => Promise<object>, the
  *     worker pool's meshChunkAsync (meshPool.js): buildChunkMesh's
  *     arguments, a promise of its mesh; buildChunkMesh in-thread without,
- *   structures?: {loadChunk: (region, ci, cj) => Promise<Uint16Array|null>,
- *     apply: (chunk, heights) => number, groupBuildings?: (region, gi, gj)
+ *   structures?: {loadChunk: (region, ci, cj) => Promise<{top: Int32Array,
+ *     bottom: Int32Array}|null>, apply: (chunk, levels) => number,
+ *     groupBuildings?: (region, gi, gj)
  *     => Promise<string[]>}, OpenStreetMap buildings (structures.js) for
  *     the fine chunks, while store.getBuildings() is not false and
  *     Overpass answers,
@@ -781,13 +782,13 @@ export function createBlocksController({
     const stale = () =>
       generation !== _generation || _chunks.get(entry.key) !== entry;
     call(() => structures.loadChunk(region, entry.ci, entry.cj)).then(
-      (heights) => {
+      (levels) => {
         if (stale()) return;
         if (!buildingsOn() || !entry.chunk) {
           entry.structures = undefined;
           return;
         }
-        if (heights) structures.apply(entry.chunk, heights);
+        if (levels) structures.apply(entry.chunk, levels);
         entry.structures = 'done';
         const { gi, gj } = groupOf(entry.ci, entry.cj);
         const key = `${gi}:${gj}`;
