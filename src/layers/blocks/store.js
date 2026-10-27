@@ -12,9 +12,11 @@
  *
  * A structures layer (OSM buildings, structures.js) sits between the
  * heightfield and the edits: a column's structure fills the levels from
- * just above its top up to the structure's top with the structure's
- * material, over any water. It is data like the heightfield, not an edit:
- * the overlay is never touched, and an edit over a structure wins.
+ * its bottom (by default just above the column's top) up to its top with
+ * the structure's material, over any water; a bottom higher up leaves a
+ * hollow under it (a building part on stilts). It is data like the
+ * heightfield, not an edit: the overlay is never touched, and an edit over
+ * a structure wins.
  */
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
 
@@ -75,7 +77,7 @@ export function createChunk({ ci, cj, top, material, water } = {}) {
   const waters = columnArray(Int32Array, water, NONE, 'water');
   /** Edits by column index, then level: the overlay. */
   const overlay = new Map();
-  /** The structures layer, made on the first structure: top level and material per column. */
+  /** The structures layer, made on the first structure: top, bottom and material per column. */
   let structure = null;
   let version = 0;
 
@@ -87,7 +89,7 @@ export function createChunk({ ci, cj, top, material, water } = {}) {
       return MATERIALS.AIR;
     }
     if (y <= top) return materials[index];
-    if (structure && y <= structure.top[index])
+    if (structure && y <= structure.top[index] && y >= structure.bottom[index])
       return structure.material[index];
     if (y <= waters[index] && waters[index] !== NONE) return MATERIALS.WATER;
     return MATERIALS.AIR;
@@ -132,39 +134,58 @@ export function createChunk({ ci, cj, top, material, water } = {}) {
       if (before !== material) version += 1;
     },
     /**
-     * The structures layer, {top, material} per column (top NONE: none),
-     * or null before the first structure.
+     * The structures layer, {top, bottom, material} per column (top
+     * NONE: none), or null before the first structure.
      */
     get structure() {
       return structure;
     },
     /**
-     * A structure in a column: levels from just above the heightfield's
-     * top up to `topLevel` are `material` (NONE, or a top not above the
-     * heightfield's, clears it). A column without data takes none.
+     * A structure in a column: levels from `bottomLevel` (by default,
+     * and at the lowest, just above the heightfield's top) up to
+     * `topLevel` are `material`; the levels between the top and a higher
+     * bottom stay as they were (air, or water). NONE, or a top below the
+     * bottom, clears it. A column without data takes none.
      */
-    setStructure(i, j, topLevel, material = MATERIALS.BUILDING) {
+    setStructure(
+      i,
+      j,
+      topLevel,
+      material = MATERIALS.BUILDING,
+      bottomLevel = NONE,
+    ) {
       checkColumn(i, j);
       if (topLevel !== NONE) checkLevel(topLevel);
+      if (bottomLevel !== NONE) checkLevel(bottomLevel);
       if (!Number.isInteger(material) || material < 0 || material > 255)
         throw new RangeError(`material ${material} is not a material id`);
       const index = columnIndex(i, j);
       const top = tops[index];
+      const bottom =
+        top === NONE
+          ? NONE
+          : Math.max(top + 1, bottomLevel === NONE ? top + 1 : bottomLevel);
       const next =
-        top === NONE || topLevel === NONE || topLevel <= top ? NONE : topLevel;
+        top === NONE || topLevel === NONE || topLevel < bottom
+          ? NONE
+          : topLevel;
       if (!structure) {
         if (next === NONE) return;
         structure = {
           top: new Int32Array(COLUMNS).fill(NONE),
+          bottom: new Int32Array(COLUMNS).fill(NONE),
           material: new Uint8Array(COLUMNS),
         };
       }
       if (
         structure.top[index] === next &&
-        (next === NONE || structure.material[index] === material)
+        (next === NONE ||
+          (structure.material[index] === material &&
+            structure.bottom[index] === bottom))
       )
         return;
       structure.top[index] = next;
+      structure.bottom[index] = next === NONE ? NONE : bottom;
       structure.material[index] = next === NONE ? 0 : material;
       version += 1;
     },
@@ -172,6 +193,11 @@ export function createChunk({ ci, cj, top, material, water } = {}) {
     structureTop(i, j) {
       checkColumn(i, j);
       return structure ? structure.top[columnIndex(i, j)] : NONE;
+    },
+    /** The structure's bottom level in a column, NONE when none. */
+    structureBottom(i, j) {
+      checkColumn(i, j);
+      return structure ? structure.bottom[columnIndex(i, j)] : NONE;
     },
     /** Remove every structure. */
     clearStructures() {
@@ -204,6 +230,7 @@ export function createChunk({ ci, cj, top, material, water } = {}) {
       const column = overlay.get(index);
       const baseTop = tops[index];
       const structureTop = structure ? structure.top[index] : NONE;
+      const structureBottom = structure ? structure.bottom[index] : NONE;
       let highest = Math.max(baseTop, structureTop);
       if (column)
         for (const [y, material] of column)
@@ -218,12 +245,18 @@ export function createChunk({ ci, cj, top, material, water } = {}) {
           if (isSolid(edited)) return y;
           continue;
         }
-        if (structureTop !== NONE && y > baseTop && y <= structureTop) {
+        if (
+          structureTop !== NONE &&
+          y >= structureBottom &&
+          y <= structureTop
+        ) {
           if (isSolid(structure.material[index])) return y;
           continue;
         }
         if (baseTop !== NONE && y <= baseTop)
           return isSolid(materials[index]) ? y : NONE;
+        // A hollow under a structure, down to the heightfield's top.
+        if (baseTop !== NONE) continue;
         if (!column || y < lowestEdit(column)) return NONE;
       }
     },
