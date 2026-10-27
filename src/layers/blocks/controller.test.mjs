@@ -314,12 +314,7 @@ test('a chunk is meshed again when a neighbour arrives (its border faces) or its
   controller.tick();
   const ofOrigin = () => meshes.filter((m) => m.key === '0:0');
   assert.equal(ofOrigin().length, 1);
-  assert.deepEqual(ofOrigin()[0].options.neighbours, {
-    n: null,
-    s: null,
-    e: null,
-    w: null,
-  });
+  assert.deepEqual(ofOrigin()[0].options.neighbours, {}, 'none loaded yet');
   assert.equal(ofOrigin()[0].options.blockM, 1);
   assert.deepEqual(ofOrigin()[0].options.sunDir, STUDY_SUN.dir);
   // Its east neighbour arrives: 0:0 is meshed again, now with it.
@@ -331,11 +326,59 @@ test('a chunk is meshed again when a neighbour arrives (its border faces) or its
   // Nothing changed: not meshed again.
   controller.tick();
   assert.equal(ofOrigin().length, 2);
-  // An edit bumps its version: meshed again.
-  ofOrigin()[1].chunk.version = 1;
+  // A diagonal arrives (ambient occlusion at the corner): meshed again.
+  source.loads.find((l) => l.ci === -1 && l.cj === -1).resolve();
+  await settle();
   controller.tick();
   assert.equal(ofOrigin().length, 3);
+  assert.deepEqual(Object.keys(ofOrigin()[2].options.neighbours).sort(), [
+    'e',
+    'sw',
+  ]);
+  assert.equal(ofOrigin()[2].options.neighbours.sw.ci, -1);
+  // An edit bumps its version: meshed again.
+  ofOrigin()[2].chunk.version = 1;
+  controller.tick();
+  assert.equal(ofOrigin().length, 4);
   controller.destroy();
+});
+
+test('the budget doubles for 30 m blocks; the region says when it is left (grid.js within)', async () => {
+  const { tickBudget, reanchorRadiusM } = await import('./index.js');
+  assert.equal(tickBudget(8, 1), 8);
+  assert.equal(tickBudget(8, 10), 8);
+  assert.equal(tickBudget(8, 30), 16);
+  assert.equal(reanchorRadiusM(1, 512), 20_000);
+  assert.equal(reanchorRadiusM(30, 512), 30_720);
+  // 30 m blocks: 16 loads in flight on the first tick.
+  const coarse = fakeSource({ blockM: 30, hold: true });
+  const run = setup({ source: coarse });
+  await settle();
+  assert.equal(coarse.loads.length, 16);
+  run.controller.destroy();
+  // A region with within(): asked with the controller's radius.
+  const asked = [];
+  const grid = fakeGrid.createRegion;
+  fakeGrid.createRegion = (options) => {
+    const region = grid(options);
+    region.within = (lon, lat, radiusM) => {
+      asked.push(radiusM);
+      return true; // never left, however far
+    };
+    return region;
+  };
+  try {
+    const source = fakeSource();
+    const { controller, viewer } = setup({ source, radiusBlocks: 64 });
+    await drain(controller);
+    viewer.moveTo(east(25_000));
+    await drain(controller);
+    assert.equal(source.regions.length, 1, 'within() said it was not left');
+    assert.ok(asked.length > 0 && asked.every((r) => r === 20_000));
+    controller.destroy();
+  } finally {
+    fakeGrid.createRegion = grid;
+  }
 });
 
 test('hysteresis: chunks are dropped only beyond 1.25 × the render distance; new ones load ahead', async () => {
@@ -735,4 +778,62 @@ test('Elevation on but draped nowhere (the globe hidden): Blocks reads the toggl
     off();
     controller.destroy();
   }
+});
+
+test('with the real grid, store and mesher: chunks meshed against their neighbours and handed to the renderer', async () => {
+  const realGrid = await import('./grid.js');
+  const { buildChunkMesh } = await import('./mesh.js');
+  const { createChunk } = await import('./store.js');
+  const { columnsFromHeights } = await import('./source.js');
+  const N = realGrid.CHUNK_COLUMNS;
+  const source = {
+    regions: [],
+    regionFor(lon, lat) {
+      source.regions.push({ lon, lat });
+      return Promise.resolve({ blockM: 10, source: 'Synthetic 10 m' });
+    },
+    loadChunk(region, ci, cj) {
+      // A slope rising east, one block every 4 columns, continuous across chunks.
+      const heights = new Float32Array(N * N);
+      for (let j = 0; j < N; j++)
+        for (let i = 0; i < N; i++)
+          heights[j * N + i] = 12 + ((ci * N + i) * 10) / 4;
+      return Promise.resolve(
+        createChunk({ ci, cj, ...columnsFromHeights(heights, region.blockM) }),
+      );
+    },
+  };
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const renderer = fakeRenderer();
+  const controller = createBlocksController({
+    viewer: fakeViewer(),
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: realGrid,
+    buildChunkMesh,
+    radiusBlocks: 100,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller);
+  const region = renderer.calls.find(([k]) => k === 'region')[1];
+  assert.equal(region.blockM, 10);
+  // The origin snapped to the 10 m graticule near the camera.
+  assert.ok(
+    Math.abs(region.lon0 - LON0) < 0.001 &&
+      Math.abs(region.lat0 - LAT0) < 0.001,
+  );
+  const ring = chunkRing({ i: 0, j: 0, radius: 100, chunkColumns: N });
+  assert.equal(renderer.shown.size, ring.length);
+  for (const mesh of renderer.shown.values()) {
+    assert.ok(mesh.indices.length > 0);
+    assert.ok(mesh.opaqueIndexCount > 0);
+    assert.equal(mesh.positions.length % 3, 0);
+  }
+  assert.equal(controller.getStatus().state, 'ready');
+  assert.equal(controller.getStatus().blockM, 10);
+  controller.destroy();
 });

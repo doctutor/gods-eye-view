@@ -17,8 +17,24 @@ import { setBlocksFloorM, setBlocksScene } from './floor.js';
 export const RENDER_DISTANCE_BLOCKS = 512;
 /** Chunks beyond this many times the render distance are removed. */
 export const REMOVE_FACTOR = 1.25;
-/** Chunks loaded (in flight) and meshed per tick, at most. */
+/**
+ * Chunks loaded (in flight) and meshed per tick, at most: the mesher takes
+ * 10 to 65 ms a chunk warm, so 8 is about half a tick at 1 m.
+ */
 export const CHUNK_BUDGET = 8;
+/** From this block size the budget doubles (tickBudget). */
+export const COARSE_BLOCK_M = 30;
+/** A chunk's neighbours as buildChunkMesh names them: [name, Δci, Δcj]. */
+export const NEIGHBOURS = Object.freeze([
+  ['n', 0, 1],
+  ['s', 0, -1],
+  ['e', 1, 0],
+  ['w', -1, 0],
+  ['ne', 1, 1],
+  ['nw', -1, 1],
+  ['se', 1, -1],
+  ['sw', -1, -1],
+]);
 /** The tick while the camera moves, or while chunks are still coming. */
 export const TICK_MS = 500;
 /** The window the source looks at to pick a region's block size, metres. */
@@ -110,11 +126,27 @@ export function chunkDistance({ x, y }, ci, cj, size) {
   return Math.hypot(dx, dy);
 }
 
-/** Whether the camera at local {x, y} m has left a region of `blockM`. */
+/** How far from its origin a region of `blockM` serves (m). */
+export const reanchorRadiusM = (blockM, radiusBlocks) =>
+  Math.max(REANCHOR_M, 2 * radiusBlocks * blockM);
+
+/**
+ * Whether the camera at local {x, y} m has left a region of `blockM` (for
+ * a region without grid.js's `within`).
+ */
 export function needsReanchor(local, blockM, radiusBlocks) {
-  const limit = Math.max(REANCHOR_M, 2 * radiusBlocks * blockM);
-  return !(Math.hypot(local.x, local.y) <= limit);
+  return !(
+    Math.hypot(local.x, local.y) <= reanchorRadiusM(blockM, radiusBlocks)
+  );
 }
+
+/**
+ * The chunks a tick may load and mesh: `budget`, doubled for 30 m blocks
+ * and coarser (the mesher costs the same per chunk, and the chunks are
+ * 30 times wider).
+ */
+export const tickBudget = (budget, blockM) =>
+  blockM >= COARSE_BLOCK_M ? budget * 2 : budget;
 
 /** A source's name for the status line, from what regionFor returned. */
 export function sourceName(source) {
@@ -369,17 +401,23 @@ export function createBlocksController({
   }
 
   /** What a chunk's mesh depends on: its version and its neighbours'. */
+  /**
+   * The loaded chunks around one: the four it shares a side with (their
+   * border faces) and the four diagonals (ambient occlusion at its
+   * corners). mesh.js reads a missing one as the edge column repeated (no
+   * wall), so a chunk is meshed again when any of the eight arrives.
+   */
   function neighboursOf(entry) {
     const at = (ci, cj) => _chunks.get(grid.chunkKey(ci, cj))?.chunk || null;
-    return {
-      n: at(entry.ci, entry.cj + 1),
-      s: at(entry.ci, entry.cj - 1),
-      e: at(entry.ci + 1, entry.cj),
-      w: at(entry.ci - 1, entry.cj),
-    };
+    const out = {};
+    for (const [name, di, dj] of NEIGHBOURS) {
+      const chunk = at(entry.ci + di, entry.cj + dj);
+      if (chunk) out[name] = chunk;
+    }
+    return out;
   }
   const signatureOf = (chunk, neighbours) =>
-    [chunk, neighbours.n, neighbours.s, neighbours.e, neighbours.w]
+    [chunk, ...NEIGHBOURS.map(([name]) => neighbours[name])]
       .map((c) => (c ? String(c.version ?? 0) : '-'))
       .join('|');
 
@@ -446,10 +484,12 @@ export function createBlocksController({
     if (_anchoring) return;
     if (_region) {
       const local = _region.region.toLocal(camera.lon, camera.lat);
-      if (
-        needsReanchor(local, _region.blockM, radiusBlocks) ||
-        Boolean(datum.flat()) !== _region.flat
-      ) {
+      const radiusM = reanchorRadiusM(_region.blockM, radiusBlocks);
+      const left =
+        typeof _region.region.within === 'function'
+          ? !_region.region.within(camera.lon, camera.lat, radiusM)
+          : needsReanchor(local, _region.blockM, radiusBlocks);
+      if (left || Boolean(datum.flat()) !== _region.flat) {
         clearAll('anchoring');
         startTicking();
       }
@@ -479,10 +519,11 @@ export function createBlocksController({
     }
     // Start loads, nearest first, while fewer than `budget` are in flight.
     const ring = chunkRing({ i, j, radius: radiusBlocks, chunkColumns: size });
+    const perTick = tickBudget(budget, _region.blockM);
     let inFlight = 0;
     for (const entry of _chunks.values()) if (entry.loading) inFlight++;
     for (const { ci, cj } of ring) {
-      if (inFlight >= budget) break;
+      if (inFlight >= perTick) break;
       const key = grid.chunkKey(ci, cj);
       if (_chunks.has(key)) continue;
       const entry = {
@@ -502,7 +543,7 @@ export function createBlocksController({
     // Mesh what arrived or changed (its version, or a neighbour's), nearest first.
     let meshed = 0;
     for (const { ci, cj } of ring) {
-      if (meshed >= budget) break;
+      if (meshed >= perTick) break;
       const entry = _chunks.get(grid.chunkKey(ci, cj));
       if (!entry?.chunk) continue;
       const neighbours = neighboursOf(entry);
