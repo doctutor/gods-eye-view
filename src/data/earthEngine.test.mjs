@@ -1872,3 +1872,85 @@ test('far out, the regions draw GAUL’s 500 m simplified table: its own map, po
     'level1/light/FAO/GAUL/2025/level1',
   ]);
 });
+
+test('GET /budget: today’s tiles per layer and in all against the daily budget, read-only', async (t) => {
+  const root = await tempRoot(t);
+  let clock = Date.parse('2026-10-27T12:00:00Z');
+  const backend = fakeBackend();
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: { EARTH_ENGINE_DAILY_TILES: '20000' },
+    backend,
+    now: () => clock,
+  });
+  assert.deepEqual(service.budget(), {
+    date: '2026-10-27',
+    dailyTiles: 20000,
+    used: {},
+    total: 0,
+    warnAt: [50, 90],
+  });
+  for (let x = 0; x < 3; x++)
+    await service.tile('ee-terrain-slope', 'base', 'default', 6, x, 1);
+  await service.tile('ee-forest-loss', 'default', 'default', 4, 0, 1);
+  // A disk hit is not spend.
+  await service.tile('ee-forest-loss', 'default', 'default', 4, 0, 1);
+  const handler = createEarthEngineHandler({ service });
+  const res = {
+    statusCode: 200,
+    headers: {},
+    setHeader(name, value) {
+      this.headers[name.toLowerCase()] = value;
+    },
+    end(body) {
+      this.body = JSON.parse(body);
+    },
+  };
+  await handler(
+    {
+      url: '/budget',
+      method: 'GET',
+      headers: { host: 'localhost:4176' },
+      socket: {},
+    },
+    res,
+    () => (res.nexted = true),
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['cache-control'], 'no-store');
+  assert.deepEqual(res.body, {
+    date: '2026-10-27',
+    dailyTiles: 20000,
+    used: { 'ee-terrain-slope': 3, 'ee-forest-loss': 1 },
+    total: 4,
+    warnAt: [50, 90],
+  });
+  // Asking does not spend: the backend made no tile for it.
+  const made = backend.tiles?.length;
+  service.budget();
+  assert.equal(backend.tiles?.length, made);
+  // The default budget, and a new day from nothing.
+  const plain = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    backend,
+    now: () => clock,
+  });
+  assert.equal(plain.budget().dailyTiles, 20000);
+  clock += 24 * 60 * 60 * 1000;
+  assert.deepEqual(service.budget().used, {});
+  assert.equal(service.budget().date, '2026-10-28');
+  // Same-site and GET only, as the other routes.
+  const post = { ...res, statusCode: 200 };
+  await handler(
+    {
+      url: '/budget',
+      method: 'POST',
+      headers: { host: 'localhost:4176' },
+      socket: {},
+    },
+    post,
+    () => {},
+  );
+  assert.equal(post.statusCode, 405);
+});

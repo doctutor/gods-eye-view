@@ -1626,6 +1626,22 @@ export function createEarthEngineService({
 
   return {
     /**
+     * Personal fork: today's Earth Engine spend, read-only (GET /budget):
+     * the day (UTC), the daily budget, the tiles fetched per layer and in
+     * all, as countTile keeps them (disk hits are not counted). Nothing is
+     * signed in or fetched to answer.
+     */
+    budget() {
+      const today = usage();
+      return {
+        date: today.day,
+        dailyTiles: settings().dailyTiles,
+        used: today.byLayer,
+        total: today.tiles,
+        warnAt: [...BUDGET_WARNINGS],
+      };
+    },
+    /**
      * The layer catalog, every map made or refreshed as needed (a
      * `lazyMaps` layer's only when its tiles ask: the catalog reports the
      * maps it has).
@@ -1916,6 +1932,9 @@ export function createEarthEngineHandler({ service }) {
     try {
       if (route === '/layers')
         return sendJson(res, 200, await service.layers());
+      // Personal fork: today's tiles against the budget (read-only).
+      if (route === '/budget' && typeof service.budget === 'function')
+        return sendJson(res, 200, await service.budget());
       const plain = TILE_PATH.exec(route);
       const moded = plain ? null : MODE_TILE_PATH.exec(route);
       if (plain || moded) {

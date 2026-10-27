@@ -271,6 +271,49 @@ test('the BLOCK line shows the targeted block and hides for none', () => {
   }
 });
 
+test('the EE line under PX: the day’s Earth Engine spend, amber from 50%, red from 90%, hidden for none', () => {
+  const classes = new Set();
+  const rows = {
+    'hud-ee': {
+      hidden: true,
+      classList: {
+        toggle: (name, on) => (on ? classes.add(name) : classes.delete(name)),
+      },
+    },
+    'hud-ee-text': {},
+  };
+  const before = globalThis.document;
+  const s = setup();
+  globalThis.document = {
+    ...globalThis.document,
+    getElementById: (id) => rows[id] ?? null,
+  };
+  try {
+    const budget = (total) => ({
+      date: '2026-10-27',
+      dailyTiles: 20000,
+      total,
+      used: { 'ee-elevation': total },
+      warnAt: [50, 90],
+    });
+    s.hud.setEarthEngineBudget(budget(1240));
+    assert.equal(rows['hud-ee'].hidden, false);
+    assert.equal(rows['hud-ee-text'].textContent, 'EE 1,240 / 20,000 today');
+    assert.match(rows['hud-ee-text'].title, /ee-elevation 1,240/);
+    assert.deepEqual([...classes], []);
+    s.hud.setEarthEngineBudget(budget(10_000));
+    assert.deepEqual([...classes], ['is-amber']);
+    s.hud.setEarthEngineBudget(budget(18_000));
+    assert.deepEqual([...classes], ['is-red']);
+    s.hud.setEarthEngineBudget(null);
+    assert.equal(rows['hud-ee'].hidden, true);
+    assert.deepEqual([...classes], []);
+  } finally {
+    globalThis.document = before;
+    s.hud.destroy();
+  }
+});
+
 test('the live diagnostics handle comes and goes with the HUD', () => {
   globalThis.window = {};
   const s = setup();

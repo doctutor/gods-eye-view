@@ -2762,7 +2762,8 @@
       "src/hud/blockTarget.js",
       "src/navigation/target.js",
       "src/navigation/targeting.js",
-      "src/navigation/entry.js"
+      "src/navigation/entry.js",
+      "src/data/earthEngineBudget.js"
     ],
     "external": [
       "hls.js",

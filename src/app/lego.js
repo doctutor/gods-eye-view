@@ -9,6 +9,8 @@ import {
   enableElevationForBlocksLink,
   renderModeStore,
 } from '../layers/lego/renderMode.js';
+// Personal fork: the day's Earth Engine spend, polled while Blocks is drawn.
+import { earthEngineBudgetStore } from '../data/earthEngineBudget.js';
 import { createApplicationBlocks } from './blocks.js';
 import { ensureGeoidReady, geoidHeight } from '../data/geoid.js';
 import { governorRequestRender } from '../renderGovernor.js';
@@ -61,6 +63,15 @@ export function createApplicationLego({
     store: renderMode,
     mapStackController,
   });
+  // The Earth Engine budget is asked for while Blocks is drawn, never
+  // otherwise (every fresh Blocks view spends Earth Engine requests).
+  const budget = earthEngineBudgetStore();
+  const drawn = (status) =>
+    status?.state === 'loading' || status?.state === 'ready';
+  const offBudget = blocks.subscribe?.((status) =>
+    budget.setActive(drawn(status)),
+  );
+  budget.setActive(drawn(blocks.getStatus?.()));
   // A link asking for Blocks turns the Elevation layer on likewise.
   enableElevationForBlocksLink({
     store: renderMode,
@@ -90,6 +101,8 @@ export function createApplicationLego({
       Analysis: (doc) => createLegoHeadingControl(doc, lego, photoreal, blocks),
     },
     destroy: () => {
+      offBudget?.();
+      budget.setActive(false);
       blocks.destroy();
       photoreal.destroy();
       lego.destroy();

@@ -479,3 +479,17 @@
 .gev-nav-hint[hidden] {
   display: none;
 }
+
+/* Personal fork: the day's Earth Engine spend under PX while Blocks is
+   drawn (src/data/earthEngineBudget.js): amber from 50%, red from 90%. */
+#intel-hud .hud-ee-budget[hidden] {
+  display: none;
+}
+
+#intel-hud .hud-ee-budget.is-amber .hud-cam-value {
+  color: #ffb020;
+}
+
+#intel-hud .hud-ee-budget.is-red .hud-cam-value {
+  color: #ff4a3d;
+}

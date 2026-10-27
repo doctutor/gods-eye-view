@@ -711,6 +711,18 @@ that used the most:
 [EarthEngine] 50% of today's tile budget used (10000 of 20000; ee-terrain-slope 6200, …)
 ```
 
+`GET /api/earth-engine/budget` (read-only, same-site, GET only; nothing is
+signed in or fetched to answer it) returns `{date, dailyTiles, used:
+{layerId: n}, total, warnAt: [50, 90]}`. While Render: Blocks is drawn
+(every fresh Blocks view spends about 40 computePixels), the page asks for
+it at once and every 60 s, and never otherwise
+(`src/data/earthEngineBudget.js`, started and stopped by the Blocks
+controller's status in `src/app/lego.js`): the HUD shows "EE 1,240 / 20,000
+today" under PX, amber from 50% and red from 90%, and the Blocks status
+line's tooltip gives the day and the layers that spent it. Checked in the
+built app: asked 15 s in (as Blocks began drawing) and then 60 s later, the
+line amber at 56%, and nothing asked in 65 s of Render: Colour.
+
 **Levels and ink** (the boundaries row). Two rows of chips:
 
 - **AUTO / COUNTRIES / REGIONS / DISTRICTS** choose the GAUL level. AUTO
