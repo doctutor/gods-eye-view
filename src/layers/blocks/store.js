@@ -17,6 +17,11 @@
  * hollow under it (a building part on stilts). It is data like the
  * heightfield, not an edit: the overlay is never touched, and an edit over
  * a structure wins.
+ *
+ * Land cover from OSM (structures.js) sets a column's surface with
+ * setSurface: its material (grass, forest, road), or water, which puts the
+ * column's water surface at its own top (the top block becomes water over
+ * the ground below it), so a river above sea level reads as water.
  */
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
 
@@ -26,6 +31,9 @@ export const MATERIALS = Object.freeze({
   TERRAIN: 1,
   WATER: 2,
   BUILDING: 3,
+  GRASS: 4,
+  FOREST: 5,
+  ROAD: 6,
 });
 /** No level: a column without data, or without water. */
 export const NONE = -2147483648;
@@ -198,6 +206,34 @@ export function createChunk({ ci, cj, top, material, water } = {}) {
     structureBottom(i, j) {
       checkColumn(i, j);
       return structure ? structure.bottom[columnIndex(i, j)] : NONE;
+    },
+    /**
+     * A column's surface from land cover: a solid material becomes the
+     * column's material; WATER puts the water surface at the column's top
+     * (its top block becomes water, the ground one level lower), once: a
+     * column already under water at its top keeps it. A column without
+     * data takes none.
+     * @returns {boolean} whether the column changed
+     */
+    setSurface(i, j, material) {
+      checkColumn(i, j);
+      if (!Number.isInteger(material) || material < 0 || material > 255)
+        throw new RangeError(`material ${material} is not a material id`);
+      const index = columnIndex(i, j);
+      const top = tops[index];
+      if (top === NONE) return false;
+      if (material === MATERIALS.WATER) {
+        if (waters[index] !== NONE && waters[index] >= top) return false;
+        waters[index] = top;
+        tops[index] = top - 1;
+      } else {
+        if (!isSolid(material))
+          throw new RangeError(`material ${material} is not a surface`);
+        if (materials[index] === material) return false;
+        materials[index] = material;
+      }
+      version += 1;
+      return true;
     },
     /** Remove every structure. */
     clearStructures() {
