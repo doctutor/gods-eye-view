@@ -1,7 +1,8 @@
 // Personal fork: the gamepad for Walk and Fly (src/navigation/gamepad.js):
-// a pad's snapshot to the movement's intents (dead zone, tilt, look curve,
-// held buttons and presses that act once, the sprint latch), the settings,
-// and the source's connection handling (nothing polled while off).
+// a pad's snapshot to the binding's intents (dead zone, tilt, look curve,
+// held buttons, presses that act once, the sprint latch), the settings,
+// the source's connection handling (nothing polled while off), and its
+// attachment to the store and an input-source registry.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -9,8 +10,9 @@ import {
   BUTTONS,
   CONNECTED_HINT_MS,
   GAMEPAD_DEFAULTS,
-  LOOK_DEG_PER_S,
+  LOOK_PX_PER_S,
   STORAGE_PREFIX,
+  attachGamepad,
   createGamepadSource,
   deadZoned,
   gamepadIntents,
@@ -25,6 +27,7 @@ function pad({ axes = [0, 0, 0, 0], held = [], values = {} } = {}) {
   return {
     id: 'Xbox Wireless Controller (STANDARD GAMEPAD)',
     mapping: 'standard',
+    connected: true,
     axes,
     buttons: Array.from({ length: 17 }, (_, index) => ({
       pressed: held.includes(index) || (values[index] ?? 0) > 0.5,
@@ -45,60 +48,59 @@ test('deadZoned: a radial dead zone, the tilt rescaled 0 … 1 past it', () => {
   assert.equal(deadZoned(0.2, 0, 0.3).magnitude, 0);
 });
 
-test('the left stick moves: analog forward and right, keys past the threshold', () => {
-  // Stick pushed fully up: forward at full tilt.
-  let { intents } = gamepadIntents(pad({ axes: [0, -1, 0, 0] }), {
-    dt: 1 / 60,
-  });
-  assert.ok(close(intents.move.forward, 1) && close(intents.move.magnitude, 1));
-  assert.equal(intents.forward, true);
-  assert.equal(intents.back, false);
-  // Halfway right: the share of top speed is the tilt past the dead zone.
-  ({ intents } = gamepadIntents(pad({ axes: [0.575, 0, 0, 0] })));
-  assert.ok(
-    close(intents.move.right, 0.5) && close(intents.move.magnitude, 0.5),
-  );
-  assert.equal(intents.right, true);
+test('the left stick moves: forward, back, left and right past the threshold, its tilt kept', () => {
+  let result = gamepadIntents(pad({ axes: [0, -1, 0, 0] }), { dt: 1 / 60 });
+  assert.equal(result.intents.forward, true);
+  assert.equal(result.intents.back, false);
+  assert.ok(close(result.move.y, 1) && close(result.move.magnitude, 1));
+  result = gamepadIntents(pad({ axes: [0.575, 0, 0, 0] }));
+  assert.equal(result.intents.right, true);
+  assert.ok(close(result.move.x, 0.5));
+  result = gamepadIntents(pad({ axes: [-1, 1, 0, 0] }));
+  assert.equal(result.intents.left, true);
+  assert.equal(result.intents.back, true);
   // A drift inside the dead zone is nothing.
-  ({ intents } = gamepadIntents(pad({ axes: [0.1, -0.1, 0, 0] })));
-  assert.equal(intents.move.magnitude, 0);
-  assert.equal(
-    intents.forward || intents.back || intents.left || intents.right,
-    false,
-  );
+  result = gamepadIntents(pad({ axes: [0.1, -0.1, 0, 0] }));
+  assert.equal(result.move.magnitude, 0);
+  const { forward, back, left, right } = result.intents;
+  assert.equal(forward || back || left || right, false);
+  // A small push past the dead zone but under the threshold: not yet a key.
+  result = gamepadIntents(pad({ axes: [0, -0.3, 0, 0] }));
+  assert.ok(result.move.magnitude > 0);
+  assert.equal(result.intents.forward, false);
   // A wider dead zone from the settings.
-  ({ intents } = gamepadIntents(pad({ axes: [0.25, 0, 0, 0] }), {
+  result = gamepadIntents(pad({ axes: [0.25, 0, 0, 0] }), {
     settings: { deadZone: 0.3 },
-  }));
-  assert.equal(intents.move.magnitude, 0);
+  });
+  assert.equal(result.move.magnitude, 0);
 });
 
-test('the right stick looks: degrees a second by the curve, sensitivity, inversion', () => {
+test('the right stick looks: pointer-lock pixels by the curve, sensitivity and inversion', () => {
   const dt = 0.5;
-  // Full right: 180°/s × 0.5 s.
+  // Full right: 600 px/s × 0.5 s.
   let { intents } = gamepadIntents(pad({ axes: [0, 0, 1, 0] }), { dt });
-  assert.ok(close(intents.look.yawDeg, LOOK_DEG_PER_S * dt));
-  assert.ok(close(intents.look.pitchDeg, 0));
-  // Half tilt: the curve squares it (a quarter of the rate), so a small tilt aims finely.
+  assert.ok(close(intents.lookDx, LOOK_PX_PER_S * dt));
+  assert.ok(close(intents.lookDy, 0));
+  // Half tilt: the curve squares it (a quarter), so a small tilt aims finely.
   ({ intents } = gamepadIntents(pad({ axes: [0, 0, 0.575, 0] }), { dt }));
-  assert.ok(close(intents.look.yawDeg, LOOK_DEG_PER_S * dt * 0.25));
-  // Stick up looks up (the axis is −1 up).
+  assert.ok(close(intents.lookDx, LOOK_PX_PER_S * dt * 0.25));
+  // Stick up looks up: −y on the stick, −y in pointer-lock pixels.
   ({ intents } = gamepadIntents(pad({ axes: [0, 0, 0, -1] }), { dt }));
-  assert.ok(close(intents.look.pitchDeg, LOOK_DEG_PER_S * dt));
-  // Inverted Y, and sensitivity 2.
+  assert.ok(close(intents.lookDy, -LOOK_PX_PER_S * dt));
+  // Inverted Y and sensitivity 2.
   ({ intents } = gamepadIntents(pad({ axes: [0, 0, 0, -1] }), {
     dt,
     settings: { invertY: true, sensitivity: 2 },
   }));
-  assert.ok(close(intents.look.pitchDeg, -LOOK_DEG_PER_S * dt * 2));
+  assert.ok(close(intents.lookDy, LOOK_PX_PER_S * dt * 2));
   ({ intents } = gamepadIntents(pad({ axes: [0, 0, 1, 0] }), {
     dt,
     settings: { invertX: true },
   }));
-  assert.ok(close(intents.look.yawDeg, -LOOK_DEG_PER_S * dt));
-  // No time, no turn.
+  assert.ok(close(intents.lookDx, -LOOK_PX_PER_S * dt));
+  // Per frame: no time, no turn.
   ({ intents } = gamepadIntents(pad({ axes: [0, 0, 1, 0] }), { dt: 0 }));
-  assert.equal(intents.look.yawDeg, 0);
+  assert.equal(intents.lookDx, 0);
 });
 
 test('buttons: A jump and B sneak held in Walk; up and down from A/B or the triggers in Fly', () => {
@@ -131,18 +133,17 @@ test('Start, Back and the D-pad act once a press, not while held', () => {
   const frame = (snapshot) => {
     const result = gamepadIntents(snapshot, { state });
     state = result.state;
-    return result.intents;
+    return result.actions;
   };
   assert.equal(frame(pad({ held: [BUTTONS.START] })).release, true);
   assert.equal(frame(pad({ held: [BUTTONS.START] })).release, false); // still held
   assert.equal(frame(pad()).release, false);
-  assert.equal(frame(pad({ held: [BUTTONS.START] })).release, true); // pressed again
+  assert.equal(frame(pad({ held: [BUTTONS.START] })).release, true); // again
   assert.equal(frame(pad({ held: [BUTTONS.BACK] })).toggleMode, true);
   assert.equal(frame(pad({ held: [BUTTONS.BACK] })).toggleMode, false);
   assert.equal(frame(pad({ held: [BUTTONS.RIGHT] })).flySpeedStep, 1);
   assert.equal(frame(pad({ held: [BUTTONS.RIGHT] })).flySpeedStep, 0);
   assert.equal(frame(pad({ held: [BUTTONS.LEFT] })).flySpeedStep, -1);
-  // Both at once cancel.
   frame(pad());
   assert.equal(
     frame(pad({ held: [BUTTONS.LEFT, BUTTONS.RIGHT] })).flySpeedStep,
@@ -160,7 +161,7 @@ test('sprint: a stick click starts it, and it lasts until the left stick rests',
   const forward = [0, -1, 0, 0];
   assert.equal(frame(pad({ axes: forward })).sprint, false);
   assert.equal(frame(pad({ axes: forward, held: [BUTTONS.RS] })).sprint, true);
-  assert.equal(frame(pad({ axes: forward })).sprint, true); // released, still sprinting
+  assert.equal(frame(pad({ axes: forward })).sprint, true); // released, still on
   assert.equal(frame(pad({ axes: [0.3, -0.9, 0, 0] })).sprint, true); // steering
   assert.equal(frame(pad()).sprint, false); // the stick at rest ends it
   assert.equal(frame(pad({ axes: forward })).sprint, false);
@@ -175,15 +176,11 @@ test('settings: whole and in range, kept under gev.nav.gamepad.*', () => {
   assert.deepEqual(gamepadSettings(), { ...GAMEPAD_DEFAULTS });
   assert.deepEqual(
     gamepadSettings({ deadZone: 0.9, sensitivity: 9, invertY: 'true' }),
-    {
-      deadZone: 0.5,
-      sensitivity: 3,
-      invertX: false,
-      invertY: true,
-    },
+    { deadZone: 0.5, sensitivity: 3, invertX: false, invertY: true },
   );
   assert.equal(gamepadSettings({ sensitivity: 0.1 }).sensitivity, 0.5);
   assert.equal(gamepadSettings({ deadZone: 'x' }).deadZone, 0.15);
+  assert.equal(gamepadSettings({ deadZone: '' }).deadZone, 0.15);
   const kept = new Map();
   const storage = {
     getItem: (key) => (kept.has(key) ? kept.get(key) : null),
@@ -205,7 +202,6 @@ test('settings: whole and in range, kept under gev.nav.gamepad.*', () => {
     invertX: true,
     invertY: false,
   });
-  // A storage that throws: the defaults.
   const broken = {
     getItem: () => {
       throw new Error('denied');
@@ -251,18 +247,18 @@ test('the source: nothing polled while off or with no pad; a connected pad reads
   });
   const pollsAtStart = env.polls(); // one look at start, for a pad already in hand
   assert.equal(source.connected(), false);
-  // Spectator: nothing, and the pad is not polled.
-  assert.equal(source.read(1 / 60), null);
+  assert.equal(source.read(1 / 60), null); // Spectator
   mode = 'walk';
-  // Walk, no pad: nothing, not polled.
-  assert.equal(source.read(1 / 60), null);
+  assert.equal(source.read(1 / 60), null); // no pad
   assert.equal(env.polls(), pollsAtStart);
   // A pad connects: the keys hint says so for 3 s.
   env.setPads([pad({ axes: [0, -1, 0, 0], held: [BUTTONS.A] })]);
   env.listeners.get('gamepadconnected')({ gamepad: {} });
   assert.equal(source.connected(), true);
-  assert.equal(hints.length, 1);
-  assert.equal(hints[0][1], CONNECTED_HINT_MS);
+  assert.deepEqual(
+    hints.map(([, ms]) => ms),
+    [CONNECTED_HINT_MS],
+  );
   assert.match(hints[0][0], /controller connected/);
   const intents = source.read(1 / 60);
   assert.equal(intents.forward, true);
@@ -273,10 +269,8 @@ test('the source: nothing polled while off or with no pad; a connected pad reads
   const polls = env.polls();
   assert.equal(source.read(1 / 60), null);
   assert.equal(env.polls(), polls);
-  // Fly reads Fly's intents.
   mode = 'fly';
   assert.equal(source.read(1 / 60).up, true);
-  // Disconnected: nothing.
   env.listeners.get('gamepaddisconnected')({ gamepad: {} });
   assert.equal(source.connected(), false);
   assert.equal(source.read(1 / 60), null);
@@ -284,22 +278,85 @@ test('the source: nothing polled while off or with no pad; a connected pad reads
   assert.equal(env.listeners.size, 0);
 });
 
-test('the source: a pad already connected when the page loads counts', () => {
+test('the source: presses call back once; reset forgets what was held', () => {
   const env = fakeEnvironment();
-  env.setPads([pad({ axes: [0, 0, 1, 0] }), null]);
+  env.setPads([pad({ held: [BUTTONS.START] })]);
+  const calls = [];
   const source = createGamepadSource({
     windowRef: env.windowRef,
     navigatorRef: env.navigatorRef,
     storage: null,
-    getMode: () => 'fly',
+    getMode: () => 'walk',
+    onRelease: () => calls.push('release'),
+    onToggleMode: (next) => calls.push(`toggle:${next}`),
+    onFlySpeedStep: (step) => calls.push(`speed:${step}`),
   });
-  assert.equal(source.connected(), true);
-  assert.ok(source.read(0.5).look.yawDeg > 0);
-  // A held press when a pad (re)connects does not act at once twice.
-  const snapshot = snapshotOf(pad({ held: [BUTTONS.START] }));
-  assert.equal(snapshot.buttons[BUTTONS.START].pressed, true);
+  assert.equal(source.connected(), true); // a pad already connected at load
+  source.read(1 / 60);
+  source.read(1 / 60); // still held
+  assert.deepEqual(calls, ['release']);
+  env.setPads([pad({ held: [BUTTONS.BACK, BUTTONS.RIGHT] })]);
+  source.read(1 / 60);
+  assert.deepEqual(calls, ['release', 'toggle:fly', 'speed:1']);
+  // reset: a button still held counts as a fresh press after it (a new mode).
+  source.reset();
+  source.read(1 / 60);
+  assert.deepEqual(calls.slice(-2), ['toggle:fly', 'speed:1']);
+  source.destroy();
+  // Plain data from a pad, numbers for buttons too.
   assert.equal(
     snapshotOf({ buttons: [1, 0], axes: [0.5] }).buttons[0].pressed,
     true,
   );
+});
+
+test('attachGamepad: registered as a source; Back toggles Walk and Fly, Start leaves for Spectator', () => {
+  const env = fakeEnvironment();
+  let mode = 'walk';
+  const store = {
+    get: () => mode,
+    set: (next) => {
+      mode = next;
+      return true;
+    },
+  };
+  const registered = [];
+  let removed = 0;
+  let unlocked = 0;
+  const documentRef = {
+    pointerLockElement: {},
+    exitPointerLock: () => unlocked++,
+  };
+  env.setPads([pad({ held: [BUTTONS.BACK] })]);
+  const { source, detach } = attachGamepad({
+    addInputSource: (entry) => {
+      registered.push(entry);
+      return () => removed++;
+    },
+    store,
+    documentRef,
+    windowRef: env.windowRef,
+    navigatorRef: env.navigatorRef,
+    storage: null,
+  });
+  assert.equal(registered.length, 1);
+  assert.equal(registered[0].id, 'gamepad');
+  assert.equal(typeof registered[0].reset, 'function');
+  registered[0].read(1 / 60);
+  assert.equal(mode, 'fly');
+  env.setPads([pad()]);
+  registered[0].read(1 / 60);
+  env.setPads([pad({ held: [BUTTONS.BACK] })]);
+  registered[0].read(1 / 60);
+  assert.equal(mode, 'walk');
+  env.setPads([pad({ held: [BUTTONS.START] })]);
+  registered[0].read(1 / 60);
+  assert.equal(mode, 'spectator');
+  assert.equal(unlocked, 1);
+  // Spectator: the source reads nothing.
+  assert.equal(registered[0].read(1 / 60), null);
+  assert.equal(source.connected(), true);
+  detach();
+  assert.equal(removed, 1);
+  assert.equal(env.listeners.size, 0);
 });

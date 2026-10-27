@@ -1,22 +1,26 @@
 /**
  * Personal fork: the gamepad for Walk and Fly (docs/BLOCKS-PLAN.md,
  * milestone 2), Minecraft Bedrock's controller layout on the standard
- * mapping. Spectator keeps GEV's own controls: nothing is polled there.
+ * mapping, as an input source for the navigation binding (inputs.js:
+ * `addInputSource({id, read(dt), reset()})`). Spectator keeps GEV's own
+ * controls: nothing is polled there.
  *
- * - Left stick: move, its tilt the share of the mode's top speed.
- * - Right stick: look, at a settable rate with an acceleration curve.
+ * - Left stick: move (forward, back, left, right).
+ * - Right stick: look, at a settable rate with an acceleration curve, in
+ *   the pointer-lock pixels the mouse turns by.
  * - A: jump (Walk), up (Fly). B: sneak (Walk), down (Fly).
  * - LT / RT: down / up (Fly).
  * - Right-stick click (and the left's, as Bedrock has it): sprint, until
  *   the left stick comes back to rest.
- * - Start: release (as Esc). Back / Select: Walk ↔ Fly.
- * - D-pad left / right: fly speed down / up.
+ * - Start: release (out of the pointer lock and back to Spectator).
+ * - Back / Select: Walk ↔ Fly.
+ * - D-pad left / right: fly speed down / up (handed to `onFlySpeedStep`).
  *
- * `gamepadIntents` is the pure part, a snapshot of a pad to the movement's
- * intents (with the edge-triggered presses in the state it hands back);
- * `createGamepadSource` polls navigator.getGamepads() when asked, only
+ * `gamepadIntents` is the pure part, a snapshot of a pad to the intents
+ * for one frame (the held ones, the look, and the presses that act once,
+ * kept apart); `createGamepadSource` polls navigator.getGamepads() only
  * while a mode is on and a pad is connected, and keeps the settings (dead
- * zone, sensitivity, inversion) in this browser.
+ * zone, sensitivity, inversion) in this browser under gev.nav.gamepad.*.
  */
 import { msg, t } from '../i18n/index.js';
 
@@ -49,8 +53,12 @@ export const GAMEPAD_DEFAULTS = Object.freeze({
 });
 export const DEAD_ZONE_RANGE = Object.freeze([0, 0.5]);
 export const SENSITIVITY_RANGE = Object.freeze([0.5, 3]);
-/** The right stick fully over turns this fast at sensitivity 1, degrees a second. */
-export const LOOK_DEG_PER_S = 180;
+/**
+ * The right stick fully over turns this many pointer-lock pixels a second
+ * at sensitivity 1 (the binding turns 0.0025 rad a pixel: about 86° a
+ * second).
+ */
+export const LOOK_PX_PER_S = 600;
 /** The look curve: a stick's tilt (past the dead zone) to this power, so a small tilt aims finely. */
 export const LOOK_EXPONENT = 2;
 /** A trigger counts as pressed past this. */
@@ -78,7 +86,9 @@ const clamp = (value, [low, high]) => Math.min(high, Math.max(low, value));
 /** Settings made whole and in range. */
 export function gamepadSettings(given = {}) {
   const number = (value, fallback) =>
-    Number.isFinite(+value) ? +value : fallback;
+    value !== null && value !== '' && Number.isFinite(+value)
+      ? +value
+      : fallback;
   return {
     deadZone: clamp(
       number(given.deadZone, GAMEPAD_DEFAULTS.deadZone),
@@ -122,15 +132,16 @@ export function snapshotOf(gamepad) {
 export const idleState = () => ({ pressed: [], sprinting: false });
 
 /**
- * A pad's snapshot to the movement's intents for one frame of `dt`
- * seconds in a mode ('walk' or 'fly'). `state` is what the last call
- * handed back (the buttons held then, for presses that act once, and the
- * sprint latch).
- * @returns {{intents: object, state: object}} intents: move (analog,
- *   −1 … 1 forward and right, and its magnitude), forward/back/left/right
- *   (past KEY_THRESHOLD), look in degrees this frame (yaw right, pitch
- *   up), jump/sneak (Walk) or up/down (Fly), sprint, and the presses:
- *   release, toggleMode, flySpeedStep (−1, 0, +1).
+ * A pad's snapshot to one frame of `dt` seconds in a mode ('walk' or
+ * 'fly'). `state` is what the last call handed back (the buttons held
+ * then, for presses that act once, and the sprint latch).
+ * @returns {{intents: object, actions: {release: boolean, toggleMode:
+ *   boolean, flySpeedStep: number}, move: {x: number, y: number,
+ *   magnitude: number}, state: object}} intents: the binding's partial
+ *   intents (inputs.js) — held booleans forward, back, left, right,
+ *   sprint, jump/sneak (Walk) or up/down (Fly), and lookDx, lookDy in
+ *   pointer-lock pixels for this frame (+x right, +y down); actions: the
+ *   presses that act once; move: the left stick's analog tilt (+y forward).
  */
 export function gamepadIntents(
   snapshot,
@@ -146,42 +157,33 @@ export function gamepadIntents(
   const buttons = snapshot?.buttons ?? [];
   const held = (index) => Boolean(buttons[index]?.pressed);
   const value = (index) => Number(buttons[index]?.value) || 0;
-  const pressedNow = buttons.map((button) => Boolean(button?.pressed));
   const fresh = (index) => held(index) && !state.pressed[index];
 
   // Move: the left stick (up is −y on the standard mapping).
-  const move = deadZoned(axes[0], axes[1], deadZone);
-  const forward = -move.y;
-  const right = move.x;
-  // Look: the right stick, curved, at the settable rate.
-  const stick = deadZoned(axes[2], axes[3], deadZone);
+  const stick = deadZoned(axes[0], axes[1], deadZone);
+  const forward = -stick.y;
+  const right = stick.x;
+  // Look: the right stick, curved, at the settable rate, in pixels.
+  const aim = deadZoned(axes[2], axes[3], deadZone);
   const curve = (component) =>
-    stick.magnitude
-      ? Math.sign(component) *
-        Math.abs(component / stick.magnitude) *
-        stick.magnitude ** LOOK_EXPONENT
+    aim.magnitude
+      ? (component / aim.magnitude) * aim.magnitude ** LOOK_EXPONENT
       : 0;
-  const rate = LOOK_DEG_PER_S * sensitivity * dt;
-  const yawDeg = curve(stick.x) * rate * (invertX ? -1 : 1);
-  const pitchDeg = -curve(stick.y) * rate * (invertY ? -1 : 1);
+  const pixels = LOOK_PX_PER_S * sensitivity * dt;
 
   // Sprint: a stick click starts it; it lasts until the left stick rests.
   let sprinting = state.sprinting;
   if (fresh(BUTTONS.RS) || fresh(BUTTONS.LS)) sprinting = true;
-  if (!move.magnitude) sprinting = false;
+  if (!stick.magnitude) sprinting = false;
 
   const intents = {
-    move: { forward, right, magnitude: move.magnitude },
     forward: forward > KEY_THRESHOLD,
     back: forward < -KEY_THRESHOLD,
     right: right > KEY_THRESHOLD,
     left: right < -KEY_THRESHOLD,
-    look: { yawDeg, pitchDeg },
     sprint: sprinting,
-    release: fresh(BUTTONS.START),
-    toggleMode: fresh(BUTTONS.BACK),
-    flySpeedStep:
-      (fresh(BUTTONS.RIGHT) ? 1 : 0) - (fresh(BUTTONS.LEFT) ? 1 : 0),
+    lookDx: curve(aim.x) * pixels * (invertX ? -1 : 1),
+    lookDy: curve(aim.y) * pixels * (invertY ? -1 : 1),
   };
   if (mode === 'fly') {
     intents.up = held(BUTTONS.A) || value(BUTTONS.RT) > TRIGGER_THRESHOLD;
@@ -190,7 +192,20 @@ export function gamepadIntents(
     intents.jump = held(BUTTONS.A);
     intents.sneak = held(BUTTONS.B);
   }
-  return { intents, state: { pressed: pressedNow, sprinting } };
+  return {
+    intents,
+    actions: {
+      release: fresh(BUTTONS.START),
+      toggleMode: fresh(BUTTONS.BACK),
+      flySpeedStep:
+        (fresh(BUTTONS.RIGHT) ? 1 : 0) - (fresh(BUTTONS.LEFT) ? 1 : 0),
+    },
+    move: { x: right, y: forward, magnitude: stick.magnitude },
+    state: {
+      pressed: buttons.map((button) => Boolean(button?.pressed)),
+      sprinting,
+    },
+  };
 }
 
 /** The settings kept in a Storage (gev.nav.gamepad.*), whole and in range. */
@@ -208,25 +223,29 @@ export function readGamepadSettings(storage) {
 }
 
 /**
- * The gamepad as an input source for the navigation binding: `read(dt)`
- * polls the first connected pad and gives its intents, or null while no
- * mode is on (Spectator) or no pad is connected (nothing is polled then).
- * Connecting a pad shows CONNECTED_HINT in the keys hint for 3 s
+ * The gamepad as an input source: `read(dt)` polls the first connected pad
+ * and gives its intents (inputs.js's partial intents), or null while no
+ * mode is on (Spectator) or no pad is connected (nothing is polled then);
+ * a press that acts once calls `onRelease`, `onToggleMode` or
+ * `onFlySpeedStep(±1)`. Connecting a pad shows CONNECTED_HINT for 3 s
  * (`onHint`).
- * @param {{windowRef?: object, navigatorRef?: object, storage?: Storage,
- *   getMode: () => string, onHint?: (text: string, ms: number) => void}} options
+ * @param {{getMode: () => string, onHint?: Function, onRelease?: Function,
+ *   onToggleMode?: Function, onFlySpeedStep?: Function, windowRef?: object,
+ *   navigatorRef?: object, storage?: Storage}} options
  */
 export function createGamepadSource({
+  getMode,
+  onHint = () => {},
+  onRelease = () => {},
+  onToggleMode = () => {},
+  onFlySpeedStep = () => {},
   windowRef = globalThis.window,
   navigatorRef = globalThis.navigator,
   storage = globalThis.localStorage,
-  getMode,
-  onHint = () => {},
 } = {}) {
   let settings = readGamepadSettings(storage);
   let state = idleState();
   let connected = 0;
-  // A page loaded with a pad already in hand: it shows once it is used.
   const padsNow = () => {
     try {
       return Array.from(navigatorRef?.getGamepads?.() ?? []).filter(
@@ -236,6 +255,7 @@ export function createGamepadSource({
       return [];
     }
   };
+  // A pad already connected when the page loaded.
   connected = padsNow().length;
 
   const onConnected = () => {
@@ -250,15 +270,16 @@ export function createGamepadSource({
   windowRef?.addEventListener?.('gamepadconnected', onConnected);
   windowRef?.addEventListener?.('gamepaddisconnected', onDisconnected);
 
-  const active = () => {
+  const activeMode = () => {
     const mode = getMode?.();
     return mode === 'walk' || mode === 'fly' ? mode : null;
   };
 
   return {
+    id: 'gamepad',
     /** This frame's intents from the pad, or null (no mode on, no pad). */
     read(dt) {
-      const mode = active();
+      const mode = activeMode();
       if (!mode || !connected) {
         state = idleState();
         return null;
@@ -272,7 +293,15 @@ export function createGamepadSource({
         dt,
       });
       state = result.state;
+      const { release, toggleMode, flySpeedStep } = result.actions;
+      if (release) onRelease();
+      else if (toggleMode) onToggleMode(mode === 'walk' ? 'fly' : 'walk');
+      if (flySpeedStep) onFlySpeedStep(flySpeedStep);
       return result.intents;
+    },
+    /** Forget what was held (the binding calls it when a mode starts or ends). */
+    reset() {
+      state = idleState();
     },
     /** Whether a pad is connected. */
     connected: () => connected > 0,
@@ -291,6 +320,45 @@ export function createGamepadSource({
     destroy() {
       windowRef?.removeEventListener?.('gamepadconnected', onConnected);
       windowRef?.removeEventListener?.('gamepaddisconnected', onDisconnected);
+    },
+  };
+}
+
+/**
+ * The gamepad on the navigation: a source registered with
+ * `addInputSource` (inputs.js), Start leaving the pointer lock and the
+ * mode for Spectator, Back toggling Walk ↔ Fly through the store.
+ * @returns {{source: object, detach: () => void}}
+ */
+export function attachGamepad({
+  addInputSource,
+  store,
+  documentRef = globalThis.document,
+  onHint,
+  onFlySpeedStep,
+  ...options
+}) {
+  const source = createGamepadSource({
+    ...options,
+    getMode: () => store.get(),
+    onHint,
+    onFlySpeedStep,
+    onRelease: () => {
+      if (documentRef?.pointerLockElement) documentRef.exitPointerLock?.();
+      store.set('spectator');
+    },
+    onToggleMode: (next) => store.set(next),
+  });
+  const remove = addInputSource({
+    id: source.id,
+    read: (dt) => source.read(dt),
+    reset: () => source.reset(),
+  });
+  return {
+    source,
+    detach() {
+      remove?.();
+      source.destroy();
     },
   };
 }
