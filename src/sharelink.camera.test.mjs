@@ -182,3 +182,19 @@ test('nav=walk or fly rides the link; Spectator leaves it out', async () => {
   }
   assert.equal(manager._buildHashParams().has('nav'), false);
 });
+
+test('Render: Blocks is in the link as bk=1, and only then', async () => {
+  const { renderModeStore } = await import('./layers/lego/renderMode.js');
+  const { manager } = makeManager(HARBOR);
+  const mode = renderModeStore();
+  try {
+    assert.equal(manager._buildHashParams().has('bk'), false);
+    mode.setMode('blocks');
+    assert.equal(manager._buildHashParams().get('bk'), '1');
+    mode.setMode('lego');
+    assert.equal(manager._buildHashParams().has('bk'), false);
+  } finally {
+    mode.setMode('colour');
+    manager.destroy?.();
+  }
+});

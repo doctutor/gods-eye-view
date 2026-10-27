@@ -17,6 +17,8 @@
  * pitch, roll and the field of view always show 2 decimals.
  */
 
+import { formatNumber, t } from '../i18n/index.js';
+
 /** Metres along a meridian per degree of latitude (WGS84, mean). */
 export const METRES_PER_DEGREE = 111_320;
 /** Cesium's default vertical-or-horizontal field of view. */
@@ -46,14 +48,27 @@ export const DATA_FLOORS = Object.freeze({
 });
 
 /**
- * The surface under the camera, from what the map stack shows: a shown 3D
- * tileset is Google's photoreal tiles; otherwise the globe's terrain, by
- * the id src/maps/terrain.js gives its providers (`world`, `keyless`), or a
- * flat ellipsoid.
- * @param {{tilesetShown?: boolean, terrainId?: string|null}} view
+ * The surface under the camera, from what the map stack shows: Blocks'
+ * cubes when Render: Blocks draws them (`blocksM`, the block size:
+ * "Blocks 1 m", src/layers/blocks/); a shown 3D tileset is Google's
+ * photoreal tiles; otherwise the globe's terrain, by the id
+ * src/maps/terrain.js gives its providers (`world`, `keyless`), or a flat
+ * ellipsoid.
+ * @param {{tilesetShown?: boolean, terrainId?: string|null,
+ *   blocksM?: number|null}} view
  * @returns {{id: string, name: string, floorM: number}}
  */
-export function dataFloor({ tilesetShown = false, terrainId = null } = {}) {
+export function dataFloor({
+  tilesetShown = false,
+  terrainId = null,
+  blocksM = null,
+} = {}) {
+  if (blocksM > 0)
+    return Object.freeze({
+      id: 'blocks',
+      name: t('Blocks {size} m', { size: formatNumber(blocksM) }),
+      floorM: blocksM,
+    });
   if (tilesetShown) return DATA_FLOORS.google;
   return DATA_FLOORS[terrainId] || DATA_FLOORS.flat;
 }

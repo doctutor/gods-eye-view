@@ -18,6 +18,8 @@ import {
 } from './layers/lego/photoreal.js';
 // Personal fork: the navigation mode, Walk or Fly (src/navigation/).
 import { NAV_PARAM, navigationStore } from './navigation/store.js';
+// Personal fork: Render: Blocks (`bk`).
+import { BLOCKS_PARAM, renderModeStore } from './layers/lego/renderMode.js';
 import * as Cesium from 'cesium';
 import { BLOOM_INTENSITY_DEFAULT, BLOOM_SCALE_VERSION } from './bloom.js';
 import {
@@ -208,6 +210,10 @@ export class ShareLinkManager {
     );
     // Personal fork: and the navigation mode.
     this._removeNavigation = navigationStore().subscribe(() =>
+      this._scheduleUpdate(),
+    );
+    // Personal fork: and the render mode, for Blocks.
+    this._removeRenderMode = renderModeStore().subscribe(() =>
       this._scheduleUpdate(),
     );
   }
@@ -737,6 +743,10 @@ export class ShareLinkManager {
     const navigation = navigationStore().param();
     if (navigation) params.set(NAV_PARAM, navigation);
     else params.delete(NAV_PARAM);
+    // Personal fork: Render: Blocks (src/layers/lego/renderMode.js).
+    const blocks = renderModeStore().param();
+    if (blocks) params.set(BLOCKS_PARAM, blocks);
+    else params.delete(BLOCKS_PARAM);
     this._encodePanelStateParam(params, this._panelStateProvider?.());
     // Personal fork: the panel's Titles toggle, in the same `ui` param.
     if (this._titlesProvider) encodeTitlesParam(params, this._titlesProvider());
@@ -776,6 +786,8 @@ export class ShareLinkManager {
     this._removePhotoreal = null;
     this._removeNavigation?.();
     this._removeNavigation = null;
+    this._removeRenderMode?.();
+    this._removeRenderMode = null;
     clearTimeout(this._debounceTimer);
     this._debounceTimer = null;
     this._removeCameraChanged?.();

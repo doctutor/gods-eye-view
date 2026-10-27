@@ -574,3 +574,139 @@ test('the default exaggeration: 2× on drawn maps, 1× on imagery and photoreal,
   assert.equal(lego.getExaggeration(), 3);
   lego.destroy();
 });
+
+test('Render: Blocks is a third mode, carried by the share link as bk=1; old links keep the stored mode', async () => {
+  const {
+    BLOCKS_PARAM,
+    RENDER_MODES,
+    decodeBlocksParam,
+    encodeBlocksParam,
+  } = await import('./renderMode.js');
+  assert.deepEqual(RENDER_MODES, ['colour', 'lego', 'blocks']);
+  assert.equal(BLOCKS_PARAM, 'bk');
+  assert.equal(encodeBlocksParam('blocks'), '1');
+  assert.equal(encodeBlocksParam('lego'), '');
+  assert.equal(encodeBlocksParam('colour'), '');
+  assert.equal(decodeBlocksParam('1'), true);
+  for (const value of ['0', '', null, undefined, 'yes'])
+    assert.equal(decodeBlocksParam(value), false, String(value));
+  // Chosen in the drop-down: kept in this browser, written to the link.
+  const storage = memoryStorage();
+  const store = createRenderModeStore({ storage });
+  store.setMode('blocks');
+  assert.equal(storage.map.get(RENDER_MODE_STORAGE_KEY), 'blocks');
+  assert.equal(store.param(), '1');
+  assert.equal(createRenderModeStore({ storage }).getMode(), 'blocks');
+  // A link with bk=1 opens in Blocks without overwriting the stored mode.
+  const lego = memoryStorage({ [RENDER_MODE_STORAGE_KEY]: 'lego' });
+  const linked = createRenderModeStore({ storage: lego, linkBlocks: true });
+  assert.equal(linked.getMode(), 'blocks');
+  assert.equal(linked.linkAskedForBlocks(), true);
+  assert.equal(lego.map.get(RENDER_MODE_STORAGE_KEY), 'lego');
+  // A link without bk (every link from before Blocks): the stored mode.
+  const old = createRenderModeStore({ storage: lego });
+  assert.equal(old.getMode(), 'lego');
+  assert.equal(old.param(), '');
+  assert.equal(old.linkAskedForBlocks(), false);
+});
+
+test('the heading drop-down reads Colour | Lego | Blocks, and in Blocks the line is the Blocks controller’s', async () => {
+  const { createLegoHeadingControl, blocksStatusText } = await import(
+    './presentation.js'
+  );
+  const doc = fakeDocument();
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  const lego = {
+    getMode: () => store.getMode(),
+    setMode: (mode) => store.setMode(mode),
+    getExaggeration: () => 1,
+    setExaggeration: () => {},
+    getStatus: () => ({ state: 'no-layer' }),
+    subscribe: (listener) => store.subscribe(listener),
+  };
+  let blocksStatus = { state: 'no-elevation' };
+  const blocksListeners = new Set();
+  const blocks = {
+    getStatus: () => blocksStatus,
+    subscribe(listener) {
+      blocksListeners.add(listener);
+      return () => blocksListeners.delete(listener);
+    },
+  };
+  const control = createLegoHeadingControl(doc, lego, null, blocks);
+  const [mode, exaggeration] = control.element.children;
+  const status = control.element.children.at(-1);
+  assert.deepEqual(
+    mode.children.map((o) => [o.value, o.textContent]),
+    [
+      ['colour', 'Render: Colour'],
+      ['lego', 'Render: Lego'],
+      ['blocks', 'Render: Blocks'],
+    ],
+  );
+  assert.equal(status.textContent, '');
+  mode.value = 'blocks';
+  mode.dispatch('change');
+  assert.equal(store.getMode(), 'blocks');
+  assert.equal(exaggeration.hidden, true);
+  assert.equal(status.textContent, 'Blocks needs the Elevation layer on');
+  blocksStatus = { state: 'ready', blockM: 1, chunks: 412, source: '3DEP 1 m' };
+  for (const listener of blocksListeners) listener(blocksStatus);
+  assert.equal(status.textContent, 'Blocks: 1 m cubes · 412 chunks · 3DEP 1 m');
+  assert.equal(status.textContent, blocksStatusText(blocksStatus));
+  store.setMode('lego');
+  assert.equal(status.textContent, 'Turn on a raster layer to build it in bricks');
+  control.destroy();
+  assert.equal(blocksListeners.size, 0);
+  // Spanish and Russian say it too.
+  setLocale('es');
+  try {
+    assert.notEqual(
+      blocksStatusText(blocksStatus),
+      'Blocks: 1 m cubes · 412 chunks · 3DEP 1 m',
+    );
+  } finally {
+    setLocale('en');
+  }
+});
+
+/** Enough of a document for the heading control. */
+function fakeDocument() {
+  const element = (tag) => {
+    const listeners = new Map();
+    const node = {
+      tagName: tag.toUpperCase(),
+      children: [],
+      className: '',
+      title: '',
+      hidden: false,
+      value: '',
+      textContent: '',
+      attributes: {},
+      setAttribute(name, value) {
+        node.attributes[name] = String(value);
+      },
+      append(...nodes) {
+        node.children.push(...nodes);
+      },
+      appendChild(child) {
+        node.children.push(child);
+        return child;
+      },
+      addEventListener(type, listener) {
+        listeners.set(type, listener);
+      },
+      removeEventListener(type) {
+        listeners.delete(type);
+      },
+      dispatch(type) {
+        listeners.get(type)?.({ type, stopPropagation() {} });
+      },
+    };
+    return node;
+  };
+  return {
+    createElement: element,
+    createTextNode: (text) => ({ textContent: text }),
+  };
+}

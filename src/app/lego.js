@@ -5,6 +5,8 @@ import {
   photorealStore,
 } from '../layers/lego/photoreal.js';
 import { createLegoHeadingControl } from '../layers/lego/presentation.js';
+import { renderModeStore } from '../layers/lego/renderMode.js';
+import { createApplicationBlocks } from './blocks.js';
 import { ensureGeoidReady, geoidHeight } from '../data/geoid.js';
 import { governorRequestRender } from '../renderGovernor.js';
 import { registerDynamicCredit } from '../data/dataCredits.js';
@@ -15,7 +17,8 @@ import { overlayHost } from './layers/overlayHost.js';
  * Personal fork: the Lego rendering mode for raster layers
  * (src/layers/lego/), and the drop-down beside the ANALYSIS heading that
  * turns it on; with it, Relief ×N and Photoreal on bricks (photoreal.js),
- * the two ways of seeing elevation with the Google 3D tiles.
+ * the two ways of seeing elevation with the Google 3D tiles, and Render:
+ * Blocks (src/app/blocks.js), which shares the drop-down's store.
  * @param {{viewer: object, dataManager: object, mapStackController?: object}} scene
  */
 export function createApplicationLego({
@@ -23,8 +26,11 @@ export function createApplicationLego({
   dataManager,
   mapStackController,
 }) {
+  // One render mode for the drop-down, Lego, Blocks and the share link (`bk`).
+  const renderMode = renderModeStore();
   const lego = createLegoController({
     viewer,
+    store: renderMode,
     layers: {
       getAll: () => dataManager.getAll(),
       isEnabled: (id) => dataManager.isEnabled(id),
@@ -46,6 +52,12 @@ export function createApplicationLego({
     registerCredit: (credit) => registerDynamicCredit(viewer, credit),
     requestRender: governorRequestRender,
   });
+  const blocks = createApplicationBlocks({
+    viewer,
+    dataManager,
+    store: renderMode,
+    mapStackController,
+  });
   // A link asking for the bricks turns Lego on, and the elevation layer
   // when no Lego layer is on, once the layers are restored.
   if (store.linkAskedForBricks()) {
@@ -63,11 +75,13 @@ export function createApplicationLego({
   return {
     lego,
     photoreal,
+    blocks,
     /** Group heading controls for the layer panel (LayerPresentation). */
     headingControls: {
-      Analysis: (doc) => createLegoHeadingControl(doc, lego, photoreal),
+      Analysis: (doc) => createLegoHeadingControl(doc, lego, photoreal, blocks),
     },
     destroy: () => {
+      blocks.destroy();
       photoreal.destroy();
       lego.destroy();
     },
