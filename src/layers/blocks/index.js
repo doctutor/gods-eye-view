@@ -15,6 +15,7 @@
 
 import { ELEVATION_LAYER_ID } from '../lego/layerSpecs.js';
 import { setBlocksFloorM, setBlocksScene } from './floor.js';
+import { cameraArrivalPending } from '../../data/cameraArrival.js';
 
 /** The render distance, in blocks (512 m at 1 m, 15 km at 30 m). */
 export const RENDER_DISTANCE_BLOCKS = 512;
@@ -24,6 +25,33 @@ export const REMOVE_FACTOR = 1.25;
 export const GROUP_CHUNKS = 4;
 /** The coarse ring reaches this many times the render distance (R2 = 4·R1). */
 export const COARSE_REACH = 4;
+/**
+ * Blocks builds nothing while the camera is higher above the ground than
+ * this many times the farthest ring (4 × R2 × blockM: 8 km at 1 m, 246 km
+ * at 30 m), nor at all above NO_REGION_CEILING_M before a region says the
+ * block size: every chunk is Earth Engine data someone pays for, and from
+ * orbit none of it can be seen.
+ */
+export const CEILING_REACHES = 4;
+export const NO_REGION_CEILING_M = 100_000;
+
+/** The height above the ground over which Blocks builds nothing (m). */
+export function ceilingM(blockM, radiusBlocks) {
+  return blockM > 0
+    ? CEILING_REACHES * radiusBlocks * COARSE_REACH * blockM
+    : NO_REGION_CEILING_M;
+}
+
+/**
+ * Whether the camera is in flight (Cesium's flyTo in progress) or an
+ * arrival correction still owns it (cameraArrival.js: the ground guard).
+ */
+export function cameraInFlight(viewer) {
+  return (
+    Boolean(viewer?.camera?._currentFlight) || cameraArrivalPending(viewer)
+  );
+}
+
 /** Fog from this fraction of the farthest ring drawn to its edge. */
 export const FOG_START = 0.7;
 /**
@@ -283,6 +311,8 @@ export function sourceName(source) {
  *     Overpass answers,
  *   sun?: (lon: number, lat: number) => {dir: {east: number, north: number,
  *     up: number}, fixed: boolean},
+ *   inFlight?: () => boolean, a camera flight or arrival correction in
+ *     progress (cameraInFlight on the viewer unless given),
  *   flatStyle?: () => boolean, whether the map is a drawn style (blank,
  *     Positron, dark, Countries), where Blocks hides the globe,
  *   datum?: {flat: () => boolean, undulation: (lat: number, lon: number)
@@ -305,6 +335,7 @@ export function createBlocksController({
   sun = () => STUDY_SUN,
   datum = FLAT_DATUM,
   flatStyle = () => false,
+  inFlight = null,
   radiusBlocks = RENDER_DISTANCE_BLOCKS,
   budget = CHUNK_BUDGET,
   tickMs = TICK_MS,
@@ -893,17 +924,18 @@ export function createBlocksController({
    * drawn style shows it again; on a switch to another map the map stack
    * controller has set it for that map already, and it is left as it is.
    */
-  function applyGlobe() {
-    setGlobe();
+  function applyGlobe(held = false) {
+    setGlobe(held);
     // Told after the globe is set, so the overlays re-drape where it is.
-    setBlocksScene({ active: active(), globeHidden: _globeHidden });
+    setBlocksScene({ active: active() && !held, globeHidden: _globeHidden });
   }
 
-  function setGlobe() {
+  function setGlobe(held) {
     const globe = _viewer?.scene?.globe;
     if (!globe) return;
     const drawn = Boolean(flatStyle());
-    if (active() && drawn) {
+    // Held (in flight, or too high to build): the globe stays.
+    if (active() && drawn && !held) {
       if (!_globeHidden) {
         _globeHidden = true;
         _globeBefore = globe.show;
@@ -922,16 +954,59 @@ export function createBlocksController({
     }
   }
 
+  /**
+   * Why Blocks waits now, or null: 'flying' while the camera flies or an
+   * arrival correction owns it, 'too-high' above the ceiling (the region's
+   * block size's, or NO_REGION_CEILING_M before one).
+   */
+  function holdFor(camera) {
+    if (!camera) return null;
+    if (inFlight ? inFlight() : cameraInFlight(_viewer)) return 'flying';
+    const ceiling = ceilingM(_region?.blockM, radiusBlocks);
+    return heightAboveGround(camera) > ceiling ? 'too-high' : null;
+  }
+
+  /** The camera's height over the ground: over the globe's surface where it answers, else the ellipsoid. */
+  function heightAboveGround(camera) {
+    let ground = 0;
+    try {
+      const at = _viewer?.camera?.positionCartographic;
+      const h = at ? _viewer?.scene?.globe?.getHeight?.(at) : undefined;
+      if (Number.isFinite(h)) ground = h;
+    } catch {
+      /* no globe */
+    }
+    return camera.height - ground;
+  }
+
   function tick() {
-    applyGlobe();
+    const camera = active() ? cameraLonLat() : null;
+    const held = holdFor(camera);
+    applyGlobe(Boolean(held));
     if (!active()) {
       if (_region || _anchoring || _chunks.size) clearAll(statusOff());
       else setStatus({ state: statusOff() });
       return;
     }
-    const camera = cameraLonLat();
     if (!camera) return;
+    if (held) {
+      // Nothing anchored or asked for; what is drawn stays.
+      setStatus({
+        state: held,
+        ceilingM: ceilingM(_region?.blockM, radiusBlocks),
+      });
+      // In flight: tick until it lands (a correction may end without a
+      // moveEnd); too high: the next moveEnd looks again.
+      if (held === 'flying' || _moving) startTicking();
+      else stopTicking();
+      return;
+    }
     if (_anchoring) return;
+    // The first region is anchored where the camera settles, not mid-move.
+    if (!_region && _moving) {
+      startTicking();
+      return;
+    }
     if (_region) {
       const local = _region.region.toLocal(camera.lon, camera.lat);
       const radiusM = reanchorRadiusM(_region.blockM, radiusBlocks);

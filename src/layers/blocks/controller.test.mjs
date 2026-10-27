@@ -1696,3 +1696,148 @@ test('the heading control: a Buildings switch in Blocks, disabled where Overpass
   assert.equal(label.title, 'Buildings need an Overpass server for this app');
   control.destroy();
 });
+
+/** The fake camera's height above the ellipsoid, metres. */
+const setHeight = (viewer, height) => {
+  viewer.camera.positionCartographic = {
+    ...viewer.camera.positionCartographic,
+    height,
+  };
+};
+
+test('the ceiling: 4 × R2 × the block size (8 km at 1 m), 100 km before a region; in flight means a Cesium flight or an arrival correction', async () => {
+  const { ceilingM, cameraInFlight, NO_REGION_CEILING_M } =
+    await import('./index.js');
+  const { ownCameraArrival } = await import('../../data/cameraArrival.js');
+  assert.equal(ceilingM(1, 512), 8192);
+  assert.equal(ceilingM(30, 512), 245_760);
+  assert.equal(ceilingM(undefined, 512), NO_REGION_CEILING_M);
+  assert.equal(NO_REGION_CEILING_M, 100_000);
+  const viewer = { camera: {} };
+  assert.equal(cameraInFlight(viewer), false);
+  viewer.camera._currentFlight = {};
+  assert.equal(cameraInFlight(viewer), true);
+  viewer.camera._currentFlight = undefined;
+  const release = ownCameraArrival(viewer, () => {});
+  assert.equal(cameraInFlight(viewer), true, 'the ground guard owns it');
+  release();
+  assert.equal(cameraInFlight(viewer), false);
+});
+
+test('from orbit: nothing anchored or loaded, the globe kept; the first moveEnd below 100 km anchors', async () => {
+  const source = fakeSource();
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  setHeight(viewer, 17_000_000);
+  const renderer = fakeRenderer();
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller);
+  assert.equal(source.regions.length, 0, 'not anchored');
+  assert.equal(source.loads.length, 0, 'nothing loaded');
+  assert.equal(viewer.scene.globe.show, true, 'the globe stays');
+  assert.equal(controller.getStatus().state, 'too-high');
+  assert.equal(
+    blocksStatusText(controller.getStatus()),
+    'Blocks: come below 100 km to build',
+  );
+  // Down to 300 m and settled: anchored, and building.
+  setHeight(viewer, 300);
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.equal(source.regions.length, 1);
+  assert.ok(renderer.shown.size > 0);
+  assert.equal(viewer.scene.globe.show, false);
+  // Back up above 4 × R2 × 1 m (= 1,024 m at R1 64): nothing more asked;
+  // what is drawn stays.
+  const loads = source.loads.length;
+  const shown = renderer.shown.size;
+  viewer.moveTo(east(3000));
+  setHeight(viewer, 2000);
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.equal(source.loads.length, loads, 'no loads above the ceiling');
+  assert.equal(renderer.shown.size, shown);
+  assert.equal(controller.getStatus().state, 'too-high');
+  assert.equal(controller.getStatus().ceilingM, 1024);
+  assert.equal(viewer.scene.globe.show, true, 'the globe back while held');
+  controller.destroy();
+});
+
+test('in flight: held however low; anchored once it lands, with or without a moveEnd; the first anchor waits for the camera to settle', async () => {
+  const source = fakeSource();
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  let flying = true;
+  let ticker = null;
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    inFlight: () => flying,
+    radiusBlocks: 64,
+    setIntervalImpl: (fn) => (ticker = fn),
+    clearIntervalImpl: () => (ticker = null),
+  });
+  await drain(controller);
+  assert.equal(source.regions.length, 0, 'held in flight at 300 m');
+  assert.equal(controller.getStatus().state, 'flying');
+  assert.equal(
+    blocksStatusText(controller.getStatus()),
+    'Blocks: waiting for the camera to land',
+  );
+  assert.ok(ticker, 'ticking until it lands');
+  // The arrival correction ends without moving the camera: the tick anchors.
+  flying = false;
+  ticker();
+  await settle();
+  assert.equal(source.regions.length, 1, 'anchored on landing');
+  controller.destroy();
+
+  // Not in flight but moving (a user's drag): the first region waits for
+  // the camera to settle.
+  const moving = fakeSource();
+  const viewer2 = fakeViewer();
+  const layers = fakeLayers(false);
+  let ticker2 = null;
+  const second = createBlocksController({
+    viewer: viewer2,
+    store,
+    layers,
+    source: moving,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    inFlight: () => false,
+    radiusBlocks: 64,
+    setIntervalImpl: (fn) => (ticker2 = fn),
+    clearIntervalImpl: () => (ticker2 = null),
+  });
+  viewer2.camera.moveStart.raise();
+  layers.set(true); // Elevation comes on mid-move
+  ticker2?.();
+  await settle();
+  assert.equal(moving.regions.length, 0, 'not anchored mid-move');
+  assert.ok(ticker2, 'ticking while it moves');
+  viewer2.camera.moveEnd.raise();
+  await settle();
+  assert.equal(moving.regions.length, 1, 'anchored on moveEnd');
+  second.destroy();
+});
