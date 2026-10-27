@@ -58,9 +58,27 @@ function unpackEdits(packed) {
 }
 
 /**
+ * The structures layer (store.js `structure`: OSM buildings) back into a
+ * chunk, column by column: before the edits, which are kept or dropped
+ * against what the heightfield and the structures put there.
+ */
+function restoreStructures(chunk, columns, tops, materials) {
+  if (!tops) return;
+  columns.forEach((column, k) => {
+    if (tops[k] === NONE) return;
+    chunk.setStructure(
+      column % N,
+      Math.floor(column / N),
+      tops[k],
+      materials[k],
+    );
+  });
+}
+
+/**
  * A chunk as plain data: copies of its arrays (the live chunk keeps its
- * own, so they can be transferred) and its edits; a `structures` field, if
- * a chunk ever carries one, rides along as it is.
+ * own, so they can be transferred), its structures layer when it has one,
+ * and its edits.
  */
 export function snapshotChunk(chunk) {
   const snapshot = {
@@ -71,7 +89,10 @@ export function snapshotChunk(chunk) {
     water: chunk.water.slice(),
     edits: packEdits(chunk.edits),
   };
-  if (chunk.structures !== undefined) snapshot.structures = chunk.structures;
+  if (chunk.structure) {
+    snapshot.structureTop = chunk.structure.top.slice();
+    snapshot.structureMaterial = chunk.structure.material.slice();
+  }
   return snapshot;
 }
 
@@ -84,8 +105,13 @@ export function restoreChunk(snapshot) {
     material: snapshot.material,
     water: snapshot.water,
   });
+  restoreStructures(
+    chunk,
+    [...Array(N * N).keys()],
+    snapshot.structureTop,
+    snapshot.structureMaterial,
+  );
   applyEdits(chunk, unpackEdits(snapshot.edits));
-  if (snapshot.structures !== undefined) chunk.structures = snapshot.structures;
   return chunk;
 }
 
@@ -93,7 +119,7 @@ export function restoreChunk(snapshot) {
 export function snapshotNeighbour(chunk, key) {
   const columns = edgeColumns(key);
   const wanted = new Set(columns);
-  return {
+  const snapshot = {
     key,
     ci: chunk.ci,
     cj: chunk.cj,
@@ -103,6 +129,15 @@ export function snapshotNeighbour(chunk, key) {
     water: Int32Array.from(columns, (c) => chunk.water[c]),
     edits: packEdits(chunk.edits, (i, j) => wanted.has(columnIndex(i, j))),
   };
+  const structure = chunk.structure;
+  if (structure) {
+    snapshot.structureTop = Int32Array.from(columns, (c) => structure.top[c]);
+    snapshot.structureMaterial = Uint8Array.from(
+      columns,
+      (c) => structure.material[c],
+    );
+  }
+  return snapshot;
 }
 
 /**
@@ -125,12 +160,26 @@ export function restoreNeighbour(snapshot) {
     material,
     water,
   });
+  restoreStructures(
+    chunk,
+    snapshot.columns,
+    snapshot.structureTop,
+    snapshot.structureMaterial,
+  );
   applyEdits(chunk, unpackEdits(snapshot.edits));
   return chunk;
 }
 
 const buffersOf = (snapshot) =>
-  ['top', 'material', 'water', 'edits', 'columns']
+  [
+    'top',
+    'material',
+    'water',
+    'edits',
+    'columns',
+    'structureTop',
+    'structureMaterial',
+  ]
     .map((key) => snapshot[key]?.buffer)
     .filter(Boolean);
 
