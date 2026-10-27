@@ -23,6 +23,14 @@ import {
 } from './movement.js';
 import { createBlockWorld, createHeightfieldWorld } from './worlds.js';
 import { EXIT_FLIGHT_S, MODE_HINTS, entryPose, exitView } from './entry.js';
+import {
+  DEFAULT_KEYS,
+  createKeyboardSource,
+  inputFromIntents,
+  inputRegistry,
+} from './inputs.js';
+// The double-tap moved to inputs.js; still exported from here.
+export { DOUBLE_TAP_MS, createDoubleTap } from './inputs.js';
 import { t } from '../i18n/index.js';
 import { blocksWorldNow } from './blocksSource.js';
 import { createRegion } from '../layers/blocks/grid.js';
@@ -34,43 +42,6 @@ import {
   plausibleSurfaceM,
   readCameraView,
 } from '../hud/cameraState.js';
-
-/**
- * Keys the modes use (KeyboardEvent.code). No Ctrl: Ctrl+W closes the
- * browser tab, and a page cannot stop it.
- */
-const KEY_INPUTS = Object.freeze({
-  KeyW: 'forward',
-  ArrowUp: 'forward',
-  KeyS: 'back',
-  ArrowDown: 'back',
-  KeyA: 'left',
-  ArrowLeft: 'left',
-  KeyD: 'right',
-  ArrowRight: 'right',
-  Space: 'space',
-  ShiftLeft: 'shift',
-  ShiftRight: 'shift',
-});
-
-/** Two presses of forward this close together sprint (Minecraft's double-tap). */
-export const DOUBLE_TAP_MS = 300;
-
-/**
- * Forward's double-tap: `press(t)` for each fresh press of forward says
- * whether it was the second of a double-tap (and so starts a sprint that
- * lasts while forward is held).
- */
-export function createDoubleTap(windowMs = DOUBLE_TAP_MS) {
-  let last = -Infinity;
-  return {
-    press(t) {
-      const double = t - last <= windowMs;
-      last = double ? -Infinity : t;
-      return double;
-    },
-  };
-}
 
 /** A walker this far above a known surface is put down on it. */
 export const LAND_ABOVE_M = 50;
@@ -84,24 +55,23 @@ const OUTLINE_MS = 100;
 const MOVED_ELSEWHERE_M = 0.05;
 const OUTLINE_COLOR = '#ffffff';
 
-/** The model's input from the keys held, in a mode. */
+/**
+ * The model's input from the old held-key names (tests and callers from
+ * before inputs.js): 'space', 'shift', 'sprint' and the four directions.
+ */
 export function inputFromKeys(held, mode) {
-  const input = {
-    forward: held.has('forward'),
-    back: held.has('back'),
-    left: held.has('left'),
-    right: held.has('right'),
-  };
-  // 'sprint' is forward's double-tap, held while forward is.
-  if (mode === 'fly') {
-    input.up = held.has('space');
-    input.down = held.has('shift');
-    input.sprint = held.has('sprint');
-  } else {
-    input.jump = held.has('space');
-    input.sprint = held.has('shift') || held.has('sprint');
-  }
-  return input;
+  return inputFromIntents(
+    {
+      forward: held.has('forward'),
+      back: held.has('back'),
+      left: held.has('left'),
+      right: held.has('right'),
+      jump: held.has('space'),
+      sneak: held.has('shift'),
+      sprint: held.has('sprint'),
+    },
+    mode,
+  );
 }
 
 const isFormTarget = (target) =>
@@ -125,6 +95,8 @@ export function createNavigationBinding({
   onStatus = null,
   documentRef = globalThis.document,
   now = () => globalThis.performance?.now?.() ?? Date.now(),
+  inputs = inputRegistry(),
+  keys = () => DEFAULT_KEYS,
 }) {
   const scene = viewer.scene;
   const camera = viewer.camera;
@@ -466,28 +438,21 @@ export function createNavigationBinding({
 
   // ── Input ───────────────────────────────────────────────────────────
 
+  // The keyboard and mouse: input source one (inputs.js).
+  const keyboard = createKeyboardSource({ keys, now });
+  const removeKeyboard = inputs.add(keyboard);
   const onKey = (event) => {
-    if (!active) return;
-    const name = KEY_INPUTS[event.code];
-    if (!name || isFormTarget(event.target)) return;
-    if (event.type === 'keydown') {
-      if (name === 'forward' && !event.repeat && !active.held.has('forward'))
-        if (active.doubleTap.press(now())) active.held.add('sprint');
-      active.held.add(name);
-    } else {
-      active.held.delete(name);
-      if (name === 'forward') active.held.delete('sprint');
-    }
+    if (!active || isFormTarget(event.target)) return;
+    if (!keyboard.key(event)) return;
     // The app's own shortcuts (D cycles detection) wait while walking.
     event.stopPropagation();
-    if (name === 'space' || event.code.startsWith('Arrow'))
+    if (event.code === 'Space' || event.code.startsWith('Arrow'))
       event.preventDefault();
   };
-  const onBlur = () => active?.held.clear();
+  const onBlur = () => inputs.reset();
   const onMouseMove = (event) => {
     if (!active || documentRef.pointerLockElement !== canvas) return;
-    active.lookX += Number(event.movementX) || 0;
-    active.lookY += Number(event.movementY) || 0;
+    keyboard.look(event.movementX, event.movementY);
   };
   const onCanvasClick = () => {
     if (!active || documentRef.pointerLockElement === canvas) return;
@@ -500,8 +465,8 @@ export function createNavigationBinding({
   };
   const onLockChange = () => {
     if (!active) return;
-    active.lookX = 0;
-    active.lookY = 0;
+    // Movement from before the lock changed is not a look.
+    keyboard.read();
     status(statusOf(active.frame, active.state));
   };
 
@@ -551,19 +516,12 @@ export function createNavigationBinding({
       active.resync = false;
     }
     let state = active.state;
-    if (active.lookX || active.lookY) {
-      state = look(state, active.lookX, active.lookY);
-      active.lookX = 0;
-      active.lookY = 0;
-    }
+    // Every source's intents this frame (the keys, the mouse, a gamepad).
+    const intents = inputs.read(Math.min(0.1, Math.max(0, dt)));
+    if (intents.lookDx || intents.lookDy)
+      state = look(state, intents.lookDx, intents.lookDy);
     const wasHovering = state.hovering;
-    state = step(
-      state,
-      inputFromKeys(active.held, mode),
-      dt,
-      frame.world,
-      mode,
-    );
+    state = step(state, inputFromIntents(intents, mode), dt, frame.world, mode);
     if (mode === 'walk' && wasHovering && !state.hovering)
       state = land(state, frame.world);
     active.state = state;
@@ -588,10 +546,6 @@ export function createNavigationBinding({
     active = {
       frame,
       state: null,
-      held: new Set(),
-      doubleTap: createDoubleTap(),
-      lookX: 0,
-      lookY: 0,
       at: now(),
       outlineAt: -Infinity,
       placed: null,
@@ -623,6 +577,7 @@ export function createNavigationBinding({
 
   const leave = () => {
     if (!active) return;
+    inputs.reset();
     const { restore } = active;
     active = null;
     scene.preUpdate.removeEventListener(onFrame);
@@ -762,6 +717,27 @@ export function createNavigationBinding({
     store.set(next);
   };
 
+  /**
+   * In Spectator, another source's (a gamepad's) walkHere / flyHere, read
+   * each frame only while such a source is registered: the keyboard's G
+   * keys come through onEntryKey instead.
+   */
+  const onSpectatorFrame = () => {
+    if (mode !== 'spectator' || !inputs.hasOther(keyboard)) return;
+    const intents = inputs.read(0);
+    if (intents.walkHere) enterHere('walk');
+    else if (intents.flyHere) enterHere('fly');
+  };
+  let spectatorPolling = false;
+  const syncSpectatorPolling = () => {
+    const want = mode === 'spectator' && inputs.hasOther(keyboard);
+    if (want === spectatorPolling) return;
+    spectatorPolling = want;
+    if (want) scene.preUpdate.addEventListener(onSpectatorFrame);
+    else scene.preUpdate.removeEventListener(onSpectatorFrame);
+  };
+  const offInputs = inputs.subscribe?.(syncSpectatorPolling);
+
   // G walks here, Shift+G flies here (in Spectator, outside form fields).
   const onEntryKey = (event) => {
     if (event.code !== 'KeyG' || mode !== 'spectator') return;
@@ -773,8 +749,12 @@ export function createNavigationBinding({
   documentRef?.addEventListener?.('keydown', onEntryKey);
   const offEntry = store.onEntry?.(enterHere);
 
-  const unsubscribe = store.subscribe(apply);
+  const unsubscribe = store.subscribe((next) => {
+    apply(next);
+    syncSpectatorPolling();
+  });
   apply(store.get());
+  syncSpectatorPolling();
 
   return {
     /**
@@ -794,6 +774,11 @@ export function createNavigationBinding({
     },
     destroy() {
       unsubscribe();
+      offInputs?.();
+      if (spectatorPolling)
+        scene.preUpdate.removeEventListener(onSpectatorFrame);
+      spectatorPolling = false;
+      removeKeyboard();
       offEntry?.();
       documentRef?.removeEventListener?.('keydown', onEntryKey);
       mode = 'spectator';
@@ -804,5 +789,10 @@ export function createNavigationBinding({
     },
     /** Walk or Fly here (as G and Shift+G do). */
     enterHere,
+    /**
+     * Add an input source (inputs.js: {read(dt) → partial intents,
+     * reset?()}); returns its removal.
+     */
+    addSource: (source) => inputs.add(source),
   };
 }
