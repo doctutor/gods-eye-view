@@ -19,6 +19,7 @@ import {
 } from './meshJob.js';
 import {
   MAX_MESH_WORKERS,
+  MESH_JOB_TIMEOUT_MS,
   createMeshPool,
   meshChunkAsync,
   poolSize,
@@ -336,4 +337,137 @@ test('buildings travel: the structures layer of the chunk and of its neighboursâ
   } finally {
     pool.destroy();
   }
+});
+
+/**
+ * Fake workers for the timeout: `silent` never answers (or answers only
+ * after `lateMs`); `answering` meshes the job in this process, as the real
+ * worker would, and says so.
+ */
+function fakeWorker({ silent = false, lateMs = null, log }) {
+  const handlers = {};
+  const worker = {
+    terminated: false,
+    answered: 0,
+    postMessage({ id, job }) {
+      log.posted += 1;
+      if (silent && lateMs === null) return;
+      setTimeout(
+        () => {
+          if (worker.terminated && !silent) return;
+          worker.answered += 1;
+          handlers.message?.({ data: { id, mesh: runMeshJob(job) } });
+        },
+        silent ? lateMs : 0,
+      );
+    },
+    addEventListener: (type, listener) => (handlers[type] = listener),
+    terminate() {
+      worker.terminated = true;
+      log.terminated += 1;
+    },
+  };
+  return worker;
+}
+
+test('a worker that never answers is terminated after the timeout, its job meshed in-thread, and a replacement started lazily', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  assert.equal(MESH_JOB_TIMEOUT_MS, 10_000);
+  const log = { posted: 0, terminated: 0 };
+  const made = [];
+  const pool = createMeshPool({
+    size: 1,
+    jobTimeoutMs: 20,
+    // The first worker hangs; the replacement answers.
+    createWorker: () => {
+      const worker = fakeWorker({ silent: made.length === 0, log });
+      made.push(worker);
+      return worker;
+    },
+  });
+  try {
+    const chunk = hilly(0, 0);
+    const neighbours = around(0, 0);
+    const started = Date.now();
+    const mesh = await pool.meshChunkAsync(chunk, { ...OPTIONS, neighbours });
+    assertSameMesh(mesh, buildChunkMesh(chunk, { ...OPTIONS, neighbours }));
+    assert.ok(Date.now() - started >= 15, 'it waited for the timeout');
+    assert.equal(made[0].terminated, true);
+    assert.equal(made.length, 1, 'no replacement until a job needs one');
+    assert.deepEqual(pool.stats(), {
+      workers: 0,
+      busy: 0,
+      waiting: 0,
+      inThread: false,
+    });
+    // The next job starts the replacement, which answers.
+    const next = hilly(1, 0);
+    assertSameMesh(
+      await pool.meshChunkAsync(next, OPTIONS),
+      buildChunkMesh(next, OPTIONS),
+    );
+    assert.equal(made.length, 2);
+    assert.equal(made[1].answered, 1, 'meshed by the replacement worker');
+    assert.equal(log.terminated, 1);
+  } finally {
+    pool.destroy();
+  }
+});
+
+test('an answer in time clears the timer; a late answer after the timeout is ignored', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const log = { posted: 0, terminated: 0 };
+  const quick = fakeWorker({ log });
+  const pool = createMeshPool({
+    size: 1,
+    jobTimeoutMs: 40,
+    createWorker: () => quick,
+  });
+  const chunk = hilly(2, 2);
+  await pool.meshChunkAsync(chunk, OPTIONS);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(log.terminated, 0, 'not timed out after answering');
+  assert.equal(pool.stats().workers, 1);
+  pool.destroy();
+
+  // Answers after 60 ms, the timeout at 20 ms: resolved once, in-thread.
+  const lateLog = { posted: 0, terminated: 0 };
+  const late = fakeWorker({ silent: true, lateMs: 60, log: lateLog });
+  let resolved = 0;
+  const latePool = createMeshPool({
+    size: 1,
+    jobTimeoutMs: 20,
+    createWorker: () => late,
+  });
+  const mesh = await latePool.meshChunkAsync(chunk, OPTIONS).then((m) => {
+    resolved += 1;
+    return m;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(late.answered, 1, 'the late answer came');
+  assert.equal(resolved, 1, 'and changed nothing');
+  assertSameMesh(mesh, buildChunkMesh(chunk, OPTIONS));
+  latePool.destroy();
+});
+
+test('destroy stops the timers of running jobs', async () => {
+  const log = { posted: 0, terminated: 0 };
+  const timers = new Set();
+  const pool = createMeshPool({
+    size: 1,
+    jobTimeoutMs: 1000,
+    createWorker: () => fakeWorker({ silent: true, log }),
+    setTimeoutImpl: (fn, ms) => {
+      const handle = { fn, ms };
+      timers.add(handle);
+      return handle;
+    },
+    clearTimeoutImpl: (handle) => timers.delete(handle),
+  });
+  const pending = pool.meshChunkAsync(hilly(0, 0), OPTIONS);
+  assert.equal(timers.size, 1);
+  assert.equal([...timers][0].ms, 1000);
+  pool.destroy();
+  await assert.rejects(pending, /destroyed/);
+  assert.equal(timers.size, 0);
 });
