@@ -68,6 +68,7 @@ unless its switch is set to `0`.
 - [The Countries basemap (MAP SOURCE)](#the-countries-basemap-map-source)
 - [H3 hexes (resolution by perspective)](#h3-hexes-resolution-by-perspective)
 - [Point rollups: camera counts per hex](#point-rollups-camera-counts-per-hex)
+- [HUD: the camera readout](#hud-the-camera-readout)
 - [Smaller additions](#smaller-additions)
 - [Tests: budgets and flakes](#tests-budgets-and-flakes)
 - [Keeping up with upstream](#keeping-up-with-upstream)
@@ -6999,6 +7000,66 @@ never in the URL.
 
 The frame times above were measured in a scratch page, not in the app.
 The live app has not been checked in a browser here.
+
+## HUD: the camera readout
+
+The HUD's corner readouts were partly decorative: random mission and sensor
+ids (KH11-…, OPS-…), an ORB/PASS line, GSD (height × 0.000375) and NIIRS,
+BAND/BITS/LVL and ONA. They are gone. In their place the bottom corners
+show the camera's whole view state, the seven numbers that fix what is on
+screen, plus its height above the surface and what a pixel covers
+(`src/hud/cameraReadout.js`; the banner, mode, summary, REC, COLL, SUN and
+AIS stay). The summary wraps to three lines instead of clipping.
+
+- **Bottom left, position:** LAT and LON (decimal degrees), DMS and MGRS at
+  the same precision, ALT above mean sea level (EGM96, as before) and AGL
+  above the rendered surface under the camera, with the surface's name in
+  small type ("AGL 4.2 m · Google"). AGL is `scene.sampleHeight` under the
+  camera, as the ground guard samples it: "—" until the tiles there answer,
+  sampled again on settling and at most once a second while the camera has
+  left the last sample (`src/hud/cameraState.js`).
+- **Bottom right, pose:** HEADING, PITCH, ROLL, FOV, then PX (one pixel's
+  ground footprint) and SUN.
+- **Editing.** A click on LAT, LON, ALT, AGL, HEADING, PITCH, ROLL or FOV
+  (or Enter on it) opens it for typing: Enter applies, Escape or leaving the
+  box cancels, a number the field does not take stays open in red. The
+  whole view is set at once (`camera.setView`), so the other numbers hold;
+  AGL sets ALT to the surface plus the number typed; FOV sets
+  `camera.frustum.fov` (Cesium's default 60° until then), and, being a view
+  change without a camera move, raises `moveEnd`. Either way the share link
+  is told (`ShareLinkManager.onCameraChange`).
+- **Precision** (`src/hud/precision.js`). A pixel's footprint is
+  2·d·tan(fov/2) ÷ the canvas's wider side in CSS pixels (Cesium's fov spans
+  the wider side), d the distance to the surface at the screen's centre
+  (`scene.pickPosition`, else the globe along the centre ray, else the
+  camera's height). Lengths are shown to the footprint rounded down to a
+  power of ten (10 km … 1 mm), no finer than the decimal place of the data
+  floor; LAT and LON take the decimals whose step (0.1° ≈ 11 km …
+  0.000001° ≈ 0.11 m) resolves the larger of the footprint and the floor;
+  MGRS digits step 1 km, 100 m, 10 m, 1 m; DMS seconds 0 to 3 decimals.
+  Angles always show 2 decimals (a pixel is fov ÷ width, about 0.03°), PX 2
+  significant figures.
+- **Data floor:** Google's 3D tiles 0.5 m (so heights to 0.1 m), Cesium
+  World Terrain 10 m, Re:Earth's keyless terrain 30 m (so 10 m), a flat
+  ellipsoid 30 m (`DATA_FLOORS`). The terrain providers say which they are
+  (`gevTerrainId`, `src/maps/terrain.js`); a shown map-stack tileset is
+  Google's. USGS 3DEP 1 m has an entry (1 m), but today it is only the
+  Elevation layer's draped colours, not the surface, so nothing selects it.
+- **Tooltips.** Every value's `title` says what it is, its reference
+  (WGS84 ellipsoid, mean sea level, rendered surface), what bounds its
+  precision (the pixel, or the surface's resolution), and "Click to edit"
+  where it can be.
+- **Share links** (`src/sharelink.js`) carry the camera at the HUD's
+  precision (`setCameraPrecisionProvider`): lat/lon and alt as the HUD shows
+  them, so links are short from high up and about a metre near the ground;
+  heading, pitch and roll to 2 decimals (heading in 0 … 360); `fov` to 2
+  decimals, written only when it is not 60°, so older links read the same.
+  Without a HUD the old precision stands (4 decimals, whole metres).
+
+The minimal and cyber layouts keep their rules; the removed elements'
+selectors match nothing. This is step one toward an eye-level mode (1.7 m
+above the surface at a screen-matched field of view): `editedView`'s AGL
+and FOV and `applyCameraView` are what that mode would call.
 
 ## Smaller additions
 

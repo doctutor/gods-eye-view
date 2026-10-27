@@ -41,8 +41,16 @@ registerHooks({
 });
 
 const { IntelHUD } = await import('./hud.js');
+const { CAMERA_FIELDS, fieldElementId } = await import('./hud/cameraReadout.js');
+/** Google's tiles under the camera: heights to 0.1 m (src/hud/precision.js). */
+const ON_GOOGLE = { surfaceSource: () => ({ tilesetShown: true }) };
 
 const source = readFileSync(new URL('./hud.js', import.meta.url), 'utf8');
+// Personal fork: the corner readout's text is written by the camera readout.
+const readoutSource = readFileSync(
+  new URL('./hud/cameraReadout.js', import.meta.url),
+  'utf8',
+);
 // Boolean probes, not assert.match on the whole file — a failure here should
 // name the missing wiring, not print all of hud.js.
 const has = (pattern) => pattern.test(source);
@@ -59,8 +67,14 @@ const SFO_ELLIPSOIDAL_M = -15;
  */
 function installHudEnvironment() {
   const elements = new Map(
-    ['hud-alt', 'hud-summary', 'hud-mgrs', 'hud-latlon', 'hud-bottom-line', 'hud-gsd', 'hud-coll', 'hud-ona', 'hud-mode']
-      .map((id) => [id, { textContent: '' }]),
+    [
+      ...CAMERA_FIELDS.map(({ id }) => fieldElementId(id)),
+      'hud-cam-agl-floor',
+      'hud-summary',
+      'hud-bottom-line',
+      'hud-coll',
+      'hud-mode',
+    ].map((id) => [id, { textContent: '', title: '' }]),
   );
   const previousDocument = globalThis.document;
   globalThis.document = {
@@ -70,8 +84,16 @@ function installHudEnvironment() {
     removeEventListener() {},
   };
   const viewer = {
+    scene: {
+      canvas: { clientWidth: 1000, clientHeight: 600 },
+      globe: { show: true, pick: () => undefined },
+    },
     camera: {
+      heading: 0,
       pitch: -Math.PI / 2,
+      roll: 0,
+      frustum: { fov: Math.PI / 3 },
+      getPickRay: () => undefined,
       positionCartographic: {
         latitude: (SFO.latDeg * Math.PI) / 180,
         longitude: (SFO.lonDeg * Math.PI) / 180,
@@ -126,14 +148,19 @@ test('the corner ALT readout prints the MSL height, never the ellipsoidal one', 
     'the ALT readout must convert the camera height before printing it',
   );
   assert.equal(
-    has(/`ALT: \$\{Math\.round\(altMslM\)\}m/),
+    has(/formatCameraReadout\(\s*\{\s*view,\s*altMslM,/),
     true,
-    'the #hud-alt line must print altMslM',
+    'the camera readout must be handed altMslM',
   );
   assert.equal(
-    has(/`ALT: \$\{Math\.round\(altM\)\}m/),
+    /alt: \{\s*text: `\$\{formatLength\(reading\.altMslM,/.test(readoutSource),
+    true,
+    'the ALT field must print altMslM',
+  );
+  assert.equal(
+    /formatLength\(reading\.view\.heightM/.test(readoutSource),
     false,
-    'the #hud-alt line must not regress to the raw ellipsoidal camera height',
+    'the ALT field must not regress to the raw ellipsoidal camera height',
   );
 });
 
@@ -152,15 +179,11 @@ test('the summary ALT tag agrees with the corner readout', () => {
   );
 });
 
-test('the sensor model keeps the ellipsoidal height it was tuned against', () => {
-  // GSD/NIIRS and the STREET/CITY/METRO view band are camera-geometry math,
-  // not readouts. Re-datuming them would silently move their thresholds, so
-  // altM stays and altMslM is purely additive.
-  assert.equal(
-    has(/const gsd = Math\.max\(0\.01, altM \* 0\.000375\);/),
-    true,
-    'GSD must keep reading the raw camera height',
-  );
+test('the view band keeps the ellipsoidal height it was tuned against', () => {
+  // The STREET/CITY/METRO view band is camera-geometry math, not a readout.
+  // Re-datuming it would silently move its thresholds, so altM stays and
+  // altMslM is purely additive. (Personal fork: the GSD/NIIRS estimate, the
+  // other user of the raw height, is gone: PX is the real footprint.)
   assert.equal(
     has(/const band = this\._viewBand\(m\.altM\);/),
     true,
@@ -181,13 +204,13 @@ test('a cold tick paints both readouts uncorrected, and resolving flips both in 
   const env = installHudEnvironment();
   let hud;
   try {
-    hud = new IntelHUD(env.viewer);
-    const alt = () => env.elements.get('hud-alt').textContent;
+    hud = new IntelHUD(env.viewer, ON_GOOGLE);
+    const alt = () => env.elements.get('hud-cam-alt').textContent;
     const summary = () => env.elements.get('hud-summary').textContent;
 
     // Tick 1 — cold. This is also the tick that requests the grid.
     hud._updateCameraData();
-    assert.match(alt(), /^ALT: -15m/, `cold corner readout, got ${alt()}`);
+    assert.equal(alt(), '-15.0 m', `cold corner readout, got ${alt()}`);
     assert.match(summary(), /\| ALT -15M \|/, `cold summary tag, got ${summary()}`);
 
     // The HUD registered its own continuation on this same shared promise
@@ -198,7 +221,7 @@ test('a cold tick paints both readouts uncorrected, and resolving flips both in 
 
     // Tick 2 — resolved. ONE tick has to move both.
     hud._updateCameraData();
-    assert.match(alt(), /^ALT: 17m/, `corrected corner readout, got ${alt()}`);
+    assert.match(alt(), /^17\.\d m$/, `corrected corner readout, got ${alt()}`);
     assert.match(
       summary(),
       /\| ALT 17M \|/,
@@ -208,7 +231,7 @@ test('a cold tick paints both readouts uncorrected, and resolving flips both in 
     // Tick 3 — steady state. The repaint is a transition, not a per-tick cost.
     const summaryRevisionAfterFlip = hud._summaryRevision;
     hud._updateCameraData();
-    assert.match(alt(), /^ALT: 17m/);
+    assert.match(alt(), /^17\.\d m$/);
     assert.match(summary(), /\| ALT 17M \|/);
     assert.equal(
       hud._summaryRevision,
@@ -231,16 +254,17 @@ test('the corrected readouts are the MSL datum, not a coincidence of the SFO sig
   env.viewer.camera.positionCartographic.height = 100;
   let hud;
   try {
-    hud = new IntelHUD(env.viewer);
+    hud = new IntelHUD(env.viewer, ON_GOOGLE);
     hud._updateCameraData(); // cold: requests the grid, paints uncorrected
-    assert.match(env.elements.get('hud-alt').textContent, /^ALT: 100m/);
+    assert.equal(env.elements.get('hud-cam-alt').textContent, '100.0 m');
     await ensureGeoidReady();
     await Promise.resolve();
     hud._updateCameraData();
-    assert.match(
-      env.elements.get('hud-alt').textContent,
-      /^ALT: 54m/,
-      `100 m ellipsoidal over London is 54 m MSL, got ${env.elements.get('hud-alt').textContent}`,
+    const london = env.elements.get('hud-cam-alt').textContent;
+    assert.equal(
+      Math.round(parseFloat(london)),
+      54,
+      `100 m ellipsoidal over London is 54 m MSL, got ${london}`,
     );
     assert.match(env.elements.get('hud-summary').textContent, /\| ALT 54M \|/);
   } finally {

@@ -38,6 +38,19 @@ import { encodeTitlesParam } from './ui/titlesShare.js';
  */
 
 const DEBOUNCE_MS = 500;
+
+/**
+ * Personal fork: the camera's precision in a link when no HUD gives one
+ * (src/hud.js cameraPrecision): lat/lon to 4 decimals, heights to the metre,
+ * as links were before. Angles always keep 2 decimals; `fov` is written
+ * only when it is not Cesium's default 60°, so older links read the same.
+ */
+const LINK_PRECISION = Object.freeze({ degreeDecimals: 4, stepM: 1 });
+const DEFAULT_FOV_DEG = 60;
+const ANGLE_DECIMALS = 2;
+/** A number to `decimals` places, trailing zeros (and -0) dropped. */
+const fixed = (value, decimals) =>
+  String(Number(Number(value).toFixed(decimals)) || 0);
 const LEGACY_BLOOM_FALLBACK = 50;
 
 // Style name mapping: internal → URL-friendly, shared with views.
@@ -142,6 +155,7 @@ export class ShareLinkManager {
     this._layerStateProvider = null;
     this._panelStateProvider = null;
     this._titlesProvider = null;
+    this._cameraPrecisionProvider = null;
     this._styleParamStateProvider = null;
     this._initialRestorePending = false;
     this._restoreAuthority = {
@@ -218,6 +232,11 @@ export class ShareLinkManager {
       heading: parseOr(params.get('heading'), 0),
       pitch: parseOr(params.get('pitch'), -35),
       roll: parseOr(params.get('roll'), 0),
+      // Personal fork: the field of view, 60° when the link has none.
+      fov: Math.min(
+        150,
+        Math.max(1, parseOr(params.get('fov'), DEFAULT_FOV_DEG)),
+      ),
       style,
       styleParams: decodeStyleParamState(params, style),
       bloom: params.get('bloom') === '1',
@@ -312,6 +331,10 @@ export class ShareLinkManager {
       status: applyCamera ? 'superseded' : 'skipped',
     });
     if (applyCamera && this._isNavigationCurrent(navigationToken)) {
+      // Personal fork: the link's field of view (the default when it has none).
+      const frustum = this.viewer.camera.frustum;
+      if (frustum && 'fov' in frustum && Number.isFinite(state.fov))
+        frustum.fov = Cesium.Math.toRadians(state.fov);
       const restoreGeneration = ++this._restoreGeneration;
       let settleCamera;
       cameraPromise = new Promise((resolve) => {
@@ -439,6 +462,24 @@ export class ShareLinkManager {
   /** Install the finalized panel-state source used by URL generation. */
   setPanelStateProvider(provider) {
     this._panelStateProvider = typeof provider === 'function' ? provider : null;
+  }
+
+  /**
+   * Personal fork: install the camera's precision source, the HUD's
+   * (src/hud.js cameraPrecision: degree decimals and a length step), so a
+   * link carries the camera as precisely as the HUD shows it.
+   */
+  setCameraPrecisionProvider(provider) {
+    this._cameraPrecisionProvider =
+      typeof provider === 'function' ? provider : null;
+  }
+
+  /**
+   * Personal fork: the camera changed in a way its `changed` event may not
+   * report (an edited field of view, or a step under its threshold).
+   */
+  onCameraChange() {
+    this._scheduleUpdate();
   }
 
   /** Personal fork: install the Titles toggle's source (src/ui/titles.js). */
@@ -589,21 +630,50 @@ export class ShareLinkManager {
 
     const params = new URLSearchParams();
     params.set('v', '2');
-    params.set('lat', Cesium.Math.toDegrees(carto.latitude).toFixed(4));
-    params.set('lon', Cesium.Math.toDegrees(carto.longitude).toFixed(4));
-    params.set('alt', Math.round(carto.height).toString());
+    // Personal fork: the camera as precisely as the HUD shows it: short links
+    // from high up, about a metre near the ground; angles to 2 decimals.
+    let precision = null;
+    try {
+      precision = this._cameraPrecisionProvider?.() || null;
+    } catch {
+      precision = null;
+    }
+    const degreeDecimals = Number.isInteger(precision?.degreeDecimals)
+      ? precision.degreeDecimals
+      : LINK_PRECISION.degreeDecimals;
+    const stepM = precision?.stepM > 0 ? precision.stepM : LINK_PRECISION.stepM;
+    const lengthDecimals = Math.max(0, Math.round(-Math.log10(stepM)));
+    params.set(
+      'lat',
+      fixed(Cesium.Math.toDegrees(carto.latitude), degreeDecimals),
+    );
+    params.set(
+      'lon',
+      fixed(Cesium.Math.toDegrees(carto.longitude), degreeDecimals),
+    );
+    params.set(
+      'alt',
+      fixed(Math.round(carto.height / stepM) * stepM, lengthDecimals),
+    );
+    // Heading in 0 … 360, and 359.999° written as 0, not 360.
+    const turned = ((Cesium.Math.toDegrees(camera.heading) % 360) + 360) % 360;
+    const headingDeg = Number(turned.toFixed(ANGLE_DECIMALS));
     params.set(
       'heading',
-      Math.round(Cesium.Math.toDegrees(camera.heading)).toString(),
+      fixed(headingDeg >= 360 ? 0 : headingDeg, ANGLE_DECIMALS),
     );
     params.set(
       'pitch',
-      Math.round(Cesium.Math.toDegrees(camera.pitch)).toString(),
+      fixed(Cesium.Math.toDegrees(camera.pitch), ANGLE_DECIMALS),
     );
     params.set(
       'roll',
-      Math.round(Cesium.Math.toDegrees(camera.roll)).toString(),
+      fixed(Cesium.Math.toDegrees(camera.roll), ANGLE_DECIMALS),
     );
+    const fov = camera.frustum?.fov;
+    const fovDeg = Number.isFinite(fov) ? Cesium.Math.toDegrees(fov) : NaN;
+    if (Number.isFinite(fovDeg) && Math.abs(fovDeg - DEFAULT_FOV_DEG) >= 0.005)
+      params.set('fov', fixed(fovDeg, ANGLE_DECIMALS));
     params.set('style', STYLE_TO_URL[this._currentStyle] || 'normal');
     params.set('bloom', this._bloomEnabled ? '1' : '0');
     params.set('sharpen', this._sharpenEnabled ? '1' : '0');
@@ -690,6 +760,7 @@ export class ShareLinkManager {
     this._layerStateProvider = null;
     this._panelStateProvider = null;
     this._titlesProvider = null;
+    this._cameraPrecisionProvider = null;
     this._styleParamStateProvider = null;
     this._onRestore = null;
   }
