@@ -17,16 +17,15 @@
 // the fragment shader adds distance fog toward the sky colour, since
 // Cesium's fog is the globe's and does not touch primitives. Opaque faces
 // write depth, so scene.pickPosition and the HUD's AGL and centre distance
-// land on the blocks; water's depth is picked too while blocks are drawn
-// (scene.pickTranslucentDepth).
+// land on the blocks; water does not, so they land on the ground under it.
 
 import * as Cesium from 'cesium';
 import { solarParameters, sunPosition } from '../../data/solarDaylight.js';
+import { parseChunkKey } from './grid.js';
+import { STUDY_SUN, STUDY_SUN_DIR, sunDirection } from './lighting.js';
 
 /** The real sun lights the blocks above this elevation, else the study sun. */
 export const REAL_SUN_MIN_ELEVATION_DEG = 15;
-/** The study sun: 60° up from the south-west. */
-export const STUDY_SUN = Object.freeze({ elevationDeg: 60, azimuthDeg: 225 });
 /** The fog colour when the scene has no background colour: a clear sky near the horizon. */
 export const DEFAULT_FOG_COLOR = Object.freeze([0.71, 0.8, 0.9, 1]);
 /**
@@ -39,17 +38,6 @@ export const DEFAULT_FOG_COLOR = Object.freeze([0.71, 0.8, 0.9, 1]);
 export const DEPTH_BIAS = 1e-4;
 
 const RAD = Math.PI / 180;
-
-/** A unit vector toward the sun in east-north-up from elevation and azimuth (from north, clockwise). */
-export function sunVector(elevationDeg, azimuthDeg) {
-  const el = elevationDeg * RAD;
-  const az = azimuthDeg * RAD;
-  return {
-    east: Math.sin(az) * Math.cos(el),
-    north: Math.cos(az) * Math.cos(el),
-    up: Math.sin(el),
-  };
-}
 
 /**
  * The sun the blocks are lit by at an instant (ms or a Date) and place: the real one when
@@ -78,7 +66,7 @@ export function blocksSun(now, lat, lon) {
   const elevationDeg = fixed ? STUDY_SUN.elevationDeg : elevation;
   const azimuthDeg = fixed ? STUDY_SUN.azimuthDeg : azimuth;
   return {
-    dir: sunVector(elevationDeg, azimuthDeg),
+    dir: sunDirection(azimuthDeg, elevationDeg),
     fixed,
     elevationDeg,
     azimuthDeg,
@@ -162,42 +150,56 @@ function blocksAppearance(translucent) {
 }
 
 /**
- * A mesh's faces split into opaque and water (alpha below 255) triangles,
- * each with only the vertices it uses.
+ * A mesh's faces split into opaque and water: mesh.js puts the opaque
+ * faces first, [0, opaqueIndexCount) of the indices, and water after.
+ * A part that uses only some of the vertices gets just those, renumbered;
+ * a mesh without water is drawn from its own arrays.
  * @returns {{opaque: object|null, water: object|null}}
  */
-export function splitMesh({ positions, normals, colors, indices }) {
-  const parts = { opaque: [], water: [] };
-  for (let t = 0; t < indices.length; t += 3)
-    parts[colors[indices[t] * 4 + 3] < 255 ? 'water' : 'opaque'].push(t);
-  const build = (triangles) => {
-    if (!triangles.length) return null;
-    const remap = new Map();
-    const out = new Uint32Array(triangles.length * 3);
-    let k = 0;
-    for (const t of triangles)
-      for (let c = 0; c < 3; c++) {
-        const v = indices[t + c];
-        if (!remap.has(v)) remap.set(v, remap.size);
-        out[k++] = remap.get(v);
-      }
-    const n = remap.size;
-    const p = new Float32Array(n * 3);
-    const nn = new Float32Array(n * 3);
-    const cc = new Uint8Array(n * 4);
-    for (const [from, to] of remap) {
-      p.set(positions.subarray(from * 3, from * 3 + 3), to * 3);
-      nn.set(normals.subarray(from * 3, from * 3 + 3), to * 3);
-      cc.set(colors.subarray(from * 4, from * 4 + 4), to * 4);
+export function splitMesh({
+  positions,
+  normals,
+  colors,
+  indices,
+  opaqueIndexCount,
+}) {
+  const cut = Number.isInteger(opaqueIndexCount)
+    ? opaqueIndexCount
+    : indices.length;
+  const vertexCount = positions.length / 3;
+  const remap = new Int32Array(vertexCount);
+  const part = (from, to) => {
+    if (from >= to) return null;
+    if (from === 0 && to === indices.length)
+      return { positions, normals, colors, indices };
+    remap.fill(-1);
+    const out = new Uint32Array(to - from);
+    let used = 0;
+    for (let k = from; k < to; k++) {
+      const v = indices[k];
+      if (remap[v] < 0) remap[v] = used++;
+      out[k - from] = remap[v];
     }
-    return { positions: p, normals: nn, colors: cc, indices: out };
+    const p = new Float32Array(used * 3);
+    const n = new Float32Array(used * 3);
+    const c = new Uint8Array(used * 4);
+    for (let v = 0; v < vertexCount; v++) {
+      const at = remap[v];
+      if (at < 0) continue;
+      p[at * 3] = positions[v * 3];
+      p[at * 3 + 1] = positions[v * 3 + 1];
+      p[at * 3 + 2] = positions[v * 3 + 2];
+      n[at * 3] = normals[v * 3];
+      n[at * 3 + 1] = normals[v * 3 + 1];
+      n[at * 3 + 2] = normals[v * 3 + 2];
+      c[at * 4] = colors[v * 4];
+      c[at * 4 + 1] = colors[v * 4 + 1];
+      c[at * 4 + 2] = colors[v * 4 + 2];
+      c[at * 4 + 3] = colors[v * 4 + 3];
+    }
+    return { positions: p, normals: n, colors: c, indices: out };
   };
-  if (!parts.water.length)
-    return {
-      opaque: indices.length ? { positions, normals, colors, indices } : null,
-      water: null,
-    };
-  return { opaque: build(parts.opaque), water: build(parts.water) };
+  return { opaque: part(0, cut), water: part(cut, indices.length) };
 }
 
 function meshGeometry({ positions, normals, colors, indices }) {
@@ -268,12 +270,6 @@ export function chunkMatrix(frame, origin, result = new Cesium.Matrix4()) {
   );
 }
 
-/** A chunk key 'ci:cj' to its numbers. */
-export function parseChunkKey(key) {
-  const [ci, cj] = String(key).split(':').map(Number);
-  return { ci, cj };
-}
-
 /** @param {{viewer: object}} options */
 export function createBlocksRenderer({ viewer } = {}) {
   const scene = viewer.scene;
@@ -284,14 +280,12 @@ export function createBlocksRenderer({ viewer } = {}) {
     opaque: blocksAppearance(false),
     water: blocksAppearance(true),
   };
-  const pickTranslucentDepthBefore = scene.pickTranslucentDepth;
-  scene.pickTranslucentDepth = true;
   const chunks = new Map(); // key → {origin, primitives: Primitive[]}
   let region = null;
   let datumOffsetM = 0;
   let frame = null;
   let sun = {
-    dir: sunVector(STUDY_SUN.elevationDeg, STUDY_SUN.azimuthDeg),
+    dir: { ...STUDY_SUN_DIR },
     fixed: true,
   };
   // The fog colour follows the scene's background unless setFog names one:
@@ -375,8 +369,10 @@ export function createBlocksRenderer({ viewer } = {}) {
         requestRender();
         return;
       }
-      const { ci, cj } = parseChunkKey(key);
-      const origin = mesh.origin || region.chunkOrigin(ci, cj);
+      const parsed = parseChunkKey(key);
+      const origin =
+        mesh.origin || (parsed && region.chunkOrigin(parsed.ci, parsed.cj));
+      if (!origin) throw new Error(`Blocks renderer: no origin for ${key}`);
       const parts = splitMesh(mesh);
       const primitives = [];
       for (const kind of ['opaque', 'water']) {
@@ -470,7 +466,6 @@ export function createBlocksRenderer({ viewer } = {}) {
       destroyed = true;
       removePreRender?.();
       chunks.clear();
-      scene.pickTranslucentDepth = pickTranslucentDepthBefore;
       scene.primitives.remove(collection);
       requestRender();
     },

@@ -4,11 +4,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { CHUNK_COLUMNS, createRegion } from './grid.js';
+import { MATERIALS, NONE } from './store.js';
 import {
-  CHUNK_COLUMNS,
   ELEVATION_LAYER,
-  MATERIAL,
-  NONE,
   columnsFromHeights,
   createChunkSource,
   probeBox,
@@ -17,28 +16,6 @@ import {
 } from './source.js';
 
 const M_PER_DEG = 111_319.49;
-
-/** A tangent-plane region per the plan's grid.js contract (enough for tests). */
-function stubRegion({ lon0, lat0, blockM }) {
-  const mPerLon = M_PER_DEG * Math.cos((lat0 * Math.PI) / 180);
-  const chunkM = CHUNK_COLUMNS * blockM;
-  const toLonLat = (x, y) => ({
-    lon: lon0 + x / mPerLon,
-    lat: lat0 + y / M_PER_DEG,
-  });
-  return {
-    lon0,
-    lat0,
-    blockM,
-    toLonLat,
-    chunkOrigin: (ci, cj) => ({ x: ci * chunkM, y: cj * chunkM }),
-    chunkBounds(ci, cj) {
-      const sw = toLonLat(ci * chunkM, cj * chunkM);
-      const ne = toLonLat((ci + 1) * chunkM, (cj + 1) * chunkM);
-      return { west: sw.lon, south: sw.lat, east: ne.lon, north: ne.lat };
-    },
-  };
-}
 
 /** The server's windowGrid, so the stub answers the grid the server would. */
 function serverGrid({ west, south, east, north }, cells, nativeM) {
@@ -129,7 +106,7 @@ test('columnsFromHeights: floor levels, the sea at level 0, nodata NONE', () => 
   );
   assert.deepEqual([...top], [0, 1, 30, -1, -1, -12, NONE, -86]);
   assert.deepEqual([...water], [NONE, NONE, NONE, 0, 0, 0, NONE, 0]);
-  const { TERRAIN: T, AIR: A } = MATERIAL;
+  const { TERRAIN: T, AIR: A } = MATERIALS;
   assert.deepEqual([...material], [T, T, T, T, T, T, A, T]);
   const coarse = columnsFromHeights(
     Float32Array.from([29.9, 30, 59.9, 60]),
@@ -139,7 +116,7 @@ test('columnsFromHeights: floor levels, the sea at level 0, nodata NONE', () => 
 });
 
 test('sampleColumns: each column reads the cell under its centre, even on a 63-cell answer', () => {
-  const region = stubRegion({ lon0: -76.6, lat0: 39.3, blockM: 30 });
+  const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 30 });
   // A ramp east: height = metres east of the region origin.
   const mPerLon = M_PER_DEG * Math.cos((39.3 * Math.PI) / 180);
   const heightAt = (lon) => (lon - region.lon0) * mPerLon;
@@ -178,7 +155,7 @@ test('sampleColumns: each column reads the cell under its centre, even on a 63-c
 });
 
 test('loadChunk: one request over the chunk bounds, columns into createChunk', async () => {
-  const region = stubRegion({ lon0: -76.6, lat0: 39.3, blockM: 10 });
+  const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 10 });
   // Sea west of the origin, land rising east of it, a nodata hole north.
   const mPerLon = M_PER_DEG * Math.cos((39.3 * Math.PI) / 180);
   const heightAt = (lon, lat) =>
@@ -212,7 +189,7 @@ test('loadChunk: one request over the chunk bounds, columns into createChunk', a
 });
 
 test('loadChunk: shared in flight, kept by key, LRU-bounded', async () => {
-  const region = stubRegion({ lon0: 0.5, lat0: 51.5, blockM: 30 });
+  const region = createRegion({ lon0: 0.5, lat0: 51.5, blockM: 30 });
   const { fetchValues, calls } = fakeValues({
     nativeM: 30,
     heightAt: () => 12,
@@ -228,7 +205,7 @@ test('loadChunk: shared in flight, kept by key, LRU-bounded', async () => {
   assert.equal(calls.length, 1);
   // Another region with the same chunk numbers is another chunk.
   await source.loadChunk(
-    stubRegion({ lon0: 0.5, lat0: 51.5, blockM: 10 }),
+    createRegion({ lon0: 0.5, lat0: 51.5, blockM: 10 }),
     0,
     0,
   );
@@ -242,7 +219,7 @@ test('loadChunk: shared in flight, kept by key, LRU-bounded', async () => {
 });
 
 test('loadChunk: a failure rejects with its status and is asked again', async () => {
-  const region = stubRegion({ lon0: 0.5, lat0: 51.5, blockM: 30 });
+  const region = createRegion({ lon0: 0.5, lat0: 51.5, blockM: 30 });
   const { fetchValues, calls } = fakeValues({
     nativeM: 30,
     heightAt: () => 12,
@@ -259,9 +236,15 @@ test('loadChunk: a failure rejects with its status and is asked again', async ()
   assert.equal(calls.length, 2);
 });
 
-test('createChunkSource needs the store createChunk', () => {
-  assert.throws(
-    () => createChunkSource({ fetchValues: async () => ({}) }),
-    TypeError,
+test('createChunkSource builds store chunks unless given createChunk', async () => {
+  const region = createRegion({ lon0: 0.5, lat0: 51.5, blockM: 30 });
+  const { fetchValues } = fakeValues({ nativeM: 30, heightAt: () => 12 });
+  const chunk = await createChunkSource({ fetchValues }).loadChunk(
+    region,
+    0,
+    0,
   );
+  assert.equal(typeof chunk.occupancy, 'function');
+  assert.equal(chunk.occupancy(5, 5, 0), MATERIALS.TERRAIN);
+  assert.equal(chunk.occupancy(5, 5, 1), MATERIALS.AIR);
 });
