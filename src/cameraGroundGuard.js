@@ -13,44 +13,53 @@
  * rendered surface under the framed target and under the camera itself, and
  * lifts the eye if it sits below a usable clearance. Heading and pitch are
  * held, so the correction reads as the shot settling.
+ *
+ * Personal fork: a surface measured on a tile coarser than the view trusts
+ * (src/surfaceTrust.js) is not the ground: while Google's leaves stream in,
+ * a coarse ancestor's chord can lie hundreds of metres off it (+535 m over
+ * Baltimore, 2026-10-27). Such an answer is waited out, for up to
+ * GUARD_REFINE_WAIT_MS, without spending an attempt.
  */
 import * as Cesium from 'cesium';
 import { ownCameraArrival } from './data/cameraArrival.js';
+import { surfaceAt } from './surfaceTrust.js';
 
 /** Minimum eye height above the rendered surface for a usable view. */
 export const MIN_EYE_CLEARANCE_M = 120;
 /** Retries while tiles stream in; sampling fails until the mesh exists. */
 export const GUARD_ATTEMPTS = 8;
 export const GUARD_INTERVAL_MS = 600;
+/** Personal fork: how long coarse-tile answers are waited out. */
+export const GUARD_REFINE_WAIT_MS = 15_000;
 /** Ignore sub-metre noise rather than nudging the camera forever. */
 const GUARD_EPSILON_M = 2;
 
-const probeScratch = new Cesium.Cartographic();
-
 /**
- * Highest rendered surface across a few cells, with how many cells answered.
- * A cell whose tiles are not streamed yet contributes nothing.
- * @param {Cesium.Scene} scene Live scene.
+ * Highest rendered surface across a few cells, with how many cells answered
+ * and how many answered from a tile too coarse to trust. A cell whose tiles
+ * are not streamed yet, or only coarsely, contributes nothing.
+ * @param {Cesium.Viewer} viewer Live viewer.
  * @param {Array<{lat: number, lon: number}>} cells Cells to probe.
- * @returns {{heightM: number, sampled: number}} Reading.
+ * @returns {{heightM: number, sampled: number, coarse: number}} Reading.
  */
-function sampleSurfaceM(scene, cells) {
+function sampleSurfaceM(viewer, cells) {
   let heightM = Number.NaN;
   let sampled = 0;
-  if (typeof scene?.sampleHeight !== 'function') return { heightM, sampled };
+  let coarse = 0;
   for (const cell of cells) {
+    let reading;
     try {
-      const height = scene.sampleHeight(
-        Cesium.Cartographic.fromDegrees(cell.lon, cell.lat, 0, probeScratch),
-      );
-      if (!Number.isFinite(height)) continue;
-      sampled += 1;
-      heightM = Number.isFinite(heightM) ? Math.max(heightM, height) : height;
+      reading = surfaceAt(viewer, cell.lat, cell.lon);
     } catch {
-      /* tiles not ready for this cell */
+      continue; // tiles not ready for this cell
     }
+    if (reading.via && !reading.trusted) coarse += 1;
+    const height = reading.heightM;
+    if (!Number.isFinite(height)) continue;
+    sampled += 1;
+    heightM = Number.isFinite(heightM) ? Math.max(heightM, height) : height;
   }
-  return { heightM, sampled };
+  return { heightM, sampled, coarse };
 }
 
 /**
@@ -89,6 +98,7 @@ export function guardCameraAboveGround(viewer, at, options = {}) {
     clearanceM = MIN_EYE_CLEARANCE_M,
     attempts = GUARD_ATTEMPTS,
     intervalMs = GUARD_INTERVAL_MS,
+    refineWaitMs = GUARD_REFINE_WAIT_MS,
     isStale = () => false,
     onLift = null,
   } = options;
@@ -144,10 +154,10 @@ export function guardCameraAboveGround(viewer, at, options = {}) {
     canvas?.addEventListener?.(type, stop, { once: true, passive: true });
 
   let remaining = attempts;
+  const startedAt = Date.now();
   const attempt = () => {
     if (done) return;
     if (isStale() || viewer.isDestroyed?.()) return stop();
-    remaining -= 1;
     const camera = viewer.camera;
     const carto = camera.positionCartographic;
     // The eye must clear both the framed target and the ground beneath it.
@@ -155,10 +165,13 @@ export function guardCameraAboveGround(viewer, at, options = {}) {
       lat: Cesium.Math.toDegrees(carto.latitude),
       lon: Cesium.Math.toDegrees(carto.longitude),
     };
-    const { heightM, sampled } = sampleSurfaceM(viewer.scene, [
+    const { heightM, sampled, coarse } = sampleSurfaceM(viewer, [
       { lat: at.lat, lon: at.lon },
       below,
     ]);
+    // Only coarse tiles answered: wait for the leaves, not spending an
+    // attempt, for up to refineWaitMs.
+    if (!(coarse > 0 && Date.now() - startedAt < refineWaitMs)) remaining -= 1;
     if (sampled > 0 && Number.isFinite(heightM)) {
       const deficit = groundClearanceDeficitM(
         carto.height,
@@ -187,7 +200,8 @@ export function guardCameraAboveGround(viewer, at, options = {}) {
           /* observer only */
         }
       }
-      // Both samples answered: the surface is measured, nothing left to wait for.
+      // Both samples answered (from fine tiles): the surface is measured,
+      // nothing left to wait for.
       if (sampled === 2 || deficit > 0) return stop();
     }
     if (remaining <= 0) return stop();
