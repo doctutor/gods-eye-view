@@ -12,6 +12,9 @@ const MATERIAL_LABELS = Object.freeze({
   terrain: msg('terrain'),
   water: msg('water'),
   building: msg('building'),
+  grass: msg('grass'),
+  forest: msg('forest'),
+  road: msg('road'),
 });
 
 /** Degree decimals for a block's centre: the fewest that resolve half a block. */

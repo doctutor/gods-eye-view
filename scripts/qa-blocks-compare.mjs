@@ -261,7 +261,7 @@ function buildingRing({ north, east, width, depth }) {
 
 /**
  * The answer to an Overpass query from the Blocks buildings source
- * (structures.js buildingsQuery): the synthetic buildings in the query's
+ * (structures.js groupQuery): the synthetic buildings in the query's
  * box, as `out geom` ways.
  */
 export function overpassAnswer(query) {

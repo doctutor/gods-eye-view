@@ -7358,6 +7358,23 @@ Spectator, so older links read the same) and opens in the mode
   are taken in the capture phase, outside form fields, so the app's own
   shortcuts (D cycles detection) wait. No Ctrl anywhere: Ctrl+W closes the
   browser tab, and a page cannot stop it.
+- **In and out** (`src/navigation/entry.js`). In Spectator, G (or the
+  Here button beside Move) walks onto the targeted block, the one under
+  the pointer: the walker stands on top of the solid run it belongs to (a
+  wall's face puts it on the wall), at the column's centre, facing the
+  camera's heading with its pitch kept; Shift+G or Shift-click flies
+  there. With nothing targeted it stands on the surface under the view's
+  centre. Leaving Walk or Fly for Spectator flies the camera in 1.2 s to
+  a view 60 m behind and 60 m above the walker, looking down at where it
+  stood (about 46°). Entering a mode shows the keys over the crosshair for
+  4 s ("WASD move · Space jump · Shift sprint · Esc release"; Fly: "Space/
+  Shift up/down"), and the MODE line's tooltip lists them. Each goes
+  through the mode store, so the link's `nav=` follows. Checked in Chromium
+  on a 1 m Blocks world with a building: G on the pointer's wall block
+  stood the walker on the roof (feet 36.000 m, at the column's centre,
+  heading 20° and pitch −35° kept); leaving lifted the camera to 60.0 m
+  back, 0.0001 m aside and 60.0 m up at −45.76°; with nothing targeted the
+  eye landed 1.65 m over the surface at the view's centre.
 - **The targeted block** (Minecraft's F3, lessons 10–11;
   `src/navigation/targeting.js`, `target.js`, `src/hud/blockTarget.js`).
   While Blocks is drawn, in any mode, the HUD's pose block shows a BLOCK

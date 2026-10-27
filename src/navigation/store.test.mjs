@@ -159,3 +159,24 @@ test('a double-tap of forward within 300 ms sprints; a slow second press does no
   assert.equal(tap.press(1000), false, 'too slow');
   assert.equal(tap.press(1290), true);
 });
+
+test('Walk here: the entry request reaches the binding; the Here button asks for it in Spectator only', () => {
+  const store = createNavigationStore({ initial: 'spectator' });
+  const asked = [];
+  assert.equal(store.requestEntry('walk'), false, 'nobody listening');
+  const off = store.onEntry((mode) => asked.push(mode));
+  assert.equal(store.requestEntry('walk'), true);
+  assert.equal(store.requestEntry('spectator'), false);
+  const doc = fakeDocument();
+  const control = createNavigationHeadingControl(doc, store);
+  const [, here] = control.element.children;
+  assert.equal(here.tag, 'button');
+  assert.equal(here.hidden, false);
+  here.fire('click', {});
+  here.fire('click', { shiftKey: true });
+  assert.deepEqual(asked, ['walk', 'walk', 'fly']);
+  store.set('walk');
+  assert.equal(here.hidden, true, 'only in Spectator');
+  off();
+  control.destroy();
+});

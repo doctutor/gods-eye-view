@@ -626,6 +626,24 @@ export class IntelHUD {
     const detailEl = document.getElementById('hud-nav-detail');
     if (nameEl) nameEl.textContent = name;
     if (detailEl) detailEl.textContent = detail;
+    const row = document.getElementById('hud-nav');
+    if (row) row.title = this._navigationKeys();
+  }
+
+  /** Personal fork: the MODE line's tooltip, the mode's keys. */
+  _navigationKeys() {
+    const mode = this._navigation?.mode;
+    if (mode === 'walk')
+      return t(
+        'Walk: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space jumps, Shift or W twice sprints',
+      );
+    if (mode === 'fly')
+      return t(
+        'Fly: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space up, Shift down, W twice doubles the speed',
+      );
+    return t(
+      'Spectator: the usual camera. G walks onto the block under the pointer (or the ground at the centre), Shift+G flies there',
+    );
   }
 
   /** Personal fork: MODE WALK · Blocks 1 m (or the surface's name). */
