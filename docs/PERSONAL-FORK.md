@@ -6182,7 +6182,17 @@ Other `/api/` routes answer 404 and other hosts are refused, the terrain's
 too, so the globe there is flat ground and the shots show the flat case
 (offset 0). The script
 prints each shot's status line, how many values and tiles it answered, and
-any page error.
+any page error, and writes `report.json` beside the PNGs (the status lines,
+requests by kind, the fresh ring's time).
+
+With `--live http://localhost:4173` the harness takes real data from an app
+server that is already running (it never starts one, and stops with a
+message when none answers): `/api/raster/values`, `/api/overpass` and the
+Earth Engine catalog and tiles go to it, so both shots of a pair show the
+same real ground; the build and every other route stay intercepted. The
+eye-level view stands on the live ground under the camera (one values
+probe), and the report adds each live route's answers by status, time and
+bytes.
 
 **Tests.** `src/layers/blocks/controller.test.mjs`, on a fake grid,
 source, renderer and camera: the ring's order, the budget, re-meshing on a

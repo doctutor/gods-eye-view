@@ -25,14 +25,32 @@
  * --build runs `vite build` into <out>/dist. --out must be outside the
  * repository (the PNGs are not committed). PUPPETEER_EXECUTABLE_PATH or
  * --chrome picks the browser.
+ *
+ *   ... --live http://localhost:4173   # real data from a running app server
+ *
+ * --live sends /api/raster/values, /api/overpass and the Earth Engine
+ * routes (the Colour shots' catalog and tiles, so the pair compares the
+ * same ground) to an app server that is already running; it never starts
+ * one, and says so and stops when none answers. The build and every other
+ * route stay intercepted. The eye-level view stands on the live ground
+ * under the camera (one values probe from here). Every run also writes
+ * report.json: each shot's status line, requests by kind, the server's
+ * answers by status and the fresh ring's time.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import {
   M_PER_DEG,
+  decodeRasterValues,
   encodeRasterValues,
   parseRasterValuesQuery,
   valueRange,
@@ -496,10 +514,130 @@ function staticFile(dist, pathname) {
   return null;
 }
 
+/** The routes --live sends to the running server. */
+export const LIVE_ROUTES = Object.freeze([
+  '/api/raster/values',
+  '/api/overpass',
+  '/api/earth-engine/',
+]);
+export const isLiveRoute = (pathname) =>
+  LIVE_ROUTES.some((route) =>
+    route.endsWith('/') ? pathname.startsWith(route) : pathname === route,
+  );
+
+/** Pass an intercepted request to the live server and answer with its reply. */
+async function proxy(request, url, live, log) {
+  const started = Date.now();
+  const route = url.pathname.startsWith('/api/earth-engine/')
+    ? '/api/earth-engine/'
+    : url.pathname;
+  try {
+    const headers = {};
+    const type = request.headers()['content-type'];
+    if (type) headers['content-type'] = type;
+    const answer = await fetch(`${live}${url.pathname}${url.search}`, {
+      method: request.method(),
+      headers,
+      body: request.method() === 'GET' ? undefined : request.postData(),
+    });
+    const body = Buffer.from(await answer.arrayBuffer());
+    const stat = (log.live[route] ||= {
+      count: 0,
+      ms: 0,
+      bytes: 0,
+      status: {},
+    });
+    stat.count++;
+    stat.ms += Date.now() - started;
+    stat.bytes += body.length;
+    stat.status[answer.status] = (stat.status[answer.status] || 0) + 1;
+    return request.respond({
+      status: answer.status,
+      contentType:
+        answer.headers.get('content-type') || 'application/octet-stream',
+      body,
+    });
+  } catch (error) {
+    log.errors.push(`live ${url.pathname}: ${error?.message || error}`);
+    return request.respond({
+      status: 502,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'The live server did not answer' }),
+    });
+  }
+}
+
+/** Whether an app server answers at `origin` (its Earth Engine catalog). */
+export async function liveServerUp(origin, fetchImpl = fetch) {
+  try {
+    const answer = await fetchImpl(`${origin}/api/earth-engine/layers`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    return answer.status < 500;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The eye-level view over live ground: the height under the camera from
+ * the running server's values (a 4 m probe), the camera 1.7 m above the
+ * top of the block holding it (1 m blocks, sea level on the ellipsoid, as
+ * the flat ground of the harness draws it).
+ */
+export async function liveEyeView(origin, fetchImpl = fetch) {
+  const d = 2 / M_PER_DEG;
+  const dLon = d / Math.cos((VIEW.lat * Math.PI) / 180);
+  const query = new URLSearchParams({
+    layer: 'ee-elevation',
+    mode: '',
+    west: String(VIEW.lon - dLon),
+    south: String(VIEW.lat - d),
+    east: String(VIEW.lon + dLon),
+    north: String(VIEW.lat + d),
+    cells: '2',
+  });
+  const answer = await fetchImpl(`${origin}/api/raster/values?${query}`);
+  if (!answer.ok) throw new Error(`live values ${answer.status}`);
+  const { values } = decodeRasterValues(await answer.arrayBuffer());
+  const finite = [...values].filter(Number.isFinite);
+  if (!finite.length) throw new Error('no ground under the camera');
+  const ground = Math.max(...finite);
+  const top = Math.floor(ground) + 1;
+  return {
+    ...VIEW,
+    alt: Math.round((top + EYE_HEIGHT_M) * 10) / 10,
+    pitch: -5,
+  };
+}
+
+/**
+ * Count a request the shots make of the data routes: raster values by kind
+ * (the cells asked and the ground they cover: a probe, a fine group at
+ * 1 m, a coarse supergroup at 4 m), Overpass queries, colour tiles.
+ */
+function countRequest(url, log) {
+  if (url.pathname === '/api/raster/values') {
+    log.values++;
+    const query = parseRasterValuesQuery(url.searchParams);
+    if (!query.ok) return;
+    const { box } = query;
+    const lat = ((box.south + box.north) / 2) * (Math.PI / 180);
+    const spanM = (box.east - box.west) * M_PER_DEG * Math.cos(lat);
+    const kind = `${query.cells} cells over ${Math.round(spanM)} m`;
+    log.kinds[kind] = (log.kinds[kind] || 0) + 1;
+  } else if (url.pathname === '/api/overpass') log.overpass++;
+  else if (url.pathname.startsWith('/api/earth-engine/tile/')) log.tiles++;
+}
+
 /** Answer one intercepted request. */
-function respond(request, { dist, field, log }) {
+function respond(request, { dist, field, log, live }) {
   const url = new URL(request.url());
   if (url.origin !== ORIGIN) return request.abort('blockedbyclient');
+  if (live && isLiveRoute(url.pathname)) {
+    countRequest(url, log);
+    return proxy(request, url, live, log);
+  }
   const json = (status, body) =>
     request.respond({
       status,
@@ -511,14 +649,7 @@ function respond(request, { dist, field, log }) {
     if (!query.ok) return json(query.status, { error: query.error });
     if (query.layer !== 'ee-elevation')
       return json(404, { error: 'Unknown layer' });
-    log.values++;
-    // By kind: the cells asked and the ground they cover (a probe, a
-    // fine group at 1 m, a coarse supergroup at 4 m).
-    const { box } = query;
-    const lat = ((box.south + box.north) / 2) * (Math.PI / 180);
-    const spanM = (box.east - box.west) * M_PER_DEG * Math.cos(lat);
-    const kind = `${query.cells} cells over ${Math.round(spanM)} m`;
-    log.kinds[kind] = (log.kinds[kind] || 0) + 1;
+    countRequest(url, log);
     return request.respond({
       status: 200,
       contentType: 'application/octet-stream',
@@ -531,7 +662,7 @@ function respond(request, { dist, field, log }) {
     // The buildings source's queries (POST data=…): the synthetic town.
     const body = new URLSearchParams(request.postData() || '');
     const answer = overpassAnswer(body.get('data') || '');
-    log.overpass++;
+    countRequest(url, log);
     log.buildings += answer.elements.length;
     return json(200, answer);
   }
@@ -540,7 +671,7 @@ function respond(request, { dist, field, log }) {
       url.pathname,
     );
   if (tile) {
-    log.tiles++;
+    countRequest(url, log);
     return request.respond({
       status: 200,
       contentType: 'image/png',
@@ -571,7 +702,16 @@ function argValue(argv, name, fallback = null) {
   return at >= 0 ? argv[at + 1] : fallback;
 }
 
-async function shoot({ browser, dist, field, out, blocks, view, suffix }) {
+async function shoot({
+  browser,
+  dist,
+  field,
+  out,
+  blocks,
+  view,
+  suffix,
+  live = null,
+}) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   const log = {
@@ -580,6 +720,7 @@ async function shoot({ browser, dist, field, out, blocks, view, suffix }) {
     buildings: 0,
     overpass: 0,
     kinds: {},
+    live: {},
     missing: new Set(),
     errors: [],
   };
@@ -589,8 +730,8 @@ async function shoot({ browser, dist, field, out, blocks, view, suffix }) {
   await page.setViewport({ width: WIDTH, height: HEIGHT });
   await page.setRequestInterception(true);
   page.on('request', (request) => {
-    Promise.resolve(respond(request, { dist, field, log })).catch((error) =>
-      log.errors.push(`respond: ${error?.message || error}`),
+    Promise.resolve(respond(request, { dist, field, log, live })).catch(
+      (error) => log.errors.push(`respond: ${error?.message || error}`),
     );
   });
   const name = `${blocks ? 'blocks' : 'colour'}${suffix}`;
@@ -725,6 +866,12 @@ export async function main(argv = process.argv.slice(2)) {
   }
   if (!dist || !existsSync(path.join(dist, 'index.html')))
     throw new Error('--dist <a vite build with index.html>, or --build');
+  // Real data from a running app server: never started here.
+  const live = argValue(argv, '--live')?.replace(/\/+$/, '') || null;
+  if (live && !(await liveServerUp(live)))
+    throw new Error(
+      `--live: no app server answers at ${live} (this script never starts one; start it and run again)`,
+    );
   const { default: puppeteer } = await import('puppeteer');
   const browser = await puppeteer.launch({
     headless: true,
@@ -742,8 +889,9 @@ export async function main(argv = process.argv.slice(2)) {
   });
   const field = syntheticField();
   const results = [];
+  const shots = views(field);
   try {
-    const shots = views(field);
+    if (live) shots.eye.view = await liveEyeView(live);
     const wanted = String(argValue(argv, '--views', 'judgement,eye'))
       .split(',')
       .map((name) => name.trim())
@@ -753,7 +901,7 @@ export async function main(argv = process.argv.slice(2)) {
       if (!shot) throw new Error(`unknown view ${name} (judgement, eye)`);
       for (const blocks of [false, true])
         results.push(
-          await shoot({ browser, dist, field, out, blocks, ...shot }),
+          await shoot({ browser, dist, field, out, blocks, live, ...shot }),
         );
     }
   } finally {
@@ -773,8 +921,38 @@ export async function main(argv = process.argv.slice(2)) {
       console.log(`  scene: ${JSON.stringify(seen)}`);
     if (result.missing.length)
       console.log(`  404s: ${result.missing.join(', ')}`);
+    for (const [route, stat] of Object.entries(result.live))
+      console.log(
+        `  live ${route}: ${stat.count} answers ${JSON.stringify(stat.status)}, ${Math.round(stat.ms / Math.max(1, stat.count))} ms each, ${(stat.bytes / 1e6).toFixed(1)} MB`,
+      );
     for (const error of result.errors) console.log(`  page error: ${error}`);
   }
+  // The run's numbers beside the PNGs.
+  const report = {
+    at: new Date().toISOString(),
+    live,
+    views: Object.fromEntries(
+      Object.entries(shots).map(([name, shot]) => [name, shot.view]),
+    ),
+    shots: results.map((result) => ({
+      name: result.name,
+      file: result.file,
+      status: result.status,
+      ringMs: result.ringMs ?? null,
+      values: result.values,
+      valuesByKind: result.kinds,
+      overpass: result.overpass,
+      colourTiles: result.tiles,
+      live: result.live,
+      scene: result.scene,
+      errors: result.errors,
+    })),
+  };
+  writeFileSync(
+    path.join(out, 'report.json'),
+    `${JSON.stringify(report, null, 2)}\n`,
+  );
+  console.log(`report: ${path.join(out, 'report.json')}`);
   return results;
 }
 
