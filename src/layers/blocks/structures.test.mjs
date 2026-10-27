@@ -542,7 +542,14 @@ test('createStructuresSource: one query and the group ground per group; failures
   const queries = [];
   const chunkAsks = [];
   let fail = 1;
-  const building = squareAt(region, { building: 'yes', height: '12' }, 70, 10, 80, 20); // chunk (1, 0)
+  const building = squareAt(
+    region,
+    { building: 'yes', height: '12' },
+    70,
+    10,
+    80,
+    20,
+  ); // chunk (1, 0)
   const query = async (ql) => {
     queries.push(ql);
     if (fail-- > 0) throw new Error('Overpass 504');
@@ -1082,4 +1089,62 @@ test('the mesher colours grass, forest and road tops by their materials', () => 
   assert.ok(
     MATERIAL_COLORS[MATERIALS.FOREST][1] < MATERIAL_COLORS[MATERIALS.GRASS][1],
   );
+});
+
+test('buildings by supergroup: one query for its 16 groups at fine block sizes, each group keeping the features in its box; per group otherwise', async () => {
+  const { supergroupBounds } = await import('./source.js');
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  const queries = [];
+  // One building in group (0, 0), one across groups (0, 0) and (1, 0), one in group (3, 3).
+  const buildings = [
+    { id: 1, foot: squareAt(region, { height: '12' }, 70, 10, 80, 20) },
+    { id: 2, foot: squareAt(region, { height: '6' }, 250, 40, 262, 50) },
+    { id: 3, foot: squareAt(region, { height: '9' }, 800, 800, 810, 810) },
+  ];
+  const query = async (ql) => {
+    queries.push(ql);
+    return {
+      elements: buildings.map(({ id, foot }) => ({
+        type: 'way',
+        id,
+        tags: { building: 'yes', ...foot.tags },
+        geometry: [...foot.rings[0], foot.rings[0][0]],
+      })),
+    };
+  };
+  const loadChunk = async (r, ci, cj) =>
+    createChunk({ ci, cj, top: new Int32Array(COLUMNS).fill(3) });
+  const source = createStructuresSource({ query, loadChunk });
+  const via = { viaSupergroup: true };
+  const [a, b] = await Promise.all([
+    source.loadChunkStructures(region, 1, 0, via),
+    source.loadChunkStructures(region, 4, 0, via),
+  ]);
+  // Groups (0, 0) and (1, 0): one query, over the supergroup's box.
+  assert.equal(queries.length, 1);
+  assert.equal(queries[0], groupQuery(supergroupBounds(region, 0, 0), 1));
+  assert.equal(a.top[columnIndex(6, 10)], 15);
+  assert.ok(b, 'the building across the border reaches group (1, 0)');
+  // Each group's ids: only the buildings in its box.
+  assert.deepEqual(await source.loadGroupBuildings(region, 0, 0, via), [
+    'way/1',
+    'way/2',
+  ]);
+  assert.deepEqual(await source.loadGroupBuildings(region, 1, 0, via), [
+    'way/2',
+  ]);
+  assert.deepEqual(await source.loadGroupBuildings(region, 3, 3, via), [
+    'way/3',
+  ]);
+  assert.equal(queries.length, 1, 'still one query for the supergroup');
+  // Another supergroup asks again; without the option, per group.
+  await source.loadChunkStructures(region, 16, 0, via);
+  assert.equal(queries.length, 2);
+  const plain = createStructuresSource({ query, loadChunk });
+  await plain.loadChunkStructures(region, 1, 0);
+  assert.equal(queries.at(-1), groupQuery(groupBounds(region, 0, 0), 1));
+  // 10 m blocks: a supergroup's answer would be too big; per group.
+  const coarse = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 10 });
+  await source.loadChunkStructures(coarse, 1, 0, via);
+  assert.equal(queries.at(-1), groupQuery(groupBounds(coarse, 0, 0), 10));
 });

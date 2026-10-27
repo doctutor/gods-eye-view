@@ -8,7 +8,7 @@ import {
   createStructuresSource,
 } from '../layers/blocks/structures.js';
 import { createChunk } from '../layers/blocks/store.js';
-import { createChunkSource } from '../layers/blocks/source.js';
+import { SUPERGROUP, createChunkSource } from '../layers/blocks/source.js';
 import { blocksSun, createBlocksRenderer } from '../layers/blocks/renderer.js';
 import { createRasterValuesClient } from '../data/rasterValues.js';
 import { governorRequestRender } from '../renderGovernor.js';
@@ -53,14 +53,17 @@ export function createApplicationBlocks({
     renderer: lazyRenderer(() => createBlocksRenderer({ viewer })),
     grid,
     buildChunkMesh,
+    // Coarse chunks come a supergroup at a time (source.js).
+    supergroupGroups: SUPERGROUP,
     // Meshed off the main thread by the worker pool.
     meshAsync: meshChunkAsync,
     // Buildings on the fine ring, where Overpass answers.
     structures: {
+      // One Overpass query per supergroup (4 × 4 groups), not per group.
       loadChunk: (region, ci, cj) =>
-        buildings.loadChunkStructures(region, ci, cj),
+        buildings.loadChunkStructures(region, ci, cj, { viaSupergroup: true }),
       groupBuildings: (region, gi, gj) =>
-        buildings.loadGroupBuildings(region, gi, gj),
+        buildings.loadGroupBuildings(region, gi, gj, { viaSupergroup: true }),
       apply: applyStructures,
     },
     // The real sun when it is above 15°, else the study sun.
