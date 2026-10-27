@@ -69,6 +69,7 @@ unless its switch is set to `0`.
 - [H3 hexes (resolution by perspective)](#h3-hexes-resolution-by-perspective)
 - [Point rollups: camera counts per hex](#point-rollups-camera-counts-per-hex)
 - [HUD: the camera readout](#hud-the-camera-readout)
+- [Walk and Fly (embodied navigation)](#walk-and-fly-embodied-navigation)
 - [Smaller additions](#smaller-additions)
 - [Tests: budgets and flakes](#tests-budgets-and-flakes)
 - [Keeping up with upstream](#keeping-up-with-upstream)
@@ -7240,6 +7241,66 @@ The minimal and cyber layouts keep their rules; the removed elements'
 selectors match nothing. This is step one toward an eye-level mode (1.7 m
 above the surface at a screen-matched field of view): `editedView`'s AGL
 and FOV and `applyCameraView` are what that mode would call.
+
+## Walk and Fly (embodied navigation)
+
+Milestone 2 of `docs/BLOCKS-PLAN.md`. The ANALYSIS heading's **Move**
+drop-down, beside Render, picks Spectator (GEV's own camera, the default),
+Walk or Fly; a link carries `nav=walk` or `nav=fly` (nothing for
+Spectator, so older links read the same) and opens in the mode
+(`src/navigation/store.js`). Spectator changes nothing.
+
+- **Walk.** The eye 1.62 m above the feet, gravity (32 m/s², so a jump
+  rises 1.25 m in Minecraft's 0.6 s), walk 4.3 m/s, sprint 5.6 (Shift, or
+  W twice within 300 ms, held), Space jumps, a step up climbed without jumping (one block under
+  Blocks, 0.6 m elsewhere), drops of 0.3 m or less followed rather than
+  fallen, swimming in water (2.2 m/s across, Space up at 2 m/s, sinking at
+  1 m/s). A walker more than 50 m above a known surface is put down on it.
+- **Fly.** No gravity, 10.8 m/s (W twice doubles it), Space up and Shift down
+  at 7.5 m/s; the ground and blocks still stop it.
+- **Looking.** WASD (or the arrows) and the mouse under Pointer Lock: a
+  click on the globe captures the pointer, Esc releases it. Yaw and pitch
+  only; roll is held at 0. The field of view is 70° from top to bottom,
+  Cesium's horizontal `fov` for the canvas's shape (96° at 16:10), and the
+  previous one comes back on leaving. A crosshair marks the centre, and the
+  looked-at block is outlined (its 12 edges; a ray through `occupancy` to
+  the first solid block within 64 blocks), or off the Blocks a small ring
+  where the centre's depth pick lands. The HUD's MODE line names the mode
+  and what it stands on ("MODE WALK · Blocks 1 m", "· Google", "· no
+  surface: hovering", and "· click to look" until the pointer is captured).
+- **The world.** Under Blocks, the chunk store's occupancy in the Blocks
+  region's frame (heights above mean sea level; a block's top drawn at its
+  height plus the region's geoid undulation plus its chunk's drop below the
+  tangent plane, as the renderer places it). The Blocks controller
+  provides it through `provideBlocksWorld(() => ({region, chunkAt,
+  geoidM}))` (`src/navigation/blocksSource.js`). Elsewhere, the trusted
+  surface (`src/surfaceTrust.js`: a ray from 9 km, coarse tiles refused)
+  sampled per 0.5 m cell for a second, in a local frame anchored at the
+  camera (again when it is 2 km out): buildings and trees are walls a
+  walker steps up only as far as a kerb. Nothing known under the body: it
+  hovers, never falls through the world.
+- **The binding** (`src/navigation/binding.js`). While a mode is on,
+  `ScreenSpaceCameraController.enableInputs` and
+  `enableCollisionDetection` are off (the model collides; Cesium's own
+  collision lifted a walker off the blocks onto the Google tiles above
+  them), both restored on leaving. The camera is driven in `scene.preUpdate`
+  with the time step clamped to 0.1 s (`applyCameraView`); a flight in
+  progress (a search, a link) owns the camera until it lands, and a camera
+  moved by anything else is taken as the walker's new place. Movement keys
+  are taken in the capture phase, outside form fields, so the app's own
+  shortcuts (D cycles detection) wait. No Ctrl anywhere: Ctrl+W closes the
+  browser tab, and a page cannot stop it.
+- **The model** (`src/navigation/movement.js`, `worlds.js`) is pure:
+  state, keys and a time step give the next state, with the body a column
+  1.8 m tall, sliding along walls, a ceiling stopping a jump, and the
+  vertical step exact under constant acceleration (a jump peaks at 1.25 m
+  at any frame rate).
+
+Checked in Chromium on a synthetic flat tileset at Baltimore: Walk held
+the eye 1.620 m (±0.000001) above the tiles over 116 frames of W for 2 s,
+8.60 m covered; Fly rose 7.6 m in a second; a Blocks world put the eye
+1.62 m over the block tops; leaving restored inputs, collision and the
+field of view.
 
 ## Smaller additions
 

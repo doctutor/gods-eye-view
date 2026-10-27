@@ -186,6 +186,16 @@ const SURFACE_NEAR_M = 25;
  */
 const CENTRE_REUSE_MS = 1000;
 
+/**
+ * Personal fork: the MODE line's names for the navigation modes
+ * (src/navigation/binding.js), and what the walker stands on.
+ */
+const NAV_MODE_NAMES = Object.freeze({
+  spectator: msg('SPECTATOR'),
+  walk: msg('WALK'),
+  fly: msg('FLY'),
+});
+
 /** Flattened list of all city POIs for nearest-point lookups. */
 const NEARBY_POINTS = Object.values(CITY_POIS).flatMap((city) =>
   city.pois.map((poi) => ({
@@ -363,6 +373,7 @@ export class IntelHUD {
       <div class="hud-corner hud-bottom-right">
         <div class="hud-content hud-cam" id="hud-pose" style="text-align:right">
           ${cameraFieldsHtml('pose')}
+          <div id="hud-nav" class="hud-nav-mode"><span class="hud-cam-label">${t('MODE')}</span> <span id="hud-nav-name">${t(NAV_MODE_NAMES.spectator)}</span><span id="hud-nav-detail" class="hud-nav-detail"></span></div>
           <div id="hud-ais-vessel" class="hud-ais-vessel">${t('AIS: --')}</div>
         </div>
         <div class="hud-bracket">┘</div>
@@ -582,6 +593,47 @@ export class IntelHUD {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Personal fork: the navigation mode (src/navigation/binding.js), for
+   * the MODE line: {mode, surface: 'blocks'|'surface'|'none', blockM,
+   * locked}.
+   */
+  setNavigationStatus(status = {}) {
+    this._navigation = status;
+    const { name, detail } = this._navigationText();
+    const nameEl = document.getElementById('hud-nav-name');
+    const detailEl = document.getElementById('hud-nav-detail');
+    if (nameEl) nameEl.textContent = name;
+    if (detailEl) detailEl.textContent = detail;
+  }
+
+  /** Personal fork: MODE WALK · Blocks 1 m (or the surface's name). */
+  _navigationText() {
+    const status = this._navigation || {};
+    const mode = NAV_MODE_NAMES[status.mode] ? status.mode : 'spectator';
+    const parts = [];
+    if (mode !== 'spectator') {
+      if (status.surface === 'blocks')
+        parts.push(
+          t('Blocks {size} m', { size: formatNumber(status.blockM ?? 1) }),
+        );
+      else if (status.surface === 'surface') {
+        let floor;
+        try {
+          floor = dataFloor(this._surfaceSource() || {});
+        } catch {
+          floor = dataFloor();
+        }
+        parts.push(floor.name);
+      } else parts.push(t('no surface: hovering'));
+      if (!status.locked) parts.push(t('click to look'));
+    }
+    return {
+      name: t(NAV_MODE_NAMES[mode]),
+      detail: parts.length ? ` · ${parts.join(' · ')}` : '',
+    };
   }
 
   /** Personal fork: the number an edit box opens with: the one shown. */

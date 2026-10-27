@@ -155,7 +155,8 @@ test('a water column: a translucent surface over the bed, drawn after the opaque
   for (const side of ['north', 'south', 'east', 'west'])
     assert.equal(mesh.stats[side], 3, side);
   assert.equal(mesh.faces, N * N + 12 + 1);
-  assert.equal(mesh.opaqueIndexCount, (mesh.faces - 1) * 6);
+  // The water surface's two triangles come last.
+  assert.equal(mesh.indices.length - mesh.opaqueIndexCount, 6);
   const water = quadsOf(mesh).at(-1);
   assert.ok(
     water.corners.every((c) => c.p[2] === 6 * 2),
@@ -169,8 +170,8 @@ test('a water column: a translucent surface over the bed, drawn after the opaque
   assert.ok(water.corners.every((c) => c.color[3] < 255));
   assert.deepEqual(water.normal, [0, 0, 1]);
   // Every opaque vertex is opaque.
-  for (let k = 3; k < (mesh.opaqueIndexCount / 6) * 16; k += 4)
-    assert.equal(mesh.colors[k], 255);
+  for (let k = 0; k < mesh.opaqueIndexCount; k += 1)
+    assert.equal(mesh.colors[mesh.indices[k] * 4 + 3], 255);
   // Sea at level 0 over a bed at -3: one surface per column, merged to one.
   const sea = chunkAt(-3, {
     waters: Array.from({ length: N * N }, (_, k) => [
@@ -323,4 +324,179 @@ test('a column without data opens down to the lowest ground around it, not forev
     4 * 4 + 4 * 3,
   );
   assert.equal(mesh.stats.up, N * N - 1);
+});
+
+/**
+ * A round hill in 10 m terraces over nine chunks (the manager's field
+ * report, 2026-10-27: dark slivers at step corners, 10 m blocks, alt 300,
+ * pitch -30), a chunk's tops by a function of region columns.
+ */
+function terracedHill(ci, cj) {
+  const top = new Int32Array(N * N);
+  for (let j = 0; j < N; j += 1)
+    for (let i = 0; i < N; i += 1) {
+      const x = ci * N + i - 40;
+      const y = cj * N + j - 30;
+      top[columnIndex(i, j)] = Math.floor(
+        Math.max(0, 120 - Math.hypot(x, y) * 4) / 10,
+      );
+    }
+  return createChunk({ ci, cj, top });
+}
+
+test('mesh validator: on a terraced hill, no zero-area or inward triangle, no overlap, every riser spans its step', () => {
+  const chunk = terracedHill(0, 0);
+  const neighbours = {};
+  for (const [key, dx, dy] of [
+    ['n', 0, 1],
+    ['s', 0, -1],
+    ['e', 1, 0],
+    ['w', -1, 0],
+    ['ne', 1, 1],
+    ['nw', -1, 1],
+    ['se', 1, -1],
+    ['sw', -1, -1],
+  ])
+    neighbours[key] = terracedHill(dx, dy);
+  const topAt = (i, j) => {
+    const dx = Math.floor(i / N);
+    const dy = Math.floor(j / N);
+    const owner = dx === 0 && dy === 0 ? chunk : terracedHill(dx, dy);
+    return owner.top[columnIndex(i - dx * N, j - dy * N)];
+  };
+  // What must be covered: every top, and each side from the lower
+  // neighbour's top to this column's.
+  const expected = new Set();
+  const sides = [
+    ['east', 1, 0],
+    ['west', -1, 0],
+    ['north', 0, 1],
+    ['south', 0, -1],
+  ];
+  for (let j = 0; j < N; j += 1)
+    for (let i = 0; i < N; i += 1) {
+      const top = topAt(i, j);
+      expected.add(`up|${i}|${j}|${top}`);
+      for (const [name, dx, dy] of sides)
+        for (let y = topAt(i + dx, j + dy) + 1; y <= top; y += 1)
+          expected.add(`${name}|${i}|${j}|${y}`);
+    }
+  const blockM = 10;
+  for (const greedy of [false, true]) {
+    const mesh = buildChunkMesh(chunk, { neighbours, blockM, greedy });
+    assertOutwardWinding(mesh);
+    const { positions: p, indices, normals } = mesh;
+    for (let t = 0; t < indices.length; t += 3) {
+      const [a, b, c] = [indices[t], indices[t + 1], indices[t + 2]];
+      const e1 = [0, 1, 2].map((k) => p[b * 3 + k] - p[a * 3 + k]);
+      const e2 = [0, 1, 2].map((k) => p[c * 3 + k] - p[a * 3 + k]);
+      const area = Math.hypot(
+        e1[1] * e2[2] - e1[2] * e2[1],
+        e1[2] * e2[0] - e1[0] * e2[2],
+        e1[0] * e2[1] - e1[1] * e2[0],
+      );
+      assert.ok(area > 1e-6, `zero-area triangle ${t / 3}`);
+    }
+    // Rasterise each quad back into block faces: each covered once, and
+    // exactly the faces expected.
+    const covered = new Set();
+    const name = {
+      '0,0,1': 'up',
+      '1,0,0': 'east',
+      '-1,0,0': 'west',
+      '0,1,0': 'north',
+      '0,-1,0': 'south',
+    };
+    for (let q = 0; q < mesh.faces; q += 1) {
+      const normal = [
+        normals[q * 12],
+        normals[q * 12 + 1],
+        normals[q * 12 + 2],
+      ];
+      const axis = normal.findIndex((v) => v !== 0);
+      const corners = [0, 1, 2, 3].map((c) =>
+        [0, 1, 2].map((k) => p[(q * 4 + c) * 3 + k] / blockM),
+      );
+      assert.equal(new Set(corners.map((c) => c[axis])).size, 1, 'planar');
+      const lo = [0, 1, 2].map((k) => Math.min(...corners.map((c) => c[k])));
+      const hi = [0, 1, 2].map((k) => Math.max(...corners.map((c) => c[k])));
+      // The block behind the face: inside along the normal.
+      const base = lo.map((v, k) =>
+        k === axis ? v - (normal[k] > 0 ? 1 : 0) : v,
+      );
+      const span = hi.map((v, k) => (k === axis ? base[k] + 1 : v));
+      for (let x = base[0]; x < span[0]; x += 1)
+        for (let y = base[1]; y < span[1]; y += 1)
+          for (let z = base[2]; z < span[2]; z += 1) {
+            const key = `${name[normal.join(',')]}|${x}|${y}|${z}`;
+            assert.ok(!covered.has(key), `overlap at ${key}`);
+            covered.add(key);
+          }
+    }
+    assert.deepEqual(
+      [...covered].filter((key) => !expected.has(key)),
+      [],
+      'no face where none belongs',
+    );
+    assert.equal(covered.size, expected.size, `greedy ${greedy}`);
+  }
+});
+
+test('a quad whose corners are shaded unalike is four triangles round a centre at the mean; an even one two', () => {
+  // The inside corner of the AO test: (10, 10)'s top has one corner at 0.5,
+  // two at 0.8 and one at 1.0.
+  const chunk = chunkAt(5, {
+    tops: [
+      [11, 10, 6],
+      [10, 11, 6],
+      [11, 11, 6],
+    ],
+  });
+  const mesh = buildChunkMesh(chunk, {
+    neighbours: flatAround(5),
+    greedy: false,
+  });
+  const quadOf = (x, y) =>
+    quadsOf(mesh).findIndex(
+      (q) =>
+        q.normal[2] === 1 &&
+        q.corners.every((c) => c.p[2] === 6) &&
+        Math.min(...q.corners.map((c) => c.p[0])) === x &&
+        Math.min(...q.corners.map((c) => c.p[1])) === y,
+    );
+  /** The triangles (as vertex triples) that use a quad's corners. */
+  const trianglesOf = (n) => {
+    const found = [];
+    for (let t = 0; t < mesh.indices.length; t += 3) {
+      const tri = [...mesh.indices.subarray(t, t + 3)];
+      if (tri.some((v) => v >= n * 4 && v < n * 4 + 4)) found.push(tri);
+    }
+    return found;
+  };
+  const corner = quadOf(10, 10);
+  const fan = trianglesOf(corner);
+  assert.equal(fan.length, 4);
+  const centre = fan[0].find((v) => v >= mesh.faces * 4);
+  assert.ok(
+    fan.every((tri) => tri.includes(centre)),
+    'one shared centre',
+  );
+  assert.deepEqual(
+    [...mesh.positions.subarray(centre * 3, centre * 3 + 3)],
+    [10.5, 10.5, 6],
+  );
+  const base = MATERIAL_COLORS[MATERIALS.TERRAIN][0];
+  const mean = (AO[3] + AO[1] + AO[1] + AO[0]) / 4;
+  assert.equal(
+    mesh.colors[centre * 4],
+    Math.round(base * FACE_SHADE.up * mean * sunTerm([0, 0, 1])),
+  );
+  // An evenly lit top far from the step: two triangles, no centre.
+  const even = trianglesOf(quadOf(40, 40));
+  assert.equal(even.length, 2);
+  assert.ok(even.flat().every((v) => v < mesh.faces * 4));
+  // The flat chunk has no centres at all.
+  const flat = buildChunkMesh(chunkAt(5), { neighbours: flatAround(5) });
+  assert.equal(flat.positions.length, flat.faces * 12);
+  assert.equal(flat.indices.length, flat.faces * 6);
 });

@@ -196,6 +196,40 @@ test('a tile load re-samples a missing surface at once: AGL resolves as the leav
   assert.equal(listeners.allTilesLoaded.size, 0);
 });
 
+test('the MODE line names the navigation mode and what it stands on', () => {
+  const s = setup();
+  try {
+    assert.deepEqual(s.hud._navigationText(), {
+      name: 'SPECTATOR',
+      detail: '',
+    });
+    s.hud.setNavigationStatus({
+      mode: 'walk',
+      surface: 'blocks',
+      blockM: 1,
+      locked: false,
+    });
+    assert.deepEqual(s.hud._navigationText(), {
+      name: 'WALK',
+      detail: ' · Blocks 1 m · click to look',
+    });
+    s.hud.setNavigationStatus({ mode: 'fly', surface: 'none', locked: true });
+    assert.deepEqual(s.hud._navigationText(), {
+      name: 'FLY',
+      detail: ' · no surface: hovering',
+    });
+    // Off the Blocks, the surface's name (the globe's terrain here).
+    s.hud.setNavigationStatus({
+      mode: 'walk',
+      surface: 'surface',
+      locked: true,
+    });
+    assert.match(s.hud._navigationText().detail, /^ · \S/);
+  } finally {
+    s.hud.destroy();
+  }
+});
+
 test('the live diagnostics handle comes and goes with the HUD', () => {
   globalThis.window = {};
   const s = setup();

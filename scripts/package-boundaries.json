@@ -820,7 +820,17 @@
       "src/ui/layerNames.js",
       "src/ui/statusText.js",
       "src/mapStackMore.js",
-      "src/maps/keylessBasemapCatalog.js"
+      "src/maps/keylessBasemapCatalog.js",
+      "src/navigation/movement.js",
+      "src/navigation/store.js",
+      "src/navigation/blocksSource.js",
+      "src/surfaceTrust.js",
+      "src/layers/blocks/grid.js",
+      "src/hud/precision.js",
+      "src/layers/blocks/store.js",
+      "src/navigation/worlds.js",
+      "src/hud/cameraState.js",
+      "src/navigation/binding.js"
     ],
     "external": ["cesium"]
   },
@@ -2735,7 +2745,13 @@
       "src/layers/pointRollup/rollup.js",
       "src/layers/pointRollup/scale.js",
       "src/layers/cctv/rollup.js",
-      "src/maps/h3Surface.js"
+      "src/maps/h3Surface.js",
+      "src/navigation/presentation.js",
+      "src/navigation/movement.js",
+      "src/navigation/store.js",
+      "src/navigation/blocksSource.js",
+      "src/navigation/worlds.js",
+      "src/navigation/binding.js"
     ],
     "external": [
       "hls.js",

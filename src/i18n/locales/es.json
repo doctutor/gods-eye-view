@@ -3916,5 +3916,15 @@
   "What one screen pixel covers at the centre of the view: 2·d·tan(FOV/2) ÷ width, d the distance to the surface there ({distance}).": "Lo que cubre un píxel de la pantalla en el centro de la vista: 2·d·tan(FOV/2) ÷ ancho, d la distancia a la superficie allí ({distance}).",
   "Estimated sun elevation above the horizon at the camera, degrees.": "Elevación estimada del sol sobre el horizonte en la cámara, en grados.",
   "{mode} {band} {locality} | {region} | ALT {alt} | WINDOW {window} | SUN {sun}° | {zone}": "{mode} · {band} · {locality} | {region} | ALT {alt} | VENTANA {window} | SOL {sun}° | {zone}",
-  "Shown to {step}: no terrain is loaded under the camera (a flat ellipsoid), so no finer.": "Al {step}: no hay relieve cargado bajo la cámara (un elipsoide plano), así que no más fino."
+  "Shown to {step}: no terrain is loaded under the camera (a flat ellipsoid), so no finer.": "Al {step}: no hay relieve cargado bajo la cámara (un elipsoide plano), así que no más fino.",
+  "Move: Spectator": "Mover: espectador",
+  "Move: Walk": "Mover: a pie",
+  "Move: Fly": "Mover: volar",
+  "Navigation mode": "Modo de navegación",
+  "Walk: on the ground, WASD and the mouse (click the globe to look, Esc releases), Space jumps, Shift or W twice sprints. Fly: Space up, Shift down, W twice doubles the speed. Spectator: the usual camera": "A pie: sobre el suelo, WASD y el ratón (clic en el globo para mirar, Esc lo suelta), Espacio salta, Mayús o W dos veces corre. Volar: Espacio sube, Mayús baja, W dos veces dobla la velocidad. Espectador: la cámara de siempre",
+  "SPECTATOR": "ESPECTADOR",
+  "MODE": "MODO",
+  "Blocks {size} m": "Bloques {size} m",
+  "no surface: hovering": "sin superficie: flotando",
+  "click to look": "clic para mirar"
 }

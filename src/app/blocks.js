@@ -9,6 +9,8 @@ import { createRasterValuesClient } from '../data/rasterValues.js';
 import { governorRequestRender } from '../renderGovernor.js';
 import { ensureGeoidReady, geoidHeight } from '../data/geoid.js';
 import { isFlatBasemap } from '../layers/lego/renderMode.js';
+// Personal fork: Walk and Fly walk on the drawn blocks (src/navigation/).
+import { provideBlocksWorld } from '../navigation/blocksSource.js';
 
 /**
  * Personal fork: Render: Blocks (docs/BLOCKS-PLAN.md), the ground around
@@ -26,7 +28,7 @@ export function createApplicationBlocks({
   mapStackController = null,
 }) {
   const values = createRasterValuesClient();
-  return createBlocksController({
+  const controller = createBlocksController({
     viewer,
     store,
     layers: {
@@ -48,6 +50,13 @@ export function createApplicationBlocks({
       isFlatBasemap(mapStackController?.getActiveStack?.()) === true,
     requestRender: governorRequestRender,
   });
+  const unprovide = provideBlocksWorld(() => controller.world());
+  const destroy = controller.destroy;
+  controller.destroy = () => {
+    unprovide();
+    destroy();
+  };
+  return controller;
 }
 
 /**

@@ -168,6 +168,21 @@ test('older links (integers, 4 decimals, no fov) still read, at 60°', () => {
   assert.equal(wide.parseInitialHash().fov, 150);
 });
 
+test('nav=walk or fly rides the link; Spectator leaves it out', async () => {
+  const { navigationStore } = await import('./navigation/store.js');
+  const { manager } = makeManager(HARBOR);
+  assert.equal(manager._buildHashParams().has('nav'), false);
+  navigationStore().set('walk');
+  try {
+    assert.equal(manager._buildHashParams().get('nav'), 'walk');
+    navigationStore().set('fly');
+    assert.equal(manager._buildHashParams().get('nav'), 'fly');
+  } finally {
+    navigationStore().set('spectator');
+  }
+  assert.equal(manager._buildHashParams().has('nav'), false);
+});
+
 test('Render: Blocks is in the link as bk=1, and only then', async () => {
   const { renderModeStore } = await import('./layers/lego/renderMode.js');
   const { manager } = makeManager(HARBOR);
