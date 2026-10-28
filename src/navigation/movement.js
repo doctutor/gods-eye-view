@@ -101,19 +101,30 @@ export function cesiumFovRad(verticalDeg, width, height) {
   return 2 * Math.atan(Math.tan(vertical / 2) * (width / height));
 }
 
+/** A stick's axis, −1…1 (0 for none). */
+const axisOf = (value) => Math.max(-1, Math.min(1, Number(value) || 0));
+
 /**
- * The horizontal unit direction the movement keys ask for, east and north,
- * in the yaw's frame; zero when none (or opposite ones) are held.
+ * The horizontal direction the movement keys (or a stick) ask for, east
+ * and north, in the yaw's frame: a unit vector for keys, shorter for a
+ * stick pushed part way (its magnitude scales the speed); zero when
+ * nothing (or opposite keys) is held. Per axis the larger of the keys' ±1
+ * and `input.analog` ({forward, right}) wins.
  */
 export function wishDirection(input, yaw) {
-  const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
-  const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  let forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
+  let strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  const stickForward = axisOf(input.analog?.forward);
+  const stickRight = axisOf(input.analog?.right);
+  if (Math.abs(stickForward) > Math.abs(forward)) forward = stickForward;
+  if (Math.abs(stickRight) > Math.abs(strafe)) strafe = stickRight;
   if (!forward && !strafe) return { x: 0, y: 0 };
   // Forward is the heading; right is the heading + 90°.
   const x = forward * Math.sin(yaw) + strafe * Math.cos(yaw);
   const y = forward * Math.cos(yaw) - strafe * Math.sin(yaw);
   const length = Math.hypot(x, y);
-  return { x: x / length, y: y / length };
+  const scale = length > 1 ? 1 / length : 1;
+  return { x: x * scale, y: y * scale };
 }
 
 /**

@@ -72,5 +72,7 @@ export const MODE_HINTS = Object.freeze({
   walk: msg(
     'WASD move · Space jump · Shift sneak · W twice sprint · Esc release',
   ),
-  fly: msg('WASD move · Space/Shift up/down · W twice faster · Esc release'),
+  fly: msg(
+    'WASD move · Space/Shift up/down · wheel speed · W twice faster · Esc release',
+  ),
 });
