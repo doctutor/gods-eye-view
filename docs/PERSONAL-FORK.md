@@ -7573,9 +7573,9 @@ Spectator, so older links read the same) and opens in the mode
   there); sprint, up, down and fly-here unbound (sprint
   is W twice). A key is refused where the app has a shortcut (1–7, H, O,
   V, F, D, C, Esc, `) unless it is that action's own default (D is right),
-  where another action has it, and always on the browser's own (Ctrl, the
-  system key, F1–F12). Everything applies at once. The card
-  (`src/navigation/controlsPanel.js`) opens from the gear beside Move, in
+where another action has it, and always on the browser's own (Ctrl, the
+system key, F1–F12). Everything applies at once. The card
+(`src/navigation/controlsPanel.js`) opens from the gear beside Move, in
   every mode, under the gear in the page's body (so the layer panel does
   not clip it): sliders for sensitivity and the field of view, fields for
   the speeds, Hold or Toggle for sneak, checkboxes for invert Y, the
@@ -7618,7 +7618,9 @@ Spectator, so older links read the same) and opens in the mode
   (its tilt the speed), the right looks (600 px/s full over, tilt² for
   fine aim), A jump or up, B sneak or down, RT/LT up/down in Fly, a stick
   click sprints until the left stick rests, Start releases, Back switches
-  Walk and Fly, the D-pad's left/right step Fly's speed. Spectator, beside
+  Walk and Fly, the D-pad's left/right step Fly's speed; A or RT still held
+  as Walk or Fly begins (A walked here) waits to be let go once before it
+  jumps or rises. Spectator, beside
   GEV's mouse and keys (nothing happens while the pad rests): the left
   stick pans level over the ground, a screen width a second at the
   camera's height above the surface; the right orbits the ground under
