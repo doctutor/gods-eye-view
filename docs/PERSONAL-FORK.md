@@ -7569,10 +7569,26 @@ Spectator, so older links read the same) and opens in the mode
   sprint and fly speeds, sneak held or toggled, the sprint widening, view
   bobbing, and the key bindings (`event.code`, one key an action once
   rebound). Minecraft's defaults: WASD and the arrows, Space, Shift, G
-  walks here, Esc releases; sprint, up, down and fly-here unbound (sprint
+  walks here, Esc releases, T cycles the view, B sets home (Shift+B goes
+  there); sprint, up, down and fly-here unbound (sprint
   is W twice). A key is refused where the app has a shortcut (1–7, H, O,
   V, F, D, C, Esc, `) unless it is that action's own default (D is right),
-  and where another action has it. Bindings apply at once.
+  where another action has it, and always on the browser's own (Ctrl, the
+  system key, F1–F12). Everything applies at once. The card
+  (`src/navigation/controlsPanel.js`) opens from the gear beside Move, in
+  every mode, under the gear in the page's body (so the layer panel does
+  not clip it): sliders for sensitivity and the field of view, fields for
+  the speeds, Hold or Toggle for sneak, checkboxes for invert Y, the
+  sprint widening and bobbing, a button an action for its key (a click
+  says "Press a key…"; Esc cancels, Backspace leaves it unbound, a refused
+  key is said and the capture keeps listening), another source's section
+  (a gamepad's rows) under its heading, and Reset to defaults.
+  Keys pressed on the card reach neither the walker nor the app's
+  shortcuts; Esc elsewhere on it closes it, as does a click outside.
+  Sneak toggled flips on each press of the sneak key in Walk (in Fly the
+  key is down, held). View bobbing dips the eye 0.05 m at each footfall,
+  Minecraft's cadence (a step every 1.67 m walked, 2.6 a second at the
+  walk), fading in and out over 0.15 s, on the ground only.
 - **Inputs** (`src/navigation/inputs.js`). The keys and the mouse are one
   input source among others: each frame every source's `read(dt)` gives
   partial intents (forward, back, left, right, jump, sneak, sprint, up,
@@ -7705,6 +7721,45 @@ building (a room carved from a structure) a jump's head peaked at 33.99 m
 under a 34 m ceiling; Fly stopped at a building's wall and rested on its
 roof; the outline sat on the wall block under the crosshair (12 edges, its
 corners exact), a building block.
+
+### Third person, the compass, home and waypoints
+
+In Walk and Fly (Spectator keeps GEV's own keys and camera):
+
+- **T** cycles the view: first person, **behind** the walker, **in front**
+  of it looking back (Minecraft's F5, which a browser keeps for reloading).
+  The camera stands 4 m from the eye along the look direction and is
+  pulled in to just short of a block or the surface between them
+  (`src/navigation/view.js`: the Blocks occupancy's raycast, else the
+  trusted surface walked in 0.25 m steps; never nearer than 0.3 m). The
+  walker still moves and looks; the camera only watches. An orange
+  0.6 × 1.8 m box stands where the walker stands, turned to its heading
+  (`playerMarker.js`, one primitive moved by its model matrix). The choice
+  is kept in this browser (`gev.nav.view`); the HUD's MODE line says
+  "· 3rd" (or "· 3rd, front"). The view button beside Move does the same.
+- **The compass**: a small rose in the HUD's pose block while a mode is
+  on, turning with the walker's heading, N in red, the straight-ahead mark
+  at the top; with a home set, an orange tick on the rim points to it
+  (the great-circle bearing less the heading).
+- **Home**: **B** (or **Set home** beside Move) keeps where the walker
+  stands, its longitude, latitude, eye height, the block level underfoot
+  and its heading; **Shift+B** (or **Home**) goes back there, walking in
+  from Spectator, keeping Walk or Fly otherwise. Going uses the navigation
+  store's entry with a pose (`store.requestEntry(mode, pose)`), the path G
+  uses for "Walk here".
+- **Places**: a list of waypoints under the same card: a name and **Add
+  here** keep where the walker stands (up to 50, the oldest go), a click on
+  one goes there, ✕ deletes it. Each row says where: "39.32140, −76.62920 ·
+  level 36".
+
+T and B are the Controls' `view` and `home` bindings (`settings.js`):
+`attachWayfindingKeys` reads them at each key, so a key rebound on the
+card applies at once, and an unbound one does nothing.
+
+Home and waypoints are kept in this browser (`gev.nav.home`,
+`gev.nav.waypoints`), never in a link, as absolute places, so they outlive
+the Blocks region they were set in (a region is anchored at the camera and
+moves on with it).
 
 ## Smaller additions
 

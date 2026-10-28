@@ -12,6 +12,10 @@ import {
   createNavigationHeadingControl,
 } from '../navigation/presentation.js';
 import { navigationStore } from '../navigation/store.js';
+// Personal fork: the view, home and waypoints beside Move.
+import { createWayfindingControl } from '../navigation/wayfindingControl.js';
+import { pageWayfinding } from '../navigation/waypoints.js';
+import { viewStore } from '../navigation/view.js';
 /** Register the application layer catalog before allowing state restoration. */
 export function createApplicationData({
   scene: { viewer, mapStackController },
@@ -51,6 +55,11 @@ export function createApplicationData({
           doc,
           lego.headingControls?.Analysis?.(doc),
           createNavigationHeadingControl(doc, navigationStore()),
+          createWayfindingControl(doc, {
+            wayfinding: pageWayfinding(),
+            navStore: navigationStore(),
+            view: viewStore(),
+          }),
         ),
     },
     // Personal fork: names on markers on or off, for every layer.
