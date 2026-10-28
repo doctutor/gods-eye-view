@@ -409,6 +409,16 @@ export function sourceNamesAt(lat, lon, band, options) {
  */
 export const DEM_RESAMPLE = 'bilinear';
 
+/**
+ * The heights a source may hold, metres: lower than the Dead Sea's shore
+ * (−430 m) and the ellipsoidal sources' sea (about −60 m), higher than
+ * Everest. Anything outside is a fill value (REMA's and others' −9999, a
+ * 16-bit −32768 or 32767), masked where heights are averaged (the Blocks
+ * values and style) before a source is resampled, so no fill reaches a
+ * neighbour or a mean.
+ */
+export const VALID_HEIGHT_M = Object.freeze([-500, 9000]);
+
 const boxesMeet = (a, b) =>
   a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
 

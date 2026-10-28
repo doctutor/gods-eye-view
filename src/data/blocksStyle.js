@@ -8,7 +8,7 @@
 //
 //   GET /api/earth-engine/tile/ee-elevation/blocks-<cellM>/<variant>/default/<z>/<x>/<y>
 //
-// The client shows the level whose cell matches the footprint (about 2 px
+// The client shows the level whose cell matches the footprint (about 8 px
 // a cell: blocksStyleLevelFor). Shared by the server and the client.
 
 /** The coarse pyramid levels the style draws, metres a cell (source.js's). */
@@ -37,13 +37,17 @@ export function blocksStyleCell(mode) {
 export const blocksLevelM = (cellM) =>
   cellM <= 30 ? cellM : Math.max(30, cellM / 32);
 
-/** Cells a side of the style's footprint rule: a cell is at least this many pixels. */
-export const BLOCKS_STYLE_MIN_PX = 2;
+/**
+ * The style's footprint rule: a cell is at least this many pixels, so its
+ * edge line (an eighth of the cell) is at least one.
+ */
+export const BLOCKS_STYLE_MIN_PX = 8;
 
 /**
  * The level to show for a pixel footprint (metres a screen pixel): the
  * smallest whose cell is at least BLOCKS_STYLE_MIN_PX pixels, else the
- * coarsest.
+ * coarsest (whose cells are then smaller than that, the edges thinner
+ * than a pixel).
  */
 export function blocksStyleLevelFor(pixelM) {
   const wanted = BLOCKS_STYLE_MIN_PX * (Number(pixelM) || 0);

@@ -8,6 +8,7 @@ import {
   modeRecord,
 } from '../../../src/data/earthEngineLayers.js';
 import {
+  VALID_HEIGHT_M,
   DEM_BANDS,
   demBand,
   sourceNamesAt,
@@ -29,7 +30,14 @@ import { expressionFor, visFor } from '../earthEngine.js';
  * shading, not a quantity; the vector layers are lines).
  */
 export const EE_VALUE_LAYERS = Object.freeze({
-  'ee-elevation': { units: 'm', aggregation: 'mean', reduce: 'mean' },
+  // Fill values masked in each source before any resampling or mean
+  // (VALID_HEIGHT_M), so a cell is the mean of real heights only.
+  'ee-elevation': {
+    units: 'm',
+    aggregation: 'mean',
+    reduce: 'mean',
+    validRange: VALID_HEIGHT_M,
+  },
   'ee-terrain-slope': { units: '°', aggregation: 'mean' },
   // Computed per cell from the heights at the cell's scale: a mean of
   // compass bearings would mean nothing.
@@ -313,7 +321,9 @@ const hash = (value) =>
 export function createEarthEngineAdapter(layer, earthEngine) {
   const spec = EE_VALUE_LAYERS[layer.id];
   const modes = layerModes(layer);
-  const plain = valuesLayer(layer);
+  const plain = spec.validRange
+    ? { ...valuesLayer(layer), validRange: spec.validRange }
+    : valuesLayer(layer);
   const stack = isStack(layer);
   const pick = (value, mode) =>
     typeof value === 'function'

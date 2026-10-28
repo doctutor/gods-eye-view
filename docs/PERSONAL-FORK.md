@@ -6439,7 +6439,14 @@ cells as a default projection, then `Image.reduceResolution` with a
 mean (`bestEffort`, at most 256 pixels a cell, so a 30 km cell is the
 mean of 16 × 16 pixels of a 1.9 km pyramid level), and says `mean` in
 the header's `aggregation`. A reduction Earth Engine refuses (not a 429
-or a 503) is sampled that once, said `sample`, and not kept.
+or a 503) is sampled that once, said `sample`, and not kept. Before
+anything is resampled or averaged, each source's raw pixels outside
+`VALID_HEIGHT_M` (−500 to 9,000 m, `src/data/demStack.js`) are masked:
+REMA's −9999 and any 16-bit fill, which had made a coastal 30 km cell a
+pit thousands of metres deep. A cell with no valid pixel is nodata. The
+Elevation map tiles are drawn as before (the mask is the Blocks values'
+and style's only), and the chunk source reads any value outside that
+range as nodata too.
 
 **Warming the cache.** `npm run blocks:pyramid -- --bbox w,s,e,n
 --levels 1920,7680,30720 [--pace ms] [--dry-run]` asks every lattice
@@ -6529,16 +6536,31 @@ count. `setRegion(region)` alone is K = 1, unchanged.
 
 `src/data/blocksStyle.js` and `blocksStyleExpression` in
 `server/providers/earthEngine.js` (worker2's; milestone 5, decision 6).
-The continental picture top-down, the cost of the Elevation tiles alone:
+The continental picture top-down, the cost of the Elevation tiles alone,
 at each coarse level of the pyramid (120, 480, 1,920, 7,680 and 30,720
-m), the DEM stack's heights averaged over equal-angle cells of the level
-(EPSG:4326 at that scale, as the lattice), quantised down to the level
-height (`blocksLevelM`: a cube to 30 m, then max(30 m, cell / 32): 30,
-30, 60, 240 and 960 m), coloured as the Elevation layer colours that
-height, each cell shaded flat by the hillshade of the quantised surface
-(÷ 180, a flat cell's), and its west and south sides drawn 38 % darker
-(the outer 6 % of a cell, `Image.pixelCoordinates` in degrees mod the
-cell). An RGB map, drawn 0 to 255.
+m), every property of a cell the cell's own:
+
+- the grid: equal-angle cells of the level (`blocksStyleGrid`: blockM of
+  latitude, from 180° W and in whole cells from 90° S), so a style cell
+  is a Blocks lattice cell;
+- the heights: the DEM stack's band for the level, not the tile's (the
+  far band, GMTED 230 m, from 1,920 m; FABDEM 30 m under it), fill
+  masked, averaged over each cell from 4 × 4 samples at a quarter cell
+  (the source's pyramid, itself means), over valid pixels only;
+- water: a cell under half of whose samples have heights (the sea, which
+  every source masks) or whose mean is at or below 0 m is level 0, one
+  flat colour, the Blocks water's;
+- the level: the mean quantised down to the level height (`blocksLevelM`:
+  30, 30, 60, 240 and 960 m), coloured as the Elevation layer colours
+  that height, shaded flat by the hillshade of the quantised cells (÷ 180,
+  a flat cell's);
+- the edges: the westmost and southmost eighth of each cell, on a grid of
+  eighths, 38 % darker.
+
+Each is reprojected onto its grid, so a cell is one colour at any zoom;
+an RGB map, drawn 0 to 255. The client picks the level whose cell is at
+least 8 px (`blocksStyleLevelFor`), where an edge is one pixel, two at
+the next zoom in.
 
 It is a mode of the Elevation layer on the moded tile route, not in the
 catalog (so the panel lists no new modes); each level's map is made when
@@ -6551,7 +6573,7 @@ counted and refused past the day's budget (429) as the layer's own:
 band for z). Another cell is a 404, a colour scale (`?s=`) a 400. For
 the client (worker3): `blocksStyleTemplate(cellM)` gives the template,
 `blocksStyleLevelFor(pixelM)` the level for a pixel footprint (the
-smallest cell of at least 2 px, else the coarsest), `BLOCKS_STYLE_LEVELS_M`
+smallest cell of at least 8 px, else the coarsest), `BLOCKS_STYLE_LEVELS_M`
 the levels and `blocksLevelM` the level heights.
 
 ### Blocks: buildings and land cover

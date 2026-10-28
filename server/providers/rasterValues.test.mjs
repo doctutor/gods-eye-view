@@ -198,6 +198,40 @@ test('a cell coarser than the source is the mean over it (reduceResolution), a n
   assert.doesNotMatch(JSON.stringify(calls[1].expression), /reduceResolution/);
 });
 
+/** Every node of an expression graph calling `name`. */
+function callsOf(node, name, out = []) {
+  if (Array.isArray(node)) for (const item of node) callsOf(item, name, out);
+  else if (node && typeof node === 'object') {
+    if (node.functionInvocationValue?.functionName === name)
+      out.push(node.functionInvocationValue.arguments);
+    for (const value of Object.values(node)) callsOf(value, name, out);
+  }
+  return out;
+}
+
+test("a fill value never reaches a mean: each source's pixels outside −500…9,000 m masked before it is resampled", async (t) => {
+  const { service: values, calls } = service(t);
+  await values.values(query());
+  const { expression } = calls[0];
+  const resampled = callsOf(expression, 'Image.resample');
+  assert.ok(resampled.length >= 2, 'every source of the far or base band');
+  for (const { image } of resampled) {
+    // resample(updateMask(updateMask(raw, raw ≥ −500), raw ≤ 9000))
+    const outer = image.functionInvocationValue;
+    assert.equal(outer.functionName, 'Image.updateMask');
+    const high = outer.arguments.mask.functionInvocationValue;
+    assert.equal(high.functionName, 'Image.lte');
+    assert.match(JSON.stringify(high.arguments.image2), /"constantValue":9000/);
+    const inner = outer.arguments.image.functionInvocationValue;
+    assert.equal(inner.functionName, 'Image.updateMask');
+    const low = inner.arguments.mask.functionInvocationValue;
+    assert.equal(low.functionName, 'Image.gte');
+    assert.match(JSON.stringify(low.arguments.image2), /"constantValue":-500/);
+  }
+  // The mean comes after: reduceResolution over the masked mosaic.
+  assert.equal(callsOf(expression, 'Image.reduceResolution').length, 1);
+});
+
 test('a reduction Earth Engine refuses: the sampled cells, said so and not kept; a 429 is not retried', async (t) => {
   const root = tempRoot(t);
   let refuse = 400;
