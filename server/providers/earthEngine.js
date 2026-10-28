@@ -33,6 +33,11 @@ import {
   demBand,
   demSource,
 } from '../../src/data/demStack.js';
+import {
+  BLOCKS_STYLE_LAYER,
+  blocksLevelM,
+  blocksStyleCell,
+} from '../../src/data/blocksStyle.js';
 
 /**
  * The Cloud project is registered for noncommercial Earth Engine use, and
@@ -51,7 +56,10 @@ import {
  *   GET /api/earth-engine/tile/<layer>/<mode>/<variant>/<ink>/<z>/<x>/<y>
  *       the same for a layer with modes (the Rivers' network, free-flowing
  *       and pressure colourings; Surface water's bands; Land cover's
- *       years; Population's epochs)
+ *       years; Population's epochs), and for Elevation's Blocks style,
+ *       mode 'blocks-<cellM>' at each coarse pyramid level
+ *       (src/data/blocksStyle.js; not in the catalog, its maps made when
+ *       a tile asks)
  *
  * A tile coarser than its variant's `minZoom` is a transparent PNG, made
  * here: no Earth Engine request, nothing counted.
@@ -923,6 +931,128 @@ export function overlayExpression(layer, variant, ink, modeKey, window = null) {
   };
 }
 
+/** The Blocks style's flat cells: the hillshade of a flat cell (255 · cos 45°). */
+const FLAT_HILLSHADE = 180;
+/** The Blocks style's cell edges: this share of a cell from its south-west sides … */
+export const BLOCKS_EDGE_SHARE = 0.06;
+/** … darkened to this share of the cell's tone. */
+export const BLOCKS_EDGE_TONE = 0.62;
+/** A coarse cell is the mean of at most this many pixels (a coarser pyramid level past it). */
+const BLOCKS_MEAN_PIXELS = 256;
+const M_PER_DEG_EQUATOR = 111_319.49;
+
+/**
+ * Elevation's Blocks style at a cell (src/data/blocksStyle.js): the DEM
+ * stack's heights averaged over equal-angle cells of `cellM` (EPSG:4326 at
+ * that scale, as the Blocks lattice), quantised down to the level height
+ * (blocksLevelM), coloured as the Elevation layer colours that height,
+ * each cell shaded flat by the hillshade of the quantised surface, and its
+ * west and south sides drawn darker (pixelCoordinates in degrees mod the
+ * cell). An RGB image: the map draws it 0 to 255.
+ */
+export function blocksStyleExpression(layer, variant, cellM) {
+  const heights = demStackExpression({ ...layer, transform: null }, variant);
+  const levelM = blocksLevelM(cellM);
+  const wgs84 = invoke('Projection', { crs: constant('EPSG:4326') });
+  // The stack's own values ('1', '2', …) kept; its result moved off '0'.
+  const { [heights.result]: heightsNode, ...stackValues } = heights.values;
+  const count = Object.keys(heights.values).length;
+  const heightsRef = String(count + 1);
+  const sharedRef = String(count + 2);
+  const mean = invoke('Image.reproject', {
+    image: invoke('Image.reduceResolution', {
+      image: invoke('Image.setDefaultProjection', {
+        image: reference(heightsRef),
+        crs: wgs84,
+        scale: constant(30),
+      }),
+      reducer: invoke('Reducer.mean', {}),
+      bestEffort: constant(true),
+      maxPixels: constant(BLOCKS_MEAN_PIXELS),
+    }),
+    crs: wgs84,
+    scale: constant(cellM),
+  });
+  const quantised = invoke('Image.multiply', {
+    image1: invoke('Image.floor', {
+      value: invoke('Image.divide', {
+        image1: mean,
+        image2: imageConstant(levelM),
+      }),
+    }),
+    image2: imageConstant(levelM),
+  });
+  const colour = invoke('Image.visualize', {
+    image: invoke('Image.sqrt', {
+      value: invoke('Image.max', {
+        image1: reference(sharedRef),
+        image2: imageConstant(0),
+      }),
+    }),
+    min: constant(layer.vis.min),
+    max: constant(layer.vis.max),
+    palette: constant([...layer.vis.palette]),
+  });
+  const shade = invoke('Image.divide', {
+    image1: invoke('Terrain.hillshade', {
+      input: reference(sharedRef),
+      azimuth: constant(315),
+      elevation: constant(45),
+    }),
+    image2: imageConstant(FLAT_HILLSHADE),
+  });
+  // The cell's sides: x and y in degrees, as fractions of a cell.
+  const cellDeg = cellM / M_PER_DEG_EQUATOR;
+  const coordinates = invoke('Image.pixelCoordinates', { projection: wgs84 });
+  const along = (band) => {
+    const cells = invoke('Image.divide', {
+      image1: invoke('Image.select', {
+        input: coordinates,
+        bandSelectors: constant([band]),
+      }),
+      image2: imageConstant(cellDeg),
+    });
+    return invoke('Image.lt', {
+      image1: invoke('Image.subtract', {
+        image1: cells,
+        image2: invoke('Image.floor', { value: cells }),
+      }),
+      image2: imageConstant(BLOCKS_EDGE_SHARE),
+    });
+  };
+  const edge = invoke('Image.max', { image1: along('x'), image2: along('y') });
+  const tone = invoke('Image.subtract', {
+    image1: imageConstant(1),
+    image2: invoke('Image.multiply', {
+      image1: edge,
+      image2: imageConstant(1 - BLOCKS_EDGE_TONE),
+    }),
+  });
+  const picture = invoke('Image.min', {
+    image1: invoke('Image.multiply', {
+      image1: invoke('Image.multiply', { image1: colour, image2: shade }),
+      image2: tone,
+    }),
+    image2: imageConstant(255),
+  });
+  return {
+    values: {
+      0: invoke('Image.updateMask', {
+        image: picture,
+        mask: invoke('Image.mask', { image: reference(sharedRef) }),
+      }),
+      ...stackValues,
+      [heightsRef]: heightsNode,
+      [sharedRef]: quantised,
+    },
+    result: '0',
+  };
+}
+
+/** Elevation's Blocks style cell for a mode, or null for any other layer or mode. */
+export const blocksStyleOf = (layer, mode) =>
+  layer?.id === BLOCKS_STYLE_LAYER ? blocksStyleCell(mode) : null;
+
 /**
  * A layer variant's expression in an ink (and mode), as the REST API takes
  * it: {values: {0: <value node>, …}, result: '0'}.
@@ -947,6 +1077,10 @@ export function expressionFor(
       { mosaic: Boolean(variant.asset?.collection) },
     );
   }
+  // Elevation's Blocks style (a 'blocks-<cellM>' mode).
+  const blocksCell = blocksStyleOf(layer, mode);
+  if (blocksCell && variant?.stack)
+    return blocksStyleExpression(layer, variant, blocksCell);
   // The terrain layers and Elevation: the DEM stack's band.
   if (variant?.stack) return demStackExpression(layer, variant, { window });
   // A band with an `overlay` (Buildings' footprints up close): the mode's
@@ -1017,7 +1151,10 @@ export function mapRequestFor(
   };
   const window = windowFor(layer, scale);
   const vis = variant?.overlay ? null : window || visFor(layer, mode);
-  if (layer.contour) {
+  if (blocksStyleOf(layer, mode))
+    // Already RGB: each band drawn as it is.
+    body.visualizationOptions = { ranges: [{ min: 0, max: 255 }] };
+  else if (layer.contour) {
     // The lines in the ink; the ink's alpha (RRGGBBAA) is the map's opacity.
     const color = inkColor(layer, ink);
     const alpha = parseInt(String(color).slice(6, 8) || 'ff', 16) / 255;
@@ -1795,8 +1932,11 @@ export function createEarthEngineService({
       if (!variant) return { status: 404, error: 'No such layer' };
       if (!layerInks(layer).includes(ink))
         return { status: 404, error: 'No such ink' };
-      if (!layerModes(layer).includes(mode))
+      const blocksStyle = blocksStyleOf(layer, mode);
+      if (!layerModes(layer).includes(mode) && !blocksStyle)
         return { status: 404, error: 'No such mode' };
+      if (blocksStyle && scaleToken)
+        return { status: 400, error: 'The Blocks style takes no colour scale' };
       // Personal fork: a chosen colour scale (the route's `s`, the shared
       // model's fields), resolved against this layer (mode)'s defaults.
       const modeKey = mode === 'default' ? '' : mode;

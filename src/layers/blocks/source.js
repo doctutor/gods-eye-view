@@ -1,19 +1,30 @@
 // Personal fork: the Blocks render mode's chunk heights (docs/BLOCKS-PLAN.md).
 // A chunk's columns come from GET /api/raster/values for the Elevation layer
-// (src/data/rasterValues.js), fetched a group at a time: one request of
-// 256 cells a side over a CHUNK_GROUP × CHUNK_GROUP block of chunks aligned
-// to a 4-chunk grid answers all 16, and one coarse chunk of the same
-// ground at 4 × blockM for the ring beyond the fine render distance. So a
-// 1 m view asks about 20 times, not 270 (each Earth Engine answer counts a
-// tile against the day's budget); the server's 30-day disk cache keeps the
-// answers too. The coarse ring beyond the fine chunks is fetched by
-// supergroup: one request of 256 cells over SUPERGROUP × SUPERGROUP groups
-// (1,024 blocks a side, so 4 × blockM cells) answers 16 coarse chunks, and
-// a fine group's own coarse chunk, the mean of its fine columns, replaces
-// its supergroup one whenever the fine group is loaded. Heights are mean sea level as the DEM stack reports them; a column
-// at or below 0 m is the sea, water at level 0 over a seabed below it.
+// (src/data/rasterValues.js), built a group at a time: a CHUNK_GROUP ×
+// CHUNK_GROUP block of chunks aligned to a 4-chunk grid is cut from one
+// read of its 256 × 256 columns, with one coarse chunk of the same ground
+// at 4 × blockM for the ring beyond the fine render distance. The coarse
+// ring beyond the fine chunks is built by supergroup: SUPERGROUP ×
+// SUPERGROUP groups (1,024 blocks a side, so 256 columns of 4 × blockM)
+// give 16 coarse chunks, and a fine group's own coarse chunk, the mean of
+// its fine columns, replaces its supergroup one whenever the fine group is
+// loaded.
 //
-// A region (grid.js) is used through lon0, lat0, blockM, chunkBounds and
+// Milestone 5, blocks at any scale: a region's blockM is a level of the
+// pyramid (pyramid.js, regionFor), and every level is served alike. The
+// values are asked in tiles of a global lattice of the level (lattice.js:
+// 512 cells of blockM a side, the same box for every view), each column
+// read from the tile cell under its centre, so the server's 30-day cache
+// answers any view at that level and a warm-up can fill it; a level
+// coarser than the source's own cell is the mean over each cell (the
+// server reduces). Each Earth Engine answer counts a tile against the
+// day's budget: at most 18 for a fresh view at any level (3 × 3 tiles for
+// the fine disc, 3 × 3 for its coarse ring). Heights are mean sea level as
+// the DEM stack reports them; a column at or below 0 m is the sea, water at
+// level 0 over a seabed below it.
+//
+// A region (grid.js) is used through lon0, lat0, blockM, levelM (the
+// metres a level, worker1's; blockM when absent), chunkBounds and
 // columnCentre; chunks are store.js's, its createChunk unless the
 // controller passes one.
 
@@ -21,11 +32,20 @@ import { createRasterValuesClient } from '../../data/rasterValues.js';
 import { DEM_SOURCES } from '../../data/demStack.js';
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
 import { MATERIALS, NONE, createChunk as storeChunk } from './store.js';
+import { levelMFor, pyramidLevelM } from './pyramid.js';
+import {
+  LATTICE_CELLS,
+  latticeBox,
+  latticeIndex,
+  latticeKey,
+} from './lattice.js';
 
 /** The layer whose values are the heights. */
 export const ELEVATION_LAYER = 'ee-elevation';
 /** Chunks kept in memory, fine and coarse. */
 export const MAX_CHUNKS = 1024;
+/** Lattice tiles' answers kept in memory (about 1 MB each). */
+export const MAX_TILES = 24;
 /** Chunks a group side: one request answers CHUNK_GROUP² chunks and a coarse one. */
 export const CHUNK_GROUP = 4;
 /** Cells a group request asks for a side (under the server's 512). */
@@ -42,6 +62,18 @@ export const NATIVE_CELLS_M = Object.freeze(
     .filter((size) => size > 0)
     .sort((a, b) => a - b),
 );
+
+/**
+ * How far from a region's anchor its tangent plane still stands over the
+ * ground, metres (the polar radius, less 1%): grid.js puts a place
+ * further out on the limb, so a column there is nodata until the curved
+ * frame (milestone 5, decision 5).
+ */
+export const PLANE_REACH_M = 6_356_752 * 0.99;
+
+/** A region's place at east and north metres, or null past PLANE_REACH_M. */
+export const placeAt = (region, x, y) =>
+  Math.hypot(x, y) < PLANE_REACH_M ? region.toLonLat(x, y) : null;
 
 /**
  * The native cell a measured cell width stands for: the stack's size
@@ -98,6 +130,36 @@ export function samplePlaces({ header, values }, size, placeOf) {
         col < 0 || col >= cols || row < 0 || row >= rows
           ? NaN
           : values[row * cols + col];
+    }
+  }
+  return heights;
+}
+
+/**
+ * A size × size grid of heights, index j × size + i, each read from the
+ * lattice tile answer (`answers`: latticeKey → answer) at `blockM` under
+ * placeOf(i, j); NaN where the place or its tile is missing.
+ */
+export function sampleLattice(answers, blockM, size, placeOf) {
+  const heights = new Float32Array(size * size);
+  for (let j = 0; j < size; j++) {
+    for (let i = 0; i < size; i++) {
+      const place = placeOf(i, j);
+      let height = NaN;
+      if (Number.isFinite(place?.lon) && Number.isFinite(place?.lat)) {
+        const { ti, tj } = latticeIndex(blockM, place.lon, place.lat);
+        const answer = answers.get(latticeKey(blockM, ti, tj));
+        if (answer) {
+          const { west, south, east, north, cols, rows } = answer.header;
+          const col = Math.floor(((place.lon - west) / (east - west)) * cols);
+          const row = Math.floor(
+            ((north - place.lat) / (north - south)) * rows,
+          );
+          if (col >= 0 && col < cols && row >= 0 && row < rows)
+            height = answer.values[row * cols + col];
+        }
+      }
+      heights[j * size + i] = height;
     }
   }
   return heights;
@@ -192,10 +254,11 @@ export function coarseHeights(heights, size, factor) {
 }
 
 /**
- * Heights to the store's columns: level = floor(h / blockM); at or below
- * 0 m water fills level 0 over a seabed at most level -1; nodata is NONE.
+ * Heights to the store's columns: level = floor(h / levelM) (the metres a
+ * level: blockM for cubes, more for the coarse levels); at or below 0 m
+ * water fills level 0 over a seabed at most level -1; nodata is NONE.
  */
-export function columnsFromHeights(heights, blockM) {
+export function columnsFromHeights(heights, levelM) {
   const count = heights.length;
   const top = new Int32Array(count);
   const material = new Uint8Array(count);
@@ -208,7 +271,7 @@ export function columnsFromHeights(heights, blockM) {
       material[k] = MATERIALS.AIR;
       continue;
     }
-    const level = Math.floor(h / blockM);
+    const level = Math.floor(h / levelM);
     material[k] = MATERIALS.TERRAIN;
     if (h <= 0) {
       top[k] = Math.min(level, -1);
@@ -221,20 +284,37 @@ export function columnsFromHeights(heights, blockM) {
   return { top, material, water };
 }
 
-/** A region's cache key: its anchor and block size. */
+/** A region's metres a level: its levelM, else its blockM (cubes). */
+export const levelOf = (region) =>
+  region.levelM > 0 ? region.levelM : region.blockM;
+
+/**
+ * The metres a level of a region's coarse ring: its coarseLevelM, else the
+ * region's own levelM. The controller meshes fine and coarse chunks at one
+ * levelM and matches their levels one to one at the skirts, so a coarse
+ * column is CHUNK_GROUP × blockM across and levelM a level, as a fine one.
+ */
+export const coarseLevelOf = (region) =>
+  region.coarseLevelM > 0 ? region.coarseLevelM : levelOf(region);
+
+/** A region's cache key: its anchor, block size and level heights. */
 export const regionKey = (region) =>
-  `${region.lon0},${region.lat0},${region.blockM}`;
+  `${region.lon0},${region.lat0},${region.blockM}` +
+  (levelOf(region) !== region.blockM || region.coarseLevelM > 0
+    ? `,${levelOf(region)},${coarseLevelOf(region)}`
+    : '');
 
 /**
  * @param {{fetchValues?: (request: {layer: string, mode: string, box:
  *   object, cells: number}) => Promise<{header: object, values:
- *   Float32Array}>, createChunk?: Function, maxChunks?: number}} options
- *   createChunk: store.js's unless given.
+ *   Float32Array}>, createChunk?: Function, maxChunks?: number,
+ *   maxTiles?: number}} options createChunk: store.js's unless given.
  */
 export function createChunkSource({
   fetchValues,
   createChunk = storeChunk,
   maxChunks = MAX_CHUNKS,
+  maxTiles = MAX_TILES,
 } = {}) {
   if (!fetchValues) {
     const client = createRasterValuesClient({ maxEntries: 16 });
@@ -253,6 +333,53 @@ export function createChunkSource({
   const ask = (box, cells) =>
     fetchValues({ layer: ELEVATION_LAYER, mode: '', box, cells });
 
+  const tiles = new Map(); // latticeKey → Promise<answer>, least recently used first
+  /** A lattice tile's answer, asked once while kept; a failure is not kept. */
+  function tile(blockM, ti, tj) {
+    const key = latticeKey(blockM, ti, tj);
+    let promise = tiles.get(key);
+    if (promise) tiles.delete(key);
+    else {
+      promise = ask(latticeBox(blockM, ti, tj), LATTICE_CELLS);
+      promise.catch(() => {
+        if (tiles.get(key) === promise) tiles.delete(key);
+      });
+    }
+    tiles.set(key, promise);
+    while (tiles.size > maxTiles) tiles.delete(tiles.keys().next().value);
+    return promise;
+  }
+
+  /**
+   * A size × size grid of heights at a level, each column read at
+   * placeOf(i, j) from the lattice tiles under the places (asked together).
+   */
+  async function heightsAt(blockM, size, placeOf) {
+    const lon = new Float64Array(size * size);
+    const lat = new Float64Array(size * size);
+    const needed = new Map();
+    for (let j = 0; j < size; j++)
+      for (let i = 0; i < size; i++) {
+        const place = placeOf(i, j);
+        const k = j * size + i;
+        lon[k] = place?.lon ?? NaN;
+        lat[k] = place?.lat ?? NaN;
+        if (!Number.isFinite(lon[k]) || !Number.isFinite(lat[k])) continue;
+        const { ti, tj } = latticeIndex(blockM, lon[k], lat[k]);
+        needed.set(latticeKey(blockM, ti, tj), [ti, tj]);
+      }
+    const answers = new Map();
+    await Promise.all(
+      [...needed].map(async ([key, [ti, tj]]) => {
+        answers.set(key, await tile(blockM, ti, tj));
+      }),
+    );
+    return sampleLattice(answers, blockM, size, (i, j) => ({
+      lon: lon[j * size + i],
+      lat: lat[j * size + i],
+    }));
+  }
+
   const groupKey = (region, gi, gj) => `${regionKey(region)}|g${gi}:${gj}`;
   const coarseKey = (region, gi, gj) => `${regionKey(region)}|c${gi}:${gj}`;
 
@@ -269,13 +396,11 @@ export function createChunkSource({
     const inFlight = groups.get(key);
     if (inFlight) return inFlight;
     const promise = (async () => {
-      const answer = await ask(groupBounds(region, gi, gj), GROUP_COLUMNS);
-      const heights = sampleBlock(
-        region,
-        gi * GROUP_COLUMNS,
-        gj * GROUP_COLUMNS,
-        GROUP_COLUMNS,
-        answer,
+      const blockM = region.blockM;
+      const i0 = gi * GROUP_COLUMNS;
+      const j0 = gj * GROUP_COLUMNS;
+      const heights = await heightsAt(blockM, GROUP_COLUMNS, (i, j) =>
+        placeAt(region, (i0 + i + 0.5) * blockM, (j0 + j + 0.5) * blockM),
       );
       const chunks = new Map();
       for (let b = 0; b < CHUNK_GROUP; b++)
@@ -284,7 +409,7 @@ export function createChunkSource({
           const cj = gj * CHUNK_GROUP + b;
           const columns = columnsFromHeights(
             chunkOfGroup(heights, a, b),
-            region.blockM,
+            levelOf(region),
           );
           chunks.set(
             `${prefix}|${ci}:${cj}`,
@@ -296,7 +421,7 @@ export function createChunkSource({
         cj: gj,
         ...columnsFromHeights(
           coarseHeights(heights, GROUP_COLUMNS, CHUNK_GROUP),
-          region.blockM * CHUNK_GROUP,
+          coarseLevelOf(region),
         ),
       });
       return { chunks, coarse, coarseKey: coarseKey(region, gi, gj) };
@@ -316,10 +441,10 @@ export function createChunkSource({
   }
 
   /**
-   * A supergroup's 16 coarse chunks from one request of GROUP_COLUMNS
-   * cells over its 16 × 16 chunks: each cell is a coarse column (4 ×
-   * blockM), read at the column's centre. Those not already held (a fine
-   * group's are better) go into the cache.
+   * A supergroup's 16 coarse chunks: GROUP_COLUMNS² coarse columns (4 ×
+   * blockM) over its 16 × 16 chunks, each read at its centre from the
+   * lattice of the coarse level. Those not already held (a fine group's
+   * are better) go into the cache.
    * @returns {Promise<Map<string, object>>} coarse key → chunk
    */
   function loadSupergroup(region, si, sj) {
@@ -328,11 +453,10 @@ export function createChunkSource({
     if (inFlight) return inFlight;
     const coarseM = region.blockM * CHUNK_GROUP;
     const promise = (async () => {
-      const answer = await ask(supergroupBounds(region, si, sj), GROUP_COLUMNS);
       const i0 = si * GROUP_COLUMNS;
       const j0 = sj * GROUP_COLUMNS;
-      const heights = samplePlaces(answer, GROUP_COLUMNS, (i, j) =>
-        region.toLonLat((i0 + i + 0.5) * coarseM, (j0 + j + 0.5) * coarseM),
+      const heights = await heightsAt(coarseM, GROUP_COLUMNS, (i, j) =>
+        placeAt(region, (i0 + i + 0.5) * coarseM, (j0 + j + 0.5) * coarseM),
       );
       const chunks = new Map();
       for (let b = 0; b < SUPERGROUP; b++)
@@ -341,7 +465,7 @@ export function createChunkSource({
           const gj = sj * SUPERGROUP + b;
           const columns = columnsFromHeights(
             chunkOfGroup(heights, a, b),
-            coarseM,
+            coarseLevelOf(region),
           );
           chunks.set(
             coarseKey(region, gi, gj),
@@ -381,14 +505,24 @@ export function createChunkSource({
 
   return {
     /**
-     * The block size and source name at a point: the DEM stack's native
-     * cell there, read from a probe small enough that the server answers
-     * at that cell. `windowM` caps the probe; the native cell is the
-     * centre's, so a corner of 3DEP 1 m does not turn a 30 m view into
-     * 1 m blocks.
-     * @returns {Promise<{blockM: number, source: string, cellSizeM: number}>}
+     * The block size and source name at a point: the pyramid level
+     * (pyramidLevelM) for the DEM stack's native cell there and the block
+     * wanted, the native cell read from a probe small enough that the
+     * server answers at that cell. `windowM` caps the probe; the native
+     * cell is the centre's, so a corner of 3DEP 1 m does not turn a 30 m
+     * view into 1 m blocks. `wantedM` not a finite positive number (NaN
+     * when the footprint is unknown) is the native cell. `levelM` is the
+     * rule's for the block (levelMFor), for createRegion({lon0, lat0,
+     * blockM, levelM}). Called as regionFor(lon, lat, windowM, {wantedM});
+     * regionFor(lon, lat, {windowM, wantedM}) is the same.
+     * @returns {Promise<{blockM: number, levelM: number, nativeM: number,
+     *   source: string, cellSizeM: number}>}
      */
-    async regionFor(lon, lat, windowM = Infinity) {
+    async regionFor(lon, lat, windowOrOptions = Infinity, options = {}) {
+      const { windowM = Infinity, wantedM = NaN } =
+        typeof windowOrOptions === 'number'
+          ? { ...options, windowM: windowOrOptions }
+          : { ...windowOrOptions, ...options };
       let header;
       for (const side of PROBE_SIDES_M) {
         ({ header } = await ask(
@@ -397,8 +531,12 @@ export function createChunkSource({
         ));
         if (header.cols >= 2 || side >= windowM) break;
       }
+      const nativeM = snapBlockM(header.cellSizeM);
+      const blockM = pyramidLevelM(nativeM, wantedM);
       return {
-        blockM: snapBlockM(header.cellSizeM),
+        blockM,
+        levelM: levelMFor(blockM),
+        nativeM,
         source: header.source,
         cellSizeM: header.cellSizeM,
       };
@@ -432,6 +570,9 @@ export function createChunkSource({
 
     /** Chunks held, fine and coarse (for tests and the status line). */
     size: () => held.size,
-    clear: () => held.clear(),
+    clear() {
+      held.clear();
+      tiles.clear();
+    },
   };
 }
