@@ -6319,6 +6319,16 @@ Elevation map tiles are drawn as before (the mask is the Blocks values'
 and style's only), and the chunk source reads any value outside that
 range as nodata too.
 
+**The sea is water.** Every source masks the sea (GMTED's and FABDEM's
+0, ArcticDEM's and REMA's masks); there is no bathymetry. So a reduced
+cell less than half of whose pixels have heights, or whose mean is at or
+below 0 m, is 0 m, not nodata: water at level 0 over a bed at −1, one
+flat surface, the Blocks style's rule (`LAND_SHARE`). A coastal cell more
+than half land stands at the mean of its land. A coarse chunk built from
+its fine group follows the same rule (`coarseHeights` with `landShare`).
+At a native level (a cell under 1.5 × the source's) the sea is still
+nodata.
+
 **Warming the cache.** `npm run blocks:pyramid -- --bbox w,s,e,n
 --levels 1920,7680,30720 [--pace ms] [--dry-run]` asks every lattice
 tile over the box at each level through the values service, as the app's

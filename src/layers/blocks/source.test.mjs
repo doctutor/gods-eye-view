@@ -11,6 +11,7 @@ import {
   ELEVATION_LAYER,
   CHUNK_GROUP,
   GROUP_COLUMNS,
+  LAND_SHARE,
   SUPERGROUP,
   coarseHeights,
   coarseLevelOf,
@@ -433,7 +434,7 @@ function rampAt(region) {
  * region's 1 m levels, level floor(4i + 2 − 100), within the 2 m a 4 m
  * cell's reading may sit from the column's centre.
  */
-function assertRampLevels(coarse) {
+function assertRampLevels(coarse, { seaRule = false } = {}) {
   assert.equal(coarse.top.length, CHUNK_COLUMNS * CHUNK_COLUMNS);
   const near = (actual, expected, label) =>
     assert.ok(
@@ -445,14 +446,20 @@ function assertRampLevels(coarse) {
     const k = 5 * CHUNK_COLUMNS + i; // row 5: 20–24 m north, inside the data
     if (h <= 0) {
       assert.equal(coarse.water[k], 0, `column ${i} is sea`);
-      near(coarse.top[k], Math.min(Math.floor(h), -1), `column ${i}`);
+      // The sea's rule: a mean ≤ 0 m is water at 0 m, over a bed at −1.
+      if (seaRule) assert.equal(coarse.top[k], -1);
+      else near(coarse.top[k], Math.min(Math.floor(h), -1), `column ${i}`);
     } else {
       assert.equal(coarse.water[k], NONE);
       near(coarse.top[k], Math.floor(h), `column ${i}`);
     }
   }
-  // Row 63 covers 252–256 m north: no data, NONE.
-  assert.equal(coarse.top[63 * CHUNK_COLUMNS + 30], NONE);
+  // Row 63 covers 252–256 m north, no heights under it: NONE from the
+  // server's samples, water at level 0 by the sea's rule.
+  if (seaRule) {
+    assert.equal(coarse.top[63 * CHUNK_COLUMNS + 30], -1);
+    assert.equal(coarse.water[63 * CHUNK_COLUMNS + 30], 0);
+  } else assert.equal(coarse.top[63 * CHUNK_COLUMNS + 30], NONE);
 }
 
 test("loadCoarseChunk: 16 coarse chunks at 4 × blockM from the coarse level's tiles", async () => {
@@ -499,7 +506,7 @@ test('loadCoarseChunk: the fine group coarse chunk, the mean of its columns, win
   const fine = calls.length;
   const exact = await source.loadCoarseChunk(region, 0, 0);
   assert.equal(calls.length, fine);
-  assertRampLevels(exact);
+  assertRampLevels(exact, { seaRule: true });
   // Its supergroup neighbours are not held: (1, 0) reads the supergroup
   // from the coarse level's tiles.
   await source.loadCoarseChunk(region, 1, 0);
@@ -656,11 +663,41 @@ test('a fill value beside land is no column and no pit: fine columns NONE, the c
   const coarse = await source.loadCoarseChunk(region, 0, 0);
   for (let i = 0; i < CHUNK_COLUMNS; i++)
     for (let j = 0; j < CHUNK_COLUMNS; j++) {
+      // Land at its mean, or (all fill: no heights) water at level 0.
       const top = coarse.top[columnIndex(i, j)];
-      assert.ok(top === NONE || top === 4, `coarse ${i},${j}: ${top}`);
+      assert.ok(top === 4 || top === -1, `coarse ${i},${j}: ${top}`);
     }
   // Nothing fell below sea level anywhere.
   assert.ok([...chunk.top].every((top) => top === NONE || top >= 0));
+});
+
+test("the sea's rule in a coarse chunk: a cell of all-masked sea is water at level 0; one more than half land stays land at the mean of its land", async () => {
+  // coarseHeights alone: 4 × 4 blocks of a 8 × 8 field.
+  const field = new Float32Array(64).fill(NaN);
+  // Block (0, 0): all sea (nodata). Block (1, 0): 10 of 16 land at 90 m.
+  for (let k = 0; k < 10; k++) field[(k >> 2) * 8 + 4 + (k & 3)] = 90;
+  // Block (0, 1): 6 of 16 land (under half): water. Block (1, 1): land at
+  // −5 m (a polder): water.
+  for (let k = 0; k < 6; k++) field[(4 + (k >> 2)) * 8 + (k & 3)] = 300;
+  for (let y = 4; y < 8; y++) for (let x = 4; x < 8; x++) field[y * 8 + x] = -5;
+  const plain = coarseHeights(field, 8, 4);
+  assert.ok(Number.isNaN(plain[0]));
+  const ruled = coarseHeights(field, 8, 4, { landShare: LAND_SHARE });
+  assert.deepEqual([...ruled], [0, 90, 0, 0]);
+  // Through the source: a group half sea west, land east.
+  const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 30 });
+  const heightAt = (lon, lat) =>
+    region.toLocal(lon, lat).x < 3000 ? NaN : 150;
+  const { fetchValues } = fakeValues({ nativeM: 30, heightAt });
+  const source = createChunkSource({ fetchValues, createChunk });
+  await source.loadChunk(region, 0, 0);
+  const coarse = await source.loadCoarseChunk(region, 0, 0);
+  // Coarse column 0 (0–120 m east): all sea, water at level 0 over a bed.
+  assert.equal(coarse.top[columnIndex(0, 5)], -1);
+  assert.equal(coarse.water[columnIndex(0, 5)], 0);
+  // Coarse column 40 (4.8 km east): land at 150 m on 30 m levels.
+  assert.equal(coarse.top[columnIndex(40, 5)], 5);
+  assert.equal(coarse.water[columnIndex(40, 5)], NONE);
 });
 
 test('createChunkSource builds store chunks unless given createChunk', async () => {

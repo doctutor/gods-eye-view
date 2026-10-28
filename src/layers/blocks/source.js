@@ -42,6 +42,11 @@ import {
 
 /** The layer whose values are the heights. */
 export const ELEVATION_LAYER = 'ee-elevation';
+/**
+ * A coarse column is water when less than this share of its fine columns
+ * have heights: the server's rule for its means (rasterValues LAND_SHARE).
+ */
+export const LAND_SHARE = 0.5;
 /** Chunks kept in memory, fine and coarse. */
 export const MAX_CHUNKS = 1024;
 /** Lattice tiles' answers kept in memory (about 1 MB each). */
@@ -239,9 +244,12 @@ function chunkOfGroup(heights, a, b) {
 
 /**
  * Coarse heights: the mean of each factor × factor block of a size × size
- * field, of its finite heights only; NaN where it has none.
+ * field, of its finite heights only; NaN where it has none. With
+ * `landShare` (the server's rule for its means, LAND_SHARE), a block less
+ * than that share of which has heights, or whose mean is at or below 0 m,
+ * is water: 0 m (the sea is nodata in every source).
  */
-export function coarseHeights(heights, size, factor) {
+export function coarseHeights(heights, size, factor, { landShare = 0 } = {}) {
   const side = size / factor;
   const out = new Float32Array(side * side);
   for (let j = 0; j < side; j++) {
@@ -256,7 +264,11 @@ export function coarseHeights(heights, size, factor) {
             count++;
           }
         }
-      out[j * side + i] = count ? sum / count : NaN;
+      const mean = count ? sum / count : NaN;
+      out[j * side + i] =
+        landShare > 0 && (count < landShare * factor * factor || mean <= 0)
+          ? 0
+          : mean;
     }
   }
   return out;
@@ -429,7 +441,9 @@ export function createChunkSource({
         ci: gi,
         cj: gj,
         ...columnsFromHeights(
-          coarseHeights(heights, GROUP_COLUMNS, CHUNK_GROUP),
+          coarseHeights(heights, GROUP_COLUMNS, CHUNK_GROUP, {
+            landShare: LAND_SHARE,
+          }),
           coarseLevelOf(region),
         ),
       });

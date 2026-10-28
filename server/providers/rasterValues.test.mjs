@@ -229,7 +229,33 @@ test("a fill value never reaches a mean: each source's pixels outside −500…9
     assert.match(JSON.stringify(low.arguments.image2), /"constantValue":-500/);
   }
   // The mean comes after: reduceResolution over the masked mosaic.
-  assert.equal(callsOf(expression, 'Image.reduceResolution').length, 1);
+  // The heights and the share of pixels with heights (the sea's rule).
+  assert.equal(callsOf(expression, 'Image.reduceResolution').length, 2);
+});
+
+test('the sea in a reduced cell: under half its pixels with heights, or a mean ≤ 0 m, is water at 0 m, never nodata', async (t) => {
+  const { service: values, calls } = service(t);
+  await values.values(query());
+  const { expression } = calls[0];
+  const { mn } = expression.values;
+  const where = mn.functionInvocationValue;
+  assert.equal(where.functionName, 'Image.where');
+  // The value replaced is 0 m, and the mean is unmasked to 0 first, so a
+  // cell is never masked (nodata).
+  assert.match(JSON.stringify(where.arguments.value), /"constantValue":0\}/);
+  assert.equal(
+    where.arguments.input.functionInvocationValue.functionName,
+    'Image.unmask',
+  );
+  const test = JSON.stringify(where.arguments.test);
+  // Water: the share of pixels with heights under 0.5 …
+  assert.match(test, /"Image\.mask"/);
+  assert.match(test, /"Image\.lt".*"constantValue":0\.5/s);
+  // … or the mean at or below 0 m (a masked mean counts as water).
+  assert.match(test, /"Image\.lte".*"valueReference":"mh"/s);
+  // The cached answers of the NaN sea are another version.
+  const first = decodeRasterValues((await values.values(query())).body).header;
+  assert.ok(first.version);
 });
 
 test('a reduction Earth Engine refuses: the sampled cells, said so and not kept; a 429 is not retried', async (t) => {
