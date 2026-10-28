@@ -160,3 +160,50 @@ test('the keyboard source: the key map, the double-tap sprint, look deltas once,
   map = { KeyK: 'forward' };
   assert.equal(custom.read().forward, undefined, 'KeyI is no longer forward');
 });
+
+test('a stick: per axis the larger magnitude wins, clamped to ±1; it reaches the model', () => {
+  const intents = createIntents();
+  assert.deepEqual(intents.analog, { forward: 0, right: 0 });
+  mergeIntents(intents, { analog: { forward: 0.4, right: -0.2 } });
+  mergeIntents(intents, { analog: { forward: -0.3, right: -0.9 } });
+  mergeIntents(intents, { analog: { forward: 'x' } });
+  assert.deepEqual(intents.analog, { forward: 0.4, right: -0.9 });
+  mergeIntents(intents, { analog: { forward: 3 } });
+  assert.equal(intents.analog.forward, 1);
+  const input = inputFromIntents(intents, 'walk');
+  assert.deepEqual(input.analog, { forward: 1, right: -0.9 });
+  assert.equal(
+    inputFromIntents(createIntents(), 'walk').analog,
+    undefined,
+    'no stick, no analog',
+  );
+});
+
+test('one-shots for a gamepad: release, toggleMode, and fly-speed steps summed', () => {
+  for (const name of ['walkHere', 'flyHere', 'release', 'toggleMode'])
+    assert.ok(EVENT_INTENTS.includes(name), name);
+  const registry = createInputRegistry();
+  registry.add({ read: () => ({ release: true, flySpeedStep: 1 }) });
+  registry.add({ read: () => ({ toggleMode: true, flySpeedStep: 1 }) });
+  registry.add({ read: () => ({ flySpeedStep: -1 }) });
+  const intents = registry.read(0.016);
+  assert.equal(intents.release, true);
+  assert.equal(intents.toggleMode, true);
+  assert.equal(intents.flySpeedStep, 1);
+  assert.equal(createIntents().flySpeedStep, 0);
+});
+
+test('the hint channel: a source says a line through the binding’s overlay', () => {
+  const registry = createInputRegistry();
+  assert.equal(
+    registry.hint('controller connected', 3000),
+    false,
+    'no binding yet',
+  );
+  const said = [];
+  const undo = registry.setHinter((text, ms) => said.push([text, ms]));
+  assert.equal(registry.hint('controller connected', 3000), true);
+  assert.deepEqual(said, [['controller connected', 3000]]);
+  undo();
+  assert.equal(registry.hint('again', 1), false);
+});

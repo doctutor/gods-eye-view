@@ -16,11 +16,18 @@ import * as Cesium from 'cesium';
 import {
   EYE_HEIGHT_M,
   VERTICAL_FOV_DEG,
+  LOOK_RAD_PER_PX,
   cesiumFovRad,
   createNavState,
   look,
   step,
 } from './movement.js';
+import {
+  createFovEaser,
+  flySpeedAfterSteps,
+  flySpeedAfterWheel,
+  navSettings,
+} from './settings.js';
 import { createBlockWorld, createHeightfieldWorld } from './worlds.js';
 import { EXIT_FLIGHT_S, MODE_HINTS, entryPose, exitView } from './entry.js';
 import {
@@ -31,7 +38,7 @@ import {
 } from './inputs.js';
 // The double-tap moved to inputs.js; still exported from here.
 export { DOUBLE_TAP_MS, createDoubleTap } from './inputs.js';
-import { t } from '../i18n/index.js';
+import { formatNumber, t } from '../i18n/index.js';
 import { blocksWorldNow } from './blocksSource.js';
 import { createRegion } from '../layers/blocks/grid.js';
 import { CHUNK_COLUMNS } from '../layers/blocks/grid.js';
@@ -49,6 +56,8 @@ export const LAND_ABOVE_M = 50;
 const REANCHOR_M = 2000;
 /** How long the keys hint stays over the crosshair on entering a mode. */
 export const HINT_MS = 4000;
+/** How long the fly speed stays in the hint after a wheel turn. */
+export const FLY_SPEED_HINT_MS = 2000;
 /** The outline is looked for at most this often. */
 const OUTLINE_MS = 100;
 /** The camera moved by someone else when it is this far from where it was put. */
@@ -96,7 +105,8 @@ export function createNavigationBinding({
   documentRef = globalThis.document,
   now = () => globalThis.performance?.now?.() ?? Date.now(),
   inputs = inputRegistry(),
-  keys = () => DEFAULT_KEYS,
+  settings = navSettings(),
+  keys = () => settings?.keyMap?.() ?? DEFAULT_KEYS,
 }) {
   const scene = viewer.scene;
   const camera = viewer.camera;
@@ -427,14 +437,51 @@ export function createNavigationBinding({
     hint.hidden = true;
     (viewer.container ?? canvas.parentElement)?.appendChild?.(hint);
   }
-  const showHint = (forMode) => {
+  const showHintText = (text, ms = HINT_MS) => {
     if (!hint) return;
     clearTimeout(hintTimer);
-    const text = MODE_HINTS[forMode];
-    hint.textContent = text ? t(text) : '';
+    hint.textContent = text || '';
     hint.hidden = !text;
-    hintTimer = text ? setTimeout(() => (hint.hidden = true), HINT_MS) : null;
+    hintTimer = text ? setTimeout(() => (hint.hidden = true), ms) : null;
   };
+  const showHint = (forMode) =>
+    showHintText(MODE_HINTS[forMode] ? t(MODE_HINTS[forMode]) : '');
+
+  // ── The Controls settings (settings.js) ──────────────────────────────
+
+  const controls = () => settings?.get?.() ?? {};
+  /** Fly speed now: the setting on entering, the wheel's after. */
+  let flySpeed = controls().fly;
+  /** Minecraft's dynamic FOV: wider while sprinting. */
+  const fovEaser = createFovEaser();
+  const codesFor = (action) => settings?.codesFor?.(action) ?? [];
+
+  /** Fly's speed set (the wheel, a gamepad's steps), said in the hint. */
+  const setFlySpeed = (next) => {
+    flySpeed = next;
+    showHintText(
+      t('Fly speed {speed} m/s', {
+        speed: formatNumber(Math.round(flySpeed * 10) / 10),
+      }),
+      FLY_SPEED_HINT_MS,
+    );
+  };
+  /** In Fly, the wheel sets the speed (Minecraft's spectator). */
+  const onWheel = (event) => {
+    if (!active || mode !== 'fly') return;
+    event.preventDefault();
+    setFlySpeed(
+      flySpeedAfterWheel(
+        flySpeed ?? controls().fly,
+        event.deltaY,
+        event.deltaMode,
+      ),
+    );
+  };
+  // Other sources (a gamepad) say things in the same overlay.
+  const offHinter = inputs.setHinter?.((text, ms) =>
+    showHintText(String(text ?? ''), Number(ms) > 0 ? Number(ms) : HINT_MS),
+  );
 
   // ── Input ───────────────────────────────────────────────────────────
 
@@ -443,6 +490,15 @@ export function createNavigationBinding({
   const removeKeyboard = inputs.add(keyboard);
   const onKey = (event) => {
     if (!active || isFormTarget(event.target)) return;
+    // The release key (Esc by default) lets the pointer go.
+    if (
+      event.type === 'keydown' &&
+      codesFor('release').includes(event.code) &&
+      documentRef?.pointerLockElement === canvas
+    ) {
+      documentRef.exitPointerLock?.();
+      return;
+    }
     if (!keyboard.key(event)) return;
     // The app's own shortcuts (D cycles detection) wait while walking.
     event.stopPropagation();
@@ -452,7 +508,14 @@ export function createNavigationBinding({
   const onBlur = () => inputs.reset();
   const onMouseMove = (event) => {
     if (!active || documentRef.pointerLockElement !== canvas) return;
-    keyboard.look(event.movementX, event.movementY);
+    // The mouse's own sensitivity and invert Y: other sources (a gamepad)
+    // scale and invert their looks themselves.
+    const set = controls();
+    const scale = set.sensitivity ?? 1;
+    keyboard.look(
+      event.movementX * scale,
+      event.movementY * scale * (set.invertY ? -1 : 1),
+    );
   };
   const onCanvasClick = () => {
     if (!active || documentRef.pointerLockElement === canvas) return;
@@ -484,7 +547,7 @@ export function createNavigationBinding({
       rollDeg: 0,
       fovDeg: Cesium.Math.toDegrees(
         cesiumFovRad(
-          VERTICAL_FOV_DEG,
+          (controls().fovDeg ?? VERTICAL_FOV_DEG) + fovEaser.boost,
           canvas.clientWidth || canvas.width,
           canvas.clientHeight || canvas.height,
         ),
@@ -518,10 +581,41 @@ export function createNavigationBinding({
     let state = active.state;
     // Every source's intents this frame (the keys, the mouse, a gamepad).
     const intents = inputs.read(Math.min(0.1, Math.max(0, dt)));
+    const set = controls();
+    // Every source's looks, in pointer-lock pixels (each already at its
+    // own sensitivity: the mouse's in onMouseMove).
     if (intents.lookDx || intents.lookDy)
-      state = look(state, intents.lookDx, intents.lookDy);
+      state = look(state, intents.lookDx, intents.lookDy, LOOK_RAD_PER_PX);
+    // A source's one-shots: leave the mode, Walk ⇄ Fly, Fly's speed.
+    if (intents.release) {
+      if (documentRef?.pointerLockElement === canvas)
+        documentRef.exitPointerLock?.();
+      store.set('spectator');
+      return;
+    }
+    if (intents.toggleMode) {
+      store.set(mode === 'walk' ? 'fly' : 'walk');
+      return;
+    }
+    if (intents.flySpeedStep && mode === 'fly')
+      setFlySpeed(
+        flySpeedAfterSteps(flySpeed ?? set.fly, intents.flySpeedStep),
+      );
     const wasHovering = state.hovering;
-    state = step(state, inputFromIntents(intents, mode), dt, frame.world, mode);
+    const input = inputFromIntents(intents, mode);
+    state = step(state, input, dt, frame.world, mode, {
+      walk: set.walk,
+      sprint: set.sprint,
+      fly: flySpeed ?? set.fly,
+    });
+    // Sprinting forward widens the view (off when the setting says fixed).
+    fovEaser.update(
+      set.sprintFov !== false &&
+        input.sprint &&
+        (input.forward || input.analog?.forward > 0) &&
+        !state.sneaking,
+      Math.min(0.1, Math.max(0, dt)),
+    );
     if (mode === 'walk' && wasHovering && !state.hovering)
       state = land(state, frame.world);
     active.state = state;
@@ -570,6 +664,9 @@ export function createNavigationBinding({
     documentRef?.addEventListener?.('mousemove', onMouseMove);
     documentRef?.addEventListener?.('pointerlockchange', onLockChange);
     canvas.addEventListener?.('click', onCanvasClick);
+    canvas.addEventListener?.('wheel', onWheel, { passive: false });
+    flySpeed = controls().fly;
+    fovEaser.reset();
     scene.preUpdate.addEventListener(onFrame);
     holdRender?.();
     if (crosshair) crosshair.hidden = false;
@@ -588,6 +685,7 @@ export function createNavigationBinding({
     documentRef?.removeEventListener?.('mousemove', onMouseMove);
     documentRef?.removeEventListener?.('pointerlockchange', onLockChange);
     canvas.removeEventListener?.('click', onCanvasClick);
+    canvas.removeEventListener?.('wheel', onWheel);
     if (documentRef?.pointerLockElement === canvas)
       documentRef.exitPointerLock?.();
     controller.enableInputs = restore.enableInputs;
@@ -740,11 +838,14 @@ export function createNavigationBinding({
 
   // G walks here, Shift+G flies here (in Spectator, outside form fields).
   const onEntryKey = (event) => {
-    if (event.code !== 'KeyG' || mode !== 'spectator') return;
+    if (mode !== 'spectator') return;
+    const walkHere = codesFor('walkHere').includes(event.code);
+    const flyHere = codesFor('flyHere').includes(event.code);
+    if (!walkHere && !flyHere) return;
     if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
     if (isFormTarget(event.target)) return;
     event.preventDefault();
-    store.requestEntry?.(event.shiftKey ? 'fly' : 'walk');
+    store.requestEntry?.(flyHere || event.shiftKey ? 'fly' : 'walk');
   };
   documentRef?.addEventListener?.('keydown', onEntryKey);
   const offEntry = store.onEntry?.(enterHere);
@@ -775,6 +876,7 @@ export function createNavigationBinding({
     destroy() {
       unsubscribe();
       offInputs?.();
+      offHinter?.();
       if (spectatorPolling)
         scene.preUpdate.removeEventListener(onSpectatorFrame);
       spectatorPolling = false;
@@ -789,6 +891,8 @@ export function createNavigationBinding({
     },
     /** Walk or Fly here (as G and Shift+G do). */
     enterHere,
+    /** A line in the keys-hint overlay over the crosshair for `ms`. */
+    hint: (text, ms = HINT_MS) => showHintText(String(text ?? ''), ms),
     /**
      * Add an input source (inputs.js: {read(dt) → partial intents,
      * reset?()}); returns its removal.

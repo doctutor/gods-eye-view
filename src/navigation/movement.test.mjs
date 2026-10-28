@@ -601,3 +601,35 @@ test('tuning: the Controls settings’ speeds and eye height', () => {
   // A taller eye: the eye rises to it.
   assert.ok(Math.abs(tuned({}, 'walk', { eye: 1.8 }).z - 1.8) < 1e-9);
 });
+
+test('a stick part way walks part speed; the keys still win when larger', () => {
+  const half = wishDirection({ analog: { forward: 0.5, right: 0 } }, 0);
+  assert.ok(Math.abs(half.y - 0.5) < 1e-12 && Math.abs(half.x) < 1e-12);
+  // Pushed fully on the diagonal: no faster than a key.
+  const corner = wishDirection({ analog: { forward: 1, right: 1 } }, 0);
+  assert.ok(Math.abs(Math.hypot(corner.x, corner.y) - 1) < 1e-12);
+  // W held with the stick a little back: the key's 1 wins forward.
+  const keyWins = wishDirection(
+    { forward: true, analog: { forward: -0.3 } },
+    0,
+  );
+  assert.ok(Math.abs(keyWins.y - 1) < 1e-12);
+  // Speed scales: half a stick walks half as far.
+  const world = blocks(10).world;
+  let full = standingOn(11);
+  let part = { ...full };
+  for (let k = 0; k < 20; k++) {
+    full = step(full, { forward: true }, 0.05, world, 'walk');
+    part = step(
+      part,
+      { analog: { forward: 0.5, right: 0 } },
+      0.05,
+      world,
+      'walk',
+    );
+  }
+  const fullM = full.y - 10.5;
+  const partM = part.y - 10.5;
+  assert.ok(fullM > 4, `full: ${fullM}`);
+  assert.ok(Math.abs(partM / fullM - 0.5) < 0.02, `part: ${partM / fullM}`);
+});

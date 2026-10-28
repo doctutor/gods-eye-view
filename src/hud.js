@@ -684,7 +684,7 @@ export class IntelHUD {
       );
     if (mode === 'fly')
       return t(
-        'Fly: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space up, Shift down, W twice doubles the speed',
+        'Fly: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space up, Shift down, the wheel sets the speed (1–50 m/s), W twice doubles it',
       );
     return t(
       'Spectator: the usual camera. G walks onto the block under the pointer (or the ground at the centre), Shift+G flies there',

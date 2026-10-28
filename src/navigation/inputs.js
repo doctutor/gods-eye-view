@@ -10,11 +10,19 @@
  * The intents:
  *   forward, back, left, right, jump, sneak, sprint, up, down — held
  *     (booleans; up and down are Fly's, besides jump and sneak);
- *   lookDx, lookDy — look deltas this frame, in pointer-lock pixels (the
- *     model turns LOOK_RAD_PER_PX × the sensitivity per pixel; +x turns
- *     right, +y looks down);
+ *   lookDx, lookDy — look deltas this frame, in pointer-lock pixels at the
+ *     source's own sensitivity and inversion (the mouse's from the
+ *     Controls, applied as it moves; a gamepad its own): the model turns
+ *     LOOK_RAD_PER_PX a pixel, +x right, +y down;
+ *   analog — {forward, right}, each −1…1 (a stick): per axis the larger
+ *     of it and the keys' ±1 wins, and its magnitude scales the speed up
+ *     to the mode's;
  *   walkHere, flyHere — one-shot events (Spectator's "Walk here" / "Fly
- *     here").
+ *     here");
+ *   release — one-shot: leave the mode (the pointer let go, Spectator);
+ *   toggleMode — one-shot: Walk ⇄ Fly;
+ *   flySpeedStep — a count this frame, −1 or +1 a press (summed): Fly's
+ *     speed a wheel notch slower or faster.
  */
 
 /** The held intents. */
@@ -30,11 +38,23 @@ export const HELD_INTENTS = Object.freeze([
   'down',
 ]);
 /** The one-shot intents. */
-export const EVENT_INTENTS = Object.freeze(['walkHere', 'flyHere']);
+export const EVENT_INTENTS = Object.freeze([
+  'walkHere',
+  'flyHere',
+  'release',
+  'toggleMode',
+]);
+
+const clampUnit = (value) => Math.max(-1, Math.min(1, value));
 
 /** Nothing asked: every intent off, no look. */
 export function createIntents() {
-  const intents = { lookDx: 0, lookDy: 0 };
+  const intents = {
+    lookDx: 0,
+    lookDy: 0,
+    analog: { forward: 0, right: 0 },
+    flySpeedStep: 0,
+  };
   for (const name of HELD_INTENTS) intents[name] = false;
   for (const name of EVENT_INTENTS) intents[name] = false;
   return intents;
@@ -49,13 +69,22 @@ export function mergeIntents(into, partial) {
   const dy = Number(partial.lookDy);
   if (Number.isFinite(dx)) into.lookDx += dx;
   if (Number.isFinite(dy)) into.lookDy += dy;
+  // A stick per axis: the larger magnitude wins.
+  for (const axis of ['forward', 'right']) {
+    const value = Number(partial.analog?.[axis]);
+    if (Number.isFinite(value) && Math.abs(value) > Math.abs(into.analog[axis]))
+      into.analog[axis] = clampUnit(value);
+  }
+  const steps = Number(partial.flySpeedStep);
+  if (Number.isFinite(steps)) into.flySpeedStep += steps;
   return into;
 }
 
 /**
  * The movement model's input (movement.js step) for a mode: in Walk,
  * jump jumps, sneak sneaks, sprint sprints; in Fly, jump or up rises,
- * sneak or down descends, sprint doubles the speed.
+ * sneak or down descends, sprint doubles the speed. A stick's `analog`
+ * passes through (movement.js wishDirection weighs it against the keys).
  */
 export function inputFromIntents(intents, mode) {
   const input = {
@@ -65,6 +94,10 @@ export function inputFromIntents(intents, mode) {
     right: Boolean(intents.right),
     sprint: Boolean(intents.sprint),
   };
+  const forward = Number(intents.analog?.forward) || 0;
+  const right = Number(intents.analog?.right) || 0;
+  if (forward || right)
+    input.analog = { forward: clampUnit(forward), right: clampUnit(right) };
   if (mode === 'fly') {
     input.up = Boolean(intents.jump || intents.up);
     input.down = Boolean(intents.sneak || intents.down);
@@ -83,6 +116,8 @@ export function inputFromIntents(intents, mode) {
 export function createInputRegistry() {
   const sources = new Set();
   const listeners = new Set();
+  /** The binding's keys-hint overlay, while a binding listens. */
+  let hinter = null;
   const changed = () => {
     for (const listener of [...listeners]) {
       try {
@@ -132,6 +167,26 @@ export function createInputRegistry() {
     get size() {
       return sources.size;
     },
+    /**
+     * Say a line in the keys-hint overlay over the crosshair for `ms`
+     * ("controller connected"); false when no binding shows hints.
+     */
+    hint(text, ms) {
+      if (!hinter) return false;
+      try {
+        hinter(text, ms);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    /** The binding's overlay (binding.js); returns the undo. */
+    setHinter(fn) {
+      hinter = fn;
+      return () => {
+        if (hinter === fn) hinter = null;
+      };
+    },
     /** Whether a source other than `except` is registered. */
     hasOther(except) {
       for (const source of sources) if (source !== except) return true;
@@ -149,6 +204,9 @@ export function inputRegistry() {
 
 /** Add an input source to the page's binding (a gamepad); returns its removal. */
 export const addInputSource = (source) => inputRegistry().add(source);
+
+/** A line in the page's keys-hint overlay for `ms` (binding.hint). */
+export const showInputHint = (text, ms) => inputRegistry().hint(text, ms);
 
 /** Two presses of forward this close together sprint (Minecraft's double-tap). */
 export const DOUBLE_TAP_MS = 300;
