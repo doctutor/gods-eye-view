@@ -2776,6 +2776,7 @@
       "src/data/earthEngineBudget.js",
       "src/navigation/inputs.js",
       "src/navigation/settings.js",
+      "src/navigation/controlsPanel.js",
       "src/navigation/gamepad.js"
     ],
     "external": [
