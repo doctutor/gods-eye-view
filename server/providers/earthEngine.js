@@ -958,62 +958,146 @@ export function overlayExpression(layer, variant, ink, modeKey, window = null) {
 
 /** The Blocks style's flat cells: the hillshade of a flat cell (255 · cos 45°). */
 const FLAT_HILLSHADE = 180;
-/** The Blocks style's cell edges: this share of a cell from its south-west sides … */
-export const BLOCKS_EDGE_SHARE = 0.06;
+/**
+ * The Blocks style's cell edges: the westmost and southmost of
+ * BLOCKS_EDGE_PARTS sub-cells a side (one output pixel at the level the
+ * client picks, 8 px a cell) …
+ */
+export const BLOCKS_EDGE_PARTS = 8;
 /** … darkened to this share of the cell's tone. */
 export const BLOCKS_EDGE_TONE = 0.62;
-/** A coarse cell is the mean of at most this many pixels (a coarser pyramid level past it). */
-const BLOCKS_MEAN_PIXELS = 256;
+/**
+ * A cell is the mean of SUB × SUB samples of its source, read at a quarter
+ * of the cell (from the source's pyramid, itself means): 16 a cell, so a
+ * z 4 tile at 1,920 m reads about 25 M pixels, not 400 M.
+ */
+export const BLOCKS_MEAN_SUB = 4;
+/** A cell is water (level 0) when less than this share of it has heights. */
+export const BLOCKS_LAND_SHARE = 0.5;
+/** The water's colour: the Blocks water's (mesh.js), flat. */
+export const BLOCKS_WATER_RGB = Object.freeze([58, 112, 190]);
+/** The finest level read from the far band (GMTED 230 m); finer ones read FABDEM 30 m. */
+export const BLOCKS_FAR_FROM_M = 1920;
 const M_PER_DEG_EQUATOR = 111_319.49;
 
 /**
- * Elevation's Blocks style at a cell (src/data/blocksStyle.js): the DEM
- * stack's heights averaged over equal-angle cells of `cellM` (EPSG:4326 at
- * that scale, as the Blocks lattice), quantised down to the level height
- * (blocksLevelM), coloured as the Elevation layer colours that height,
- * each cell shaded flat by the hillshade of the quantised surface, and its
- * west and south sides drawn darker (pixelCoordinates in degrees mod the
- * cell). An RGB image: the map draws it 0 to 255.
+ * The Blocks style's grids: equal-angle cells of `cellM` (blockM of
+ * latitude, as the Blocks lattice) from 180° W and, in whole cells, from
+ * 90° S, so a style cell is a lattice cell; `part` divides the cell.
+ */
+export function blocksStyleGrid(cellM, part = 1) {
+  const cellDeg = cellM / M_PER_DEG_EQUATOR;
+  const top = -90 + Math.ceil(180 / cellDeg) * cellDeg;
+  const deg = cellDeg / part;
+  return { cellDeg, top, deg, transform: [deg, 0, -180, 0, -deg, top] };
+}
+
+/**
+ * Elevation's Blocks style at a cell (src/data/blocksStyle.js), every
+ * property the cell's own:
+ * - the heights: the DEM stack's band for the level (the far band, GMTED
+ *   230 m, from BLOCKS_FAR_FROM_M; FABDEM 30 m under it), fill masked
+ *   (VALID_HEIGHT_M), averaged over each cell of blocksStyleGrid (from
+ *   BLOCKS_MEAN_SUB² samples) and over valid pixels only;
+ * - water: a cell less than half of whose samples have heights (the sea,
+ *   masked in every source), or whose mean is at or below 0 m: level 0,
+ *   one flat colour, as the Blocks geometry draws water;
+ * - the level: the mean quantised down to blocksLevelM; its colour the
+ *   Elevation layer's for that height, shaded flat by the hillshade of the
+ *   quantised cells (÷ 180, a flat cell's);
+ * - the edges: the westmost and southmost eighth of each cell, on a grid
+ *   of eighths, BLOCKS_EDGE_TONE as dark.
+ * Each is reprojected to its grid, so a cell is one colour at any zoom. An
+ * RGB image, drawn 0 to 255.
  */
 export function blocksStyleExpression(layer, variant, cellM) {
+  const band = cellM >= BLOCKS_FAR_FROM_M ? 'far' : 'base';
+  const source =
+    layerVariants(layer).find((entry) => entry.stack === band) || variant;
   const heights = demStackExpression(
     { ...layer, transform: null, validRange: VALID_HEIGHT_M },
-    variant,
+    source,
   );
   const levelM = blocksLevelM(cellM);
   const wgs84 = invoke('Projection', { crs: constant('EPSG:4326') });
+  const onGrid = (image, part) =>
+    invoke('Image.reproject', {
+      image,
+      crs: wgs84,
+      crsTransform: constant(blocksStyleGrid(cellM, part).transform),
+    });
+  // The mean over each cell of samples at 1 / BLOCKS_MEAN_SUB of it.
+  const cellMean = (image) =>
+    onGrid(
+      invoke('Image.reduceResolution', {
+        image: invoke('Image.setDefaultProjection', {
+          image,
+          crs: wgs84,
+          crsTransform: constant(
+            blocksStyleGrid(cellM, BLOCKS_MEAN_SUB).transform,
+          ),
+        }),
+        reducer: invoke('Reducer.mean', {}),
+        bestEffort: constant(true),
+        maxPixels: constant(BLOCKS_MEAN_SUB * BLOCKS_MEAN_SUB),
+      }),
+      1,
+    );
   // The stack's own values ('1', '2', …) kept; its result moved off '0'.
   const { [heights.result]: heightsNode, ...stackValues } = heights.values;
   const count = Object.keys(heights.values).length;
-  const heightsRef = String(count + 1);
-  const sharedRef = String(count + 2);
-  const mean = invoke('Image.reproject', {
-    image: invoke('Image.reduceResolution', {
-      image: invoke('Image.setDefaultProjection', {
-        image: reference(heightsRef),
-        crs: wgs84,
-        scale: constant(30),
-      }),
-      reducer: invoke('Reducer.mean', {}),
-      bestEffort: constant(true),
-      maxPixels: constant(BLOCKS_MEAN_PIXELS),
+  const refs = {
+    heights: String(count + 1),
+    water: String(count + 2),
+    level: String(count + 3),
+    mean: String(count + 4),
+  };
+  // Shared, so Earth Engine reduces it once for the water and the level.
+  const meanHeight = reference(refs.mean);
+  const landShare = cellMean(
+    invoke('Image.unmask', {
+      input: invoke('Image.mask', { image: reference(refs.heights) }),
+      value: imageConstant(0),
+      sameFootprint: constant(false),
     }),
-    crs: wgs84,
-    scale: constant(cellM),
+  );
+  // 1 where the cell is water: mostly no heights, or a mean at or below 0 m.
+  const water = invoke('Image.max', {
+    image1: invoke('Image.lt', {
+      image1: landShare,
+      image2: imageConstant(BLOCKS_LAND_SHARE),
+    }),
+    image2: invoke('Image.unmask', {
+      input: invoke('Image.lte', {
+        image1: meanHeight,
+        image2: imageConstant(0),
+      }),
+      value: imageConstant(1),
+      sameFootprint: constant(false),
+    }),
   });
-  const quantised = invoke('Image.multiply', {
-    image1: invoke('Image.floor', {
-      value: invoke('Image.divide', {
-        image1: mean,
+  // The cell's level in metres: the mean quantised down; water 0.
+  const level = invoke('Image.where', {
+    input: invoke('Image.unmask', {
+      input: invoke('Image.multiply', {
+        image1: invoke('Image.floor', {
+          value: invoke('Image.divide', {
+            image1: meanHeight,
+            image2: imageConstant(levelM),
+          }),
+        }),
         image2: imageConstant(levelM),
       }),
+      value: imageConstant(0),
+      sameFootprint: constant(false),
     }),
-    image2: imageConstant(levelM),
+    test: reference(refs.water),
+    value: imageConstant(0),
   });
-  const colour = invoke('Image.visualize', {
+  const land = invoke('Image.visualize', {
     image: invoke('Image.sqrt', {
       value: invoke('Image.max', {
-        image1: reference(sharedRef),
+        image1: reference(refs.level),
         image2: imageConstant(0),
       }),
     }),
@@ -1021,34 +1105,76 @@ export function blocksStyleExpression(layer, variant, cellM) {
     max: constant(layer.vis.max),
     palette: constant([...layer.vis.palette]),
   });
+  // The hillshade of the quantised cells, on the cells' grid.
   const shade = invoke('Image.divide', {
-    image1: invoke('Terrain.hillshade', {
-      input: reference(sharedRef),
-      azimuth: constant(315),
-      elevation: constant(45),
-    }),
+    image1: onGrid(
+      invoke('Terrain.hillshade', {
+        input: reference(refs.level),
+        azimuth: constant(315),
+        elevation: constant(45),
+      }),
+      1,
+    ),
     image2: imageConstant(FLAT_HILLSHADE),
   });
-  // The cell's sides: x and y in degrees, as fractions of a cell.
-  const cellDeg = cellM / M_PER_DEG_EQUATOR;
+  const landTone = invoke('Image.min', {
+    image1: invoke('Image.multiply', { image1: land, image2: shade }),
+    image2: imageConstant(255),
+  });
+  const picture = invoke('Image.add', {
+    image1: invoke('Image.multiply', {
+      image1: landTone,
+      image2: invoke('Image.subtract', {
+        image1: imageConstant(1),
+        image2: reference(refs.water),
+      }),
+    }),
+    image2: invoke('Image.multiply', {
+      image1: imageConstant([...BLOCKS_WATER_RGB]),
+      image2: reference(refs.water),
+    }),
+  });
+  // The edges: the westmost and southmost eighth of each cell, on the grid
+  // of eighths (whole sub-cells, so a line is a whole output pixel there).
+  const { deg: partDeg, top } = blocksStyleGrid(cellM, BLOCKS_EDGE_PARTS);
   const coordinates = invoke('Image.pixelCoordinates', { projection: wgs84 });
-  const along = (band) => {
-    const cells = invoke('Image.divide', {
-      image1: invoke('Image.select', {
-        input: coordinates,
-        bandSelectors: constant([band]),
-      }),
-      image2: imageConstant(cellDeg),
+  const degrees = (axis) =>
+    invoke('Image.select', {
+      input: coordinates,
+      bandSelectors: constant([axis]),
     });
-    return invoke('Image.lt', {
-      image1: invoke('Image.subtract', {
-        image1: cells,
-        image2: invoke('Image.floor', { value: cells }),
+  const partOf = (image) =>
+    invoke('Image.mod', {
+      image1: invoke('Image.floor', {
+        value: invoke('Image.divide', {
+          image1: image,
+          image2: imageConstant(partDeg),
+        }),
       }),
-      image2: imageConstant(BLOCKS_EDGE_SHARE),
+      image2: imageConstant(BLOCKS_EDGE_PARTS),
     });
-  };
-  const edge = invoke('Image.max', { image1: along('x'), image2: along('y') });
+  const west = invoke('Image.eq', {
+    image1: partOf(
+      invoke('Image.add', {
+        image1: degrees('x'),
+        image2: imageConstant(180),
+      }),
+    ),
+    image2: imageConstant(0),
+  });
+  const south = invoke('Image.eq', {
+    image1: partOf(
+      invoke('Image.subtract', {
+        image1: imageConstant(top),
+        image2: degrees('y'),
+      }),
+    ),
+    image2: imageConstant(BLOCKS_EDGE_PARTS - 1),
+  });
+  const edge = onGrid(
+    invoke('Image.max', { image1: west, image2: south }),
+    BLOCKS_EDGE_PARTS,
+  );
   const tone = invoke('Image.subtract', {
     image1: imageConstant(1),
     image2: invoke('Image.multiply', {
@@ -1056,22 +1182,14 @@ export function blocksStyleExpression(layer, variant, cellM) {
       image2: imageConstant(1 - BLOCKS_EDGE_TONE),
     }),
   });
-  const picture = invoke('Image.min', {
-    image1: invoke('Image.multiply', {
-      image1: invoke('Image.multiply', { image1: colour, image2: shade }),
-      image2: tone,
-    }),
-    image2: imageConstant(255),
-  });
   return {
     values: {
-      0: invoke('Image.updateMask', {
-        image: picture,
-        mask: invoke('Image.mask', { image: reference(sharedRef) }),
-      }),
+      0: invoke('Image.multiply', { image1: picture, image2: tone }),
       ...stackValues,
-      [heightsRef]: heightsNode,
-      [sharedRef]: quantised,
+      [refs.heights]: heightsNode,
+      [refs.water]: water,
+      [refs.level]: level,
+      [refs.mean]: cellMean(reference(refs.heights)),
     },
     result: '0',
   };
