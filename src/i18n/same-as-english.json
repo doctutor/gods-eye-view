@@ -140,6 +140,8 @@
     "voice|ERROR",
     "{area} km²",
     "{km} km",
+    "{size} km",
+    "{size} m",
     "{rate} msg/s",
     "{speed} kn",
     "{type}  SPD: {speed}  HDG: {heading}",

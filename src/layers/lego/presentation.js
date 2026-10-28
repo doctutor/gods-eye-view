@@ -1,6 +1,7 @@
 import { formatNumber, msg, t, tn } from '../../i18n/index.js';
 import { EXAGGERATIONS, formatLatLon, formatValue } from './model.js';
 import { RELIEF_FACTORS } from './photoreal.js';
+import { blockSizeText } from '../blocks/floor.js';
 import {
   budgetText,
   budgetTitle,
@@ -123,23 +124,33 @@ export function blocksStatusText(status) {
       return t('Blocks unavailable');
     case 'loading':
     case 'ready': {
-      const values = {
-        size: formatNumber(Math.round(status.blockM * 10) / 10),
-        count: formatNumber(status.chunks),
-        coarse: formatNumber(status.coarse || 0),
-        source: status.source,
-      };
+      // "Blocks: 1 m cubes", or above the native cells, where a level is
+      // not a block's width, "Blocks: 1.9 km cells · 60 m levels"
+      // (src/layers/blocks/index.js levelMFor).
+      const size = blockSizeText(status.blockM);
+      const parts =
+        status.levelM > 0 && status.levelM !== status.blockM
+          ? [
+              t('Blocks: {size} cells', { size }),
+              t('{level} levels', { level: blockSizeText(status.levelM) }),
+            ]
+          : [t('Blocks: {size} cubes', { size })];
+      // The Relief control, when it exaggerates.
+      if (status.relief > 1)
+        parts.push(
+          t('relief ×{factor}', { factor: formatNumber(status.relief) }),
+        );
       // With the coarse ring: "274 + 48 coarse".
-      let text = status.coarse
-        ? status.source
-          ? t(
-              'Blocks: {size} m cubes · {count} + {coarse} coarse · {source}',
-              values,
-            )
-          : t('Blocks: {size} m cubes · {count} + {coarse} coarse', values)
-        : status.source
-          ? t('Blocks: {size} m cubes · {count} chunks · {source}', values)
-          : t('Blocks: {size} m cubes · {count} chunks', values);
+      parts.push(
+        status.coarse
+          ? t('{count} + {coarse} coarse', {
+              count: formatNumber(status.chunks),
+              coarse: formatNumber(status.coarse),
+            })
+          : t('{count} chunks', { count: formatNumber(status.chunks) }),
+      );
+      if (status.source) parts.push(status.source);
+      let text = parts.join(' · ');
       // The real sun is under 15°: lit by the fixed study sun.
       if (status.sunFixed) text = `${text} · ${t('study sun')}`;
       // OpenStreetMap buildings drawn as blocks, when any are; counted once

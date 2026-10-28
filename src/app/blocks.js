@@ -14,6 +14,8 @@ import { createRasterValuesClient } from '../data/rasterValues.js';
 import { governorRequestRender } from '../renderGovernor.js';
 import { ensureGeoidReady, geoidHeight } from '../data/geoid.js';
 import { isFlatBasemap } from '../layers/lego/renderMode.js';
+import { viewFootprintM } from '../hud/cameraState.js';
+import { navigationStore } from '../navigation/store.js';
 // Personal fork: Walk and Fly walk on the drawn blocks (src/navigation/).
 import { provideBlocksWorld } from '../navigation/blocksSource.js';
 
@@ -24,13 +26,16 @@ import { provideBlocksWorld } from '../navigation/blocksSource.js';
  * source and renderer, and to the render mode the ANALYSIS heading's
  * drop-down shares with Lego.
  * @param {{viewer: object, dataManager: object, store: object,
- *   mapStackController?: object|null}} scene
+ *   mapStackController?: object|null, reliefStore?: {subscribe: Function}
+ *   |null}} scene reliefStore: the Relief control's store (photoreal.js),
+ *   heard so the blocks follow it
  */
 export function createApplicationBlocks({
   viewer,
   dataManager,
   store,
   mapStackController = null,
+  reliefStore = null,
 }) {
   const values = createRasterValuesClient();
   const chunks = createChunkSource({
@@ -67,6 +72,22 @@ export function createApplicationBlocks({
         buildings.loadGroupBuildings(region, gi, gj, { viaSupergroup: true }),
       apply: applyStructures,
     },
+    // The block size from the HUD's PX at the view's centre (milestone 5);
+    // none in Walk and Fly, where the centre is the horizon's and the
+    // blocks underfoot keep their size.
+    footprint: () =>
+      navigationStore().get() === 'spectator'
+        ? viewFootprintM(viewer)
+        : Number.NaN,
+    // The Relief control as the scene draws the globe with it
+    // (photoreal.js applyRelief), heard through its store.
+    relief: () => ({
+      factor: viewer?.scene?.verticalExaggeration || 1,
+      relativeM: viewer?.scene?.verticalExaggerationRelativeHeight || 0,
+    }),
+    subscribeRelief: reliefStore
+      ? (listener) => reliefStore.subscribe(listener)
+      : null,
     // The real sun when it is above 15°, else the study sun.
     sun: (lon, lat) => blocksSun(Date.now(), lat, lon),
     datum: blocksDatum({ viewer, mapStackController }),

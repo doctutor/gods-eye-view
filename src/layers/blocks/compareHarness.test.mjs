@@ -21,6 +21,10 @@ import {
   petColour,
   rasterValuesBody,
   syntheticField,
+  heightLabel,
+  parseAltitudes,
+  parseBlocksStatus,
+  scaleViews,
 } from '../../../scripts/qa-blocks-compare.mjs';
 import {
   decodeRasterValues,
@@ -243,4 +247,60 @@ test('--live: which routes go to the running server, whether one answers, and th
   assert.equal(eye.alt, 43 + 1.7);
   assert.equal(eye.pitch, -5);
   assert.equal(eye.lat, VIEW.lat);
+});
+
+test('--altitudes: Baltimore from each height at pitch −45 and −90, named scale-<height>-p<pitch>', () => {
+  assert.deepEqual(
+    parseAltitudes('300,5000, 50000,500000,3000000'),
+    [300, 5000, 50_000, 500_000, 3_000_000],
+  );
+  assert.deepEqual(parseAltitudes(null), []);
+  assert.throws(() => parseAltitudes('high'));
+  assert.equal(heightLabel(300), '300m');
+  assert.equal(heightLabel(5000), '5km');
+  assert.equal(heightLabel(3_000_000), '3000km');
+  const shots = scaleViews([300, 3_000_000]);
+  assert.deepEqual(Object.keys(shots), [
+    'scale-300m-p45',
+    'scale-300m-p90',
+    'scale-3000km-p45',
+    'scale-3000km-p90',
+  ]);
+  assert.deepEqual(shots['scale-3000km-p90'].view, {
+    ...VIEW,
+    alt: 3_000_000,
+    pitch: -90,
+  });
+  assert.equal(shots['scale-300m-p45'].prefix, 'scale-300m-p45');
+});
+
+test('the report reads the level from the Blocks status line', () => {
+  assert.deepEqual(
+    parseBlocksStatus(
+      'Blocks: 1.9 km cells · 60 m levels · relief ×3 · 320 + 208 coarse · FABDEM 30 m',
+    ),
+    {
+      state: 'ready',
+      text: 'Blocks: 1.9 km cells · 60 m levels · relief ×3 · 320 + 208 coarse · FABDEM 30 m',
+      blockM: 1900,
+      levelM: 60,
+      relief: 3,
+      chunks: 320,
+      coarse: 208,
+    },
+  );
+  const cubes = parseBlocksStatus(
+    'Blocks: 1 m cubes · 1,204 chunks · 3DEP 1 m · 12 loading',
+  );
+  assert.equal(cubes.state, 'loading');
+  assert.equal(cubes.blockM, 1);
+  assert.equal(cubes.levelM, 1);
+  assert.equal(cubes.chunks, 1204);
+  assert.equal(cubes.coarse, 0);
+  assert.deepEqual(parseBlocksStatus('Blocks: come below 8 km to build'), {
+    state: 'too-high',
+    text: 'Blocks: come below 8 km to build',
+    ceilingKm: 8,
+  });
+  assert.equal(parseBlocksStatus('').state, 'other');
 });
