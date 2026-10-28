@@ -213,6 +213,9 @@ in their report and the manager propagates it.
    as stacked blocks.
 4. **Interaction**: break and stack through the edits overlay, persisted
    per region.
+5. **Any scale**: the block follows the pixel footprint up a pyramid of
+   aggregated levels, so a continent reads as blocks too (the section
+   "Milestone 5" below).
 
 ## Status, end of 2026-10-27
 
@@ -265,6 +268,81 @@ interfere with GEV's own. Shipped in seven merges (PERSONAL-FORK.md
   localStorage, never in the link.
 - Spectator keeps GEV's camera, collision, shortcuts and flights; links
   without `nav=` open there.
+
+## Milestone 5: Blocks at any scale (2026-10-28, with the user)
+
+The user asked for a continent in the style of Minecraft. The footprint
+rule that governs the HUD governs this too: a block is never finer than
+the data and never finer than about two screen pixels, so from orbit the
+block has to be big. Today `blockM` is pinned to the source's native cell
+and a ceiling (`ceilingM`, 4 × R2 × blockM) holds Blocks above it. This
+milestone lets the block follow the footprint instead, so Blocks draws at
+every altitude with about the same number of columns on screen, and the
+ceiling becomes the top of a pyramid rather than a wall.
+
+### Decisions
+
+1. **The block size follows the pixel footprint.** `blockM` for a region
+   is the smallest pyramid level ≥ max(native cell, FOOTPRINT_BLOCKS × PX),
+   with `FOOTPRINT_BLOCKS = 2` and PX the HUD's pixel footprint at the view
+   centre (`src/hud/cameraState.js`). The pyramid is the native cells
+   (1, 2, 8, 10, 30 m) continued by ×4 from 30 m: 120, 480, 1,920, 7,680,
+   30,720 m. A level changes with hysteresis (×2 either way) so a view
+   near a boundary does not re-anchor on every move.
+2. **The vertical step is decoupled from the horizontal cell.** A region
+   gains `levelM` (metres per level) beside `blockM`. At native cells a
+   block is a cube (`levelM = blockM`, no visible change). Above 30 m the
+   rule is `levelM = max(30 m, blockM / 32)`: 120 m blocks on 30 m
+   levels, 1,920 m on 60 m, 30,720 m on 960 m. Appalachia at 10 km cells
+   is then tens of steps, not a fifth of one. The Relief ×n control
+   (`renderMode.js` exaggeration, kept in the browser) multiplies the drawn height
+   of every level, as Colour already does; the readouts keep the real
+   metres.
+3. **Coarse blocks are aggregates, served and cached.** A coarse cell is
+   the mean of the source over the cell (Earth Engine's reduce at that
+   scale through the existing `cells=` request), never a sample, so a
+   30 km block over the Rockies is their mean height. The server's 30-day
+   disk cache keeps every level; a view costs the same 41 requests at any
+   scale. A warm-up script (`npm run blocks:pyramid -- --bbox … --levels`)
+   may precompute the coarse levels for a continent once; the 231 m
+   ocean source is the pyramid's floor at sea.
+4. **The two rings become N rings.** The fine disc plus one coarse ring is
+   the K = 1 case; the controller keeps K rings, each 4 × the previous
+   cell and reach, until the outermost ring's reach passes the horizon or
+   the top level. R1 = 512 blocks stays.
+5. **Beyond a few hundred kilometres the grid is curved.** One tangent
+   plane is wrong at continental reach (the Earth falls 300 km under it at
+   a 2,000 km radius). Levels of 1,920 m and up stand each column on the
+   ellipsoid: the mesher keeps integer block space, the quad writer
+   places vertices by lon/lat/height, and greedy runs are capped so a
+   quad's chord error stays under a pixel. The 1 m to 480 m levels keep
+   the flat frame (0.2 m error at 50 km).
+6. **Top-down is a style, not geometry.** At pitch −90 only top faces
+   show, so a "Blocks" visualisation mode of the Elevation layer, computed
+   in Earth Engine (reproject to the level's cell, quantise to `levelM`,
+   flat-shade each cell by the quantised hillshade, draw cell edges) gives
+   the continental picture at the cost of the Elevation tiles alone. One
+   map id per coarse level; the client shows the one whose cell matches
+   the footprint. It is the cheap first deliverable and the fallback when
+   geometry cannot build.
+
+### Work and ownership
+
+| Step | Owner                | What                                                                                                                                                                                                                                                                                                                                                                              |
+| ---- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A    | worker1              | `levelM` through grid, store (`level = floor(h / levelM)`), mesh (`writeQuads` scales the slice axis by `levelM`, u/v by `blockM`), lighting, occupancy, the walker's step-up and jump (still metres), targeting, the BLOCK line. Tests. Default `levelM = blockM`.                                                                                                               |
+| B    | worker2              | source: `regionFor` takes the wanted cell and returns the pyramid level; `loadGroup` at any level; the server's coarse elevation cells mean-aggregated (check `rasterValues.js` / `earthEngine.js`; if the EE path samples, reduce). Renderer: K rings of regions, fog from the outermost. Then step F.                                                                           |
+| C    | worker3              | Controller: `blockM` from the footprint with hysteresis, `levelM` by the rule, Relief multiplies the drawn height, the ceiling replaced by the top level's, re-anchor on a level change, status line ("Blocks: 1.9 km cells · 60 m levels · relief ×3 · FABDEM 30 m"), HUD data floor, docs. Harness: Baltimore at 300 m, 5 km, 50 km, 500 km and 3,000 km, Blocks beside Colour. |
+| D    | worker1 + worker2    | The curved frame (decision 5): grid gives per-column lon/lat; the quad writer places vertices on the ellipsoid above 480 m; renderer model matrix per chunk. After the first screenshots from C.                                                                                                                                                                                  |
+| F    | worker2 then worker3 | The Earth Engine "Blocks" mode of the Elevation layer (decision 6): server mode and map ids per level; the client swaps by footprint; the panel's Render drop-down shows it as the top-down fallback.                                                                                                                                                                             |
+
+Order: A, B and the server half of F are independent and start at once;
+C integrates as A and B land (the manager merges in that order and tells
+worker3); D after C's screenshots say which views need it. Budget: the
+20,000 tile day is unchanged; one fresh view at any level ≈ 41 requests.
+Success: Baltimore to the Appalachians to the continent in one descent
+without leaving Blocks, every level reading as a block map, and the
+3,000 km view beside Colour judged by the user.
 
 ## Out of scope now
 
