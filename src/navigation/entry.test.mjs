@@ -83,3 +83,15 @@ test('leaving: 60 m back along the heading and 60 m up, looking at where the fee
   const drop = Math.tan(-view.pitch) * along;
   assert.ok(Math.abs(drop - (view.up + EYE_HEIGHT_M)) < 1e-9);
 });
+
+test('walking onto a 120 m block on 30 m levels: the eye 1.62 m over its top at (level + 1) × 30 m', () => {
+  const occupancy = (i, j, y) => (y <= 3 ? MATERIALS.TERRAIN : MATERIALS.AIR);
+  const pose = entryPose({
+    facts: { i: 5, j: 5, y: 3, blockM: 120, levelM: 30 },
+    occupancy,
+  });
+  assert.equal(pose.x, 5.5 * 120);
+  assert.equal(pose.y, 5.5 * 120);
+  assert.ok(Math.abs(pose.z - (120 + EYE_HEIGHT_M)) < 1e-9);
+  assert.equal(pose.level, 3);
+});

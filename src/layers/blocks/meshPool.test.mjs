@@ -471,3 +471,19 @@ test('destroy stops the timers of running jobs', async () => {
   await assert.rejects(pending, /destroyed/);
   assert.equal(timers.size, 0);
 });
+
+test('the snapshot carries levelM: a 120 m block on 30 m levels meshes the same off the thread', () => {
+  const chunk = hilly(0, 0);
+  const neighbours = around(0, 0);
+  const options = { ...OPTIONS, blockM: 120, levelM: 30 };
+  const direct = buildChunkMesh(chunk, { ...options, neighbours });
+  const { job } = snapshotJob(chunk, { ...options, neighbours });
+  assert.equal(structuredClone(job).options.levelM, 30);
+  assertSameMesh(runMeshJob(structuredClone(job)), direct, '120 m / 30 m');
+  // And not the cube's mesh.
+  const cube = buildChunkMesh(chunk, { ...OPTIONS, blockM: 120, neighbours });
+  assert.notDeepEqual(
+    [...cube.positions.slice(0, 30)],
+    [...direct.positions.slice(0, 30)],
+  );
+});
