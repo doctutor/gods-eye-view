@@ -1176,7 +1176,7 @@ test('the world for Walk and Fly: the region, its loaded chunks and the datum of
   controller.destroy();
 });
 
-test('skirts: a fine chunk with no fine neighbour beyond a border hangs its sides down to 4 × the lowest coarse level there', async () => {
+test('skirts: a fine chunk with no fine neighbour beyond a border hangs its sides down to the lowest coarse level there (coarse chunks keep the region’s levels)', async () => {
   const { SKIRT_SIDES } = await import('./index.js');
   assert.deepEqual(
     SKIRT_SIDES.map(([name]) => name),
@@ -1188,9 +1188,9 @@ test('skirts: a fine chunk with no fine neighbour beyond a border hangs its side
   // R1 = 128 columns: fine groups −1 … 0 each way, chunks −4 … 3.
   const last = (key) => meshes.filter((m) => m.key === key).at(-1).options;
   // The east edge of group 0: chunk 4:0 is not fine, c:1:0 is beyond (lowest 6).
-  assert.deepEqual(last('3:0').skirt, { n: null, s: null, e: 24, w: null });
+  assert.deepEqual(last('3:0').skirt, { n: null, s: null, e: 6, w: null });
   // The north-west corner: skirts on two sides, from c:-1:1 (lowest 4) and c:-2:0 (3).
-  assert.deepEqual(last('-4:3').skirt, { n: 16, s: null, e: null, w: 12 });
+  assert.deepEqual(last('-4:3').skirt, { n: 4, s: null, e: null, w: 3 });
   // Inside the fine ring: none.
   assert.equal(last('1:1').skirt, undefined);
   // Coarse chunks toward other coarse chunks: none.
@@ -1216,21 +1216,21 @@ test('coarse skirts: a coarse chunk beside a group drawn fine drops that neighbo
     meshes
       .filter((m) => m.chunk.coarse && m.chunk.gi === gi && m.chunk.gj === gj)
       .at(-1).options;
-  // c:1:0 has group 0:0 (drawn fine) to its west: floor(9 / 4) = 2 there,
-  // and its west neighbour (the hidden c:0:0) left out.
+  // c:1:0 has group 0:0 (drawn fine) to its west: level 9 there (the same
+  // levels), and its west neighbour (the hidden c:0:0) left out.
   const east = lastCoarse(1, 0);
-  assert.deepEqual(east.skirt, { n: null, s: null, e: null, w: 2 });
+  assert.deepEqual(east.skirt, { n: null, s: null, e: null, w: 9 });
   assert.equal(east.neighbours.w, undefined, 'the hidden coarse chunk dropped');
   assert.ok(east.neighbours.e, 'its coarse neighbour kept');
   // c:-2:-1 has group −1:−1 to its east.
   assert.deepEqual(lastCoarse(-2, -1).skirt, {
     n: null,
     s: null,
-    e: 2,
+    e: 9,
     w: null,
   });
   // c:0:1 has group 0:0 to its south.
-  assert.deepEqual(lastCoarse(0, 1).skirt, { n: null, s: 2, e: null, w: null });
+  assert.deepEqual(lastCoarse(0, 1).skirt, { n: null, s: 9, e: null, w: null });
   // Beyond: coarse all round, none.
   assert.equal(lastCoarse(2, 0).skirt, undefined);
   controller.destroy();
@@ -1253,7 +1253,7 @@ test('skirts wait for what is coming: none toward a fine neighbour still loading
   assert.deepEqual(ofEdge().at(-1).options.skirt, {
     n: null,
     s: null,
-    e: 24,
+    e: 6,
     w: null,
   });
   controller.destroy();

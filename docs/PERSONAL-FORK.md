@@ -6278,14 +6278,16 @@ finer than about two screen pixels.
   - The check runs where the camera settles, not mid-move. A level change
     anchors a new region at the camera, every chunk replaced, as leaving
     the region does.
+  - In Walk and Fly there is no footprint (the view's centre is the
+    horizon's), so the blocks underfoot keep their size. A region anchored
+    there is the native cell, under its own ceiling.
 - **The level height.** The vertical step is decoupled from the cell
   (`levelMFor`, the region's `levelM`). Up to 30 m a block is a cube. Above
   it a level is max(30 m, blockM / 32): 120 m and 480 m blocks on 30 m
   levels, 1,920 m on 60 m, 7,680 m on 240 m, 30,720 m on 960 m. A coarse
-  chunk of the ring is a block of four, on the level height of its own
-  size; the skirts between the rings convert levels by the ratio of the
-  two heights (4 for cubes, 1 from 120 m up). The store quantises heights
-  to `levelM` and the mesher draws a level `levelM` tall (worker1's,
+  chunk of the ring is four blocks wide on the region's own levels, so the
+  skirts between the rings meet level for level. The store quantises
+  heights to `levelM` and the mesher draws a level `levelM` tall (worker1's,
   milestone 5 step A).
 - **Relief.** The Relief ×N control beside Render (photoreal.js:
   `scene.verticalExaggeration` about the ground under the view) stretches

@@ -735,8 +735,6 @@ export function createBlocksController({
           region,
           blockM,
           levelM,
-          // A coarse chunk is a block of four: its own level height.
-          coarseLevelM: levelMFor(blockM * GROUP_CHUNKS),
           // The level asked for (the source may have none so coarse).
           askedM: pyramidLevelM(nativeM, wantedM),
           followsView: wantedM > 0,
@@ -949,8 +947,8 @@ export function createBlocksController({
    * ring meets the coarse one, so neither shows the background between:
    * - a fine chunk, along a border whose fine neighbour is neither loaded
    *   nor coming: down to the lowest ground of the coarse chunk beyond
-   *   (coarseRatio fine levels to a coarse one: four for cubes), for where
-   *   the fine ground is higher;
+   *   (a coarse chunk keeps the region's levels: its blocks are four wide,
+   *   not four tall), for where the fine ground is higher;
    * - a coarse chunk, along a border with a group drawn fine: down to the
    *   lowest fine ground there (in coarse levels), for where the coarse
    *   ground is higher. None toward other coarse chunks.
@@ -966,7 +964,7 @@ export function createBlocksController({
         if (!groupDrawn(gi, gj)) continue;
         const lowest = lowestFine(gi, gj);
         if (lowest === null) continue;
-        skirt[name] = Math.floor(lowest / coarseRatio());
+        skirt[name] = lowest;
         any = true;
       }
       return any ? skirt : null;
@@ -982,14 +980,11 @@ export function createBlocksController({
       if (!beyond?.chunk) continue;
       const lowest = lowestTop(beyond);
       if (lowest === null) continue;
-      skirt[name] = Math.floor(lowest * coarseRatio());
+      skirt[name] = lowest;
       any = true;
     }
     return any ? skirt : null;
   }
-
-  /** Fine levels to a coarse one (4 for cubes, 1 at 120 m and up). */
-  const coarseRatio = () => _region.coarseLevelM / _region.levelM;
 
   /** What a chunk is meshed from, and the signature that says when again. */
   function meshInputs(entry) {
@@ -1010,16 +1005,10 @@ export function createBlocksController({
   /** What buildChunkMesh (or meshAsync) is given: plain data but the chunks. */
   const meshOptions = (entry, { neighbours, skirt }) => ({
     neighbours,
-    // A coarse chunk's levels are in its own unit, four blocks.
+    // A coarse chunk's blocks are four wide, on the region's levels.
     blockM: _region.blockM * (entry.coarse ? GROUP_CHUNKS : 1),
-    // The level height drawn: the chunk's own (a source that says it), or
-    // the rule's, times the relief.
-    levelM:
-      (Number(entry.chunk?.levelM) > 0
-        ? Number(entry.chunk.levelM)
-        : entry.coarse
-          ? _region.coarseLevelM
-          : _region.levelM) * _region.relief.factor,
+    // The level height drawn: the region's, times the relief.
+    levelM: _region.levelM * _region.relief.factor,
     sunDir: _region.sun.dir,
     ...(skirt ? { skirt } : {}),
   });

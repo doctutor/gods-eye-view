@@ -861,19 +861,27 @@ async function shoot({
   if (blocks)
     await page
       .waitForFunction(
-        () => {
+        (alt) => {
           const text =
             document.querySelector('.lego-render-status')?.textContent || '';
           // Settled: nothing loading, the buildings counted; or held
-          // above the ceiling (a source without levels, high up).
+          // above the ceiling (a source without levels, high up) once the
+          // camera has landed on the view (the page opens at orbit and
+          // flies there, and orbit is held too).
+          const camera = window.__godsEyeView.viewer.camera;
+          const height = camera.positionCartographic.height;
+          const landed =
+            !camera._currentFlight &&
+            Math.abs(height - alt) <= Math.max(100, alt * 0.05);
           return (
             (/ (cubes|cells) /.test(text) &&
               !/loading/.test(text) &&
               !/buildings…/.test(text)) ||
-            /come below/.test(text)
+            (landed && /come below/.test(text))
           );
         },
         { timeout: 180_000, polling: 250 },
+        view.alt,
       )
       .then(() => (log.ringMs = Date.now() - ringStarted))
       .catch(() => log.errors.push('Blocks did not settle in 3 minutes'));

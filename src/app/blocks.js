@@ -15,6 +15,7 @@ import { governorRequestRender } from '../renderGovernor.js';
 import { ensureGeoidReady, geoidHeight } from '../data/geoid.js';
 import { isFlatBasemap } from '../layers/lego/renderMode.js';
 import { viewFootprintM } from '../hud/cameraState.js';
+import { navigationStore } from '../navigation/store.js';
 // Personal fork: Walk and Fly walk on the drawn blocks (src/navigation/).
 import { provideBlocksWorld } from '../navigation/blocksSource.js';
 
@@ -71,8 +72,13 @@ export function createApplicationBlocks({
         buildings.loadGroupBuildings(region, gi, gj, { viaSupergroup: true }),
       apply: applyStructures,
     },
-    // The block size from the HUD's PX at the view's centre (milestone 5).
-    footprint: () => viewFootprintM(viewer),
+    // The block size from the HUD's PX at the view's centre (milestone 5);
+    // none in Walk and Fly, where the centre is the horizon's and the
+    // blocks underfoot keep their size.
+    footprint: () =>
+      navigationStore().get() === 'spectator'
+        ? viewFootprintM(viewer)
+        : Number.NaN,
     // The Relief control as the scene draws the globe with it
     // (photoreal.js applyRelief), heard through its store.
     relief: () => ({
