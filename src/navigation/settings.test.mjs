@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 
 import {
   APP_SHORTCUT_CODES,
+  BOB_M,
+  BOB_STEP_M,
   BOUNDS,
   DEFAULT_BINDINGS,
   DEFAULT_SETTINGS,
@@ -14,8 +16,10 @@ import {
   SPRINT_FOV_DEG,
   SPRINT_FOV_RAMP_S,
   WHEEL_NOTCH_FACTOR,
+  createBobber,
   createFovEaser,
   createNavSettings,
+  createSneakToggle,
   flySpeedAfterSteps,
   flySpeedAfterWheel,
 } from './settings.js';
@@ -297,4 +301,67 @@ test('a section for another source: kept under gev.nav.<id>, bounded, reset with
   assert.deepEqual(store.sections(), []);
   assert.throws(() => store.registerSection({ id: 'settings' }), TypeError);
   assert.throws(() => store.registerSection({ id: 'Bad id' }), TypeError);
+});
+
+test('the browser’s keys are never bound: Ctrl, the system key, F1–F12', () => {
+  const store = createNavSettings({ storage: memory() });
+  for (const code of ['ControlLeft', 'ControlRight', 'MetaLeft', 'F5', 'F12'])
+    assert.deepEqual(store.check('sprint', code), {
+      ok: false,
+      reason: 'browser',
+    });
+  assert.deepEqual(store.check('sprint', 'KeyF'), { ok: false, reason: 'app' });
+});
+
+test('sneak as a toggle: a press flips it, holding changes nothing', () => {
+  const toggle = createSneakToggle();
+  assert.equal(toggle.update(false), false);
+  assert.equal(toggle.update(true), true, 'pressed: on');
+  assert.equal(toggle.update(true), true, 'held: still on');
+  assert.equal(toggle.update(false), true, 'let go: still on');
+  assert.equal(toggle.update(true), false, 'pressed again: off');
+  assert.equal(toggle.update(false), false);
+  toggle.update(true);
+  toggle.reset();
+  assert.equal(toggle.on, false);
+});
+
+test('view bobbing: 0.05 m at each footfall, none mid-stride, fading in and out', () => {
+  assert.equal(BOB_M, 0.05);
+  const bob = createBobber({ fadeS: 0.15 });
+  assert.equal(bob.update(0, false, 0.016), 0, 'standing: none');
+  // Walking at 4.3 m/s for 0.3 s: fully in.
+  for (let k = 0; k < 30; k++) bob.update(0.043, true, 0.01);
+  assert.ok(bob.offset <= 0 && bob.offset >= -BOB_M);
+  // Over a stride the dip reaches the full 0.05 m and comes back to 0.
+  let low = 0;
+  let high = -1;
+  for (let k = 0; k < 100; k++) {
+    const offset = bob.update(BOB_STEP_M / 100, true, 0.01);
+    low = Math.min(low, offset);
+    high = Math.max(high, offset);
+  }
+  assert.ok(Math.abs(low + BOB_M) < 1e-3, `the footfall: ${low}`);
+  assert.ok(high > -1e-3, `mid-stride: ${high}`);
+  // About 2.6 footfalls a second at the walk's 4.3 m/s.
+  assert.ok(Math.abs(4.3 / BOB_STEP_M - 2.58) < 0.01);
+  // Stopping: gone within the fade.
+  bob.update(0, false, 0.1);
+  assert.equal(bob.update(0, false, 0.1), 0);
+  bob.reset();
+  assert.equal(bob.offset, 0);
+});
+
+test('worker3’s view and home keys: T and B by default, checked like the rest', () => {
+  const store = createNavSettings({ storage: memory() });
+  assert.deepEqual(store.codesFor('view'), ['KeyT']);
+  assert.deepEqual(store.codesFor('home'), ['KeyB']);
+  assert.deepEqual(store.check('jump', 'KeyT'), {
+    ok: false,
+    reason: 'taken',
+    by: 'view',
+  });
+  assert.deepEqual(store.check('home', 'KeyH'), { ok: false, reason: 'app' });
+  assert.deepEqual(store.bind('home', 'KeyN'), { ok: true });
+  assert.equal(store.keyMap().KeyN, undefined, 'fired, not held');
 });

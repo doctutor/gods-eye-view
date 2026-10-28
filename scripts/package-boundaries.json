@@ -2767,7 +2767,8 @@
       "src/navigation/entry.js",
       "src/data/earthEngineBudget.js",
       "src/navigation/inputs.js",
-      "src/navigation/settings.js"
+      "src/navigation/settings.js",
+      "src/navigation/controlsPanel.js"
     ],
     "external": [
       "hls.js",

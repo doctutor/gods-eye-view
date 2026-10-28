@@ -4,6 +4,7 @@
  * camera), Walk or Fly.
  */
 import { msg, t } from '../i18n/index.js';
+import { createNavControlsButton } from './controlsPanel.js';
 
 export const NAV_LABELS = Object.freeze({
   spectator: msg('Move: Spectator'),
@@ -36,7 +37,9 @@ export function createNavigationHeadingControl(doc, store) {
   here.title = t(
     'Walk here (G): onto the block under the pointer, or the ground at the view’s centre. Shift-click or Shift+G flies there',
   );
-  wrap.append(select, here);
+  // The Controls card (mouse, view, speeds, keys), in every mode.
+  const gear = createNavControlsButton(doc);
+  wrap.append(select, here, gear.element);
   const sync = () => {
     select.value = store.get();
     here.hidden = store.get() !== 'spectator';
@@ -60,6 +63,7 @@ export function createNavigationHeadingControl(doc, store) {
     element: wrap,
     destroy() {
       unsubscribe();
+      gear.destroy();
       select.removeEventListener('change', onChange);
       here.removeEventListener('click', onHere);
       wrap.removeEventListener('click', stop);
