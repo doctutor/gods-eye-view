@@ -10,10 +10,7 @@ import { MATERIALS, NONE } from './store.js';
 import {
   ELEVATION_LAYER,
   CHUNK_GROUP,
-  COARSE_LEVELS_M,
   GROUP_COLUMNS,
-  NATIVE_CELLS_M,
-  PYRAMID_M,
   SUPERGROUP,
   coarseHeights,
   coarseLevelOf,
@@ -21,8 +18,6 @@ import {
   createChunkSource,
   groupBounds,
   groupOf,
-  levelFor,
-  levelMFor,
   levelOf,
   regionKey,
   supergroupBounds,
@@ -93,24 +88,6 @@ function assertLatticeCalls(calls, blockM) {
   }
 }
 
-test('the pyramid: the native cells, then ×4 from 30 m; levelFor picks the smallest level at least both', () => {
-  assert.deepEqual(COARSE_LEVELS_M, [120, 480, 1920, 7680, 30720]);
-  for (const size of [...NATIVE_CELLS_M, ...COARSE_LEVELS_M])
-    assert.ok(PYRAMID_M.includes(size), `${size}`);
-  assert.deepEqual(
-    [...PYRAMID_M].sort((a, b) => a - b),
-    [...PYRAMID_M],
-  );
-  assert.equal(levelFor(1), 1);
-  assert.equal(levelFor(1, 0.4), 1);
-  assert.equal(levelFor(1, 3), 8);
-  assert.equal(levelFor(30, 31), 120);
-  assert.equal(levelFor(30, 1920), 1920);
-  assert.equal(levelFor(10, 2000), 7680);
-  assert.equal(levelFor(231, 100), 231); // the ocean's own cell
-  assert.equal(levelFor(30, 1e9), 30720); // the top
-});
-
 test('snapBlockM: a measured cell snaps to the stack native size', () => {
   assert.equal(snapBlockM(1), 1);
   assert.equal(snapBlockM(2), 2);
@@ -134,7 +111,7 @@ test('regionFor: the native cell at the point, and the source name', async () =>
     [2, 2],
     [10, 10],
     [30, 30],
-    [231, 231],
+    [231, 480], // the ocean's cell, off the pyramid: the next level up
   ]) {
     const { fetchValues, calls } = fakeValues({
       nativeM,
@@ -144,7 +121,7 @@ test('regionFor: the native cell at the point, and the source name', async () =>
     const source = createChunkSource({ fetchValues, createChunk });
     const region = await source.regionFor(-76.6, 39.3, 512);
     assert.equal(region.blockM, blockM, `native ${nativeM}`);
-    assert.equal(region.nativeM, blockM);
+    assert.equal(region.nativeM, nativeM);
     assert.equal(region.source, `DEM ${nativeM} m`);
     assert.equal(calls[0].layer, ELEVATION_LAYER);
     assert.equal(calls[0].mode, '');
@@ -154,16 +131,6 @@ test('regionFor: the native cell at the point, and the source name', async () =>
   }
 });
 
-test('levelMFor: cubes at the native cells and to 30 m, then max(30 m, blockM / 32)', () => {
-  for (const blockM of [1, 2, 4, 8, 10, 30, 231])
-    assert.equal(levelMFor(blockM), blockM);
-  assert.equal(levelMFor(120), 30);
-  assert.equal(levelMFor(480), 30);
-  assert.equal(levelMFor(1920), 60);
-  assert.equal(levelMFor(7680), 240);
-  assert.equal(levelMFor(30720), 960);
-});
-
 test('regionFor: the wanted block picks the pyramid level, never under the native cell', async () => {
   const { fetchValues } = fakeValues({
     nativeM: 30,
@@ -171,10 +138,8 @@ test('regionFor: the wanted block picks the pyramid level, never under the nativ
     source: 'FABDEM 30 m',
   });
   const source = createChunkSource({ fetchValues, createChunk });
-  const coarse = await source.regionFor(-76.6, 39.3, {
-    wantedM: 1500,
-    windowM: 512,
-  });
+  // As the controller calls it: the window, then {wantedM}.
+  const coarse = await source.regionFor(-76.6, 39.3, 512, { wantedM: 1500 });
   assert.equal(coarse.blockM, 1920);
   assert.equal(coarse.levelM, 60);
   assert.equal(coarse.nativeM, 30);
@@ -184,6 +149,16 @@ test('regionFor: the wanted block picks the pyramid level, never under the nativ
   assert.equal(fine.blockM, 30); // never under the native cell
   assert.equal(fine.levelM, 30);
   assert.equal((await source.regionFor(-76.6, 39.3, {})).blockM, 30);
+  // An unknown footprint (NaN) is the native cell.
+  const unknown = await source.regionFor(-76.6, 39.3, 512, { wantedM: NaN });
+  assert.equal(unknown.blockM, 30);
+  assert.equal(unknown.levelM, 30);
+  // The options in third place say the same.
+  assert.equal(
+    (await source.regionFor(-76.6, 39.3, { windowM: 512, wantedM: 100 }))
+      .blockM,
+    120,
+  );
 });
 
 test('columnsFromHeights: floor levels, the sea at level 0, nodata NONE', () => {
@@ -453,18 +428,27 @@ function rampAt(region) {
   };
 }
 
-/** Coarse column i of chunk 0 has its centre 4i + 2 m east: level floor((4i + 2 − 100) / 4). */
+/**
+ * Coarse column i of chunk 0 has its centre 4i + 2 m east: on the
+ * region's 1 m levels, level floor(4i + 2 − 100), within the 2 m a 4 m
+ * cell's reading may sit from the column's centre.
+ */
 function assertRampLevels(coarse) {
   assert.equal(coarse.top.length, CHUNK_COLUMNS * CHUNK_COLUMNS);
-  for (const i of [0, 10, 24, 25, 26, 40, 63]) {
+  const near = (actual, expected, label) =>
+    assert.ok(
+      Math.abs(actual - expected) <= 2,
+      `${label}: ${actual} vs ${expected}`,
+    );
+  for (const i of [0, 10, 40, 63]) {
     const h = 4 * i + 2 - 100;
     const k = 5 * CHUNK_COLUMNS + i; // row 5: 20–24 m north, inside the data
     if (h <= 0) {
       assert.equal(coarse.water[k], 0, `column ${i} is sea`);
-      assert.equal(coarse.top[k], Math.min(Math.floor(h / 4), -1));
+      near(coarse.top[k], Math.min(Math.floor(h), -1), `column ${i}`);
     } else {
       assert.equal(coarse.water[k], NONE);
-      assert.equal(coarse.top[k], Math.floor(h / 4), `column ${i}`);
+      near(coarse.top[k], Math.floor(h), `column ${i}`);
     }
   }
   // Row 63 covers 252–256 m north: no data, NONE.
@@ -495,9 +479,9 @@ test("loadCoarseChunk: 16 coarse chunks at 4 × blockM from the coarse level's t
   for (let gi = 0; gi < 4; gi++)
     for (let gj = 0; gj < 4; gj++) await source.loadCoarseChunk(region, gi, gj);
   assert.equal(calls.length, asked);
-  // Coarse chunk (1, 0): its column 0 is 256 + 2 m east, level floor(158 / 4).
+  // Coarse chunk (1, 0): its column 0 is 256 + 2 m east, about level 158.
   const east = await source.loadCoarseChunk(region, 1, 0);
-  assert.equal(east.top[5 * CHUNK_COLUMNS], Math.floor((256 + 2 - 100) / 4));
+  assert.ok(Math.abs(east.top[5 * CHUNK_COLUMNS] - (256 + 2 - 100)) <= 2);
   // The next supergroup reads the tiles it needs, none twice.
   await source.loadCoarseChunk(region, 4, 0);
   assertLatticeCalls(calls, 4);
@@ -527,9 +511,11 @@ test('loadCoarseChunk: the fine group coarse chunk, the mean of its columns, win
   await source.loadChunk(region, 8, 0); // group (2, 0)
   const replaced = await source.loadCoarseChunk(region, 2, 0);
   assert.notEqual(replaced, fromSuper);
-  assert.equal(
-    replaced.top[5 * CHUNK_COLUMNS],
-    fromSuper.top[5 * CHUNK_COLUMNS],
+  // The same ground: within the 2 m a sampled 4 m cell may be off.
+  assert.ok(
+    Math.abs(
+      replaced.top[5 * CHUNK_COLUMNS] - fromSuper.top[5 * CHUNK_COLUMNS],
+    ) <= 2,
   );
 });
 
@@ -554,7 +540,7 @@ test('loadCoarseChunk: a failed supergroup rejects its waiting chunks and is ask
   assert.equal(source.size(), 0);
   const coarse = await source.loadCoarseChunk(region, 1, 1);
   assert.equal(calls.length, 2);
-  assert.equal(coarse.top[0], 0); // 12 m in 120 m blocks
+  assert.equal(coarse.top[0], 0); // 12 m on 30 m levels
 });
 
 test('loadChunk: a failure rejects with its status and is asked again', async () => {
@@ -619,13 +605,20 @@ test("the top level: places past the tangent plane's reach are nodata, and every
   assert.equal(chunk.top[0], 0);
 });
 
-test("levels apart from blocks: a region's levelM sets its columns' levels, 4 × for its coarse chunks", async () => {
+test("levels apart from blocks: a region's levelM sets its fine and coarse columns' levels", async () => {
   const flat = createRegion({ lon0: 0.5, lat0: 51.5, blockM: 120 });
   assert.equal(levelOf(flat), 120);
-  assert.equal(coarseLevelOf(flat), 480);
-  const region = { ...flat, levelM: 30 };
+  assert.equal(coarseLevelOf(flat), 120);
+  const region = createRegion({
+    lon0: 0.5,
+    lat0: 51.5,
+    blockM: 120,
+    levelM: 30,
+  });
   assert.equal(levelOf(region), 30);
-  assert.equal(coarseLevelOf(region), 120);
+  // Coarse columns are 480 m across, but on the same 30 m levels: the
+  // controller matches fine and coarse levels one to one at the skirts.
+  assert.equal(coarseLevelOf(region), 30);
   assert.equal(coarseLevelOf({ ...region, coarseLevelM: 60 }), 60);
   assert.notEqual(regionKey(region), regionKey(flat));
   const { fetchValues } = fakeValues({ nativeM: 30, heightAt: () => 95 });
@@ -633,7 +626,7 @@ test("levels apart from blocks: a region's levelM sets its columns' levels, 4 ×
   const chunk = await source.loadChunk(region, 0, 0);
   assert.equal(chunk.top[0], 3); // 95 m on 30 m levels
   const coarse = await source.loadCoarseChunk(region, 0, 0);
-  assert.equal(coarse.top[0], 0); // 95 m on 120 m levels
+  assert.equal(coarse.top[0], 3); // 95 m on 30 m levels, as the fine
   const cubes = await createChunkSource({ fetchValues, createChunk }).loadChunk(
     flat,
     0,

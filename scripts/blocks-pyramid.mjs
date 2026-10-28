@@ -27,7 +27,8 @@ import {
   latticeBox,
   latticeTilesOver,
 } from '../src/layers/blocks/lattice.js';
-import { ELEVATION_LAYER, PYRAMID_M } from '../src/layers/blocks/source.js';
+import { BLOCK_PYRAMID_M } from '../src/layers/blocks/pyramid.js';
+import { ELEVATION_LAYER } from '../src/layers/blocks/source.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** The most tiles one run may ask. */
@@ -59,10 +60,10 @@ export function parseArgs(argv) {
     return { error: '--bbox needs -90 ≤ south < north ≤ 90' };
   const levels = numbers(value('--levels'));
   if (!levels.length) return { error: '--levels a,b,… is required' };
-  const unknown = levels.filter((level) => !PYRAMID_M.includes(level));
+  const unknown = levels.filter((level) => !BLOCK_PYRAMID_M.includes(level));
   if (unknown.length)
     return {
-      error: `--levels must be pyramid levels (${PYRAMID_M.join(', ')}): not ${unknown.join(', ')}`,
+      error: `--levels must be pyramid levels (${BLOCK_PYRAMID_M.join(', ')}): not ${unknown.join(', ')}`,
     };
   const pace = value('--pace');
   const paceMs = pace === undefined ? DEFAULT_PACE_MS : Number(pace);

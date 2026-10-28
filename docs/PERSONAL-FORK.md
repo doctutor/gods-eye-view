@@ -6246,17 +6246,24 @@ cell over 64 m (GMTED alone) takes a second probe, 4 km a side. The block
 size is the cell under the camera, not the window's finest, so a corner
 of 3DEP 1 m does not turn a 30 m view into 1 m blocks.
 
-**The pyramid** (milestone 5). The block need not be the native cell:
-`regionFor(lon, lat, {wantedM, windowM})` answers `{blockM, nativeM,
-source, cellSizeM}`, `blockM` the smallest level of `PYRAMID_M` at least
-the larger of the native cell and `wantedM` (`levelFor`). The pyramid is
-the native cells (1, 2, 8, 10, 30, 231 m) and `COARSE_LEVELS_M` (120,
-480, 1,920, 7,680 and 30,720 m, ×4 from 30 m). A number in place of the
-options is `windowM`, as before. Every level is served alike: a region
-at 1,920 m loads its groups and its coarse ring at 7,680 m exactly as one
-at 1 m does. A region's `levelM` (metres a level, worker1's; its blockM
-when absent) sets its columns' levels, floor(h / levelM), and four times
-it its coarse chunks' (`coarseLevelM` overrides that).
+**The pyramid** (milestone 5). The block need not be the native cell.
+`src/layers/blocks/pyramid.js` (pure, shared with the controller) holds
+`BLOCK_PYRAMID_M`, the native cells (1, 2, 8, 10, 30 m) continued ×4 from
+30 m (120, 480, 1,920, 7,680 and 30,720 m); `pyramidLevelM(nativeM,
+wantedM)`, the smallest level at least both (a wantedM that is not a
+finite positive number is the native cell; a native cell off the
+pyramid, 231 m at sea, snaps up to 480 m; never above the top); and
+`levelMFor(blockM)`, the metres a level: a cube to 30 m, above that
+max(30 m, blockM / 32). `regionFor(lon, lat, windowM, {wantedM})`
+answers `{blockM, levelM, nativeM, source, cellSizeM}` (`blockM` by
+pyramidLevelM, `levelM` by levelMFor) for `createRegion({lon0, lat0,
+blockM, levelM})`; `regionFor(lon, lat, {windowM, wantedM})` says the
+same. Every level is served alike: a region at 1,920 m loads its groups
+and its coarse ring at 7,680 m exactly as one at 1 m does. A column's
+level is floor(h / region.levelM), the coarse ring's too: a coarse
+column is four blocks across and one level up, as the controller meshes
+fine and coarse at one levelM and matches them one to one at the skirts
+(`coarseLevelM` on the region overrides it).
 
 **The lattice.** The values are asked in tiles of a global equal-angle
 lattice a level (`src/layers/blocks/lattice.js`): 512 cells of the level

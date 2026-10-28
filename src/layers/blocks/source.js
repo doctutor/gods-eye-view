@@ -11,7 +11,7 @@
 // loaded.
 //
 // Milestone 5, blocks at any scale: a region's blockM is a level of the
-// pyramid (PYRAMID_M, regionFor), and every level is served alike. The
+// pyramid (pyramid.js, regionFor), and every level is served alike. The
 // values are asked in tiles of a global lattice of the level (lattice.js:
 // 512 cells of blockM a side, the same box for every view), each column
 // read from the tile cell under its centre, so the server's 30-day cache
@@ -32,6 +32,7 @@ import { createRasterValuesClient } from '../../data/rasterValues.js';
 import { DEM_SOURCES } from '../../data/demStack.js';
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
 import { MATERIALS, NONE, createChunk as storeChunk } from './store.js';
+import { levelMFor, pyramidLevelM } from './pyramid.js';
 import {
   LATTICE_CELLS,
   latticeBox,
@@ -73,29 +74,6 @@ export const PLANE_REACH_M = 6_356_752 * 0.99;
 /** A region's place at east and north metres, or null past PLANE_REACH_M. */
 export const placeAt = (region, x, y) =>
   Math.hypot(x, y) < PLANE_REACH_M ? region.toLonLat(x, y) : null;
-
-/** The pyramid's levels above the native cells: ×4 from 30 m. */
-export const COARSE_LEVELS_M = Object.freeze([120, 480, 1920, 7680, 30720]);
-
-/**
- * The pyramid of block sizes, metres: the native cells (1, 2, 8, 10, 30,
- * 231) and the coarse levels.
- */
-export const PYRAMID_M = Object.freeze(
-  [...new Set([...NATIVE_CELLS_M, ...COARSE_LEVELS_M])].sort((a, b) => a - b),
-);
-
-/**
- * The pyramid level for a native cell and a wanted block: the smallest
- * level at least the larger of them (the top when none is).
- */
-export function levelFor(nativeM, wantedM = 0) {
-  const floor = Math.max(Number(nativeM) || 0, Number(wantedM) || 0);
-  return (
-    PYRAMID_M.find((level) => level >= floor * (1 - 1e-9)) ??
-    PYRAMID_M[PYRAMID_M.length - 1]
-  );
-}
 
 /**
  * The native cell a measured cell width stands for: the stack's size
@@ -306,28 +284,18 @@ export function columnsFromHeights(heights, levelM) {
   return { top, material, water };
 }
 
-/**
- * The metres a level for a block size (milestone 5, decision 2): a cube at
- * the native cells and up to 30 m, above that max(30 m, blockM / 32), so
- * 120 m blocks stand on 30 m levels and 30,720 m ones on 960 m.
- */
-export const levelMFor = (blockM) =>
-  blockM <= 30 || NATIVE_CELLS_M.includes(blockM)
-    ? blockM
-    : Math.max(30, blockM / 32);
-
 /** A region's metres a level: its levelM, else its blockM (cubes). */
 export const levelOf = (region) =>
   region.levelM > 0 ? region.levelM : region.blockM;
 
 /**
- * The metres a level of a region's coarse ring: its coarseLevelM, else
- * CHUNK_GROUP × its own levelM (cubes at native cells, as the controller
- * meshes the ring today; set coarseLevelM to levelMFor(4 × blockM) to
- * stand it on the rule's levels, and mesh it with that levelM).
+ * The metres a level of a region's coarse ring: its coarseLevelM, else the
+ * region's own levelM. The controller meshes fine and coarse chunks at one
+ * levelM and matches their levels one to one at the skirts, so a coarse
+ * column is CHUNK_GROUP × blockM across and levelM a level, as a fine one.
  */
 export const coarseLevelOf = (region) =>
-  region.coarseLevelM > 0 ? region.coarseLevelM : CHUNK_GROUP * levelOf(region);
+  region.coarseLevelM > 0 ? region.coarseLevelM : levelOf(region);
 
 /** A region's cache key: its anchor, block size and level heights. */
 export const regionKey = (region) =>
@@ -537,20 +505,24 @@ export function createChunkSource({
 
   return {
     /**
-     * The block size and source name at a point: the pyramid level for
-     * the DEM stack's native cell there and the block wanted (levelFor),
-     * the native cell read from a probe small enough that the server
-     * answers at that cell. `windowM` caps the probe; the native cell is
-     * the centre's, so a corner of 3DEP 1 m does not turn a 30 m view into
-     * 1 m blocks. The third argument is {wantedM, windowM}, or windowM
-     * alone. `levelM` is the rule's for the block (levelMFor), for the
-     * region createRegion makes.
+     * The block size and source name at a point: the pyramid level
+     * (pyramidLevelM) for the DEM stack's native cell there and the block
+     * wanted, the native cell read from a probe small enough that the
+     * server answers at that cell. `windowM` caps the probe; the native
+     * cell is the centre's, so a corner of 3DEP 1 m does not turn a 30 m
+     * view into 1 m blocks. `wantedM` not a finite positive number (NaN
+     * when the footprint is unknown) is the native cell. `levelM` is the
+     * rule's for the block (levelMFor), for createRegion({lon0, lat0,
+     * blockM, levelM}). Called as regionFor(lon, lat, windowM, {wantedM});
+     * regionFor(lon, lat, {windowM, wantedM}) is the same.
      * @returns {Promise<{blockM: number, levelM: number, nativeM: number,
      *   source: string, cellSizeM: number}>}
      */
-    async regionFor(lon, lat, options = {}) {
-      const { wantedM = 0, windowM = Infinity } =
-        typeof options === 'number' ? { windowM: options } : options || {};
+    async regionFor(lon, lat, windowOrOptions = Infinity, options = {}) {
+      const { windowM = Infinity, wantedM = NaN } =
+        typeof windowOrOptions === 'number'
+          ? { ...options, windowM: windowOrOptions }
+          : { ...windowOrOptions, ...options };
       let header;
       for (const side of PROBE_SIDES_M) {
         ({ header } = await ask(
@@ -560,7 +532,7 @@ export function createChunkSource({
         if (header.cols >= 2 || side >= windowM) break;
       }
       const nativeM = snapBlockM(header.cellSizeM);
-      const blockM = levelFor(nativeM, wantedM);
+      const blockM = pyramidLevelM(nativeM, wantedM);
       return {
         blockM,
         levelM: levelMFor(blockM),

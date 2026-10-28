@@ -23,14 +23,19 @@ import {
   createEarthEngineService,
   mapRequestFor,
 } from '../../server/providers/earthEngine.js';
-import { COARSE_LEVELS_M } from '../layers/blocks/source.js';
+import { BLOCK_PYRAMID_M, levelMFor } from '../layers/blocks/pyramid.js';
 
 const elevation = EARTH_ENGINE_LAYERS.find(
   (layer) => layer.id === BLOCKS_STYLE_LAYER,
 );
 
 test('the levels are the pyramid’s coarse ones; a mode names its cell', () => {
-  assert.deepEqual([...BLOCKS_STYLE_LEVELS_M], [...COARSE_LEVELS_M]);
+  assert.deepEqual(
+    [...BLOCKS_STYLE_LEVELS_M],
+    BLOCK_PYRAMID_M.filter((level) => level > 30),
+  );
+  for (const cellM of BLOCKS_STYLE_LEVELS_M)
+    assert.equal(blocksLevelM(cellM), levelMFor(cellM));
   assert.equal(blocksStyleMode(1920), 'blocks-1920');
   assert.equal(blocksStyleCell('blocks-1920'), 1920);
   assert.equal(blocksStyleCell('blocks-1000'), null);
