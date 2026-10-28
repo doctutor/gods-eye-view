@@ -445,6 +445,97 @@
   white-space: nowrap;
 }
 
+/* Personal fork: the view, home and waypoints beside Move
+   (src/navigation/wayfindingControl.js). */
+.nav-way-control {
+  position: relative;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.nav-way-control [hidden] {
+  display: none;
+}
+.nav-places-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 20;
+  min-width: 240px;
+  margin-top: 4px;
+  padding: 6px;
+  border-radius: 6px;
+  background: rgba(10, 14, 20, 0.95);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+.nav-place-name {
+  width: 120px;
+  margin-right: 4px;
+}
+.nav-places-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.nav-place {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 0;
+}
+.nav-place-where {
+  flex: 1;
+  font-size: 9px;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+.nav-places-empty {
+  margin-top: 6px;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+/* Personal fork: the compass rose in Walk and Fly (src/hud.js). */
+#intel-hud .hud-compass {
+  display: flex;
+  justify-content: flex-end;
+  margin: 2px 0;
+}
+#intel-hud .hud-compass[hidden],
+#intel-hud .hud-compass-home[hidden] {
+  display: none;
+}
+#intel-hud .hud-compass svg {
+  overflow: visible;
+  stroke: currentColor;
+  fill: none;
+}
+#intel-hud .hud-compass-rose circle {
+  stroke-width: 1;
+  opacity: 0.6;
+}
+#intel-hud .hud-compass-rose line {
+  stroke-width: 1;
+}
+#intel-hud .hud-compass-north {
+  fill: #ff5a4a;
+  stroke: none;
+}
+#intel-hud .hud-compass-rose text {
+  fill: currentColor;
+  stroke: none;
+  font-size: 7px;
+}
+#intel-hud .hud-compass-home polygon {
+  fill: #ff8a1c;
+  stroke: none;
+}
+#intel-hud .hud-compass-ahead {
+  stroke-width: 2;
+}
+
 /* Personal fork: the targeted block under Blocks (src/hud/blockTarget.js). */
 #intel-hud .hud-block-target[hidden] {
   display: none;
