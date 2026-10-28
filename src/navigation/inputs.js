@@ -75,7 +75,19 @@ export function createIntents() {
 /** Merge a source's partial intents into `into` (held OR, look +, events OR). */
 export function mergeIntents(into, partial) {
   if (!partial || typeof partial !== 'object') return into;
-  for (const name of HELD_INTENTS) if (partial[name]) into[name] = true;
+  // A source's own direction keys on an axis its stick is pushed along are
+  // the stick's (a gamepad gives both): they would win at ±1 and walk a
+  // half-pushed stick at full speed, so that axis is the stick's alone.
+  const stickAxis = (axis) => {
+    const value = Number(partial.analog?.[axis]);
+    return Number.isFinite(value) && value !== 0;
+  };
+  const derived = new Set([
+    ...(stickAxis('forward') ? ['forward', 'back'] : []),
+    ...(stickAxis('right') ? ['right', 'left'] : []),
+  ]);
+  for (const name of HELD_INTENTS)
+    if (partial[name] && !derived.has(name)) into[name] = true;
   for (const name of EVENT_INTENTS) if (partial[name]) into[name] = true;
   const dx = Number(partial.lookDx);
   const dy = Number(partial.lookDy);
