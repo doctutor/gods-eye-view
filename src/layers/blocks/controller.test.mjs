@@ -2422,8 +2422,10 @@ test('just landed with the globe hidden: its stale height is not trusted, so it 
 // ── Milestone 5: the block size follows the view ──────────────────────
 
 test('the pyramid: the native cells, then ×4 from 30 m to 30,720 m; the level height a cube up to 30 m, then max(30 m, blockM / 32)', async () => {
-  const { BLOCK_PYRAMID_M, pyramidLevelM, levelMFor, drawnHeightM } =
-    await import('./index.js');
+  const { drawnHeightM } = await import('./index.js');
+  // The pyramid is pyramid.js's (worker2's, shared with the source).
+  const { BLOCK_PYRAMID_M, pyramidLevelM, levelMFor } =
+    await import('./pyramid.js');
   assert.deepEqual(
     [...BLOCK_PYRAMID_M],
     [1, 2, 8, 10, 30, 120, 480, 1920, 7680, 30_720],
@@ -2438,9 +2440,8 @@ test('the pyramid: the native cells, then ×4 from 30 m to 30,720 m; the level h
   assert.equal(pyramidLevelM(30, 31), 120);
   assert.equal(pyramidLevelM(1, 2000), 7680);
   assert.equal(pyramidLevelM(30, 1e7), 30_720, 'the top past it');
-  // A native cell off the list stands for itself.
-  assert.equal(pyramidLevelM(4, 3), 4);
-  assert.equal(pyramidLevelM(4, 5), 8);
+  // A native cell off the list snaps up to the next level (231 m at sea).
+  assert.equal(pyramidLevelM(231, 100), 480);
   // Level heights.
   assert.deepEqual(
     [1, 2, 8, 10, 30, 120, 480, 1920, 7680, 30_720].map(levelMFor),
@@ -2479,12 +2480,9 @@ function pyramidSource(nativeM = 1, name = '3DEP 1 m') {
     async regionFor(lon, lat, windowM, options = {}) {
       base.regions.push({ lon, lat, windowM });
       asked.push(options);
-      const { pyramidLevelM } = await import('./index.js');
-      return {
-        blockM: pyramidLevelM(nativeM, options.wantedM),
-        nativeM,
-        source: name,
-      };
+      const { levelMFor, pyramidLevelM } = await import('./pyramid.js');
+      const blockM = pyramidLevelM(nativeM, options.wantedM);
+      return { blockM, levelM: levelMFor(blockM), nativeM, source: name };
     },
   };
 }

@@ -6254,18 +6254,21 @@ finer than about two screen pixels.
 
 - **The pyramid.** The block sizes are the native cells (1, 2, 8, 10 and
   30 m) continued ×4 from 30 m: 120 m, 480 m, 1,920 m, 7,680 m and
-  30,720 m, the top (`BLOCK_PYRAMID_M`, `src/layers/blocks/index.js`). A
-  coarse block is the source's mean over its cell, served by the server's
-  `cells=` request and kept in its 30-day disk cache (worker2's source,
-  milestone 5 step B), never a sample.
+  30,720 m, the top (`BLOCK_PYRAMID_M`, `src/layers/blocks/pyramid.js`,
+  shared by the source and the controller). A coarse block is the
+  source's mean over its cell, served by the server's `cells=` request and
+  kept in its 30-day disk cache (worker2's source, milestone 5 step B),
+  never a sample.
 - **The footprint rule.** The wanted cell is `FOOTPRINT_BLOCKS` (2) × the
   HUD's PX at the view's centre (`viewFootprintM`,
   `src/hud/cameraState.js`: the centre's distance across the canvas's
   wider side at the field of view). The block is the smallest level at
   least the native cell and the wanted one (`pyramidLevelM`), asked of the
   source as `regionFor(lon, lat, windowM, { wantedM })`. It returns the
-  level and its native cell (`nativeM`). A source without levels answers
-  its native cell, and its own ceiling then holds the region above it.
+  level, its level height and its native cell (`blockM`, `levelM`,
+  `nativeM`); the region is created with both. A source without levels
+  answers its native cell, and its own ceiling then holds the region
+  above it.
   - Straight down at 60° over 1,000 pixels, a pixel is about h / 870.
     Anchored fresh, a 1 m source draws 1 m cubes up to about 430 m, and
     keeps them to about 870 m when climbing (the ×2 margin). Then come 2 m
@@ -6298,17 +6301,23 @@ finer than about two screen pixels.
   meshing again; a new factor meshes the chunks again. The readouts, the
   BLOCK line and Walk and Fly keep true metres. The status line says
   "relief ×3".
-- **The cost.** A fresh view costs the same at any level: one probe, the
-  20 fine groups and the coarse ring's supergroups (about 41 raster
-  values requests), and the server's cache answers a view seen before.
-  A level change is a fresh view. From orbit that is one view of 30,720 m
-  blocks, not the thousands of 30 m chunks a fixed block size would need.
-  The 20,000-tile Earth Engine day is unchanged.
+- **The cost.** A fresh view costs the same at any level. The values ride
+  a global lattice of each level (`src/layers/blocks/lattice.js`, worker2's:
+  tiles of 512 cells a side from 180°W 90°S), so a view is at most 18
+  requests: 3 × 3 tiles for the fine disc and 3 × 3 for its coarse ring,
+  plus the probe. The server's cache answers any view of a tile seen
+  before, and a warm-up (`npm run blocks:pyramid -- --bbox w,s,e,n
+  --levels 1920,7680,30720`) fills it with exactly what later views ask
+  for. A level change is a fresh view. From orbit that is one view of
+  30,720 m blocks, not the thousands of 30 m chunks a fixed block size
+  would need. The 20,000-tile Earth Engine day is unchanged.
 - **What it does not do yet.** One tangent plane serves every level. Past
   a few hundred kilometres the Earth falls away under it (300 km at a
   2,000 km reach), so the continental levels wait for the curved frame of
-  step D. The rings are still the fine disc and one coarse ring (K = 1 of
-  decision 4).
+  step D; until then the lattice answers columns beyond the plane's reach
+  as nodata (it matters only at 30,720 m). The controller still draws the
+  fine disc and one coarse ring (K = 1 of decision 4); the renderer's
+  `setRegions` for K rings is there for the next step.
 
 ### Blocks: the chunk source
 
