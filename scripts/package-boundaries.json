@@ -835,7 +835,8 @@
       "src/navigation/targeting.js",
       "src/navigation/entry.js",
       "src/navigation/inputs.js",
-      "src/navigation/settings.js"
+      "src/navigation/settings.js",
+      "src/navigation/gamepad.js"
     ],
     "external": ["cesium"]
   },
@@ -2767,7 +2768,8 @@
       "src/navigation/entry.js",
       "src/data/earthEngineBudget.js",
       "src/navigation/inputs.js",
-      "src/navigation/settings.js"
+      "src/navigation/settings.js",
+      "src/navigation/gamepad.js"
     ],
     "external": [
       "hls.js",
