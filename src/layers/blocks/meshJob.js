@@ -194,7 +194,7 @@ const buffersOf = (snapshot) =>
 
 /**
  * A meshing job: the chunk, its neighbours' edges and buildChunkMesh's
- * other options (plain data: blockM, sunDir, greedy, skirt), with the
+ * other options (plain data: blockM, levelM, sunDir, greedy, skirt), with the
  * buffers to transfer (copies, so the live chunks are untouched).
  */
 export function snapshotJob(chunk, { neighbours = {}, ...options } = {}) {

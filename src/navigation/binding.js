@@ -103,11 +103,16 @@ export const GROUND_BELOW_EYE_MIN_M = 0.5;
  * Where the walker stands in a frame, for wayfinding (waypoints.js) and
  * the HUD's AGL: {lon, lat, heightM (the eye), groundM (the ground under
  * the feet, as the model finds it; null where it knows none), level (the
- * block underfoot, under Blocks), blockM, headingDeg}.
+ * block underfoot, under Blocks), blockM, levelM, headingDeg}.
  */
 export function walkerPlace(frame, state) {
   const at = frame.toCartographic(state.x, state.y, state.z);
   const blockM = frame.kind === 'blocks' ? frame.region.blockM : null;
+  const levelM = blockM
+    ? frame.region.levelM > 0
+      ? frame.region.levelM
+      : blockM
+    : null;
   // The eye is lower while sneaking (state.eyeM).
   const feet = state.z - (state.eyeM ?? EYE_HEIGHT_M);
   let ground = Number.NaN;
@@ -126,8 +131,9 @@ export function walkerPlace(frame, state) {
     groundM: Number.isFinite(ground)
       ? frame.toCartographic(state.x, state.y, ground).heightM
       : null,
-    level: blockM ? Math.round(feet / blockM) - 1 : null,
+    level: levelM ? Math.round(feet / levelM) - 1 : null,
     blockM,
+    levelM,
     headingDeg: ((Cesium.Math.toDegrees(state.yaw) % 360) + 360) % 360,
   };
 }
@@ -219,7 +225,7 @@ export function createNavigationBinding({
 
   /**
    * The Blocks world in its region's frame: a block's top at level y is
-   * (y + 1)·blockM above mean sea level, drawn at that plus the geoid and
+   * (y + 1)·levelM above mean sea level, drawn at that plus the geoid and
    * its chunk's drop below the tangent plane (src/layers/blocks/grid.js
    * chunkOrigin), as the renderer places it.
    */
@@ -350,8 +356,9 @@ export function createNavigationBinding({
   /** The 12 edges of a block (region column i, j, level y). */
   const blockEdges = (frame, hit) => {
     const b = frame.region.blockM;
+    const h = frame.region.levelM > 0 ? frame.region.levelM : b;
     const corner = (u, v, w) =>
-      frame.toWorld((hit.i + u) * b, (hit.j + v) * b, (hit.y + w) * b);
+      frame.toWorld((hit.i + u) * b, (hit.j + v) * b, (hit.y + w) * h);
     const edges = [];
     for (const [a, c] of [
       [

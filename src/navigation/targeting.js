@@ -89,7 +89,12 @@ export function targetAlongRay(
   if (!picked) return null;
   return blockFacts(
     world,
-    snapToBlock(frame.toLocal(picked), direction, blockM),
+    snapToBlock(
+      frame.toLocal(picked),
+      direction,
+      blockM,
+      world.region.levelM > 0 ? world.region.levelM : blockM,
+    ),
     sourceName,
   );
 }

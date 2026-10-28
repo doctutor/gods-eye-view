@@ -106,3 +106,26 @@ test('edits serialise per chunk and apply again', () => {
   assert.equal(again.occupancy(1, 1, 6), TERRAIN);
   assert.equal(again.occupancy(2, 2, 5), AIR);
 });
+
+test('levels from heights at 30 m levels (a 120 m block): what the store holds', async () => {
+  const { createRegion } = await import('./grid.js');
+  const region = createRegion({
+    lon0: -76.61,
+    lat0: 39.29,
+    blockM: 120,
+    levelM: 30,
+  });
+  // A column's top is the level its height lies in (source.js
+  // columnsFromHeights, given region.levelM).
+  const heights = [0, 29, 30, 95, 610];
+  const top = new Int32Array(COLUMNS).fill(NONE);
+  heights.forEach((h, k) => (top[k] = region.levelOf(h)));
+  const chunk = createChunk({ ci: 0, cj: 0, top });
+  assert.deepEqual(
+    heights.map((_, k) => chunk.topSolid(k, 0)),
+    [0, 0, 1, 3, 20],
+  );
+  // 95 m: solid through level 3 (90 … 120 m), air at level 4.
+  assert.ok(isSolid(chunk.occupancy(3, 0, 3)));
+  assert.equal(chunk.occupancy(3, 0, 4), MATERIALS.AIR);
+});

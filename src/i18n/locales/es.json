@@ -4035,5 +4035,6 @@
   "Press a key for {action} (Esc cancels, Backspace clears)": "Pulsa una tecla para {action} (Esc cancela, Retroceso la quita)",
   "Reset to defaults": "Restablecer valores predeterminados",
   "Controls reset to the defaults": "Controles restablecidos",
-  "{key} belongs to the browser": "{key} es del navegador"
+  "{key} belongs to the browser": "{key} es del navegador",
+  "Chunk {chunk}, column {i} {j}, level {level}: {size} m blocks on {levelSize} m levels": "Trozo {chunk}, columna {i} {j}, nivel {level}: bloques de {size} m en niveles de {levelSize} m"
 }

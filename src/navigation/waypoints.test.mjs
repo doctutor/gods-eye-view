@@ -293,3 +293,17 @@ test('where the walker stands: the eye, the ground under the feet (the HUD’s A
   const atTheEye = { ...frame, world: { surfaceBelow: (x, y, z) => z + 1.32 } };
   assert.equal(walkerPlace(atTheEye, standing).groundM, null);
 });
+
+test('where the walker stands on a 120 m block of 30 m levels: the level underfoot by 30 m', () => {
+  const frame = {
+    kind: 'blocks',
+    region: { blockM: 120, levelM: 30 },
+    toCartographic: (x, y, z) => ({ lon: x * 1e-5, lat: y * 1e-5, heightM: z }),
+    world: { surfaceBelow: () => 120 },
+  };
+  const place = walkerPlace(frame, { x: 660, y: 660, z: 120 + 1.62, yaw: 0 });
+  assert.equal(place.level, 3, 'the block under the feet: 90 … 120 m');
+  assert.equal(place.blockM, 120);
+  assert.equal(place.levelM, 30);
+  assert.equal(place.groundM, 120);
+});
