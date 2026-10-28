@@ -36,6 +36,15 @@
  * under the camera (one values probe from here). Every run also writes
  * report.json: each shot's status line, requests by kind, the server's
  * answers by status and the fresh ring's time.
+ *
+ *   ... --altitudes 300,5000,50000,500000,3000000   # Blocks at any scale
+ *
+ * --altitudes shoots Baltimore straight from each height (metres above the
+ * ellipsoid) at pitch −45 and −90, in Colour and in Blocks, as
+ * scale-<height>-p<pitch>-colour.png and -blocks.png (milestone 5 of
+ * docs/BLOCKS-PLAN.md), instead of --views. report.json then also gives
+ * each Blocks shot's level as its status line says it (the cell, the level
+ * height, the chunks fine and coarse).
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -473,6 +482,73 @@ export function views(field) {
   };
 }
 
+/** The pitches each --altitudes height is shot at. */
+export const SCALE_PITCHES = Object.freeze([-45, -90]);
+
+/** A height for a file name: 300m, 5km, 3000km. */
+export const heightLabel = (metres) =>
+  metres >= 1000 && metres % 1000 === 0
+    ? `${metres / 1000}km`
+    : `${Math.round(metres)}m`;
+
+/**
+ * The --altitudes views: Baltimore (the judgement view's place, heading
+ * north) from each height at each of SCALE_PITCHES, Colour and Blocks.
+ */
+export function scaleViews(altitudes) {
+  const out = {};
+  for (const alt of altitudes)
+    for (const pitch of SCALE_PITCHES) {
+      const prefix = `scale-${heightLabel(alt)}-p${Math.abs(pitch)}`;
+      out[prefix] = { view: { ...VIEW, alt, pitch }, prefix };
+    }
+  return out;
+}
+
+/** The heights --altitudes asks for, metres; [] for none. */
+export function parseAltitudes(value) {
+  if (!value) return [];
+  const heights = String(value)
+    .split(',')
+    .map((part) => Number(part.trim()))
+    .filter((metres) => Number.isFinite(metres) && metres > 0);
+  if (!heights.length) throw new Error(`--altitudes: no heights in ${value}`);
+  return heights;
+}
+
+/** "1.9 km" or "60 m" as metres. */
+const sizeM = (number, unit) =>
+  Number(number.replace(/,/g, '')) * (unit === 'km' ? 1000 : 1);
+
+/**
+ * What a Blocks status line says about the level (src/layers/lego/
+ * presentation.js blocksStatusText): {state, blockM, levelM, relief,
+ * chunks, coarse, source}, the sizes as written (1.9 km is 1,900 m).
+ */
+export function parseBlocksStatus(text = '') {
+  const out = { state: 'other', text };
+  const ceiling = /come below ([\d,.]+) km/.exec(text);
+  if (ceiling)
+    return { ...out, state: 'too-high', ceilingKm: sizeM(ceiling[1], 'm') };
+  const head = /^Blocks: ([\d,.]+) (m|km) (cubes|cells)/.exec(text);
+  if (!head) return out;
+  const blockM = sizeM(head[1], head[2]);
+  const level = /· ([\d,.]+) (m|km) levels/.exec(text);
+  const relief = /· relief ×([\d.]+)/.exec(text);
+  const counts =
+    /· ([\d,]+) \+ ([\d,]+) coarse/.exec(text) ||
+    /· ([\d,]+) chunks/.exec(text);
+  return {
+    ...out,
+    state: /loading/.test(text) ? 'loading' : 'ready',
+    blockM,
+    levelM: level ? sizeM(level[1], level[2]) : blockM,
+    relief: relief ? Number(relief[1]) : 1,
+    chunks: counts ? Number(counts[1].replace(/,/g, '')) : null,
+    coarse: counts?.[2] ? Number(counts[2].replace(/,/g, '')) : 0,
+  };
+}
+
 /**
  * The link: the view, the blank black map, no layer from the link's layer
  * list (Earth Engine layers are not in it: the page turns Elevation on),
@@ -724,6 +800,7 @@ async function shoot({
   live = null,
   nav = null,
   viewMode = null,
+  prefix = null,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
@@ -756,7 +833,8 @@ async function shoot({
       (error) => log.errors.push(`respond: ${error?.message || error}`),
     );
   });
-  const name = `${blocks ? 'blocks' : 'colour'}${suffix}`;
+  const mode = blocks ? 'blocks' : 'colour';
+  const name = prefix ? `${prefix}-${mode}` : `${mode}${suffix}`;
   await page.goto(`${ORIGIN}/${pageHash({ blocks, view, nav })}`, {
     waitUntil: 'domcontentloaded',
   });
@@ -786,11 +864,13 @@ async function shoot({
         () => {
           const text =
             document.querySelector('.lego-render-status')?.textContent || '';
-          // Settled: nothing loading, the buildings counted.
+          // Settled: nothing loading, the buildings counted; or held
+          // above the ceiling (a source without levels, high up).
           return (
-            / cubes /.test(text) &&
-            !/loading/.test(text) &&
-            !/buildings…/.test(text)
+            (/ (cubes|cells) /.test(text) &&
+              !/loading/.test(text) &&
+              !/buildings…/.test(text)) ||
+            /come below/.test(text)
           );
         },
         { timeout: 180_000, polling: 250 },
@@ -927,13 +1007,16 @@ export async function main(argv = process.argv.slice(2)) {
   });
   const field = syntheticField();
   const results = [];
-  const shots = views(field);
+  const altitudes = parseAltitudes(argValue(argv, '--altitudes'));
+  const shots = altitudes.length ? scaleViews(altitudes) : views(field);
   try {
-    if (live) shots.eye.view = await liveEyeView(live);
-    const wanted = String(argValue(argv, '--views', 'judgement,eye'))
-      .split(',')
-      .map((name) => name.trim())
-      .filter(Boolean);
+    if (live && shots.eye) shots.eye.view = await liveEyeView(live);
+    const wanted = altitudes.length
+      ? Object.keys(shots)
+      : String(argValue(argv, '--views', 'judgement,eye'))
+          .split(',')
+          .map((name) => name.trim())
+          .filter(Boolean);
     for (const name of wanted) {
       const shot = shots[name];
       if (!shot) throw new Error(`unknown view ${name} (judgement, eye)`);
@@ -948,6 +1031,10 @@ export async function main(argv = process.argv.slice(2)) {
   for (const result of results) {
     console.log(`${result.name}: ${result.file}`);
     console.log(`  status line: ${result.status || '(none)'}`);
+    if (result.name.endsWith('blocks'))
+      console.log(
+        `  level: ${JSON.stringify(parseBlocksStatus(result.status))}`,
+      );
     if (result.ringMs)
       console.log(`  fresh ring: ${(result.ringMs / 1000).toFixed(1)} s`);
     console.log(
@@ -976,6 +1063,10 @@ export async function main(argv = process.argv.slice(2)) {
       name: result.name,
       file: result.file,
       status: result.status,
+      // The level chosen and the chunks, as the status line says them.
+      ...(result.name.endsWith('blocks')
+        ? { level: parseBlocksStatus(result.status) }
+        : {}),
       ringMs: result.ringMs ?? null,
       values: result.values,
       valuesByKind: result.kinds,
