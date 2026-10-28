@@ -10,12 +10,6 @@ import { CHUNK_COLUMNS } from '../layers/blocks/grid.js';
 const EPS = 1e-6;
 /** The most levels scanned down a column for a surface. */
 const MAX_SCAN_LEVELS = 4096;
-/**
- * The highest step a walker climbs without jumping on the Blocks: one
- * level, but never more than this (Minecraft's jump), so a 30 m level of a
- * coarse block is a wall, not a stair.
- */
-export const MAX_STEP_UP_M = 1.25;
 
 /**
  * A world of blocks: `region` (src/layers/blocks/grid.js) and `chunkAt(ci,
@@ -60,7 +54,10 @@ export function createBlockWorld({ region, chunkAt }) {
     region,
     blockM,
     levelM,
-    stepUpM: Math.min(levelM, MAX_STEP_UP_M),
+    // One level climbed without jumping, however high: a level is one
+    // measurement step of the terrain, so a walker on 10 m or 30 m levels
+    // still climbs the contours.
+    stepUpM: levelM,
     occupancy,
     surfaceBelow(x, y, z) {
       const { chunk, li, lj } = cellOf(x, y);

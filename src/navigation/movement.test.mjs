@@ -634,8 +634,7 @@ test('a stick part way walks part speed; the keys still win when larger', () => 
   assert.ok(Math.abs(partM / fullM - 0.5) < 0.02, `part: ${partM / fullM}`);
 });
 
-test('a 120 m block on 30 m levels: the world in metres, step-up capped at 1.25 m, the ray in metres', async () => {
-  const { MAX_STEP_UP_M } = await import('./worlds.js');
+test('a 120 m block on 30 m levels: the world in metres, a step of one level, the ray in metres', () => {
   const region = createRegion({
     lon0: -76.6,
     lat0: 39.3,
@@ -644,6 +643,7 @@ test('a 120 m block on 30 m levels: the world in metres, step-up capped at 1.25 
   });
   const top = new Int32Array(N * N).fill(2); // top at 90 m
   top[columnIndex(5, 5)] = 3; // one level more, to 120 m
+  top[columnIndex(6, 5)] = 5; // two levels above that, to 180 m
   const chunk = createChunk({
     ci: 0,
     cj: 0,
@@ -670,9 +670,8 @@ test('a 120 m block on 30 m levels: the world in metres, step-up capped at 1.25 
     'level 3 is solid at 95 m',
   );
   assert.equal(world.blocked(5 * 120 + 1, 5 * 120 + 1, 121, 122), false);
-  // One level is 30 m: never a stair. Capped at Minecraft's jump.
-  assert.equal(MAX_STEP_UP_M, 1.25);
-  assert.equal(world.stepUpM, 1.25);
+  // A step of one level, however high: 30 m here.
+  assert.equal(world.stepUpM, 30);
   const cube = createBlockWorld({
     region: createRegion({ lon0: -76.6, lat0: 39.3, blockM: 1 }),
     chunkAt: () => chunk,
@@ -699,12 +698,19 @@ test('a 120 m block on 30 m levels: the world in metres, step-up capped at 1.25 
   assert.deepEqual([east.i, east.j, east.y], [5, 5, 3]);
   assert.ok(Math.abs(east.distanceM - 590) < 1e-9, `${east.distanceM}`);
   assert.deepEqual(east.face, [-1, 0, 0]);
-  // A walker on the 90 m top walks east into the 30 m wall and stops at it,
-  // standing at the eye’s 1.62 m over 90 m.
+  // A walker on the 90 m top walks east: up the one-level (30 m) step onto
+  // column 5 without jumping, then stops at column 6's two-level (60 m) wall.
   let state = standingOn(90, 5 * 120 - 20, 5 * 120 + 60, Math.PI / 2);
-  for (let k = 0; k < 360; k += 1)
+  for (let k = 0; k < 400; k += 1)
     state = step(state, { forward: true }, DT, world, 'walk');
-  assert.ok(state.x < 5 * 120, `stopped at the wall: x ${state.x}`);
-  assert.ok(state.x > 5 * 120 - 1, `against it: x ${state.x}`);
-  assert.ok(Math.abs(state.z - (90 + EYE_HEIGHT_M)) < 1e-6, 'not climbed');
+  assert.ok(state.x > 5 * 120, `climbed onto column 5: x ${state.x}`);
+  assert.ok(
+    Math.abs(state.z - (120 + EYE_HEIGHT_M)) < 1e-6,
+    `standing on 120 m: z ${state.z}`,
+  );
+  for (let k = 0; k < 2400; k += 1)
+    state = step(state, { forward: true }, DT, world, 'walk');
+  assert.ok(state.x < 6 * 120, `stopped at the 60 m wall: x ${state.x}`);
+  assert.ok(state.x > 6 * 120 - 1, `against it: x ${state.x}`);
+  assert.ok(Math.abs(state.z - (120 + EYE_HEIGHT_M)) < 1e-6, 'not climbed');
 });
