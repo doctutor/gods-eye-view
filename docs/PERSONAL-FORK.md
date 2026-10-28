@@ -6311,6 +6311,11 @@ finer than about two screen pixels.
   for. A level change is a fresh view. From orbit that is one view of
   30,720 m blocks, not the thousands of 30 m chunks a fixed block size
   would need. The 20,000-tile Earth Engine day is unchanged.
+- **Buildings and land cover** (OpenStreetMap through Overpass) come only
+  with blocks of 30 m or finer (`STRUCTURES_MAX_BLOCK_M`). Coarser, a
+  group's query box runs from 30 km across at 120 m blocks to 8,000 km at
+  the top level, and no building is a block wide. The Buildings switch
+  keeps its setting and applies again on the way down.
 - **What it does not do yet.** One tangent plane serves every level. Past
   a few hundred kilometres the Earth falls away under it (300 km at a
   2,000 km reach), so the continental levels wait for the curved frame of

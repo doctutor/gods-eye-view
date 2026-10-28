@@ -2492,6 +2492,7 @@ function footprintSetup({
   px = 0.3,
   relief = null,
   datum = null,
+  structures = null,
 } = {}) {
   const store = createRenderModeStore({ storage: memoryStorage() });
   store.setMode('blocks');
@@ -2519,6 +2520,7 @@ function footprintSetup({
       return () => reliefListeners.delete(listener);
     },
     ...(datum ? { datum } : {}),
+    ...(structures ? { structures } : {}),
     flatStyle: () => true,
     radiusBlocks: 64,
     setIntervalImpl: () => 1,
@@ -2691,4 +2693,29 @@ test('the status line above the native cells: the cell, the level height, the re
   assert.equal(dataFloor({ blocksM: 1920 }).name, 'Blocks 1.9 km');
   assert.equal(dataFloor({ blocksM: 1920 }).floorM, 1920);
   assert.equal(dataFloor({ blocksM: 30 }).name, 'Blocks 30 m');
+});
+
+test('buildings and land cover only up to 30 m blocks: none asked of Overpass at 120 m and up, where a group’s box runs to tens of kilometres', async () => {
+  const asked = [];
+  const structures = {
+    loadChunk: (region, ci, cj) => {
+      asked.push({ blockM: region.blockM, ci, cj });
+      return Promise.resolve(null);
+    },
+    apply: () => 0,
+  };
+  const { viewer, view, controller } = footprintSetup({ structures });
+  await drain(controller);
+  assert.ok(asked.length > 0, 'at 1 m');
+  assert.ok(asked.every((a) => a.blockM === 1));
+  const before = asked.length;
+  setHeight(viewer, 50_000);
+  view.px = 40;
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.equal(controller.getStatus().blockM, 120);
+  assert.equal(asked.length, before, 'none at 120 m');
+  assert.equal(controller.getStatus().buildingsPending, false);
+  assert.equal(controller.getBuildings(), true, 'the switch stays on');
+  controller.destroy();
 });

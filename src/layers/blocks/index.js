@@ -36,6 +36,12 @@ export const COARSE_REACH = 4;
 export const FOOTPRINT_BLOCKS = 2;
 /** The pyramid's top level (pyramid.js). */
 export const TOP_LEVEL_M = BLOCK_PYRAMID_M[BLOCK_PYRAMID_M.length - 1];
+/**
+ * Buildings and land cover (structures.js) only up to this block size, the
+ * native cells': coarser, a group's Overpass box runs to hundreds of
+ * kilometres, and no building is a block wide.
+ */
+export const STRUCTURES_MAX_BLOCK_M = 30;
 /** A level changes only when the wanted cell is this far past it, either way. */
 export const LEVEL_HYSTERESIS = 2;
 
@@ -482,6 +488,15 @@ export function createBlocksController({
     Boolean(structures) &&
     !_overpassMissing &&
     store.getBuildings?.() !== false;
+  /**
+   * Whether this region's chunks get buildings and land cover: the switch,
+   * and blocks no coarser than STRUCTURES_MAX_BLOCK_M (a group's Overpass
+   * box is 30 km across at 120 m blocks, 8,000 km at the top level).
+   */
+  const structuresHere = () =>
+    buildingsOn() &&
+    Boolean(_region) &&
+    _region.blockM <= STRUCTURES_MAX_BLOCK_M;
   /** Whether the source draws a coarse ring (loadCoarseChunk). */
   const coarseOn = () => typeof source.loadCoarseChunk === 'function';
   const _listeners = new Set();
@@ -616,7 +631,7 @@ export function createBlocksController({
     // place agree.
     const ids = new Set();
     let buildingsPending = false;
-    if (buildingsOn()) {
+    if (structuresHere()) {
       for (const entry of _chunks.values())
         if (entry.shown && structuresComing(entry)) buildingsPending = true;
       for (const [key, list] of _groupBuildings) {
@@ -642,7 +657,7 @@ export function createBlocksController({
       source: _region.sourceName,
       buildings: buildingsPending ? 0 : ids.size,
       buildingsPending,
-      buildingsOn: buildingsOn(),
+      buildingsOn: structuresHere(),
       // The study sun (the real one is under 15°): said on the line.
       sunFixed: Boolean(_region.sun?.fixed),
     });
@@ -1085,7 +1100,7 @@ export function createBlocksController({
     call(() => structures.loadChunk(region, entry.ci, entry.cj)).then(
       (levels) => {
         if (stale()) return;
-        if (!buildingsOn() || !entry.chunk) {
+        if (!structuresHere() || !entry.chunk) {
           entry.structures = undefined;
           return;
         }
@@ -1139,7 +1154,7 @@ export function createBlocksController({
    */
   function syncStructures(ring, perTick, time) {
     if (!structures) return;
-    if (!buildingsOn()) {
+    if (!structuresHere()) {
       for (const entry of _chunks.values()) {
         if (entry.structures === 'done' && entry.chunk)
           clearStructures(entry.chunk);
@@ -1561,7 +1576,7 @@ export function createBlocksController({
     // Not asked yet, or a retry still to come.
     const waiting = (entry) =>
       !entry || (entry.failed && entry.retryAt !== Infinity);
-    const wantBuildings = buildingsOn();
+    const wantBuildings = structuresHere();
     for (const { ci, cj } of ring) {
       const entry = _chunks.get(grid.chunkKey(ci, cj));
       if (waiting(entry)) return true;
