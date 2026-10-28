@@ -13,11 +13,13 @@ const MAX_SCAN_LEVELS = 4096;
 
 /**
  * A world of blocks: `region` (src/layers/blocks/grid.js) and `chunkAt(ci,
- * cj)` the loaded chunk or null. x, y are the region's metres; z is metres
- * above mean sea level (level × blockM). An unloaded chunk is unknown.
+ * cj)` the loaded chunk or null. x, y are the region's metres (column ×
+ * blockM); z is metres above mean sea level (level × levelM, the region's
+ * levelM, blockM when it has none). An unloaded chunk is unknown.
  */
 export function createBlockWorld({ region, chunkAt }) {
   const blockM = region.blockM;
+  const levelM = region.levelM > 0 ? region.levelM : blockM;
   const cellOf = (x, y) => {
     const i = Math.floor(x / blockM);
     const j = Math.floor(y / blockM);
@@ -32,7 +34,7 @@ export function createBlockWorld({ region, chunkAt }) {
       lj: j - cj * CHUNK_COLUMNS,
     };
   };
-  const levelOf = (z) => Math.floor(z / blockM);
+  const levelOf = (z) => Math.floor(z / levelM);
 
   /** What occupies a block (region column i, j and level), null if unknown. */
   const occupancy = (i, j, level) => {
@@ -51,7 +53,11 @@ export function createBlockWorld({ region, chunkAt }) {
     kind: 'blocks',
     region,
     blockM,
-    stepUpM: blockM,
+    levelM,
+    // One level climbed without jumping, however high: a level is one
+    // measurement step of the terrain, so a walker on 10 m or 30 m levels
+    // still climbs the contours.
+    stepUpM: levelM,
     occupancy,
     surfaceBelow(x, y, z) {
       const { chunk, li, lj } = cellOf(x, y);
@@ -60,16 +66,16 @@ export function createBlockWorld({ region, chunkAt }) {
       if (top === NONE) return Number.NaN;
       const level = levelOf(z);
       // Nothing solid above the column's top: the top is the surface.
-      if (top < level) return (top + 1) * blockM;
+      if (top < level) return (top + 1) * levelM;
       for (let y = level; y > level - MAX_SCAN_LEVELS; y -= 1)
-        if (isSolid(chunk.occupancy(li, lj, y))) return (y + 1) * blockM;
+        if (isSolid(chunk.occupancy(li, lj, y))) return (y + 1) * levelM;
       return Number.NaN;
     },
     blocked(x, y, z0, z1) {
       const { chunk, li, lj } = cellOf(x, y);
       if (!chunk || !(z1 > z0)) return false;
-      const last = Math.floor((z1 - EPS) / blockM);
-      for (let level = Math.floor(z0 / blockM); level <= last; level += 1)
+      const last = Math.floor((z1 - EPS) / levelM);
+      for (let level = Math.floor(z0 / levelM); level <= last; level += 1)
         if (isSolid(chunk.occupancy(li, lj, level))) return true;
       return false;
     },
@@ -86,27 +92,40 @@ export function createBlockWorld({ region, chunkAt }) {
      * through; null when none (or the ray leaves the loaded chunks).
      */
     raycast(origin, direction, maxM = 64 * blockM) {
-      return raycastBlocks(occupancy, blockM, origin, direction, maxM);
+      return raycastBlocks(occupancy, blockM, origin, direction, maxM, levelM);
     },
   };
 }
 
 /**
  * Amanatides–Woo traversal of the block grid from `origin` along
- * `direction` to the first solid block within `maxM`.
+ * `direction` to the first solid block within `maxM`: cells `blockM` east
+ * and north, `levelM` (blockM unless given) up; t in metres along the ray.
  */
-export function raycastBlocks(occupancy, blockM, origin, direction, maxM) {
+export function raycastBlocks(
+  occupancy,
+  blockM,
+  origin,
+  direction,
+  maxM,
+  levelM = blockM,
+) {
   const length = Math.hypot(direction.x, direction.y, direction.z);
   if (!(length > 0)) return null;
+  const size = [blockM, blockM, levelM];
   const d = [direction.x / length, direction.y / length, direction.z / length];
-  const p = [origin.x / blockM, origin.y / blockM, origin.z / blockM];
-  const cell = p.map(Math.floor);
+  const p = [origin.x, origin.y, origin.z];
+  const cell = p.map((v, k) => Math.floor(v / size[k]));
   const stepOf = d.map((v) => (v > 0 ? 1 : v < 0 ? -1 : 0));
-  const tDelta = d.map((v) => (v ? Math.abs(1 / v) : Infinity));
+  const tDelta = d.map((v, k) => (v ? Math.abs(size[k] / v) : Infinity));
   const tMax = d.map((v, k) =>
-    v > 0 ? (cell[k] + 1 - p[k]) / v : v < 0 ? (p[k] - cell[k]) / -v : Infinity,
+    v > 0
+      ? ((cell[k] + 1) * size[k] - p[k]) / v
+      : v < 0
+        ? (p[k] - cell[k] * size[k]) / -v
+        : Infinity,
   );
-  const maxT = maxM / blockM;
+  const maxT = maxM;
   let face = null;
   for (let t = 0; t <= maxT;) {
     const material = occupancy(cell[0], cell[1], cell[2]);
@@ -117,7 +136,7 @@ export function raycastBlocks(occupancy, blockM, origin, direction, maxM) {
         j: cell[1],
         y: cell[2],
         face,
-        distanceM: t * blockM,
+        distanceM: t,
       };
     const axis =
       tMax[0] < tMax[1]

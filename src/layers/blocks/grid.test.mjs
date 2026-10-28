@@ -147,3 +147,32 @@ test('chunk keys, column indices and levels', () => {
     RangeError,
   );
 });
+
+test('a region’s level height: blockM unless given; a 120 m block on 30 m levels', () => {
+  const cube = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  assert.equal(cube.levelM, 1, 'a cube at native cells');
+  assert.equal(cube.levelOf(47.9), 47);
+  const flat = createRegion({
+    lon0: -76.61,
+    lat0: 39.29,
+    blockM: 120,
+    levelM: 30,
+  });
+  assert.equal(flat.blockM, 120);
+  assert.equal(flat.levelM, 30);
+  // Levels by levelM, columns by blockM.
+  assert.equal(flat.levelOf(0), 0);
+  assert.equal(flat.levelOf(29.9), 0);
+  assert.equal(flat.levelOf(95), 3);
+  assert.equal(flat.levelOf(-0.5), -1);
+  assert.deepEqual(flat.columnOf(239, 241), { i: 1, j: 2 });
+  assert.equal(levelOf(95, 30), 3);
+  // The origin snaps to the block's graticule, not the level's.
+  const same = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 120 });
+  assert.equal(flat.lon0, same.lon0);
+  assert.equal(flat.lat0, same.lat0);
+  assert.throws(
+    () => createRegion({ lon0: 0, lat0: 0, blockM: 120, levelM: 0 }),
+    RangeError,
+  );
+});
