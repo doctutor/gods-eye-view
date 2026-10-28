@@ -4123,5 +4123,6 @@
   "Press a key…": "Нажмите клавишу…",
   "Press a key for {action} (Esc cancels, Backspace clears)": "Нажмите клавишу для «{action}» (Esc — отмена, Backspace — убрать)",
   "Reset to defaults": "Сбросить по умолчанию",
-  "Controls reset to the defaults": "Управление сброшено по умолчанию"
+  "Controls reset to the defaults": "Управление сброшено по умолчанию",
+  "{key} belongs to the browser": "{key} принадлежит браузеру"
 }

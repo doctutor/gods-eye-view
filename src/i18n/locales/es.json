@@ -4030,5 +4030,6 @@
   "Press a key…": "Pulsa una tecla…",
   "Press a key for {action} (Esc cancels, Backspace clears)": "Pulsa una tecla para {action} (Esc cancela, Retroceso la quita)",
   "Reset to defaults": "Restablecer valores predeterminados",
-  "Controls reset to the defaults": "Controles restablecidos"
+  "Controls reset to the defaults": "Controles restablecidos",
+  "{key} belongs to the browser": "{key} es del navegador"
 }
