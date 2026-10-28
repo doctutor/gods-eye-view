@@ -22,7 +22,9 @@
  *   release — one-shot: leave the mode (the pointer let go, Spectator);
  *   toggleMode — one-shot: Walk ⇄ Fly;
  *   flySpeedStep — a count this frame, −1 or +1 a press (summed): Fly's
- *     speed a wheel notch slower or faster.
+ *     speed a wheel notch slower or faster;
+ *   spectator — {panX, panY, orbitYaw, orbitPitch, zoom} (summed): a pad
+ *     moving Cesium's camera in Spectator (gamepad.js applySpectatorPad).
  */
 
 /** The held intents. */
@@ -45,6 +47,15 @@ export const EVENT_INTENTS = Object.freeze([
   'toggleMode',
 ]);
 
+/** The spectator block's axes. */
+export const SPECTATOR_AXES = Object.freeze([
+  'panX',
+  'panY',
+  'orbitYaw',
+  'orbitPitch',
+  'zoom',
+]);
+
 const clampUnit = (value) => Math.max(-1, Math.min(1, value));
 
 /** Nothing asked: every intent off, no look. */
@@ -54,6 +65,7 @@ export function createIntents() {
     lookDy: 0,
     analog: { forward: 0, right: 0 },
     flySpeedStep: 0,
+    spectator: Object.fromEntries(SPECTATOR_AXES.map((axis) => [axis, 0])),
   };
   for (const name of HELD_INTENTS) intents[name] = false;
   for (const name of EVENT_INTENTS) intents[name] = false;
@@ -77,6 +89,10 @@ export function mergeIntents(into, partial) {
   }
   const steps = Number(partial.flySpeedStep);
   if (Number.isFinite(steps)) into.flySpeedStep += steps;
+  for (const axis of SPECTATOR_AXES) {
+    const value = Number(partial.spectator?.[axis]);
+    if (Number.isFinite(value)) into.spectator[axis] += value;
+  }
   return into;
 }
 
