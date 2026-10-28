@@ -14,6 +14,7 @@
 // in (src/app/blocks.js wires the real ones), so this file stays pure enough
 // to test on fakes. Not part of upstream God's Eye View.
 
+import { NO_RELIEF, drawnHeightM } from './relief.js';
 import { ELEVATION_LAYER_ID } from '../lego/layerSpecs.js';
 import { setBlocksFloorM, setBlocksScene } from './floor.js';
 import { cameraArrivalPending } from '../../data/cameraArrival.js';
@@ -111,15 +112,11 @@ export function ceilingM(blockM, radiusBlocks) {
   );
 }
 
-/**
- * A height drawn under the Relief control, as Cesium draws the globe's
- * (scene.verticalExaggeration about its relative height; photoreal.js
- * exaggerate), so the blocks stay on the exaggerated ground.
- */
-export const drawnHeightM = (heightM, { factor = 1, relativeM = 0 } = {}) =>
-  factor > 1 ? (heightM - relativeM) * factor + relativeM : heightM;
-/** No relief: true heights. */
-const NO_RELIEF = Object.freeze({ factor: 1, relativeM: 0 });
+// A height drawn under the Relief control, as Cesium draws the globe's
+// (scene.verticalExaggeration about its relative height): src/layers/
+// blocks/relief.js, shared with navigation (the walker, its eye, targeting
+// and the outline follow the drawn blocks).
+export { drawnHeightM };
 
 /**
  * Whether the camera is in flight (Cesium's flyTo in progress) or an
@@ -1696,6 +1693,8 @@ export function createBlocksController({
         chunkAt: (ci, cj) => _chunks.get(grid.chunkKey(ci, cj))?.chunk || null,
         // The elevation source's name, for the HUD's BLOCK line.
         sourceName: _region.sourceName || '',
+        // The Relief the blocks are drawn under (relief.js), for the walker.
+        relief: _region.relief,
       };
     },
     subscribe(listener) {

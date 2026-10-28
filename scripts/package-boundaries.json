@@ -839,7 +839,8 @@
       "src/navigation/waypoints.js",
       "src/navigation/inputs.js",
       "src/navigation/settings.js",
-      "src/navigation/gamepad.js"
+      "src/navigation/gamepad.js",
+      "src/layers/blocks/relief.js"
     ],
     "external": ["cesium"]
   },
@@ -2777,7 +2778,8 @@
       "src/navigation/inputs.js",
       "src/navigation/settings.js",
       "src/navigation/controlsPanel.js",
-      "src/navigation/gamepad.js"
+      "src/navigation/gamepad.js",
+      "src/layers/blocks/relief.js"
     ],
     "external": [
       "hls.js",

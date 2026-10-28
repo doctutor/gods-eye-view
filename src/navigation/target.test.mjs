@@ -353,3 +353,48 @@ test('a 120 m block on 30 m levels: the targeted block’s base and top in metre
   // Not the same block as a cube's at the same indices.
   assert.equal(sameBlock(facts, { ...facts, levelM: 120 }), false);
 });
+
+test('Relief ×3: a ray at the drawn blocks targets the true block; a picked drawn point snaps to it', () => {
+  const relief = { factor: 3, relativeM: 0 };
+  const w = { ...world(), relief };
+  const frame = regionFrame(w);
+  // The raised column (10, 20) to level 33: its top at 34 m true, 1 m
+  // over the ellipsoid (the geoid at −33 m), drawn at 3 m.
+  // A true point as drawn: its ellipsoidal height ×3 (about 0 m).
+  const drawnAt = (x, y, z) => {
+    const e = Cesium.Cartographic.fromCartesian(toWorld(w, x, y, z));
+    return Cesium.Cartesian3.fromRadians(
+      e.longitude,
+      e.latitude,
+      e.height * relief.factor,
+    );
+  };
+  // A drawn point back to true metres.
+  const top = drawnAt(10.5, 20.5, 34);
+  const local = frame.toLocal(top);
+  assert.ok(Math.abs(local.z - 34) < 0.05, `true height: ${local.z}`);
+  // A ray from 200 m (drawn) straight down onto the raised column's drawn top.
+  const from = drawnAt(10.5, 20.5, 200);
+  const facts = targetAlongRay(w, rayBetween(from, top));
+  assert.ok(facts, 'a block');
+  assert.deepEqual([facts.i, facts.j, facts.y], [10, 20, 33]);
+  assert.equal(facts.topM, 34, 'the BLOCK line keeps true metres');
+  // Without the relief the drawn top would read as a height far above the
+  // block (the drawn metres taken as true).
+  const misread = regionFrame({ ...w, relief: null }).toLocal(top).z;
+  assert.ok(Math.abs(misread - 34) > 1, `misread ${misread}`);
+  // A slanted ray: its direction's up part shrinks by the factor.
+  const d = frame.toLocalDirection(
+    Cesium.Cartesian3.normalize(
+      new Cesium.Cartesian3(0, 0, 1),
+      new Cesium.Cartesian3(),
+    ),
+  );
+  const flatD = regionFrame({ ...w, relief: null }).toLocalDirection(
+    Cesium.Cartesian3.normalize(
+      new Cesium.Cartesian3(0, 0, 1),
+      new Cesium.Cartesian3(),
+    ),
+  );
+  assert.ok(Math.abs(d.z - flatD.z / 3) < 1e-12);
+});
