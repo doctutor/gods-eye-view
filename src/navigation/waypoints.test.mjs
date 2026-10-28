@@ -288,4 +288,8 @@ test('where the walker stands: the eye, the ground under the feet (the HUD’s A
   // Off the Blocks: no level.
   const surface = { ...frame, kind: 'surface', region: null };
   assert.equal(walkerPlace(surface, standing).level, null);
+  // A ground within half a metre of the eye is not one: null, the HUD samples.
+  // (a world answering above the feet it was asked under, 0.3 m under the eye)
+  const atTheEye = { ...frame, world: { surfaceBelow: (x, y, z) => z + 1.32 } };
+  assert.equal(walkerPlace(atTheEye, standing).groundM, null);
 });

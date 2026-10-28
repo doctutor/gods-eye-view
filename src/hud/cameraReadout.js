@@ -103,8 +103,10 @@ export const normalizeRoll = (deg) => {
 /**
  * Every field's text and tooltip.
  * @param {{view: object, altMslM: number, geoidApplied: boolean,
- *   aglM: number, footprintM: number, distanceM: number, sunElDeg: number,
- *   pixelDeg: number}} reading the camera now (src/hud.js)
+ *   aglM: number, aglStepM?: number|null, footprintM: number,
+ *   distanceM: number, sunElDeg: number, pixelDeg: number}} reading the
+ *   camera now (src/hud.js); `aglStepM` rounds the AGL instead of the
+ *   view's step (Walk and Fly: the model's exact ground)
  * @param {ReturnType<import('./precision.js').viewPrecision>} precision
  * @param {{mgrs?: (lon: number, lat: number, digits: number) => string}} [options]
  * @returns {Record<string, {text: string, title: string}>}
@@ -153,7 +155,7 @@ export function formatCameraReadout(reading, precision, { mgrs = null } = {}) {
     },
     agl: {
       text: Number.isFinite(reading.aglM)
-        ? `${formatLength(reading.aglM, precision.stepM)} m`
+        ? `${formatLength(reading.aglM, reading.aglStepM > 0 ? reading.aglStepM : precision.stepM)} m`
         : '—',
       title: Number.isFinite(reading.aglM)
         ? `${t('Camera height above the rendered surface directly under it ({source}).', { source })} ${bound} ${t('Click to edit: ALT becomes the surface’s height plus the number typed.')}`

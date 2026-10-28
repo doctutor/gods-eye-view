@@ -7488,7 +7488,11 @@ AIS stay). The summary wraps to three lines instead of clipping.
   reads the eye's 1.62 m at once, and the height above the ground below
   mid-jump or in Fly. In third person the camera's height is read over the
   walker's ground. Where the model knows no ground yet, the camera is
-  sampled as in Spectator.
+  sampled as in Spectator; a ground within 0.5 m of the eye is not
+  believed either. That AGL is the model's, so it is written to 0.1 m
+  (`1.6 m`), not to the view's step: the data's floor (10 m for about 4 s
+  while Blocks re-anchors after G) had rounded the eye's 1.62 m to "0 m"
+  though the ground was right all along.
   `window.__gevHudCamera.diagnostics()` in a live tab lists every way's raw
   answer beside the ones used, with the geometric error of the tile each
   ray met.
