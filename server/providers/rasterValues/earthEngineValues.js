@@ -8,6 +8,7 @@ import {
   modeRecord,
 } from '../../../src/data/earthEngineLayers.js';
 import {
+  VALID_HEIGHT_M,
   DEM_BANDS,
   demBand,
   sourceNamesAt,
@@ -21,11 +22,22 @@ import { expressionFor, visFor } from '../earthEngine.js';
  * What each layer's numbers are: units, how a coarse cell is made from the
  * fine ones (the asset's pyramid: Earth Engine reads the level nearest the
  * cell, and a categorical image's pyramid is MODE), and the source's name.
- * Units and source may differ by mode. Layers not here have no values
- * (hillshade is shading, not a quantity; the vector layers are lines).
+ * Units and source may differ by mode. `reduce: 'mean'`: a cell coarser
+ * than the source's own (MEAN_ABOVE ×) is the mean over it, reduced in
+ * Earth Engine (meanExpression), not a pixel of the nearest pyramid level
+ * (the Blocks pyramid's coarse levels: a 30 km block over the Rockies is
+ * their mean height). Layers not here have no values (hillshade is
+ * shading, not a quantity; the vector layers are lines).
  */
 export const EE_VALUE_LAYERS = Object.freeze({
-  'ee-elevation': { units: 'm', aggregation: 'mean' },
+  // Fill values masked in each source before any resampling or mean
+  // (VALID_HEIGHT_M), so a cell is the mean of real heights only.
+  'ee-elevation': {
+    units: 'm',
+    aggregation: 'mean',
+    reduce: 'mean',
+    validRange: VALID_HEIGHT_M,
+  },
   'ee-terrain-slope': { units: '°', aggregation: 'mean' },
   // Computed per cell from the heights at the cell's scale: a mean of
   // compass bearings would mean nothing.
@@ -79,6 +91,15 @@ export const EE_VALUE_LAYERS = Object.freeze({
   },
 });
 
+/** A cell this many times the source's own or coarser is reduced (`reduce`). */
+export const MEAN_ABOVE = 1.5;
+/**
+ * The most input pixels a reduced cell combines: past it Earth Engine
+ * reads a coarser pyramid level (bestEffort), so a 30 km cell is the mean
+ * of 16 × 16 pixels of about 1.9 km, each itself a mean.
+ */
+export const MEAN_MAX_PIXELS = 256;
+
 const constant = (value) => ({ constantValue: value });
 const invoke = (functionName, args) => ({
   functionInvocationValue: { functionName, arguments: args },
@@ -109,6 +130,31 @@ export function valuesExpression(base) {
       }),
     },
     result: 'rv',
+  };
+}
+
+/**
+ * The mean over each cell of the request's grid: the image given its
+ * source's cell as a default projection (a mosaic's is 1°), then
+ * reduceResolution with a mean, in the projection the request asks for
+ * (computePixels' grid).
+ */
+export function meanExpression(base, nativeM) {
+  return {
+    values: {
+      ...base.values,
+      mn: invoke('Image.reduceResolution', {
+        image: invoke('Image.setDefaultProjection', {
+          image: { valueReference: base.result },
+          crs: invoke('Projection', { crs: constant('EPSG:4326') }),
+          scale: constant(nativeM),
+        }),
+        reducer: invoke('Reducer.mean', {}),
+        bestEffort: constant(true),
+        maxPixels: constant(MEAN_MAX_PIXELS),
+      }),
+    },
+    result: 'mn',
   };
 }
 
@@ -254,6 +300,11 @@ export function readNpy(buf) {
   return { rows, cols, bands };
 }
 
+/** The source's cell when the stack says none, metres (FABDEM's). */
+const DEFAULT_NATIVE_M = 30;
+/** Answers that sampling would meet too: the day's budget, the setup. */
+const NOT_RETRIED = new Set([429, 503]);
+
 const hash = (value) =>
   crypto
     .createHash('sha256')
@@ -270,7 +321,9 @@ const hash = (value) =>
 export function createEarthEngineAdapter(layer, earthEngine) {
   const spec = EE_VALUE_LAYERS[layer.id];
   const modes = layerModes(layer);
-  const plain = valuesLayer(layer);
+  const plain = spec.validRange
+    ? { ...valuesLayer(layer), validRange: spec.validRange }
+    : valuesLayer(layer);
   const stack = isStack(layer);
   const pick = (value, mode) =>
     typeof value === 'function'
@@ -293,9 +346,13 @@ export function createEarthEngineAdapter(layer, earthEngine) {
         Math.min(layer.maxZoom ?? 14, Math.round(zoomForCell(cellSizeM, lat))),
       );
       const variant = valuesVariant(plain, z);
-      const expression = valuesExpression(
-        expressionFor(plain, variant, undefined, modeKey),
-      );
+      const picture = expressionFor(plain, variant, undefined, modeKey);
+      const ownM = nativeM || DEFAULT_NATIVE_M;
+      const reduced = spec.reduce === 'mean' && cellSizeM >= MEAN_ABOVE * ownM;
+      const sampled = valuesExpression(picture);
+      const expression = reduced
+        ? valuesExpression(meanExpression(picture, ownM))
+        : sampled;
       const units = pick(spec.units, modeKey);
       let source = pick(spec.source, modeKey);
       if (variant.stack) {
@@ -315,25 +372,46 @@ export function createEarthEngineAdapter(layer, earthEngine) {
         rows,
         cellSizeM,
         units,
-        aggregation: spec.aggregation,
+        aggregation: reduced ? 'mean' : spec.aggregation,
         source,
         legendMin,
         legendMax,
         ...(variant.stack ? { band: variant.stack } : {}),
         async run() {
-          const answer = await earthEngine.computePixels(
-            layer.id,
-            expression,
-            grid,
+          const pixels = async (request) => {
+            const answer = await earthEngine.computePixels(
+              layer.id,
+              request,
+              grid,
+            );
+            if (answer.status !== 200) return answer;
+            const { rows: r, cols: c, bands } = readNpy(answer.body);
+            if (r !== rows || c !== cols || !bands.v || !bands.m)
+              return {
+                status: 502,
+                error: 'Earth Engine answered another grid',
+              };
+            const values = bands.v;
+            for (let i = 0; i < values.length; i++)
+              if (!(bands.m[i] > 0)) values[i] = NaN;
+            return { status: 200, values };
+          };
+          const answer = await pixels(expression);
+          // A reduction Earth Engine refused (not the budget, not the
+          // setup): the sampled cells this once, said so and not kept.
+          if (
+            !reduced ||
+            answer.status === 200 ||
+            NOT_RETRIED.has(answer.status)
+          )
+            return answer;
+          console.warn(
+            `[RasterValues] ${layer.id}: the mean failed (${answer.status}: ${answer.error}); sampled instead`,
           );
-          if (answer.status !== 200) return answer;
-          const { rows: r, cols: c, bands } = readNpy(answer.body);
-          if (r !== rows || c !== cols || !bands.v || !bands.m)
-            return { status: 502, error: 'Earth Engine answered another grid' };
-          const values = bands.v;
-          for (let i = 0; i < values.length; i++)
-            if (!(bands.m[i] > 0)) values[i] = NaN;
-          return { status: 200, values };
+          const fallback = await pixels(sampled);
+          return fallback.status === 200
+            ? { ...fallback, aggregation: 'sample', keep: false }
+            : fallback;
         },
       };
     },

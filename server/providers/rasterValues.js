@@ -352,6 +352,8 @@ export function createRasterValuesService({
             ...(plan.band ? { band: plan.band } : {}),
           };
           const body = encodeRasterValues(header, answer.values);
+          // A stand-in answer (a refused reduction sampled) is served, not kept.
+          if (answer.keep === false) return { status: 200, body };
           try {
             fs.mkdirSync(path.dirname(file), { recursive: true });
             const temporary = `${file}.${process.pid}.tmp`;

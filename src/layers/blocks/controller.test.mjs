@@ -2422,8 +2422,10 @@ test('just landed with the globe hidden: its stale height is not trusted, so it 
 // ── Milestone 5: the block size follows the view ──────────────────────
 
 test('the pyramid: the native cells, then ×4 from 30 m to 30,720 m; the level height a cube up to 30 m, then max(30 m, blockM / 32)', async () => {
-  const { BLOCK_PYRAMID_M, pyramidLevelM, levelMFor, drawnHeightM } =
-    await import('./index.js');
+  const { drawnHeightM } = await import('./index.js');
+  // The pyramid is pyramid.js's (worker2's, shared with the source).
+  const { BLOCK_PYRAMID_M, pyramidLevelM, levelMFor } =
+    await import('./pyramid.js');
   assert.deepEqual(
     [...BLOCK_PYRAMID_M],
     [1, 2, 8, 10, 30, 120, 480, 1920, 7680, 30_720],
@@ -2438,9 +2440,8 @@ test('the pyramid: the native cells, then ×4 from 30 m to 30,720 m; the level h
   assert.equal(pyramidLevelM(30, 31), 120);
   assert.equal(pyramidLevelM(1, 2000), 7680);
   assert.equal(pyramidLevelM(30, 1e7), 30_720, 'the top past it');
-  // A native cell off the list stands for itself.
-  assert.equal(pyramidLevelM(4, 3), 4);
-  assert.equal(pyramidLevelM(4, 5), 8);
+  // A native cell off the list snaps up to the next level (231 m at sea).
+  assert.equal(pyramidLevelM(231, 100), 480);
   // Level heights.
   assert.deepEqual(
     [1, 2, 8, 10, 30, 120, 480, 1920, 7680, 30_720].map(levelMFor),
@@ -2479,12 +2480,9 @@ function pyramidSource(nativeM = 1, name = '3DEP 1 m') {
     async regionFor(lon, lat, windowM, options = {}) {
       base.regions.push({ lon, lat, windowM });
       asked.push(options);
-      const { pyramidLevelM } = await import('./index.js');
-      return {
-        blockM: pyramidLevelM(nativeM, options.wantedM),
-        nativeM,
-        source: name,
-      };
+      const { levelMFor, pyramidLevelM } = await import('./pyramid.js');
+      const blockM = pyramidLevelM(nativeM, options.wantedM);
+      return { blockM, levelM: levelMFor(blockM), nativeM, source: name };
     },
   };
 }
@@ -2494,6 +2492,7 @@ function footprintSetup({
   px = 0.3,
   relief = null,
   datum = null,
+  structures = null,
 } = {}) {
   const store = createRenderModeStore({ storage: memoryStorage() });
   store.setMode('blocks');
@@ -2521,6 +2520,7 @@ function footprintSetup({
       return () => reliefListeners.delete(listener);
     },
     ...(datum ? { datum } : {}),
+    ...(structures ? { structures } : {}),
     flatStyle: () => true,
     radiusBlocks: 64,
     setIntervalImpl: () => 1,
@@ -2693,4 +2693,29 @@ test('the status line above the native cells: the cell, the level height, the re
   assert.equal(dataFloor({ blocksM: 1920 }).name, 'Blocks 1.9 km');
   assert.equal(dataFloor({ blocksM: 1920 }).floorM, 1920);
   assert.equal(dataFloor({ blocksM: 30 }).name, 'Blocks 30 m');
+});
+
+test('buildings and land cover only up to 30 m blocks: none asked of Overpass at 120 m and up, where a group’s box runs to tens of kilometres', async () => {
+  const asked = [];
+  const structures = {
+    loadChunk: (region, ci, cj) => {
+      asked.push({ blockM: region.blockM, ci, cj });
+      return Promise.resolve(null);
+    },
+    apply: () => 0,
+  };
+  const { viewer, view, controller } = footprintSetup({ structures });
+  await drain(controller);
+  assert.ok(asked.length > 0, 'at 1 m');
+  assert.ok(asked.every((a) => a.blockM === 1));
+  const before = asked.length;
+  setHeight(viewer, 50_000);
+  view.px = 40;
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.equal(controller.getStatus().blockM, 120);
+  assert.equal(asked.length, before, 'none at 120 m');
+  assert.equal(controller.getStatus().buildingsPending, false);
+  assert.equal(controller.getBuildings(), true, 'the switch stays on');
+  controller.destroy();
 });

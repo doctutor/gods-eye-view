@@ -17,6 +17,7 @@
 import { NO_RELIEF, drawnHeightM } from './relief.js';
 import { ELEVATION_LAYER_ID } from '../lego/layerSpecs.js';
 import { setBlocksFloorM, setBlocksScene } from './floor.js';
+import { BLOCK_PYRAMID_M, levelMFor, pyramidLevelM } from './pyramid.js';
 import { cameraArrivalPending } from '../../data/cameraArrival.js';
 
 /** The render distance, in blocks (512 m at 1 m, 15 km at 30 m). */
@@ -29,49 +30,21 @@ export const GROUP_CHUNKS = 4;
 export const COARSE_REACH = 4;
 /**
  * The block size follows the view (docs/BLOCKS-PLAN.md milestone 5): the
- * smallest level of the pyramid at least the source's native cell and
- * FOOTPRINT_BLOCKS screen pixels at the view's centre, so a block is never
- * finer than the data nor than about two pixels.
+ * smallest level of the pyramid (pyramid.js) at least the source's native
+ * cell and FOOTPRINT_BLOCKS screen pixels at the view's centre, so a block
+ * is never finer than the data nor than about two pixels.
  */
 export const FOOTPRINT_BLOCKS = 2;
-/** The largest native cell: up to it a block is a cube (levelM = blockM). */
-export const NATIVE_TOP_M = 30;
-/**
- * The pyramid: the native cells (1, 2, 8, 10, 30 m), then ×4 from 30 m up
- * to the top level.
- */
-export const BLOCK_PYRAMID_M = Object.freeze([
-  1, 2, 8, 10, 30, 120, 480, 1920, 7680, 30_720,
-]);
+/** The pyramid's top level (pyramid.js). */
 export const TOP_LEVEL_M = BLOCK_PYRAMID_M[BLOCK_PYRAMID_M.length - 1];
+/**
+ * Buildings and land cover (structures.js) only up to this block size, the
+ * native cells': coarser, a group's Overpass box runs to hundreds of
+ * kilometres, and no building is a block wide.
+ */
+export const STRUCTURES_MAX_BLOCK_M = 30;
 /** A level changes only when the wanted cell is this far past it, either way. */
 export const LEVEL_HYSTERESIS = 2;
-/** Above the native cells a level is at least this tall (m). */
-export const MIN_COARSE_LEVEL_M = 30;
-/** Above the native cells, this many levels to a block's width at most. */
-export const LEVELS_PER_BLOCK = 32;
-
-/**
- * The block size for a wanted cell (m): the smallest pyramid level at least
- * max(native, wanted); the native cell itself when it is coarser than the
- * wanted one (or the wanted one is unknown); the top level past it.
- */
-export function pyramidLevelM(nativeM, wantedM) {
-  const native = nativeM > 0 ? nativeM : BLOCK_PYRAMID_M[0];
-  const want = Math.max(native, wantedM > 0 ? wantedM : 0);
-  if (want <= native) return native;
-  return BLOCK_PYRAMID_M.find((level) => level >= want) ?? TOP_LEVEL_M;
-}
-
-/**
- * The level height for a block size (m): a cube at the native cells; above
- * them max(30 m, blockM / 32): 120 m blocks on 30 m levels, 1,920 m on
- * 60 m, 30,720 m on 960 m.
- */
-export function levelMFor(blockM) {
-  if (!(blockM > NATIVE_TOP_M)) return blockM;
-  return Math.max(MIN_COARSE_LEVEL_M, blockM / LEVELS_PER_BLOCK);
-}
 
 /**
  * The level a region at `levelM` (the one asked for) should move to for
@@ -512,6 +485,15 @@ export function createBlocksController({
     Boolean(structures) &&
     !_overpassMissing &&
     store.getBuildings?.() !== false;
+  /**
+   * Whether this region's chunks get buildings and land cover: the switch,
+   * and blocks no coarser than STRUCTURES_MAX_BLOCK_M (a group's Overpass
+   * box is 30 km across at 120 m blocks, 8,000 km at the top level).
+   */
+  const structuresHere = () =>
+    buildingsOn() &&
+    Boolean(_region) &&
+    _region.blockM <= STRUCTURES_MAX_BLOCK_M;
   /** Whether the source draws a coarse ring (loadCoarseChunk). */
   const coarseOn = () => typeof source.loadCoarseChunk === 'function';
   const _listeners = new Set();
@@ -646,7 +628,7 @@ export function createBlocksController({
     // place agree.
     const ids = new Set();
     let buildingsPending = false;
-    if (buildingsOn()) {
+    if (structuresHere()) {
       for (const entry of _chunks.values())
         if (entry.shown && structuresComing(entry)) buildingsPending = true;
       for (const [key, list] of _groupBuildings) {
@@ -672,7 +654,7 @@ export function createBlocksController({
       source: _region.sourceName,
       buildings: buildingsPending ? 0 : ids.size,
       buildingsPending,
-      buildingsOn: buildingsOn(),
+      buildingsOn: structuresHere(),
       // The study sun (the real one is under 15°): said on the line.
       sunFixed: Boolean(_region.sun?.fixed),
     });
@@ -705,7 +687,9 @@ export function createBlocksController({
         // The source's native cell (a source without levels answers it).
         const nativeM =
           Number(found?.nativeM) > 0 ? Number(found.nativeM) : blockM;
-        const levelM = levelMFor(blockM);
+        // The metres a level: the source's (regionFor), else the rule's.
+        const levelM =
+          Number(found?.levelM) > 0 ? Number(found.levelM) : levelMFor(blockM);
         const region = grid.createRegion({
           ...anchorPoint(camera, blockM),
           blockM,
@@ -1113,7 +1097,7 @@ export function createBlocksController({
     call(() => structures.loadChunk(region, entry.ci, entry.cj)).then(
       (levels) => {
         if (stale()) return;
-        if (!buildingsOn() || !entry.chunk) {
+        if (!structuresHere() || !entry.chunk) {
           entry.structures = undefined;
           return;
         }
@@ -1167,7 +1151,7 @@ export function createBlocksController({
    */
   function syncStructures(ring, perTick, time) {
     if (!structures) return;
-    if (!buildingsOn()) {
+    if (!structuresHere()) {
       for (const entry of _chunks.values()) {
         if (entry.structures === 'done' && entry.chunk)
           clearStructures(entry.chunk);
@@ -1589,7 +1573,7 @@ export function createBlocksController({
     // Not asked yet, or a retry still to come.
     const waiting = (entry) =>
       !entry || (entry.failed && entry.retryAt !== Infinity);
-    const wantBuildings = buildingsOn();
+    const wantBuildings = structuresHere();
     for (const { ci, cj } of ring) {
       const entry = _chunks.get(grid.chunkKey(ci, cj));
       if (waiting(entry)) return true;
