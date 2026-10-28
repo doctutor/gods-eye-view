@@ -50,6 +50,7 @@ import {
   regionKey,
   supergroupBounds,
   supergroupOf,
+  levelOf,
 } from './source.js';
 import { MATERIALS, NONE } from './store.js';
 
@@ -641,10 +642,11 @@ export function structureLevels(
     if (!columns.length) continue;
     let base = -Infinity;
     for (const index of columns) base = Math.max(base, ground(index));
-    const height = buildingHeightBlocks(footprint.tags, region.blockM);
+    // Heights in levels (levelM a level: blockM for cubes).
+    const height = buildingHeightBlocks(footprint.tags, levelOf(region));
     const lift = Math.min(
       height - 1,
-      Math.round(buildingMinHeightM(footprint.tags) / region.blockM),
+      Math.round(buildingMinHeightM(footprint.tags) / levelOf(region)),
     );
     const top = base + height;
     const layer = isBuildingPart(footprint.tags) ? parts : outlines;
@@ -759,7 +761,7 @@ export function bridgeLevels(
     if (line) scanLine(line, halfM, grid, keep);
     else scanFootprint(bridge.rings.map(local), grid, keep);
     if (!columns.length) continue;
-    const lift = bridgeLiftBlocks(bridge.tags, blockM);
+    const lift = bridgeLiftBlocks(bridge.tags, levelOf(region));
     let base = -Infinity;
     for (const index of columns) base = Math.max(base, ground(index));
     let levelAt = () => base + lift;

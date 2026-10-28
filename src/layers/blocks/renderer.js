@@ -206,7 +206,8 @@ float blocks_line(float f) {
 }
 
 float blocks_tone(vec3 localPosition, vec3 localNormal, vec2 chunk, float distanceM) {
-  vec3 f = localPosition / blockM;
+  // Blocks of blockM across, levels of levelM up (a cube when they match).
+  vec3 f = localPosition / vec3(blockM, blockM, levelM);
   // Derivatives first, outside any branch.
   float lx = blocks_line(f.x);
   float ly = blocks_line(f.y);
@@ -247,6 +248,7 @@ function blocksMaterial(translucent) {
         fogEndM: 2e9,
         fogColor: new Cesium.Color(...DEFAULT_FOG_COLOR),
         blockM: 1,
+        levelM: 1,
         edgeStrength: 0,
         edgeFadeStart: EDGE_DEFAULTS.fadeStartBlocks,
         edgeFadeEnd: EDGE_DEFAULTS.fadeEndBlocks,
@@ -560,24 +562,30 @@ export function createBlocksRenderer({
 
   const requestRender = () => scene.requestRender?.();
 
-  /** Every appearance set, with the block size its edges are drawn at. */
+  /** A region's metres a level (worker1's levelM), else its block size. */
+  const levelMOf = (entry) =>
+    entry?.levelM > 0 ? entry.levelM : entry?.blockM || 1;
+
+  /** Every appearance set, with the block size and level its edges are drawn at. */
   const appearanceSets = () => [
-    { blockM: region?.blockM || 1, set: appearances },
+    { blockM: region?.blockM || 1, levelM: levelMOf(region), set: appearances },
     ...[...rings].map(([blockM, ring]) => ({
       blockM,
+      levelM: levelMOf(ring.region),
       set: ring.appearances,
     })),
   ];
 
   /** The block size and the land's edge and dither uniforms. */
   function applyStyle() {
-    for (const { blockM, set } of appearanceSets())
-      styleAppearances(set, blockM);
+    for (const { blockM, levelM, set } of appearanceSets())
+      styleAppearances(set, blockM, levelM);
   }
 
-  function styleAppearances(set, blockM) {
+  function styleAppearances(set, blockM, levelM = blockM) {
     for (const [kind, appearance] of Object.entries(set)) {
       const uniforms = appearance.material.uniforms;
+      uniforms.levelM = levelM;
       const land = kind === 'opaque';
       uniforms.blockM = blockM;
       uniforms.edgeStrength = land && style.edges ? style.edges.strength : 0;
@@ -850,7 +858,8 @@ export function createBlocksRenderer({
     Boolean(a && b) &&
     a.lon0 === b.lon0 &&
     a.lat0 === b.lat0 &&
-    a.blockM === b.blockM;
+    a.blockM === b.blockM &&
+    levelMOf(a) === levelMOf(b);
 
   const api = {
     /**
@@ -918,7 +927,7 @@ export function createBlocksRenderer({
           frame: regionFrame(next, datumOffsetM),
           appearances: set,
         });
-        styleAppearances(set, level);
+        styleAppearances(set, level, levelMOf(next));
       }
       if (Number.isFinite(fogReachBlocks) && list.length) {
         const ringFog = ringsFog(list, fogReachBlocks);

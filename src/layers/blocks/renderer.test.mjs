@@ -1002,3 +1002,32 @@ test("a ring's chunks batch apart from the primary's and keep their frame", () =
   );
   assert.equal(ring.geometryInstances.length, 16);
 });
+
+test('levelM: the vertical edge lines at the level height, per ring; a level change is another region', () => {
+  const renderer = createBlocksRenderer({ viewer: fakeViewer() });
+  const fine = { ...stubRegion({ blockM: 120 }), levelM: 30 };
+  const far = { ...stubRegion({ blockM: 1920 }), levelM: 60 };
+  renderer.setRegions([fine, far]);
+  renderer.upsert('0:0', tinyMesh());
+  renderer.upsert(levelChunkKey(1920, 0, 0), tinyMesh());
+  const [a, b] = [0, 1].map((k) => renderer.getCollection().get(k));
+  assert.equal(a.appearance.material.uniforms.blockM, 120);
+  assert.equal(a.appearance.material.uniforms.levelM, 30);
+  assert.equal(b.appearance.material.uniforms.levelM, 60);
+  assert.match(
+    a.appearance.getFragmentShaderSource(),
+    /localPosition \/ vec3\(blockM_\d+, blockM_\d+, levelM_\d+\)/,
+  );
+  // Cubes when a region has no levelM.
+  renderer.setRegion(stubRegion({ blockM: 30 }));
+  assert.equal(renderer.getState().region.levelM, undefined);
+  renderer.upsert('0:0', tinyMesh());
+  assert.equal(
+    renderer.getCollection().get(0).appearance.material.uniforms.levelM,
+    30,
+  );
+  // The same anchor and block on other levels: its chunks go.
+  renderer.setRegion({ ...stubRegion({ blockM: 30 }), levelM: 15 });
+  assert.deepEqual(renderer.keys(), []);
+  renderer.destroy();
+});

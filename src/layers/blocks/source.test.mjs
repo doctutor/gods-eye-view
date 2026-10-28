@@ -22,6 +22,7 @@ import {
   groupBounds,
   groupOf,
   levelFor,
+  levelMFor,
   levelOf,
   regionKey,
   supergroupBounds,
@@ -153,6 +154,16 @@ test('regionFor: the native cell at the point, and the source name', async () =>
   }
 });
 
+test('levelMFor: cubes at the native cells and to 30 m, then max(30 m, blockM / 32)', () => {
+  for (const blockM of [1, 2, 4, 8, 10, 30, 231])
+    assert.equal(levelMFor(blockM), blockM);
+  assert.equal(levelMFor(120), 30);
+  assert.equal(levelMFor(480), 30);
+  assert.equal(levelMFor(1920), 60);
+  assert.equal(levelMFor(7680), 240);
+  assert.equal(levelMFor(30720), 960);
+});
+
 test('regionFor: the wanted block picks the pyramid level, never under the native cell', async () => {
   const { fetchValues } = fakeValues({
     nativeM: 30,
@@ -165,11 +176,13 @@ test('regionFor: the wanted block picks the pyramid level, never under the nativ
     windowM: 512,
   });
   assert.equal(coarse.blockM, 1920);
+  assert.equal(coarse.levelM, 60);
   assert.equal(coarse.nativeM, 30);
   assert.equal(coarse.source, 'FABDEM 30 m');
   assert.ok(coarse.cellSizeM > 25 && coarse.cellSizeM < 40);
   const fine = await source.regionFor(-76.6, 39.3, { wantedM: 2 });
   assert.equal(fine.blockM, 30); // never under the native cell
+  assert.equal(fine.levelM, 30);
   assert.equal((await source.regionFor(-76.6, 39.3, {})).blockM, 30);
 });
 

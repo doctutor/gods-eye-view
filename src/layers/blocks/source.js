@@ -306,13 +306,25 @@ export function columnsFromHeights(heights, levelM) {
   return { top, material, water };
 }
 
+/**
+ * The metres a level for a block size (milestone 5, decision 2): a cube at
+ * the native cells and up to 30 m, above that max(30 m, blockM / 32), so
+ * 120 m blocks stand on 30 m levels and 30,720 m ones on 960 m.
+ */
+export const levelMFor = (blockM) =>
+  blockM <= 30 || NATIVE_CELLS_M.includes(blockM)
+    ? blockM
+    : Math.max(30, blockM / 32);
+
 /** A region's metres a level: its levelM, else its blockM (cubes). */
 export const levelOf = (region) =>
   region.levelM > 0 ? region.levelM : region.blockM;
 
 /**
  * The metres a level of a region's coarse ring: its coarseLevelM, else
- * CHUNK_GROUP × its own levelM (cubes at native cells).
+ * CHUNK_GROUP × its own levelM (cubes at native cells, as the controller
+ * meshes the ring today; set coarseLevelM to levelMFor(4 × blockM) to
+ * stand it on the rule's levels, and mesh it with that levelM).
  */
 export const coarseLevelOf = (region) =>
   region.coarseLevelM > 0 ? region.coarseLevelM : CHUNK_GROUP * levelOf(region);
@@ -531,9 +543,10 @@ export function createChunkSource({
      * answers at that cell. `windowM` caps the probe; the native cell is
      * the centre's, so a corner of 3DEP 1 m does not turn a 30 m view into
      * 1 m blocks. The third argument is {wantedM, windowM}, or windowM
-     * alone.
-     * @returns {Promise<{blockM: number, nativeM: number, source: string,
-     *   cellSizeM: number}>}
+     * alone. `levelM` is the rule's for the block (levelMFor), for the
+     * region createRegion makes.
+     * @returns {Promise<{blockM: number, levelM: number, nativeM: number,
+     *   source: string, cellSizeM: number}>}
      */
     async regionFor(lon, lat, options = {}) {
       const { wantedM = 0, windowM = Infinity } =
@@ -547,8 +560,10 @@ export function createChunkSource({
         if (header.cols >= 2 || side >= windowM) break;
       }
       const nativeM = snapBlockM(header.cellSizeM);
+      const blockM = levelFor(nativeM, wantedM);
       return {
-        blockM: levelFor(nativeM, wantedM),
+        blockM,
+        levelM: levelMFor(blockM),
         nativeM,
         source: header.source,
         cellSizeM: header.cellSizeM,
