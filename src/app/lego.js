@@ -62,6 +62,8 @@ export function createApplicationLego({
     dataManager,
     store: renderMode,
     mapStackController,
+    // Relief ×N exaggerates the blocks as it does the globe.
+    reliefStore: store,
   });
   // The Earth Engine budget is asked for while Blocks is drawn, never
   // otherwise (every fresh Blocks view spends Earth Engine requests).

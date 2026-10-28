@@ -302,7 +302,7 @@ ceiling becomes the top of a pyramid rather than a wall.
    the mean of the source over the cell (Earth Engine's reduce at that
    scale through the existing `cells=` request), never a sample, so a
    30 km block over the Rockies is their mean height. The server's 30-day
-   disk cache keeps every level; a view costs the same 41 requests at any
+   disk cache keeps every level; a fresh view costs 17 to 27 lattice tiles at any
    scale. A warm-up script (`npm run blocks:pyramid -- --bbox … --levels`)
    may precompute the coarse levels for a continent once; the 231 m
    ocean source is the pyramid's floor at sea.
@@ -339,7 +339,7 @@ ceiling becomes the top of a pyramid rather than a wall.
 Order: A, B and the server half of F are independent and start at once;
 C integrates as A and B land (the manager merges in that order and tells
 worker3); D after C's screenshots say which views need it. Budget: the
-20,000 tile day is unchanged; one fresh view at any level ≈ 41 requests.
+20,000 tile day is unchanged; one fresh view at any level is 17 to 27 lattice tiles as measured (3 × 3 fine + 3 × 3 coarse by design, up to 4 × 4 where the 1 m disc straddles tile edges).
 Success: Baltimore to the Appalachians to the continent in one descent
 without leaving Blocks, every level reading as a block map, and the
 3,000 km view beside Colour judged by the user.

@@ -18,6 +18,7 @@
  */
 
 import { formatNumber, t } from '../i18n/index.js';
+import { blockSizeText } from '../layers/blocks/floor.js';
 
 /** Metres along a meridian per degree of latitude (WGS84, mean). */
 export const METRES_PER_DEGREE = 111_320;
@@ -50,7 +51,7 @@ export const DATA_FLOORS = Object.freeze({
 /**
  * The surface under the camera, from what the map stack shows: Blocks'
  * cubes when Render: Blocks draws them (`blocksM`, the block size:
- * "Blocks 1 m", src/layers/blocks/); a shown 3D tileset is Google's
+ * "Blocks 1 m", "Blocks 1.9 km" from orbit, src/layers/blocks/); a shown 3D tileset is Google's
  * photoreal tiles; otherwise the globe's terrain, by the id
  * src/maps/terrain.js gives its providers (`world`, `keyless`), or a flat
  * ellipsoid.
@@ -66,7 +67,7 @@ export function dataFloor({
   if (blocksM > 0)
     return Object.freeze({
       id: 'blocks',
-      name: t('Blocks {size} m', { size: formatNumber(blocksM) }),
+      name: t('Blocks {size}', { size: blockSizeText(blocksM) }),
       floorM: blocksM,
     });
   if (tilesetShown) return DATA_FLOORS.google;

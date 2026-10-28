@@ -6003,18 +6003,26 @@ others. Blocks needs the **Elevation** layer on; without it nothing is
 built and the line under the heading says "Blocks needs the Elevation layer
 on". With it, the line says what is drawn: "Blocks: 1 m cubes · 412 chunks
 · 3DEP 1 m" (the block size, the chunks drawn, the elevation source;
-"274 + 48 coarse" with the coarse ring), with
+"274 + 48 coarse" with the coarse ring). Above the native cells it says
+the cell and the level height instead, and the relief when there is one:
+"Blocks: 1.9 km cells · 60 m levels · relief ×3 · 320 + 208 coarse ·
+FABDEM 30 m" (below, "Blocks at any scale"). It adds
 "· study sun" when the real sun is under 15°, "· 1,204 buildings" when
 buildings are drawn, and "· N loading" while chunks are still coming. The
 share link carries it as `bk=1`: a link with `bk=1` opens in Blocks
 without overwriting the stored mode, and a link without `bk` (every link
-from before Blocks) keeps the stored mode as before. While Blocks draws, the HUD's floor note beside AGL
-names the blocks ("· Blocks 1 m") and the camera readout's precision stops
-at the block size, as it does for any surface.
+from before Blocks) keeps the stored mode as before. The link needs
+nothing for the block size: it follows the view, so the same view opens at
+the same size. While Blocks draws, the HUD's floor note beside AGL
+names the blocks ("· Blocks 1 m", "· Blocks 1.9 km" from high up) and the
+camera readout's precision stops at the block size, as it does for any
+surface.
 
 **The grid.** A region is a local east-north-up frame anchored near the
-camera with one block size, the elevation source's own cell there: 1 m on
-3DEP lidar, 10 m on 3DEP 10 m, 30 m on FABDEM, 2 m on ArcticDEM. Columns
+camera with one block size: close in, the elevation source's own cell
+there (1 m on 3DEP lidar, 10 m on 3DEP 10 m, 30 m on FABDEM, 2 m on
+ArcticDEM), and coarser as the view draws back ("Blocks at any scale"
+below). Columns
 are integer steps east and north of its origin, levels integer steps up
 from mean sea level, chunks 64 columns a side. A column at or below 0 m is
 water at sea level; below the top every block is filled. The store keeps an
@@ -6033,12 +6041,17 @@ ground flips (a new map stack). The blank basemaps keep the globe's terrain
 they are terrain here unless the terrain is flat.
 
 **When it waits.** Every chunk is Earth Engine data the user pays for, so
-Blocks builds nothing (no region anchored, nothing loaded) while the
-camera is higher above the ground than 4 × R2 × the block size (8 km at
-1 m, 246 km at 30 m; 100 km before a region says the block size), or while
-a camera flight is in progress or an arrival correction still owns the
-camera (`cameraInFlight`: Cesium's flight, or `cameraArrivalPending` in
-`src/data/cameraArrival.js`, the ground guard's). The line says why
+Blocks builds nothing (no region anchored, nothing loaded) while a camera
+flight is in progress or an arrival correction still owns the camera
+(`cameraInFlight`: Cesium's flight, or `cameraArrivalPending` in
+`src/data/cameraArrival.js`, the ground guard's), or while the camera is
+higher above the ground than 4 × R2 × the block size. With the block
+following the view that ceiling is the top level's (251,658 km), so it
+never holds on Earth. It holds only a region that cannot follow the view:
+one whose source had no level as coarse as was asked (a source without
+levels: 8 km at 1 m, 246 km at 30 m), or one anchored while the view's
+footprint could not be measured. Before milestone 5 the ceiling was the
+region's always, and 100 km before a region. The line says why
 ("Blocks: come below 8 km to build", "Blocks: waiting for the camera to
 land"), and what is drawn already stays. Through a flight or arrival on a
 drawn style the globe stays hidden (Blocks builds where it lands, and a
@@ -6230,6 +6243,90 @@ counted, the switch off and on in place, Overpass not configured). The
 mode, `bk` and
 the drop-down are in `src/layers/lego/lego.test.mjs`, the link in
 `src/sharelink.camera.test.mjs`, the floor in `src/hud/precision.test.mjs`.
+
+### Blocks at any scale
+
+Milestone 5 of `docs/BLOCKS-PLAN.md` (2026-10-28, with the user): Blocks
+draws at every altitude, a city at 300 m and a continent from orbit, with
+about the same number of columns on screen. The rule that governs the
+HUD's numbers governs the block too: never finer than the data, and never
+finer than about two screen pixels.
+
+- **The pyramid.** The block sizes are the native cells (1, 2, 8, 10 and
+  30 m) continued ×4 from 30 m: 120 m, 480 m, 1,920 m, 7,680 m and
+  30,720 m, the top (`BLOCK_PYRAMID_M`, `src/layers/blocks/pyramid.js`,
+  shared by the source and the controller). A coarse block is the
+  source's mean over its cell, served by the server's `cells=` request and
+  kept in its 30-day disk cache (worker2's source, milestone 5 step B),
+  never a sample.
+- **The footprint rule.** The wanted cell is `FOOTPRINT_BLOCKS` (2) × the
+  HUD's PX at the view's centre (`viewFootprintM`,
+  `src/hud/cameraState.js`: the centre's distance across the canvas's
+  wider side at the field of view). The block is the smallest level at
+  least the native cell and the wanted one (`pyramidLevelM`), asked of the
+  source as `regionFor(lon, lat, windowM, { wantedM })`. It returns the
+  level, its level height and its native cell (`blockM`, `levelM`,
+  `nativeM`); the region is created with both. A source without levels
+  answers its native cell, and its own ceiling then holds the region
+  above it.
+  - Straight down at 60° over 1,000 pixels, a pixel is about h / 870.
+    Anchored fresh, a 1 m source draws 1 m cubes up to about 430 m, and
+    keeps them to about 870 m when climbing (the ×2 margin). Then come 2 m
+    and 8 m blocks, 120 m at 50 km (a 58 m pixel), 7,680 m at 3,000 km,
+    and the top level above about 3,300 km (6,700 km when climbing).
+  - A level changes only ×2 past it either way (`nextLevelM`): up once
+    even half the wanted cell needs a coarser level, down once even twice
+    it fits a finer one. A view near a boundary does not re-anchor on every
+    move.
+  - The check runs where the camera settles, not mid-move. A level change
+    anchors a new region at the camera, every chunk replaced, as leaving
+    the region does.
+  - In Walk and Fly there is no footprint (the view's centre is the
+    horizon's), so the blocks underfoot keep their size. A region anchored
+    there is the native cell, under its own ceiling.
+- **The level height.** The vertical step is decoupled from the cell
+  (`levelMFor`, the region's `levelM`). Up to 30 m a block is a cube. Above
+  it a level is max(30 m, blockM / 32): 120 m and 480 m blocks on 30 m
+  levels, 1,920 m on 60 m, 7,680 m on 240 m, 30,720 m on 960 m. A coarse
+  chunk of the ring is four blocks wide on the region's own levels, so the
+  skirts between the rings meet level for level. The store quantises
+  heights to `levelM` and the mesher draws a level `levelM` tall (worker1's,
+  milestone 5 step A).
+- **Relief.** The Relief ×N control beside Render (photoreal.js:
+  `scene.verticalExaggeration` about the ground under the view) stretches
+  the blocks as it stretches the globe. The level height drawn is `levelM`
+  × N, and the region's base is exaggerated about the same relative height
+  (`drawnHeightM`, Cesium's own formula), so the blocks stay on the
+  exaggerated ground. A new relative height moves the region without
+  meshing again; a new factor meshes the chunks again. The readouts, the
+  BLOCK line and Walk and Fly keep true metres. The status line says
+  "relief ×3".
+- **The cost.** A fresh view costs the same at any level. The values ride
+  a global lattice of each level (`src/layers/blocks/lattice.js`, worker2's:
+  tiles of 512 cells a side from 180°W 90°S), so a view is a few dozen
+  requests at any level. The plan's count is 3 × 3 tiles for the fine disc
+  and 3 × 3 for its coarse ring. The harness measured more: its fresh
+  300 m view at 1 m asked 1 probe, 14 fine tiles and 12 coarse ones (27),
+  because the 1 m disc spans up to four tiles a side where it straddles
+  their edges; 7,680 m blocks from 3,000 km asked 17. The server's cache
+  answers any view of a tile seen
+  before, and a warm-up (`npm run blocks:pyramid -- --bbox w,s,e,n
+  --levels 1920,7680,30720`) fills it with exactly what later views ask
+  for. A level change is a fresh view. From orbit that is one view of
+  30,720 m blocks, not the thousands of 30 m chunks a fixed block size
+  would need. The 20,000-tile Earth Engine day is unchanged.
+- **Buildings and land cover** (OpenStreetMap through Overpass) come only
+  with blocks of 30 m or finer (`STRUCTURES_MAX_BLOCK_M`). Coarser, a
+  group's query box runs from 30 km across at 120 m blocks to 8,000 km at
+  the top level, and no building is a block wide. The Buildings switch
+  keeps its setting and applies again on the way down.
+- **What it does not do yet.** One tangent plane serves every level. Past
+  a few hundred kilometres the Earth falls away under it (300 km at a
+  2,000 km reach), so the continental levels wait for the curved frame of
+  step D; until then the lattice answers columns beyond the plane's reach
+  as nodata (it matters only at 30,720 m). The controller still draws the
+  fine disc and one coarse ring (K = 1 of decision 4); the renderer's
+  `setRegions` for K rings is there for the next step.
 
 ### Blocks: the chunk source
 

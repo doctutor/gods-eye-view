@@ -36,12 +36,13 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 const fakeGrid = {
   CHUNK_COLUMNS: C,
   chunkKey: (ci, cj) => `${ci}:${cj}`,
-  createRegion({ lon0, lat0, blockM }) {
+  createRegion({ lon0, lat0, blockM, levelM = blockM }) {
     const cos = Math.cos(lat0 * RAD);
     return {
       lon0,
       lat0,
       blockM,
+      levelM,
       toLocal: (lon, lat) => ({
         x: (lon - lon0) * M_PER_DEG * cos,
         y: (lat - lat0) * M_PER_DEG,
@@ -1175,7 +1176,7 @@ test('the world for Walk and Fly: the region, its loaded chunks and the datum of
   controller.destroy();
 });
 
-test('skirts: a fine chunk with no fine neighbour beyond a border hangs its sides down to 4 × the lowest coarse level there', async () => {
+test('skirts: a fine chunk with no fine neighbour beyond a border hangs its sides down to the lowest coarse level there (coarse chunks keep the region’s levels)', async () => {
   const { SKIRT_SIDES } = await import('./index.js');
   assert.deepEqual(
     SKIRT_SIDES.map(([name]) => name),
@@ -1187,9 +1188,9 @@ test('skirts: a fine chunk with no fine neighbour beyond a border hangs its side
   // R1 = 128 columns: fine groups −1 … 0 each way, chunks −4 … 3.
   const last = (key) => meshes.filter((m) => m.key === key).at(-1).options;
   // The east edge of group 0: chunk 4:0 is not fine, c:1:0 is beyond (lowest 6).
-  assert.deepEqual(last('3:0').skirt, { n: null, s: null, e: 24, w: null });
+  assert.deepEqual(last('3:0').skirt, { n: null, s: null, e: 6, w: null });
   // The north-west corner: skirts on two sides, from c:-1:1 (lowest 4) and c:-2:0 (3).
-  assert.deepEqual(last('-4:3').skirt, { n: 16, s: null, e: null, w: 12 });
+  assert.deepEqual(last('-4:3').skirt, { n: 4, s: null, e: null, w: 3 });
   // Inside the fine ring: none.
   assert.equal(last('1:1').skirt, undefined);
   // Coarse chunks toward other coarse chunks: none.
@@ -1215,21 +1216,21 @@ test('coarse skirts: a coarse chunk beside a group drawn fine drops that neighbo
     meshes
       .filter((m) => m.chunk.coarse && m.chunk.gi === gi && m.chunk.gj === gj)
       .at(-1).options;
-  // c:1:0 has group 0:0 (drawn fine) to its west: floor(9 / 4) = 2 there,
-  // and its west neighbour (the hidden c:0:0) left out.
+  // c:1:0 has group 0:0 (drawn fine) to its west: level 9 there (the same
+  // levels), and its west neighbour (the hidden c:0:0) left out.
   const east = lastCoarse(1, 0);
-  assert.deepEqual(east.skirt, { n: null, s: null, e: null, w: 2 });
+  assert.deepEqual(east.skirt, { n: null, s: null, e: null, w: 9 });
   assert.equal(east.neighbours.w, undefined, 'the hidden coarse chunk dropped');
   assert.ok(east.neighbours.e, 'its coarse neighbour kept');
   // c:-2:-1 has group −1:−1 to its east.
   assert.deepEqual(lastCoarse(-2, -1).skirt, {
     n: null,
     s: null,
-    e: 2,
+    e: 9,
     w: null,
   });
   // c:0:1 has group 0:0 to its south.
-  assert.deepEqual(lastCoarse(0, 1).skirt, { n: null, s: 2, e: null, w: null });
+  assert.deepEqual(lastCoarse(0, 1).skirt, { n: null, s: 9, e: null, w: null });
   // Beyond: coarse all round, none.
   assert.equal(lastCoarse(2, 0).skirt, undefined);
   controller.destroy();
@@ -1252,7 +1253,7 @@ test('skirts wait for what is coming: none toward a fine neighbour still loading
   assert.deepEqual(ofEdge().at(-1).options.skirt, {
     n: null,
     s: null,
-    e: 24,
+    e: 6,
     w: null,
   });
   controller.destroy();
@@ -1725,14 +1726,13 @@ const setHeight = (viewer, height) => {
   };
 };
 
-test('the ceiling: 4 × R2 × the block size (8 km at 1 m), 100 km before a region; in flight means a Cesium flight or an arrival correction', async () => {
-  const { ceilingM, cameraInFlight, NO_REGION_CEILING_M } =
-    await import('./index.js');
+test('the ceiling: 4 × R2 × the block size (8 km at 1 m), the top level’s before a region; in flight means a Cesium flight or an arrival correction', async () => {
+  const { ceilingM, cameraInFlight, TOP_LEVEL_M } = await import('./index.js');
   const { ownCameraArrival } = await import('../../data/cameraArrival.js');
   assert.equal(ceilingM(1, 512), 8192);
   assert.equal(ceilingM(30, 512), 245_760);
-  assert.equal(ceilingM(undefined, 512), NO_REGION_CEILING_M);
-  assert.equal(NO_REGION_CEILING_M, 100_000);
+  assert.equal(TOP_LEVEL_M, 30_720);
+  assert.equal(ceilingM(undefined, 512), 251_658_240, '251,658 km');
   const viewer = { camera: {} };
   assert.equal(cameraInFlight(viewer), false);
   viewer.camera._currentFlight = {};
@@ -1744,7 +1744,7 @@ test('the ceiling: 4 × R2 × the block size (8 km at 1 m), 100 km before a regi
   assert.equal(cameraInFlight(viewer), false);
 });
 
-test('from orbit: nothing anchored or loaded, the globe kept; the first moveEnd below 100 km anchors', async () => {
+test('from orbit with a source without levels and no footprint: one probe, nothing loaded, the globe kept; the region’s own ceiling holds until the camera comes down', async () => {
   const source = fakeSource();
   const store = createRenderModeStore({ storage: memoryStorage() });
   store.setMode('blocks');
@@ -1765,15 +1765,17 @@ test('from orbit: nothing anchored or loaded, the globe kept; the first moveEnd 
     clearIntervalImpl: () => {},
   });
   await drain(controller);
-  assert.equal(source.regions.length, 0, 'not anchored');
+  // The pyramid's top bounds nothing on Earth, so a region is asked for;
+  // it is 1 m and cannot follow the view, so its own ceiling holds it.
+  assert.equal(source.regions.length, 1, 'one probe');
   assert.equal(source.loads.length, 0, 'nothing loaded');
   assert.equal(viewer.scene.globe.show, true, 'the globe stays');
   assert.equal(controller.getStatus().state, 'too-high');
   assert.equal(
     blocksStatusText(controller.getStatus()),
-    'Blocks: come below 100 km to build',
+    'Blocks: come below 1 km to build',
   );
-  // Down to 300 m and settled: anchored, and building.
+  // Down to 300 m and settled: building.
   setHeight(viewer, 300);
   viewer.camera.moveEnd.raise();
   await drain(controller);
@@ -2342,6 +2344,9 @@ test('the globe through a flight hold: hidden on a drawn style (no colour tiles 
     height: 500_000,
   };
   controller.tick();
+  // A region is asked for, and its own ceiling holds it (no footprint).
+  await settle();
+  controller.tick();
   assert.equal(controller.getStatus().state, 'too-high');
   assert.equal(viewer.scene.globe.show, true);
   assert.equal(blocksScene().active, false);
@@ -2411,5 +2416,306 @@ test('just landed with the globe hidden: its stale height is not trusted, so it 
   viewer.camera.moveEnd.raise();
   await drain(controller);
   assert.notEqual(controller.getStatus().state, 'too-high');
+  controller.destroy();
+});
+
+// ── Milestone 5: the block size follows the view ──────────────────────
+
+test('the pyramid: the native cells, then ×4 from 30 m to 30,720 m; the level height a cube up to 30 m, then max(30 m, blockM / 32)', async () => {
+  const { drawnHeightM } = await import('./index.js');
+  // The pyramid is pyramid.js's (worker2's, shared with the source).
+  const { BLOCK_PYRAMID_M, pyramidLevelM, levelMFor } =
+    await import('./pyramid.js');
+  assert.deepEqual(
+    [...BLOCK_PYRAMID_M],
+    [1, 2, 8, 10, 30, 120, 480, 1920, 7680, 30_720],
+  );
+  // The smallest level at least max(native, wanted).
+  assert.equal(pyramidLevelM(1, Number.NaN), 1, 'no footprint: native');
+  assert.equal(pyramidLevelM(1, 0.6), 1, 'never finer than the data');
+  assert.equal(pyramidLevelM(1, 1.5), 2);
+  assert.equal(pyramidLevelM(1, 3), 8);
+  assert.equal(pyramidLevelM(10, 9), 10);
+  assert.equal(pyramidLevelM(10, 11), 30);
+  assert.equal(pyramidLevelM(30, 31), 120);
+  assert.equal(pyramidLevelM(1, 2000), 7680);
+  assert.equal(pyramidLevelM(30, 1e7), 30_720, 'the top past it');
+  // A native cell off the list snaps up to the next level (231 m at sea).
+  assert.equal(pyramidLevelM(231, 100), 480);
+  // Level heights.
+  assert.deepEqual(
+    [1, 2, 8, 10, 30, 120, 480, 1920, 7680, 30_720].map(levelMFor),
+    [1, 2, 8, 10, 30, 30, 30, 60, 240, 960],
+  );
+  // The relief draws heights as Cesium draws the globe's.
+  assert.equal(drawnHeightM(-33, { factor: 1, relativeM: 50 }), -33);
+  assert.equal(drawnHeightM(-33, { factor: 3, relativeM: 50 }), -199);
+  assert.equal(drawnHeightM(12), 12);
+});
+
+test('a level changes only ×2 past it either way, so a view near a boundary does not re-anchor', async () => {
+  const { nextLevelM } = await import('./index.js');
+  // At 120 m (30 m native): wanted up to 240 m stays, past it 480 m.
+  assert.equal(nextLevelM(120, 200, 30), null);
+  assert.equal(nextLevelM(120, 240, 30), null);
+  assert.equal(nextLevelM(120, 241, 30), 480);
+  // Back at 200 m from 480 m: stays (twice it still needs 480 m).
+  assert.equal(nextLevelM(480, 200, 30), null);
+  assert.equal(nextLevelM(480, 60, 30), 120);
+  // Down to the native cell, never under it.
+  assert.equal(nextLevelM(120, 10, 30), 30);
+  assert.equal(nextLevelM(30, 1, 30), null);
+  // Nothing measured: stay.
+  assert.equal(nextLevelM(120, Number.NaN, 30), null);
+  assert.equal(nextLevelM(Number.NaN, 100, 30), null);
+});
+
+/** A source with the pyramid: the level for the wanted cell, and its native one. */
+function pyramidSource(nativeM = 1, name = '3DEP 1 m') {
+  const base = fakeSource({ blockM: nativeM, name });
+  const asked = [];
+  return {
+    ...base,
+    asked,
+    async regionFor(lon, lat, windowM, options = {}) {
+      base.regions.push({ lon, lat, windowM });
+      asked.push(options);
+      const { levelMFor, pyramidLevelM } = await import('./pyramid.js');
+      const blockM = pyramidLevelM(nativeM, options.wantedM);
+      return { blockM, levelM: levelMFor(blockM), nativeM, source: name };
+    },
+  };
+}
+
+function footprintSetup({
+  source = pyramidSource(),
+  px = 0.3,
+  relief = null,
+  datum = null,
+  structures = null,
+} = {}) {
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  const renderer = fakeRenderer();
+  const meshes = [];
+  const view = { px };
+  const reliefState = { factor: 1, relativeM: 0, ...(relief || {}) };
+  const reliefListeners = new Set();
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh(chunk, options) {
+      meshes.push({ key: `${chunk.ci}:${chunk.cj}`, options });
+      return { faces: 1, chunk };
+    },
+    footprint: () => view.px,
+    relief: () => reliefState,
+    subscribeRelief(listener) {
+      reliefListeners.add(listener);
+      return () => reliefListeners.delete(listener);
+    },
+    ...(datum ? { datum } : {}),
+    ...(structures ? { structures } : {}),
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+    setTimeoutImpl: (callback) => {
+      callback();
+      return 1;
+    },
+    clearTimeoutImpl: () => {},
+  });
+  const reliefChanged = (next) => {
+    Object.assign(reliefState, next);
+    for (const listener of reliefListeners) listener();
+  };
+  return { store, viewer, renderer, meshes, view, controller, reliefChanged };
+}
+
+test('the block follows the footprint: two pixels at the view’s centre up the pyramid, asked of the source; a zoom re-anchors where it settles, ×2 past a level', async () => {
+  const source = pyramidSource(1);
+  const { viewer, view, controller, meshes } = footprintSetup({ source });
+  await drain(controller);
+  assert.deepEqual(source.asked, [{ wantedM: 0.6 }]);
+  let status = controller.getStatus();
+  assert.equal(status.blockM, 1);
+  assert.equal(status.levelM, 1);
+  assert.equal(meshes.at(-1).options.levelM, 1, 'cubes');
+  assert.equal(viewer.scene.globe.show, false);
+  // Out to 50 km: a pixel is 40 m, the wanted cell 80 m: 120 m blocks on
+  // 30 m levels, with no ceiling in the way.
+  setHeight(viewer, 50_000);
+  view.px = 40;
+  viewer.camera.moveStart.raise();
+  controller.tick();
+  assert.equal(source.regions.length, 1, 'not mid-move');
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.equal(source.regions.length, 2);
+  assert.equal(source.asked.at(-1).wantedM, 80);
+  status = controller.getStatus();
+  assert.equal(status.state, 'ready');
+  assert.equal(status.blockM, 120);
+  assert.equal(status.levelM, 30);
+  assert.equal(meshes.at(-1).options.blockM, 120);
+  assert.equal(meshes.at(-1).options.levelM, 30);
+  assert.equal(controller._state().region.region.levelM, 30, 'to the grid');
+  // A little further: the wanted cell 200 m is within ×2 of 120 m: stays.
+  view.px = 100;
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.equal(source.regions.length, 2, 'no flapping');
+  // Past it: 480 m.
+  view.px = 130;
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.equal(controller.getStatus().blockM, 480);
+  // An unmeasured footprint changes nothing.
+  view.px = Number.NaN;
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.equal(source.regions.length, 3);
+  // 3,000 km straight down (a pixel 3.5 km at 60° over 1,000 px): 7,680 m
+  // blocks on 240 m levels.
+  setHeight(viewer, 3_000_000);
+  view.px = 3464;
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  status = controller.getStatus();
+  assert.equal(status.blockM, 7680);
+  assert.equal(status.levelM, 240);
+  assert.notEqual(status.state, 'too-high');
+  // 20,000 km: the top level, 30,720 m blocks on 960 m levels.
+  setHeight(viewer, 20_000_000);
+  view.px = 23_000;
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  status = controller.getStatus();
+  assert.equal(status.blockM, 30_720);
+  assert.equal(status.levelM, 960);
+  assert.notEqual(status.state, 'too-high');
+  assert.equal(blocksFloorM(), 30_720, 'the HUD’s data floor');
+  controller.destroy();
+});
+
+test('a source without levels answers its native cell: the region’s own ceiling holds above it, and coming down re-anchors at the native cell', async () => {
+  const source = fakeSource({ blockM: 1 });
+  const { viewer, view, controller, renderer } = footprintSetup({
+    source,
+    px: 2000,
+  });
+  setHeight(viewer, 2_000_000);
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.equal(source.regions.length, 1);
+  assert.equal(controller.getStatus().state, 'too-high');
+  assert.equal(controller.getStatus().ceilingM, 1024, '4 × R2 × 1 m');
+  assert.equal(source.loads.length, 0, 'nothing loaded');
+  // Down to 300 m: the footprint wants 1 m now, so the region is asked again.
+  setHeight(viewer, 300);
+  view.px = 0.3;
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.equal(source.regions.length, 2);
+  assert.ok(renderer.shown.size > 0, 'building');
+  controller.destroy();
+});
+
+test('the Relief control: the level height drawn × the factor and the base exaggerated about its relative height, as the globe; a new relative height moves the region without meshing again', async () => {
+  const datum = fakeDatum({ flat: false, undulation: -33 });
+  const { renderer, meshes, controller, reliefChanged } = footprintSetup({
+    datum,
+    relief: { factor: 3, relativeM: 50 },
+  });
+  await drain(controller);
+  const regions = () => renderer.calls.filter(([kind]) => kind === 'region');
+  assert.equal(regions()[0][2].datumOffsetM, -199, '(−33 − 50) × 3 + 50');
+  assert.equal(meshes.at(-1).options.levelM, 3, '1 m levels drawn 3 m');
+  assert.equal(controller.getStatus().relief, 3);
+  assert.equal(controller.world().geoidM, -33, 'the walker keeps metres');
+  // The relative height follows the view: moved, not meshed again.
+  const meshed = meshes.length;
+  reliefChanged({ relativeM: 20 });
+  await drain(controller);
+  assert.equal(regions().at(-1)[2].datumOffsetM, -139);
+  assert.equal(meshes.length, meshed, 'kept');
+  // Back to ×1: true heights, meshed again.
+  reliefChanged({ factor: 1 });
+  await drain(controller);
+  assert.equal(regions().at(-1)[2].datumOffsetM, -33);
+  assert.ok(meshes.length > meshed, 'meshed again');
+  assert.equal(meshes.at(-1).options.levelM, 1);
+  assert.equal(controller.getStatus().relief, 1);
+  controller.destroy();
+});
+
+test('the status line above the native cells: the cell, the level height, the relief, the counts and the source; cubes and ×1 say neither', async () => {
+  assert.equal(
+    blocksStatusText({
+      state: 'ready',
+      blockM: 1920,
+      levelM: 60,
+      relief: 3,
+      chunks: 320,
+      coarse: 208,
+      source: 'FABDEM 30 m',
+    }),
+    'Blocks: 1.9 km cells · 60 m levels · relief ×3 · 320 + 208 coarse · FABDEM 30 m',
+  );
+  assert.equal(
+    blocksStatusText({
+      state: 'ready',
+      blockM: 1,
+      levelM: 1,
+      relief: 1,
+      chunks: 274,
+      coarse: 48,
+      source: '3DEP 1 m',
+    }),
+    'Blocks: 1 m cubes · 274 + 48 coarse · 3DEP 1 m',
+  );
+  assert.equal(
+    blocksStatusText({
+      state: 'ready',
+      blockM: 30_720,
+      levelM: 960,
+      chunks: 9,
+    }),
+    'Blocks: 31 km cells · 960 m levels · 9 chunks',
+  );
+  const { dataFloor } = await import('../../hud/precision.js');
+  assert.equal(dataFloor({ blocksM: 1920 }).name, 'Blocks 1.9 km');
+  assert.equal(dataFloor({ blocksM: 1920 }).floorM, 1920);
+  assert.equal(dataFloor({ blocksM: 30 }).name, 'Blocks 30 m');
+});
+
+test('buildings and land cover only up to 30 m blocks: none asked of Overpass at 120 m and up, where a group’s box runs to tens of kilometres', async () => {
+  const asked = [];
+  const structures = {
+    loadChunk: (region, ci, cj) => {
+      asked.push({ blockM: region.blockM, ci, cj });
+      return Promise.resolve(null);
+    },
+    apply: () => 0,
+  };
+  const { viewer, view, controller } = footprintSetup({ structures });
+  await drain(controller);
+  assert.ok(asked.length > 0, 'at 1 m');
+  assert.ok(asked.every((a) => a.blockM === 1));
+  const before = asked.length;
+  setHeight(viewer, 50_000);
+  view.px = 40;
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.equal(controller.getStatus().blockM, 120);
+  assert.equal(asked.length, before, 'none at 120 m');
+  assert.equal(controller.getStatus().buildingsPending, false);
+  assert.equal(controller.getBuildings(), true, 'the switch stays on');
   controller.destroy();
 });
