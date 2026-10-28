@@ -97,6 +97,36 @@ const isFormTarget = (target) =>
   );
 
 /**
+ * Where the walker stands in a frame, for wayfinding (waypoints.js) and
+ * the HUD's AGL: {lon, lat, heightM (the eye), groundM (the ground under
+ * the feet, as the model finds it; null where it knows none), level (the
+ * block underfoot, under Blocks), blockM, headingDeg}.
+ */
+export function walkerPlace(frame, state) {
+  const at = frame.toCartographic(state.x, state.y, state.z);
+  const blockM = frame.kind === 'blocks' ? frame.region.blockM : null;
+  // The eye is lower while sneaking (state.eyeM).
+  const feet = state.z - (state.eyeM ?? EYE_HEIGHT_M);
+  let ground = Number.NaN;
+  try {
+    ground = frame.world.surfaceBelow(state.x, state.y, feet + 1e-6);
+  } catch {
+    /* no world to ask */
+  }
+  return {
+    lon: at.lon,
+    lat: at.lat,
+    heightM: at.heightM,
+    groundM: Number.isFinite(ground)
+      ? frame.toCartographic(state.x, state.y, ground).heightM
+      : null,
+    level: blockM ? Math.round(feet / blockM) - 1 : null,
+    blockM,
+    headingDeg: ((Cesium.Math.toDegrees(state.yaw) % 360) + 360) % 360,
+  };
+}
+
+/**
  * Bind the store's mode to a viewer. `holdRender`/`releaseRender` keep the
  * scene drawing while a mode is on (src/renderGovernor.js); `onStatus`
  * hears {mode, surface: 'blocks'|'surface'|'none', blockM, locked}.
@@ -1022,26 +1052,9 @@ export function createNavigationBinding({
     get state() {
       return active?.state ?? null;
     },
-    /**
-     * Where the walker stands, for wayfinding (waypoints.js): {lon, lat,
-     * heightM (the eye), level (the block underfoot, under Blocks),
-     * blockM, headingDeg}; null in Spectator.
-     */
+    /** Where the walker stands (walkerPlace); null in Spectator. */
     get place() {
-      if (!active?.state) return null;
-      const { frame, state } = active;
-      const at = frame.toCartographic(state.x, state.y, state.z);
-      const blockM = frame.kind === 'blocks' ? frame.region.blockM : null;
-      return {
-        lon: at.lon,
-        lat: at.lat,
-        heightM: at.heightM,
-        level: blockM
-          ? Math.round((state.z - EYE_HEIGHT_M) / blockM) - 1
-          : null,
-        blockM,
-        headingDeg: ((Cesium.Math.toDegrees(state.yaw) % 360) + 360) % 360,
-      };
+      return active?.state ? walkerPlace(active.frame, active.state) : null;
     },
     destroy() {
       unsubscribe();

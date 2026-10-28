@@ -8,10 +8,14 @@ import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 
 import {
+  SURFACE_FRESH_MS,
   SURFACE_MAX_M,
   SURFACE_MIN_M,
+  SURFACE_NEAR_M,
+  SURFACE_RISE_M,
   centreDistanceM,
   plausibleSurfaceM,
+  surfaceSampleStands,
   surfaceUnderCamera,
   viewDiagnostics,
 } from './cameraState.js';
@@ -226,4 +230,51 @@ test('the live diagnostics: every way raw, beside the ones used', () => {
   assert.equal(report.used.centre.via, 'ray');
   assert.equal(report.canvas.cssWidth, 1017);
   assert.equal(report.globeShown, false);
+});
+
+test('a surface sample stands only near the camera, at about its height, and fresh', () => {
+  const sample = { lat: 39.29, lon: -76.61, cameraM: 63, heightM: 61, at: 0 };
+  const view = { lat: 39.29, lon: -76.61, heightM: 63 };
+  assert.equal(surfaceSampleStands(sample, view, 500), true);
+  // Height: within SURFACE_RISE_M either way.
+  assert.equal(
+    surfaceSampleStands(sample, { ...view, heightM: 63 + SURFACE_RISE_M }, 0),
+    true,
+  );
+  assert.equal(surfaceSampleStands(sample, { ...view, heightM: 66 }, 0), false);
+  assert.equal(surfaceSampleStands(sample, { ...view, heightM: 52 }, 0), false);
+  // The C move of worker1's sweep: the camera up at 171 m over the roof.
+  assert.equal(
+    surfaceSampleStands(sample, { ...view, heightM: 171 }, 100),
+    false,
+  );
+  // Age.
+  assert.equal(surfaceSampleStands(sample, view, SURFACE_FRESH_MS - 1), true);
+  assert.equal(surfaceSampleStands(sample, view, SURFACE_FRESH_MS), false);
+  // Across: ~20 m north stands, ~30 m does not.
+  const north = (m) => ({ ...view, lat: view.lat + m / 111_195 });
+  assert.equal(surfaceSampleStands(sample, north(20), 0), true);
+  assert.equal(
+    surfaceSampleStands(sample, north(SURFACE_NEAR_M + 5), 0),
+    false,
+  );
+  // ~20 m east at this latitude stands too (the longitude scaled).
+  const east = { ...view, lon: view.lon + 20 / (111_195 * Math.cos(0.6858)) };
+  assert.equal(surfaceSampleStands(sample, east, 0), true);
+  // No sample, a missed one, no view.
+  assert.equal(surfaceSampleStands(null, view, 0), false);
+  assert.equal(
+    surfaceSampleStands({ ...sample, heightM: Number.NaN }, view, 0),
+    false,
+  );
+  assert.equal(
+    surfaceSampleStands({ ...sample, heightM: -23_800 }, view, 0),
+    false,
+  );
+  assert.equal(surfaceSampleStands(sample, null, 0), false);
+  assert.equal(
+    surfaceSampleStands({ ...sample, cameraM: undefined }, view, 0),
+    false,
+    'a sample without its camera height is sampled again',
+  );
 });

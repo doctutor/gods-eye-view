@@ -426,6 +426,16 @@ export class StyleManager extends ShellFacade {
         home: pageWayfinding().waypoints.home(),
       };
     });
+    // Personal fork: the HUD's AGL from the walker's ground in Walk and
+    // Fly; its surface sample forgotten when the camera is put somewhere
+    // else (an entry, Home, a waypoint, a mode change).
+    this.hud?.setGroundSource?.(() => this._embodied?.place?.groundM ?? null);
+    this._offSurfaceEntry = navigationStore().onEntry(() =>
+      this.hud?.forgetSurface?.(),
+    );
+    this._offSurfaceMode = navigationStore().subscribe(() =>
+      this.hud?.forgetSurface?.(),
+    );
     // Personal fork: under Blocks, the block under the crosshair (Walk,
     // Fly) or the pointer (Spectator): the HUD's BLOCK line, the outline.
     this._blockTargeting = createBlockTargeting({
@@ -1839,6 +1849,8 @@ export class StyleManager extends ShellFacade {
     this._gamepad = null;
     this._detachWayfindingKeys?.();
     this._unprovideWalker?.();
+    this._offSurfaceEntry?.();
+    this._offSurfaceMode?.();
     this._embodied?.destroy();
     this._embodied = null;
     this._visualSettings.stop();

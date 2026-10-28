@@ -35,6 +35,41 @@ export const plausibleSurfaceM = (heightM) =>
   heightM >= SURFACE_MIN_M &&
   heightM <= SURFACE_MAX_M;
 
+/** A surface sample stands for the camera within this many metres across, */
+export const SURFACE_NEAR_M = 25;
+/** within this many metres up or down of where it was taken, */
+export const SURFACE_RISE_M = 2;
+/** and for this long (ms). */
+export const SURFACE_FRESH_MS = 1000;
+
+/**
+ * Whether the last surface sample ({lat, lon, cameraM, heightM, at}) still
+ * stands for the camera's view now: a plausible height taken near it, at
+ * about its height, and fresh. A camera that went up a building's side, or
+ * dropped off its roof, is sampled again; so is one that stood still while
+ * the tiles under it refined.
+ */
+export function surfaceSampleStands(
+  sample,
+  view,
+  nowMs,
+  {
+    nearM = SURFACE_NEAR_M,
+    riseM = SURFACE_RISE_M,
+    freshMs = SURFACE_FRESH_MS,
+  } = {},
+) {
+  if (!sample || !view || !plausibleSurfaceM(sample.heightM)) return false;
+  if (!(nowMs - sample.at < freshMs)) return false;
+  if (!(Math.abs(view.heightM - sample.cameraM) <= riseM)) return false;
+  // Across, on the sphere's tangent plane (a few metres apart).
+  const R = 6371008.8;
+  const rad = Math.PI / 180;
+  const dy = (view.lat - sample.lat) * rad * R;
+  const dx = (view.lon - sample.lon) * rad * R * Math.cos(view.lat * rad);
+  return Math.hypot(dx, dy) <= nearM;
+}
+
 const centreScratch = new Cesium.Cartesian2();
 const cartoScratch = new Cesium.Cartographic();
 

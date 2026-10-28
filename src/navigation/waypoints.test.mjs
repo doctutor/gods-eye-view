@@ -1,5 +1,6 @@
 // Personal fork: home, waypoints and their keys (src/navigation/waypoints.js),
-// the entry with a pose (store.js), and the controls beside Move.
+// the entry with a pose (store.js), the controls beside Move, and where the
+// walker stands (binding.js walkerPlace).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -17,6 +18,7 @@ import {
 import { createNavigationStore } from './store.js';
 import { createViewStore } from './view.js';
 import { createNavSettings } from './settings.js';
+import { walkerPlace } from './binding.js';
 
 const memoryStorage = () => {
   const map = new Map();
@@ -249,4 +251,41 @@ test('the wayfinding keys follow the Controls’ bindings, rebound at once', () 
   press('KeyY');
   assert.equal(view.get(), 'back', 'unbound: nothing');
   detach();
+});
+
+test('where the walker stands: the eye, the ground under the feet (the HUD’s AGL) and the level', () => {
+  // A 1 m Blocks frame whose metres sit 10 m above the ellipsoid, a 3 m
+  // roof over x ≥ 5 and the ground at 0 elsewhere.
+  const frame = {
+    kind: 'blocks',
+    region: { blockM: 1 },
+    toCartographic: (x, y, z) => ({
+      lon: x * 1e-5,
+      lat: y * 1e-5,
+      heightM: z + 10,
+    }),
+    world: {
+      surfaceBelow: (x, y, z) => (x >= 5 && z >= 3 ? 3 : 0),
+    },
+  };
+  const standing = { x: 6, y: 0, z: 3 + 1.62, yaw: Math.PI / 2 };
+  const place = walkerPlace(frame, standing);
+  assert.ok(Math.abs(place.heightM - 14.62) < 1e-9);
+  assert.equal(place.groundM, 13, 'the roof, so AGL is 1.62 m');
+  assert.equal(place.level, 2);
+  assert.equal(place.blockM, 1);
+  assert.ok(Math.abs(place.headingDeg - 90) < 1e-9);
+  // Sneaking (the eye 0.3 m lower): the same feet, ground and level.
+  const sneaking = { ...standing, z: 3 + 1.32, eyeM: 1.32 };
+  assert.equal(walkerPlace(frame, sneaking).groundM, 13);
+  assert.equal(walkerPlace(frame, sneaking).level, 2);
+  // Off the roof, in the air: the ground below, not the feet.
+  assert.equal(walkerPlace(frame, { ...standing, x: 4, z: 9 }).groundM, 10);
+  // No ground known (tiles streaming), or no world: null, the HUD samples.
+  const unknown = { ...frame, world: { surfaceBelow: () => Number.NaN } };
+  assert.equal(walkerPlace(unknown, standing).groundM, null);
+  assert.equal(walkerPlace({ ...frame, world: null }, standing).groundM, null);
+  // Off the Blocks: no level.
+  const surface = { ...frame, kind: 'surface', region: null };
+  assert.equal(walkerPlace(surface, standing).level, null);
 });

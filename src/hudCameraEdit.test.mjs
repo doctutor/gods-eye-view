@@ -340,3 +340,78 @@ test('the precision the link gets: the floor of the surface under the camera', (
     s.hud.destroy();
   }
 });
+
+// worker1's sweep (2026-10-27, the qa town, hv=1): G onto a building's side
+// read "0 m" for ~5 s, walking off the roof "−9 … −43 m" for ~1.5 s, and
+// after a C move "110 m" over a roof at 61 m: the last sample stood for
+// any camera within 25 m across, whatever its height or age.
+test('AGL is sampled again at once when the camera rises or drops, and every second when still', () => {
+  surfaceAnswer = () => 12.4;
+  const s = setup();
+  const agl = () => s.hud._latestMetrics.aglM;
+  const atHeight = (heightM) => {
+    s.camera.positionCartographic.height = heightM;
+    s.hud._updateCameraData();
+  };
+  try {
+    atHeight(14);
+    assert.ok(Math.abs(agl() - 1.6) < 1e-6);
+    // Up onto a 30 m roof, a metre across: the roof, not the street.
+    surfaceAnswer = () => 30;
+    atHeight(31.6);
+    assert.ok(Math.abs(agl() - 1.6) < 1e-6, `on the roof: ${agl()}`);
+    // A metre's sway keeps the sample (no sample a tick).
+    surfaceAnswer = () => 99;
+    atHeight(32.5);
+    assert.ok(Math.abs(agl() - 2.5) < 1e-6);
+    // Off the roof, back to the street: never below it.
+    surfaceAnswer = () => 12.4;
+    atHeight(14);
+    assert.ok(Math.abs(agl() - 1.6) < 1e-6, `off the roof: ${agl()}`);
+    // Standing still while the tiles refine: a second later, sampled again.
+    surfaceAnswer = () => 13;
+    atHeight(14);
+    assert.ok(Math.abs(agl() - 1.6) < 1e-6, 'within the second');
+    s.hud._surface.at -= 1000;
+    atHeight(14);
+    assert.ok(Math.abs(agl() - 1) < 1e-6, 'refined');
+    // A mode entry (or Home, a waypoint) forgets the sample.
+    surfaceAnswer = () => 13.5;
+    s.hud.forgetSurface();
+    atHeight(14);
+    assert.ok(Math.abs(agl() - 0.5) < 1e-6);
+  } finally {
+    surfaceAnswer = () => 12.4;
+    s.hud.destroy();
+  }
+});
+
+test('in Walk and Fly AGL is over the walker’s ground: the eye’s 1.62 m at once', () => {
+  surfaceAnswer = () => 12.4;
+  const s = setup();
+  const agl = () => s.hud._latestMetrics.aglM;
+  try {
+    let ground = 498.38;
+    s.hud.setGroundSource(() => ground);
+    s.hud._updateCameraData();
+    assert.ok(Math.abs(agl() - 1.62) < 1e-6, `${agl()}`);
+    // The walker jumps off a ledge: the ground under it, at once.
+    ground = 480;
+    s.hud._updateCameraData();
+    assert.ok(Math.abs(agl() - 20) < 1e-6);
+    // No ground known (Spectator, or tiles still streaming): the sample.
+    ground = null;
+    s.hud._updateCameraData();
+    assert.ok(Math.abs(agl() - (500 - 12.4)) < 1e-6);
+    ground = -23_800;
+    s.hud._updateCameraData();
+    assert.ok(Math.abs(agl() - (500 - 12.4)) < 1e-6, 'not a miss');
+    s.hud.setGroundSource(() => {
+      throw new Error('gone');
+    });
+    s.hud._updateCameraData();
+    assert.ok(Math.abs(agl() - (500 - 12.4)) < 1e-6);
+  } finally {
+    s.hud.destroy();
+  }
+});
