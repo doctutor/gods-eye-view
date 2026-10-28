@@ -6303,9 +6303,13 @@ finer than about two screen pixels.
   "relief ×3".
 - **The cost.** A fresh view costs the same at any level. The values ride
   a global lattice of each level (`src/layers/blocks/lattice.js`, worker2's:
-  tiles of 512 cells a side from 180°W 90°S), so a view is at most 18
-  requests: 3 × 3 tiles for the fine disc and 3 × 3 for its coarse ring,
-  plus the probe. The server's cache answers any view of a tile seen
+  tiles of 512 cells a side from 180°W 90°S), so a view is a few dozen
+  requests at any level. The plan's count is 3 × 3 tiles for the fine disc
+  and 3 × 3 for its coarse ring. The harness measured more: its fresh
+  300 m view at 1 m asked 1 probe, 14 fine tiles and 12 coarse ones (27),
+  because the 1 m disc spans up to four tiles a side where it straddles
+  their edges; 7,680 m blocks from 3,000 km asked 17. The server's cache
+  answers any view of a tile seen
   before, and a warm-up (`npm run blocks:pyramid -- --bbox w,s,e,n
   --levels 1920,7680,30720`) fills it with exactly what later views ask
   for. A level change is a fresh view. From orbit that is one view of
