@@ -23,7 +23,9 @@ import {
   step,
 } from './movement.js';
 import {
+  createBobber,
   createFovEaser,
+  createSneakToggle,
   flySpeedAfterSteps,
   flySpeedAfterWheel,
   navSettings,
@@ -88,8 +90,9 @@ export function inputFromKeys(held, mode) {
 
 const isFormTarget = (target) =>
   Boolean(
-    target?.closest?.('input, textarea, select, [contenteditable="true"]') ||
-    target?.isContentEditable,
+    target?.closest?.(
+      'input, textarea, select, [contenteditable="true"], .nav-controls-card',
+    ) || target?.isContentEditable,
   );
 
 /**
@@ -461,6 +464,10 @@ export function createNavigationBinding({
   let flySpeed = controls().fly;
   /** Minecraft's dynamic FOV: wider while sprinting. */
   const fovEaser = createFovEaser();
+  /** Sneak as a toggle (in Walk, when the Controls say so). */
+  const sneakToggle = createSneakToggle();
+  /** View bobbing (off by default). */
+  const bobber = createBobber();
   const codesFor = (action) => settings?.codesFor?.(action) ?? [];
 
   /** Fly's speed set (the wheel, a gamepad's steps), said in the hint. */
@@ -566,7 +573,8 @@ export function createNavigationBinding({
     applyCameraView(viewer, {
       lon: place.lon,
       lat: place.lat,
-      heightM: place.heightM,
+      // The eye bobs in first person only.
+      heightM: place.heightM + (viewMode === 'first' ? bobber.offset : 0),
       headingDeg: Cesium.Math.toDegrees(pose.yaw),
       pitchDeg: Cesium.Math.toDegrees(pose.pitch),
       rollDeg: 0,
@@ -618,8 +626,12 @@ export function createNavigationBinding({
     }
     let state = active.state;
     // Every source's intents this frame (the keys, the mouse, a gamepad).
-    const intents = inputs.read(Math.min(0.1, Math.max(0, dt)));
+    let intents = inputs.read(Math.min(0.1, Math.max(0, dt)));
     const set = controls();
+    // Sneak toggled in Walk: a press flips it (in Fly the key is down, held).
+    if (mode === 'walk' && set.sneakMode === 'toggle')
+      intents = { ...intents, sneak: sneakToggle.update(intents.sneak) };
+    else sneakToggle.reset();
     // Every source's looks, in pointer-lock pixels (each already at its
     // own sensitivity: the mouse's in onMouseMove).
     if (intents.lookDx || intents.lookDy)
@@ -656,6 +668,21 @@ export function createNavigationBinding({
     );
     if (mode === 'walk' && wasHovering && !state.hovering)
       state = land(state, frame.world);
+    // The eye bobs at the step's cadence while walking on the ground.
+    const before = active.state;
+    bobber.update(
+      Math.hypot(state.x - before.x, state.y - before.y),
+      set.bobbing === true &&
+        mode === 'walk' &&
+        state.onGround &&
+        !state.inWater &&
+        (input.forward ||
+          input.back ||
+          input.left ||
+          input.right ||
+          Boolean(input.analog)),
+      Math.min(0.1, Math.max(0, dt)),
+    );
     active.state = state;
     placeCamera();
     updateOutline();
@@ -705,6 +732,8 @@ export function createNavigationBinding({
     canvas.addEventListener?.('wheel', onWheel, { passive: false });
     flySpeed = controls().fly;
     fovEaser.reset();
+    sneakToggle.reset();
+    bobber.reset();
     scene.preUpdate.addEventListener(onFrame);
     holdRender?.();
     if (crosshair) crosshair.hidden = false;

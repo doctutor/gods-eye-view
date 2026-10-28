@@ -15,7 +15,11 @@ import {
 
 export const SETTINGS_KEY = 'gev.nav.settings';
 
-/** What the bindings bind: the held intents and three actions. */
+/**
+ * What the bindings bind: the held intents and five actions (view cycles
+ * the third-person view; home sets home, with Shift goes there:
+ * src/navigation/waypoints.js).
+ */
 export const ACTIONS = Object.freeze([
   'forward',
   'back',
@@ -29,9 +33,20 @@ export const ACTIONS = Object.freeze([
   'walkHere',
   'flyHere',
   'release',
+  'view',
+  'home',
 ]);
 /** The actions that are held intents (inputs.js); the rest fire once. */
 const HELD = new Set(ACTIONS.slice(0, 9));
+
+/** The fired actions' default keys. */
+const FIRED_DEFAULTS = Object.freeze({
+  walkHere: ['KeyG'],
+  flyHere: [],
+  release: ['Escape'],
+  view: ['KeyT'],
+  home: ['KeyB'],
+});
 
 /** Minecraft's defaults: codes per action (sprint, up and down unbound). */
 export const DEFAULT_BINDINGS = Object.freeze(
@@ -39,13 +54,11 @@ export const DEFAULT_BINDINGS = Object.freeze(
     ACTIONS.map((action) => [
       action,
       Object.freeze(
-        action === 'walkHere'
-          ? ['KeyG']
-          : action === 'release'
-            ? ['Escape']
-            : Object.entries(DEFAULT_KEYS)
-                .filter(([, intent]) => intent === action)
-                .map(([code]) => code),
+        action in FIRED_DEFAULTS
+          ? FIRED_DEFAULTS[action]
+          : Object.entries(DEFAULT_KEYS)
+              .filter(([, intent]) => intent === action)
+              .map(([code]) => code),
       ),
     ]),
   ),
@@ -96,6 +109,13 @@ export const BOUNDS = Object.freeze({
   fly: [1, 50],
 });
 
+/**
+ * Keys the browser keeps (Ctrl+W closes the tab, a page cannot stop it;
+ * the system key; F1–F12 reload, fill the screen, open the tools): never
+ * bound.
+ */
+const BROWSER_CODE = /^(Control|Meta|OS)(Left|Right)$|^F\d{1,2}$/;
+
 const clamp = (value, [lo, hi]) => Math.max(lo, Math.min(hi, value));
 
 /** A settings patch checked: numbers within their bounds, the rest typed. */
@@ -140,8 +160,8 @@ function storageOf(storage) {
 
 /**
  * The store: `get()` the settings and their `bindings`; `set(patch)`;
- * `bind(action, code)` → {ok} or {ok: false, reason: 'app' | 'taken',
- * by?}; `unbind(action)`; `reset()`; `keyMap()` code → held intent;
+ * `bind(action, code)` → {ok} or {ok: false, reason: 'browser' | 'app' |
+ * 'taken', by?}; `unbind(action)`; `reset()`; `keyMap()` code → held intent;
  * `codesFor(action)`; `subscribe`.
  */
 export function createNavSettings({ storage } = {}) {
@@ -198,13 +218,14 @@ export function createNavSettings({ storage } = {}) {
       return true;
     },
     /**
-     * Whether a code may be bound to an action: not one of the app's
-     * shortcuts (unless it is that action's default), not another
-     * action's. {ok: true} or {ok: false, reason, by}.
+     * Whether a code may be bound to an action: not the browser's, not
+     * one of the app's shortcuts (unless it is that action's default),
+     * not another action's. {ok: true} or {ok: false, reason, by}.
      */
     check(action, code) {
       if (!ACTIONS.includes(action) || typeof code !== 'string' || !code)
         return { ok: false, reason: 'invalid' };
+      if (BROWSER_CODE.test(code)) return { ok: false, reason: 'browser' };
       const own = DEFAULT_BINDINGS[action].includes(code);
       if (APP_SHORTCUT_CODES.includes(code) && !own)
         return { ok: false, reason: 'app' };
@@ -439,6 +460,81 @@ export function createFovEaser({
     },
     reset() {
       boost = 0;
+    },
+  };
+}
+
+// ── Sneak as a toggle, and view bobbing ───────────────────────────────
+
+/**
+ * Sneak toggled (the Controls' "Toggle"): `update(held)` → whether
+ * sneaking, flipped on each press of the sneak key.
+ */
+export function createSneakToggle() {
+  let held = false;
+  let on = false;
+  return {
+    update(pressed) {
+      if (pressed && !held) on = !on;
+      held = Boolean(pressed);
+      return on;
+    },
+    get on() {
+      return on;
+    },
+    reset() {
+      held = false;
+      on = false;
+    },
+  };
+}
+
+/** View bobbing: the eye's dip at a footfall, metres. */
+export const BOB_M = 0.05;
+/**
+ * A step's length, metres: Minecraft's bob runs a cycle every 3.3 blocks
+ * walked, two footfalls to it (2.6 a second at the walk's 4.3 m/s).
+ */
+export const BOB_STEP_M = 1 / 0.6;
+/** How long the bob takes to come in on starting and go on stopping. */
+export const BOB_FADE_S = 0.15;
+
+/**
+ * View bobbing: `update(movedM, walking, dt)` → the eye's offset, metres
+ * (0 mid-stride, -BOB_M at each footfall), fading in and out with walking.
+ */
+export function createBobber({
+  amplitudeM = BOB_M,
+  stepM = BOB_STEP_M,
+  fadeS = BOB_FADE_S,
+} = {}) {
+  let distance = 0;
+  let weight = 0;
+  let offset = 0;
+  return {
+    update(movedM, walking, dt) {
+      if (walking) distance += Math.max(0, Number(movedM) || 0);
+      const target = walking ? 1 : 0;
+      const stepW = Math.max(0, Number(dt) || 0) / fadeS;
+      weight =
+        Math.abs(target - weight) <= stepW
+          ? target
+          : weight + Math.sign(target - weight) * stepW;
+      // (+ 0: no −0 when still.)
+      offset =
+        -amplitudeM *
+          weight *
+          (1 - Math.abs(Math.sin((Math.PI * distance) / stepM))) +
+        0;
+      return offset;
+    },
+    get offset() {
+      return offset;
+    },
+    reset() {
+      distance = 0;
+      weight = 0;
+      offset = 0;
     },
   };
 }

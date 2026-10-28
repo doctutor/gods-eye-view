@@ -1500,3 +1500,121 @@ body.recording-mode #right-context-rail > [data-panel-id] {
 .nav-here-btn[hidden] {
   display: none;
 }
+
+/* Personal fork: the Walk and Fly Controls card, from the gear beside Move
+   (src/navigation/controlsPanel.js). */
+.nav-controls-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  color: var(--text-primary, #e6edf3);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 5px;
+  cursor: pointer;
+}
+
+.nav-controls-btn[aria-expanded='true'] {
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.nav-controls-card {
+  position: fixed;
+  z-index: 1000;
+  width: 280px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 8px 10px 10px;
+  background: rgba(12, 16, 22, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: var(--text-primary, #e6edf3);
+  font-size: 11px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+
+.nav-controls-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.nav-controls-title,
+.nav-controls-section {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.nav-controls-section {
+  margin: 8px 0 4px;
+}
+
+.nav-controls-close {
+  background: none;
+  border: 0;
+  color: var(--text-secondary, #9aa7b4);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.nav-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+}
+
+.nav-controls-row > .nav-controls-label {
+  flex: 1;
+}
+
+.nav-controls-row input[type='range'] {
+  width: 90px;
+}
+
+.nav-controls-number {
+  width: 52px;
+}
+
+.nav-controls-value,
+.nav-controls-unit {
+  min-width: 30px;
+  color: var(--text-secondary, #9aa7b4);
+}
+
+.nav-controls-keys {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 6px;
+  align-items: center;
+}
+
+.nav-controls-key,
+.nav-controls-reset {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: var(--text-primary, #e6edf3);
+  font: inherit;
+  min-width: 70px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.nav-controls-key.is-listening {
+  border-color: #6cf;
+  color: #6cf;
+}
+
+.nav-controls-status {
+  min-height: 1.3em;
+  margin: 6px 0;
+  color: var(--text-secondary, #9aa7b4);
+}
+
+.nav-controls-reset {
+  width: 100%;
+}

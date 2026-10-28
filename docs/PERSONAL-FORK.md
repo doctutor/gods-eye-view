@@ -7569,10 +7569,26 @@ Spectator, so older links read the same) and opens in the mode
   sprint and fly speeds, sneak held or toggled, the sprint widening, view
   bobbing, and the key bindings (`event.code`, one key an action once
   rebound). Minecraft's defaults: WASD and the arrows, Space, Shift, G
-  walks here, Esc releases; sprint, up, down and fly-here unbound (sprint
+  walks here, Esc releases, T cycles the view, B sets home (Shift+B goes
+  there); sprint, up, down and fly-here unbound (sprint
   is W twice). A key is refused where the app has a shortcut (1–7, H, O,
   V, F, D, C, Esc, `) unless it is that action's own default (D is right),
-  and where another action has it. Bindings apply at once.
+  where another action has it, and always on the browser's own (Ctrl, the
+  system key, F1–F12). Everything applies at once. The card
+  (`src/navigation/controlsPanel.js`) opens from the gear beside Move, in
+  every mode, under the gear in the page's body (so the layer panel does
+  not clip it): sliders for sensitivity and the field of view, fields for
+  the speeds, Hold or Toggle for sneak, checkboxes for invert Y, the
+  sprint widening and bobbing, a button an action for its key (a click
+  says "Press a key…"; Esc cancels, Backspace leaves it unbound, a refused
+  key is said and the capture keeps listening), another source's section
+  (a gamepad's rows) under its heading, and Reset to defaults.
+  Keys pressed on the card reach neither the walker nor the app's
+  shortcuts; Esc elsewhere on it closes it, as does a click outside.
+  Sneak toggled flips on each press of the sneak key in Walk (in Fly the
+  key is down, held). View bobbing dips the eye 0.05 m at each footfall,
+  Minecraft's cadence (a step every 1.67 m walked, 2.6 a second at the
+  walk), fading in and out over 0.15 s, on the ground only.
 - **Inputs** (`src/navigation/inputs.js`). The keys and the mouse are one
   input source among others: each frame every source's `read(dt)` gives
   partial intents (forward, back, left, right, jump, sneak, sprint, up,
@@ -7719,6 +7735,10 @@ In Walk and Fly (Spectator keeps GEV's own keys and camera):
   here** keep where the walker stands (up to 50, the oldest go), a click on
   one goes there, ✕ deletes it. Each row says where: "39.32140, −76.62920 ·
   level 36".
+
+T and B are the Controls' `view` and `home` bindings (`settings.js`):
+`attachWayfindingKeys` reads them at each key, so a key rebound on the
+card applies at once, and an unbound one does nothing.
 
 Home and waypoints are kept in this browser (`gev.nav.home`,
 `gev.nav.waypoints`), never in a link, as absolute places, so they outlive

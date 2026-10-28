@@ -16,6 +16,7 @@ import {
 } from './waypoints.js';
 import { createNavigationStore } from './store.js';
 import { createViewStore } from './view.js';
+import { createNavSettings } from './settings.js';
 
 const memoryStorage = () => {
   const map = new Map();
@@ -205,4 +206,47 @@ test('the keys, in Walk and Fly only: T cycles the view, B sets home, Shift+B go
   assert.deepEqual(calls, ['set', 'go']);
   detach();
   assert.equal(listeners.has('keydown'), false);
+});
+
+test('the wayfinding keys follow the Controls’ bindings, rebound at once', () => {
+  const listeners = new Map();
+  const documentRef = {
+    addEventListener: (type, fn) => listeners.set(type, fn),
+    removeEventListener: (type) => listeners.delete(type),
+  };
+  const navStore = createNavigationStore({ initial: 'walk' });
+  const view = createViewStore({ storage: null });
+  const calls = [];
+  const settings = createNavSettings({ storage: null });
+  const detach = attachWayfindingKeys({
+    documentRef,
+    navStore,
+    view,
+    wayfinding: {
+      setHome: () => calls.push('set'),
+      goHome: () => calls.push('go'),
+    },
+    settings,
+  });
+  const press = (code, shiftKey = false) =>
+    listeners.get('keydown')({
+      code,
+      shiftKey,
+      target: null,
+      preventDefault() {},
+    });
+  press('KeyB');
+  assert.deepEqual(calls, ['set']);
+  settings.bind('home', 'KeyN');
+  settings.bind('view', 'KeyY');
+  press('KeyB');
+  assert.deepEqual(calls, ['set'], 'B no longer');
+  press('KeyN', true);
+  assert.deepEqual(calls, ['set', 'go']);
+  press('KeyY');
+  assert.equal(view.get(), 'back');
+  settings.unbind('view');
+  press('KeyY');
+  assert.equal(view.get(), 'back', 'unbound: nothing');
+  detach();
 });

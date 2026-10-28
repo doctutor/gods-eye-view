@@ -12,13 +12,18 @@
  * Walk or Fly.
  */
 import { formatNumber, t } from '../i18n/index.js';
+import { navSettings } from './settings.js';
 import { navigationStore } from './store.js';
 
 export const HOME_STORAGE_KEY = 'gev.nav.home';
 export const WAYPOINTS_STORAGE_KEY = 'gev.nav.waypoints';
 /** Waypoints kept at most (the oldest go). */
 export const MAX_WAYPOINTS = 50;
-/** Keys (KeyboardEvent.code): T cycles the view, B sets home, Shift+B goes home. */
+/**
+ * The default keys (KeyboardEvent.code): T cycles the view, B sets home,
+ * Shift+B goes home. The page's come from the Controls' bindings
+ * (settings.js 'view' and 'home'), rebindable there.
+ */
 export const WAYFINDING_KEYS = Object.freeze({
   view: 'KeyT',
   home: 'KeyB',
@@ -228,7 +233,10 @@ const isFormTarget = (target) =>
 /**
  * The wayfinding keys, in Walk and Fly only (Spectator keeps GEV's): T
  * cycles first person → behind → in front; B sets home; Shift+B goes home.
- * No Ctrl, Alt or Meta; not in form fields; not repeated.
+ * No Ctrl, Alt or Meta; not in form fields; not repeated. `keys` is
+ * {view, home} (a code or codes each), or a function giving it: by
+ * default the Controls' bindings, read at each key so a rebinding applies
+ * at once.
  * @returns {() => void} detach
  */
 export function attachWayfindingKeys({
@@ -236,16 +244,22 @@ export function attachWayfindingKeys({
   navStore,
   view,
   wayfinding,
-  keys = WAYFINDING_KEYS,
+  settings = navSettings(),
+  keys = () => ({
+    view: settings.codesFor('view'),
+    home: settings.codesFor('home'),
+  }),
 }) {
+  const codesOf = (value) => [].concat(value ?? []);
   const onKey = (event) => {
     if (navStore.get() === 'spectator') return;
     if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
     if (isFormTarget(event.target)) return;
-    if (event.code === keys.view && !event.shiftKey) {
+    const map = typeof keys === 'function' ? keys() : keys;
+    if (codesOf(map.view).includes(event.code) && !event.shiftKey) {
       view.cycle();
       event.preventDefault();
-    } else if (event.code === keys.home) {
+    } else if (codesOf(map.home).includes(event.code)) {
       if (event.shiftKey) wayfinding.goHome();
       else wayfinding.setHome();
       event.preventDefault();
