@@ -970,8 +970,8 @@ test('a chunk that fails is asked again after a backoff (2 s, 4 s, …), and giv
 });
 
 /** A source with the coarse ring: loadCoarseChunk(region, gi, gj). */
-function coarseSource({ hold = false, holdCoarse = false } = {}) {
-  const base = fakeSource({ hold });
+function coarseSource({ hold = false, holdCoarse = false, blockM = 1 } = {}) {
+  const base = fakeSource({ hold, blockM });
   const coarse = [];
   base.coarse = coarse;
   base.loadCoarseChunk = (region, gi, gj) => {
@@ -2717,5 +2717,76 @@ test('buildings and land cover only up to 30 m blocks: none asked of Overpass at
   assert.equal(asked.length, before, 'none at 120 m');
   assert.equal(controller.getStatus().buildingsPending, false);
   assert.equal(controller.getBuildings(), true, 'the switch stays on');
+  controller.destroy();
+});
+
+test('the coarse ring stops at the horizon: from 300 m over 1 km blocks, no group past 1.25 × the 62 km to it; from 50 km all of them', async () => {
+  const { horizonM, HORIZON_MARGIN } = await import('./index.js');
+  assert.ok(Math.abs(horizonM(300) - 61_824) < 5);
+  assert.ok(Math.abs(horizonM(500_000) - 2_573_000) < 1000);
+  const run = (height) => {
+    const source = coarseSource({ blockM: 1000 });
+    const { controller, viewer } = setup({ source, radiusBlocks: 128 });
+    setHeight(viewer, height);
+    return { source, controller, viewer };
+  };
+  const low = run(300);
+  await drain(low.controller);
+  const cut = HORIZON_MARGIN * horizonM(300);
+  const far = (gi, gj) => {
+    // The group's nearest point from the camera's column (0.5, 0.5), m.
+    const size = 4 * C * 1000;
+    const dx = Math.max(gi * size - 500, 0, 500 - (gi + 1) * size);
+    const dy = Math.max(gj * size - 500, 0, 500 - (gj + 1) * size);
+    return Math.hypot(dx, dy);
+  };
+  assert.ok(low.source.coarse.length > 0);
+  assert.ok(low.source.coarse.every(({ gi, gj }) => far(gi, gj) <= cut));
+  low.controller.destroy();
+  const high = run(50_000);
+  await drain(high.controller);
+  assert.ok(high.source.coarse.length > low.source.coarse.length);
+  high.controller.destroy();
+});
+
+test('settleMs: the first region waits until the camera has been still that long, and a level change too', async () => {
+  let time = 0;
+  const source = pyramidSource(1);
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  const view = { px: 0.3 };
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    footprint: () => view.px,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    settleMs: 2000,
+    now: () => time,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller);
+  assert.equal(source.regions.length, 0, 'not yet still 2 s');
+  time = 2100;
+  await drain(controller);
+  assert.equal(source.regions.length, 1);
+  // A zoom out that rests only a moment before moving on: no level change.
+  setHeight(viewer, 50_000);
+  view.px = 40;
+  viewer.camera.moveEnd.raise();
+  time = 2500;
+  await drain(controller);
+  assert.equal(source.regions.length, 1, 'still settling');
+  time = 4200;
+  await drain(controller);
+  assert.equal(source.regions.length, 2);
+  assert.equal(controller.getStatus().blockM, 120);
   controller.destroy();
 });

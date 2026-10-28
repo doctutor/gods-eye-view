@@ -42,6 +42,27 @@ export const TOP_LEVEL_M = BLOCK_PYRAMID_M[BLOCK_PYRAMID_M.length - 1];
  * kilometres, and no building is a block wide.
  */
 export const STRUCTURES_MAX_BLOCK_M = 30;
+/**
+ * The app's wait before anchoring (src/app/blocks.js gives it as settleMs):
+ * the camera still this long since it last moved, or since the controller
+ * started. A shared link's view comes by a flight 1.5 s after the page
+ * opens (shareRestoration.js); without the wait a region was anchored at
+ * the opening orbit first (worker3's trace, 2026-10-28: 5 requests for 31 km
+ * blocks nobody saw).
+ */
+export const ANCHOR_SETTLE_MS = 2000;
+/** The Earth's mean radius, for the horizon (m). */
+const EARTH_RADIUS_M = 6_371_000;
+/**
+ * The ground beyond the horizon is not asked for: the coarse ring (and
+ * the rings past it) only to this many times the distance to it.
+ */
+export const HORIZON_MARGIN = 1.25;
+/** The distance to the horizon from a height above the ground (m). */
+export const horizonM = (heightM) => {
+  const h = Math.max(1, Number(heightM) || 0);
+  return Math.sqrt(2 * EARTH_RADIUS_M * h + h * h);
+};
 /** A level changes only when the wanted cell is this far past it, either way. */
 export const LEVEL_HYSTERESIS = 2;
 
@@ -415,6 +436,8 @@ export function sourceName(source) {
  *     control as the scene draws it (scene.verticalExaggeration and its
  *     relative height): the drawn heights follow, the readouts keep metres,
  *   subscribeRelief?: (listener: Function) => Function,
+ *   settleMs?: number, how long the camera must be still before a region
+ *     is anchored or changes level (ANCHOR_SETTLE_MS in the app; 0 here),
  *   radiusBlocks?: number, budget?: number, tickMs?: number,
  *   requestRender?: Function, now?: () => number,
  *   setIntervalImpl?: typeof setInterval, clearIntervalImpl?: typeof clearInterval,
@@ -440,6 +463,7 @@ export function createBlocksController({
   supergroupGroups = 0,
   meshBacklog = null,
   footprint = () => Number.NaN,
+  settleMs = 0,
   relief = () => NO_RELIEF,
   subscribeRelief = null,
   setTimeoutImpl = (...args) => setTimeout(...args),
@@ -466,6 +490,8 @@ export function createBlocksController({
   let _interval = null;
   let _sunInterval = null;
   let _moving = false;
+  /** When the camera last came to rest (the controller's start at first). */
+  let _settledAt = now();
   let _destroyed = false;
   let _status = { state: 'off' };
   let _globeHidden = false;
@@ -1366,8 +1392,10 @@ export function createBlocksController({
       return;
     }
     if (_anchoring) return;
-    // The first region is anchored where the camera settles, not mid-move.
-    if (!_region && _moving) {
+    // The first region is anchored where the camera settles, not mid-move,
+    // and only once it has been still settleMs.
+    const settled = !_moving && now() - _settledAt >= settleMs;
+    if (!_region && !settled) {
       startTicking();
       return;
     }
@@ -1381,8 +1409,10 @@ export function createBlocksController({
       // The view wants another level (×2 past it either way). Not mid-move:
       // a zoom re-anchors where it settles.
       const level =
-        !_moving &&
+        settled &&
         nextLevelM(_region.askedM, wantedCellM(), _region.nativeM) !== null;
+      // Settling toward another level: look again next tick.
+      if (!settled && !_moving) startTicking();
       if (left || level || Boolean(datum.flat()) !== _region.flat) {
         clearAll('anchoring');
         startTicking();
@@ -1428,6 +1458,7 @@ export function createBlocksController({
       _coarse.delete(entry.key);
     }
     const ring = fineRing({ i, j, radius: radiusBlocks, chunkColumns: size });
+    const horizonCut = HORIZON_MARGIN * horizonM(heightAboveGround(camera));
     const groups = coarseOn()
       ? groupRing({
           i,
@@ -1435,8 +1466,11 @@ export function createBlocksController({
           radius: radiusBlocks * COARSE_REACH,
           chunkColumns: size,
         }).filter(
-          ({ gi, gj }) =>
-            !supergroupInside(at, gi, gj, groupSize, radiusBlocks),
+          ({ gi, gj, distance }) =>
+            !supergroupInside(at, gi, gj, groupSize, radiusBlocks) &&
+            // Not past the horizon (from 500 km the ring would run over
+            // the pole on the tangent plane).
+            distance * _region.blockM <= horizonCut,
         )
       : [];
     // With the pool meshing, the pool is the bound, not the tick.
@@ -1623,6 +1657,7 @@ export function createBlocksController({
       _removers.push(
         camera.moveEnd.addEventListener(() => {
           _moving = false;
+          _settledAt = now();
           tick();
         }),
       );

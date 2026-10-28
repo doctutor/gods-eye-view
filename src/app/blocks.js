@@ -1,5 +1,8 @@
 import * as Cesium from 'cesium';
-import { createBlocksController } from '../layers/blocks/index.js';
+import {
+  ANCHOR_SETTLE_MS,
+  createBlocksController,
+} from '../layers/blocks/index.js';
 import * as grid from '../layers/blocks/grid.js';
 import { buildChunkMesh } from '../layers/blocks/mesh.js';
 import { meshChunkAsync, sharedMeshPool } from '../layers/blocks/meshPool.js';
@@ -72,6 +75,9 @@ export function createApplicationBlocks({
         buildings.loadGroupBuildings(region, gi, gj, { viaSupergroup: true }),
       apply: applyStructures,
     },
+    // Anchored once the camera has been still 2 s (a link's flight starts
+    // 1.5 s after the page opens).
+    settleMs: ANCHOR_SETTLE_MS,
     // The block size from the HUD's PX at the view's centre (milestone 5);
     // none in Walk and Fly, where the centre is the horizon's and the
     // blocks underfoot keep their size.
