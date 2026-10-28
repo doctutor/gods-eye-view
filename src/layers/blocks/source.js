@@ -18,9 +18,10 @@
 // answers any view at that level and a warm-up can fill it; a level
 // coarser than the source's own cell is the mean over each cell (the
 // server reduces). Each Earth Engine answer counts a tile against the
-// day's budget, about 18 for a fresh view at any level. Heights are mean
-// sea level as the DEM stack reports them; a column at or below 0 m is the
-// sea, water at level 0 over a seabed below it.
+// day's budget: at most 18 for a fresh view at any level (3 × 3 tiles for
+// the fine disc, 3 × 3 for its coarse ring). Heights are mean sea level as
+// the DEM stack reports them; a column at or below 0 m is the sea, water at
+// level 0 over a seabed below it.
 //
 // A region (grid.js) is used through lon0, lat0, blockM, levelM (the
 // metres a level, worker1's; blockM when absent), chunkBounds and
