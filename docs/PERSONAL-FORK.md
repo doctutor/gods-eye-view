@@ -7717,9 +7717,9 @@ controls (below). The movement itself is "Walk and Fly" above.
 ### Keys
 
 Defaults (Minecraft Java's, where it has one). Every key is
-`KeyboardEvent.code`, so the layout's letters do not matter; the movement
-keys can be rebound in the Controls card. No Ctrl anywhere: Ctrl+W closes
-the browser tab, and a page cannot stop it.
+`KeyboardEvent.code`, so the layout's letters do not matter; every
+action's key, T and B too, can be rebound in the Controls card. No Ctrl
+anywhere: Ctrl+W closes the browser tab, and a page cannot stop it.
 
 | Action               | Walk                            | Fly                             | Spectator   |
 | -------------------- | ------------------------------- | ------------------------------- | ----------- |
@@ -7769,26 +7769,49 @@ X; invert Y) are the Controls card's Gamepad section, kept under
 
 ### The Controls card
 
-The gear beside Move opens it (worker1's, `src/navigation/settings.js`),
-kept in this browser (`gev.nav.settings`), never in a link, applied at
-once:
+The gear (⚙) beside Move opens it, in every mode
+(`src/navigation/controlsPanel.js`, worker1's, on the settings of
+`src/navigation/settings.js`). It opens under the gear in the page's
+body, so the layer panel does not clip it. Everything is kept in this
+browser (`gev.nav.settings`), never in a link, and applies at once. Top
+to bottom:
 
-- **Mouse**: sensitivity (0.1–2×), invert Y.
-- **View**: the vertical field of view (30–110°, 70°); the sprint widening
-  (10° over 0.2 s, Minecraft's dynamic FOV) on or off; view bobbing on or
-  off.
-- **Speeds**: walk (4.3 m/s), sprint (5.6), fly (10.8; the wheel moves it
-  from there for the session, between 1 and 50).
-- **Sneak**: Hold (while Shift is down) or Toggle (press once).
-- **Keys**: a button per action showing its key. A click shows "Press a
-  key…"; the next key is bound (one key an action once rebound), Esc
-  cancels, Backspace leaves the action unbound. Refused, with the reason:
-  the app's own shortcuts (1–7, H, O, V, F, D, C, Esc, `) unless the key
-  is that action's own default (D is Walk's right), a key another action
-  has, Ctrl, the system key, and F1–F12.
-- **Gamepad**: the section above, added by the gamepad source through
-  `navSettings().registerSection`.
-- **Reset** puts everything back, the keys and the sections too.
+- **Mouse**: sensitivity, a slider (0.1–2×, 1×); invert Y, a checkbox.
+- **Field of view (vertical)**: a slider, 30–110° (70°).
+- **Speeds**: fields in m/s: walk (0.5–20, 4.3), sprint (0.5–30, 5.6),
+  fly (1–50, 10.8). The wheel moves Fly's speed from there for that
+  flight only; the next entry starts again from the field.
+- **Sneak**: Hold (while the sneak key is down) or Toggle (each press
+  flips it). Toggle applies in Walk only: in Fly the key is down, held.
+- **Sprinting widens the view**: a checkbox (10° over 0.2 s, Minecraft's
+  dynamic FOV; on).
+- **View bobbing**: a checkbox (off). The eye dips 0.05 m at each
+  footfall, a step every 1.67 m walked (2.6 a second at the walk). It
+  fades in and out over 0.15 s, and only in first person, walking on the
+  ground, out of water.
+- **Gamepad**: the section above, drawn from what the gamepad source
+  registers (`navSettings().registerSection`): dead zone, sensitivity,
+  invert X, invert Y. It is registered when the app starts, so it shows
+  with or without a pad.
+- **Keys**: a row for each of the 14 actions (the held ones, Walk here,
+  Fly here, release, Cycle the view, and Set home), with a button showing
+  its keys ("W / ↑" until rebound, "—" when unbound).
+  - A click on the button says "Press a key…". The next key becomes the
+    action's only key, Esc cancels, and Backspace leaves the action
+    unbound. A second click on the button, or focus leaving it, also
+    cancels.
+  - A refused key is named in the status line, and the capture keeps
+    listening. There are three reasons. "belongs to the browser (Ctrl+W
+    closes the tab)": Ctrl, the system key, F1–F12. "is one of the app's
+    own shortcuts": 1–7, H, O, V, F, D, C, Esc, `, unless the key is that
+    action's own default (D is Right's, Esc is release's). "is already
+    {action}": a key another action has.
+- **Reset to defaults**: everything back, the keys and the Gamepad
+  section too.
+
+Keys pressed on the card reach neither the walker nor the app's
+shortcuts. Esc (outside a capture), the ×, or a click outside the card
+closes it.
 
 ### Third person, the compass, home and waypoints
 
