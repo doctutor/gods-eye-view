@@ -303,3 +303,53 @@ test('Walk: the block under the crosshair (the camera’s direction); Blocks off
   assert.equal(heard.at(-1), null);
   targeting.destroy();
 });
+
+test('a 120 m block on 30 m levels: the targeted block’s base and top in metres, the BLOCK line names both', () => {
+  const region = createRegion({
+    lon0: -76.6122,
+    lat0: 39.2904,
+    blockM: 120,
+    levelM: 30,
+  });
+  const top = new Int32Array(N * N).fill(2);
+  top[columnIndex(5, 5)] = 3;
+  const chunk = createChunk({
+    ci: 0,
+    cj: 0,
+    top,
+    water: new Int32Array(N * N).fill(NONE),
+  });
+  const w = {
+    region,
+    chunkAt: (ci, cj) => (ci === 0 && cj === 0 ? chunk : null),
+    sourceName: 'Pyramid 120 m',
+  };
+  const facts = blockFacts(
+    w,
+    { i: 5, j: 5, y: 3, face: [0, 0, 1] },
+    w.sourceName,
+  );
+  assert.equal(facts.baseM, 90);
+  assert.equal(facts.topM, 120);
+  assert.equal(facts.blockM, 120);
+  assert.equal(facts.levelM, 30);
+  const line = formatBlockTarget(facts);
+  assert.match(line.text, / · L3 \(90 m\) · terrain · Pyramid 120 m$/);
+  assert.equal(
+    line.title,
+    'Chunk 0:0, column 5 5, level 3: 120 m blocks on 30 m levels',
+  );
+  // A cube's title as before.
+  const cubeFacts = blockFacts(world(), { i: 10, j: 20, y: 33 });
+  assert.equal(
+    formatBlockTarget(cubeFacts).title,
+    'Chunk 0:0, column 10 20, level 33: 1 m blocks',
+  );
+  // A picked point snaps by levels of 30 m: 95 m is level 3.
+  assert.deepEqual(
+    snapToBlock({ x: 660, y: 660, z: 95 }, { x: 0, y: 0, z: -1 }, 120, 30),
+    { i: 5, j: 5, y: 3 },
+  );
+  // Not the same block as a cube's at the same indices.
+  assert.equal(sameBlock(facts, { ...facts, levelM: 120 }), false);
+});

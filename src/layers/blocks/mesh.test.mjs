@@ -713,3 +713,111 @@ test('mesh validator with skirts: a terraced hill open to the east and north, sk
     assert.equal(covered.size, expected.size, `greedy ${greedy}`);
   }
 });
+
+test('a 120 m block on 30 m levels: tops at (level + 1) × 30 m, sides 120 m wide and 30 m high', () => {
+  // Flat at level 2 (its top at 90 m), one column raised to level 3.
+  const chunk = chunkAt(2, { tops: [[5, 5, 3]] });
+  const mesh = buildChunkMesh(chunk, {
+    neighbours: flatAround(2),
+    blockM: 120,
+    levelM: 30,
+    greedy: false,
+  });
+  assertOutwardWinding(mesh);
+  const quads = quadsOf(mesh);
+  const tops = quads.filter((q) => q.normal[2] === 1);
+  assert.equal(tops.length, N * N, 'one top a column');
+  const raised = tops.find(
+    (q) => q.corners[0].p[0] === 600 && q.corners[0].p[1] === 600,
+  );
+  assert.ok(raised, 'the raised column’s top at x, y = 5 × 120');
+  for (const c of raised.corners) assert.equal(c.p[2], 120, '(3 + 1) × 30 m');
+  const xs = raised.corners.map((c) => c.p[0]);
+  assert.deepEqual(
+    [Math.min(...xs), Math.max(...xs)],
+    [600, 720],
+    '120 m wide',
+  );
+  for (const q of tops.filter((q) => q !== raised))
+    for (const c of q.corners) assert.equal(c.p[2], 90);
+  const sides = quads.filter((q) => q.normal[2] === 0);
+  assert.equal(sides.length, 4, 'its four sides');
+  for (const side of sides) {
+    const zs = side.corners.map((c) => c.p[2]);
+    assert.deepEqual(
+      [Math.min(...zs), Math.max(...zs)],
+      [90, 120],
+      '30 m high',
+    );
+    const across =
+      side.normal[0] === 0
+        ? side.corners.map((c) => c.p[0])
+        : side.corners.map((c) => c.p[1]);
+    assert.equal(Math.max(...across) - Math.min(...across), 120, '120 m wide');
+  }
+  // The greedy top: one quad 64 × 120 m a side at 90 m, the raised one apart.
+  const greedy = quadsOf(
+    buildChunkMesh(chunkAt(2), {
+      neighbours: flatAround(2),
+      blockM: 120,
+      levelM: 30,
+    }),
+  );
+  assert.equal(greedy.length, 1);
+  const xs2 = greedy[0].corners.map((c) => c.p[0]);
+  assert.equal(Math.max(...xs2) - Math.min(...xs2), N * 120);
+  for (const c of greedy[0].corners) assert.equal(c.p[2], 90);
+  // levelM left out: a cube, as before.
+  const cube = quadsOf(
+    buildChunkMesh(chunk, {
+      neighbours: flatAround(2),
+      blockM: 120,
+      greedy: false,
+    }),
+  );
+  const cubeTop = cube.find(
+    (q) =>
+      q.normal[2] === 1 &&
+      q.corners[0].p[0] === 600 &&
+      q.corners[0].p[1] === 600,
+  );
+  assert.equal(cubeTop.corners[0].p[2], 480, '(3 + 1) × 120 m');
+});
+
+test('30 m levels: a skirt hangs in levels of 30 m, and a water surface sits on its level', () => {
+  // Flat at level 4 (top 150 m), no east neighbour, a skirt to level 1.
+  const chunk = chunkAt(4);
+  const neighbours = { ...flatAround(4) };
+  delete neighbours.e;
+  delete neighbours.ne;
+  delete neighbours.se;
+  const mesh = buildChunkMesh(chunk, {
+    neighbours,
+    blockM: 120,
+    levelM: 30,
+    skirt: { e: 1 },
+  });
+  const east = quadsOf(mesh).filter((q) => q.normal[0] === 1);
+  assert.ok(east.length > 0, 'the skirt');
+  const zs = east.flatMap((q) => q.corners.map((c) => c.p[2]));
+  assert.deepEqual(
+    [Math.min(...zs), Math.max(...zs)],
+    [30, 150],
+    'from level 1’s base to the top',
+  );
+  for (const q of east)
+    for (const c of q.corners) assert.equal(c.p[0], N * 120);
+  // A pond: bed at level 1, water to level 3 → its surface at 120 m.
+  const pond = chunkAt(4, { tops: [[10, 10, 1]], waters: [[10, 10, 3]] });
+  const wet = buildChunkMesh(pond, {
+    neighbours: flatAround(4),
+    blockM: 120,
+    levelM: 30,
+  });
+  // The water's quad: its top, translucent.
+  const waterTop = quadsOf(wet).find(
+    (q) => q.normal[2] === 1 && q.corners[0].color[3] < 255,
+  );
+  assert.ok(waterTop, 'a water surface');
+  for (const c of waterTop.corners) assert.equal(c.p[2], 120);
+});

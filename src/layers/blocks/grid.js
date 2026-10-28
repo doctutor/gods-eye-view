@@ -5,7 +5,10 @@
  * an origin snapped to a global graticule of the block size, with `blockM`
  * fixed for the region. Columns are integer (i, j) east and north of the
  * origin (the origin is the south-west corner of column (0, 0)); levels are
- * integer y, y = 0 the block whose base is mean sea level. Chunks are
+ * integer y of `levelM` metres each, y = 0 the block whose base is mean sea
+ * level. `levelM` is `blockM` at native cells (a cube); at coarse cells a
+ * block is flatter than wide (docs/BLOCKS-PLAN.md milestone 5: 120 m cells
+ * on 30 m levels). Chunks are
  * CHUNK_COLUMNS columns a side. Plain maths, no Cesium: the frame is built
  * from the WGS84 radii, and a point's local x, y are its east and north
  * components in that frame (an orthographic projection on the tangent
@@ -85,10 +88,12 @@ export const columnIndex = (i, j) => j * CHUNK_COLUMNS + i;
 
 /**
  * A region around a place. `lon0`, `lat0` are snapped to the graticule of
- * `blockM` (snapOrigin); the frame sits on the ellipsoid there.
+ * `blockM` (snapOrigin); the frame sits on the ellipsoid there. `levelM`,
+ * the metres a level, is `blockM` unless given.
  */
-export function createRegion({ lon0, lat0, blockM }) {
+export function createRegion({ lon0, lat0, blockM, levelM = blockM }) {
   if (!(blockM > 0)) throw new RangeError('blockM must be positive');
+  if (!(levelM > 0)) throw new RangeError('levelM must be positive');
   if (!Number.isFinite(lon0) || !Number.isFinite(lat0))
     throw new RangeError('lon0 and lat0 must be finite');
   const snapped = snapOrigin(lon0, lat0, blockM);
@@ -138,6 +143,9 @@ export function createRegion({ lon0, lat0, blockM }) {
     lon0: snapped.lon0,
     lat0: snapped.lat0,
     blockM,
+    levelM,
+    /** The level a height above mean sea level lies in. */
+    levelOf: (heightMslM) => Math.floor(heightMslM / levelM),
     /** East and north metres from the origin of a place. */
     toLocal(lonDeg, latDeg) {
       const { x, y } = enu(lonDeg, latDeg);
@@ -209,5 +217,5 @@ export function createRegion({ lon0, lat0, blockM }) {
   return region;
 }
 
-/** A height above mean sea level's level: the block it lies in. */
-export const levelOf = (heightMslM, blockM) => Math.floor(heightMslM / blockM);
+/** A height above mean sea level's level at `levelM` metres a level. */
+export const levelOf = (heightMslM, levelM) => Math.floor(heightMslM / levelM);

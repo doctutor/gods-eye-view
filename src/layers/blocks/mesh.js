@@ -9,7 +9,8 @@
  * keeps its alpha, and its faces come after the opaque ones in the index
  * buffer (`opaqueIndexCount`), so the renderer can draw them in the
  * translucent pass. Positions are east-north-up metres from the chunk's
- * south-west corner at mean sea level (z = level × blockM).
+ * south-west corner at mean sea level: x, y = column × blockM, z = level ×
+ * levelM (a cube at native cells; flatter at coarse ones).
  *
  * Neighbour chunks (n, s, e, w, and the diagonals ne, nw, se, sw for
  * ambient occlusion at the corners) cull faces across the chunk's borders;
@@ -207,7 +208,8 @@ const SKIRT_BORDERS = Object.freeze([
 const MAX_SKIRT_LEVELS = 4096;
 
 /**
- * Mesh a chunk. `blockM` scales block units to metres; `sunDir` is the
+ * Mesh a chunk. `blockM` scales columns to metres east and north,
+ * `levelM` (`blockM` unless given) levels to metres up; `sunDir` is the
  * unit vector to the sun, {east, north, up} in the region's frame (the
  * study sun when not given);
  * `greedy: false` keeps one quad per block face (for counting faces).
@@ -227,6 +229,7 @@ export function buildChunkMesh(
   {
     neighbours = {},
     blockM = 1,
+    levelM = blockM,
     sunDir = STUDY_SUN_DIR,
     greedy = true,
     skirt = null,
@@ -234,7 +237,9 @@ export function buildChunkMesh(
 ) {
   const counts = new Float64Array(8);
   const volume = occupancyVolume(chunk, neighbours);
-  if (!volume) return writeQuads([], [], { blockM, sunDir, counts });
+  // Metres per block unit along east, north and up.
+  const scale = [blockM, blockM, levelM];
+  if (!volume) return writeQuads([], [], { scale, sunDir, counts });
   const { cells, yMin, levels, low, up } = volume;
   // Index strides along east, north and up in the volume.
   const strides = [levels, SPAN * levels, 1];
@@ -347,7 +352,7 @@ export function buildChunkMesh(
       }
     }),
   );
-  return writeQuads(opaque, water, { blockM, sunDir, counts });
+  return writeQuads(opaque, water, { scale, sunDir, counts });
 }
 
 /** Whether a quad's four corners are shaded alike (its AO counts in `key`). */
@@ -365,7 +370,7 @@ const evenlyShaded = (key) => {
  * across half the face (at 10 m blocks, a dark fin standing at each step
  * of a staircase, 2026-10-27).
  */
-function writeQuads(opaque, water, { blockM, sunDir, counts }) {
+function writeQuads(opaque, water, { scale, sunDir, counts }) {
   const quads = opaque.concat(water);
   const fanned = quads.filter((rect) => !evenlyShaded(rect.key)).length;
   const vertices = quads.length * 4 + fanned;
@@ -405,11 +410,13 @@ function writeQuads(opaque, water, { blockM, sunDir, counts }) {
     const rect = quads[n];
     const d = DIRECTIONS[rect.dirIndex];
     const material = rect.key >> 8;
-    const plane = (rect.slice + (d.normal[d.axis] > 0 ? 1 : 0)) * blockM;
-    const u0 = rect.u * blockM;
-    const v0 = rect.v * blockM;
-    const u1 = (rect.u + rect.w) * blockM;
-    const v1 = (rect.v + rect.h) * blockM;
+    // The plane along the face's axis, u and v across it, each axis at its
+    // own scale (levels up, columns east and north).
+    const plane = (rect.slice + (d.normal[d.axis] > 0 ? 1 : 0)) * scale[d.axis];
+    const u0 = rect.u * scale[d.u];
+    const v0 = rect.v * scale[d.v];
+    const u1 = (rect.u + rect.w) * scale[d.u];
+    const v1 = (rect.v + rect.h) * scale[d.v];
     let light = 0;
     for (let c = 0; c < 4; c += 1) {
       const vertex = n * 4 + c;

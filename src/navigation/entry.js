@@ -41,11 +41,13 @@ export function standingLevel(occupancy, facts) {
  */
 export function entryPose({ facts, occupancy, headingRad = 0, pitchRad = 0 }) {
   const b = facts.blockM;
+  // A level's height: the block's own (flatter than wide at coarse cells).
+  const level = facts.levelM > 0 ? facts.levelM : b;
   const top = standingLevel(occupancy, facts);
   return {
     x: (facts.i + 0.5) * b,
     y: (facts.j + 0.5) * b,
-    z: (top + 1) * b + EYE_HEIGHT_M,
+    z: (top + 1) * level + EYE_HEIGHT_M,
     yaw: headingRad,
     pitch: Math.max(-PITCH_LIMIT_RAD, Math.min(PITCH_LIMIT_RAD, pitchRad)),
     level: top,

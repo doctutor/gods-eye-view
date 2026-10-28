@@ -633,3 +633,78 @@ test('a stick part way walks part speed; the keys still win when larger', () => 
   assert.ok(fullM > 4, `full: ${fullM}`);
   assert.ok(Math.abs(partM / fullM - 0.5) < 0.02, `part: ${partM / fullM}`);
 });
+
+test('a 120 m block on 30 m levels: the world in metres, step-up capped at 1.25 m, the ray in metres', async () => {
+  const { MAX_STEP_UP_M } = await import('./worlds.js');
+  const region = createRegion({
+    lon0: -76.6,
+    lat0: 39.3,
+    blockM: 120,
+    levelM: 30,
+  });
+  const top = new Int32Array(N * N).fill(2); // top at 90 m
+  top[columnIndex(5, 5)] = 3; // one level more, to 120 m
+  const chunk = createChunk({
+    ci: 0,
+    cj: 0,
+    top,
+    water: new Int32Array(N * N).fill(NONE),
+  });
+  const world = createBlockWorld({
+    region,
+    chunkAt: (ci, cj) => (ci === 0 && cj === 0 ? chunk : null),
+  });
+  assert.equal(world.levelM, 30);
+  assert.equal(world.blockM, 120);
+  // Columns 120 m across, levels 30 m high.
+  assert.equal(world.surfaceBelow(100, 100, 500), 90);
+  assert.equal(world.surfaceBelow(5 * 120 + 60, 5 * 120 + 60, 500), 120);
+  assert.equal(
+    world.surfaceBelow(5 * 120 - 1, 5 * 120 + 60, 500),
+    90,
+    'the next column west',
+  );
+  assert.equal(
+    world.blocked(5 * 120 + 1, 5 * 120 + 1, 95, 96),
+    true,
+    'level 3 is solid at 95 m',
+  );
+  assert.equal(world.blocked(5 * 120 + 1, 5 * 120 + 1, 121, 122), false);
+  // One level is 30 m: never a stair. Capped at Minecraft's jump.
+  assert.equal(MAX_STEP_UP_M, 1.25);
+  assert.equal(world.stepUpM, 1.25);
+  const cube = createBlockWorld({
+    region: createRegion({ lon0: -76.6, lat0: 39.3, blockM: 1 }),
+    chunkAt: () => chunk,
+  });
+  assert.equal(cube.stepUpM, 1, 'a 1 m cube: one level, as before');
+  // A ray straight down from 500 m meets the raised column's top at 120 m.
+  const down = world.raycast(
+    { x: 660, y: 660, z: 500 },
+    { x: 0, y: 0, z: -1 },
+    1000,
+  );
+  assert.deepEqual([down.i, down.j, down.y], [5, 5, 3]);
+  assert.ok(
+    Math.abs(down.distanceM - 380) < 1e-9,
+    `metres along the ray: ${down.distanceM}`,
+  );
+  assert.deepEqual(down.face, [0, 0, 1]);
+  // East at 100 m from x = 0: into the raised column's west face at x = 600.
+  const east = world.raycast(
+    { x: 10, y: 660, z: 100 },
+    { x: 1, y: 0, z: 0 },
+    2000,
+  );
+  assert.deepEqual([east.i, east.j, east.y], [5, 5, 3]);
+  assert.ok(Math.abs(east.distanceM - 590) < 1e-9, `${east.distanceM}`);
+  assert.deepEqual(east.face, [-1, 0, 0]);
+  // A walker on the 90 m top walks east into the 30 m wall and stops at it,
+  // standing at the eye’s 1.62 m over 90 m.
+  let state = standingOn(90, 5 * 120 - 20, 5 * 120 + 60, Math.PI / 2);
+  for (let k = 0; k < 360; k += 1)
+    state = step(state, { forward: true }, DT, world, 'walk');
+  assert.ok(state.x < 5 * 120, `stopped at the wall: x ${state.x}`);
+  assert.ok(state.x > 5 * 120 - 1, `against it: x ${state.x}`);
+  assert.ok(Math.abs(state.z - (90 + EYE_HEIGHT_M)) < 1e-6, 'not climbed');
+});
