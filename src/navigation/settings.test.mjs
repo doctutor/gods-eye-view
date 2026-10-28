@@ -16,6 +16,7 @@ import {
   WHEEL_NOTCH_FACTOR,
   createFovEaser,
   createNavSettings,
+  flySpeedAfterSteps,
   flySpeedAfterWheel,
 } from './settings.js';
 
@@ -201,4 +202,99 @@ test('the sprint FOV widening: +10° over 0.2 s, back over 0.2 s', () => {
   easer.update(true, 0.1);
   easer.reset();
   assert.equal(easer.boost, 0);
+});
+
+test('fly-speed steps: a gamepad’s ±1 is a wheel notch', () => {
+  assert.ok(Math.abs(flySpeedAfterSteps(10, 1) - 12.5) < 1e-9);
+  assert.ok(Math.abs(flySpeedAfterSteps(10, -1) - 8) < 1e-9);
+  assert.equal(flySpeedAfterSteps(49, 3), 50);
+  assert.equal(flySpeedAfterSteps(1, -1), 1);
+  assert.equal(flySpeedAfterSteps(10, 'x'), 10);
+});
+
+test('a section for another source: kept under gev.nav.<id>, bounded, reset with the rest', () => {
+  const storage = memory();
+  const store = createNavSettings({ storage });
+  const heard = [];
+  store.subscribe(() => heard.push('store'));
+  const spec = {
+    id: 'gamepad',
+    title: 'Gamepad',
+    rows: [
+      {
+        key: 'deadZone',
+        label: 'Dead zone',
+        type: 'range',
+        min: 0,
+        max: 0.5,
+        step: 0.01,
+        default: 0.15,
+      },
+      {
+        key: 'sensitivity',
+        label: 'Sensitivity',
+        type: 'range',
+        min: 0.5,
+        max: 3,
+        step: 0.1,
+        default: 1,
+      },
+      { key: 'invertX', label: 'Invert X', type: 'toggle' },
+      { key: 'invertY', label: 'Invert Y', type: 'toggle' },
+      { key: 'bad', type: 'range', min: 2, max: 1 },
+    ],
+  };
+  const pad = store.registerSection(spec);
+  assert.deepEqual(
+    store.sections().map((s) => s.id),
+    ['gamepad'],
+  );
+  assert.deepEqual(
+    pad.rows.map((r) => r.key),
+    ['deadZone', 'sensitivity', 'invertX', 'invertY'],
+  );
+  assert.deepEqual(pad.get(), {
+    deadZone: 0.15,
+    sensitivity: 1,
+    invertX: false,
+    invertY: false,
+  });
+  const values = [];
+  pad.subscribe((v) => values.push(v.deadZone));
+  assert.equal(
+    pad.set({ deadZone: 0.9, invertY: true, sensitivity: 'fast', other: 1 }),
+    true,
+  );
+  assert.deepEqual(pad.get(), {
+    deadZone: 0.5,
+    sensitivity: 1,
+    invertX: false,
+    invertY: true,
+  });
+  assert.equal(pad.set({ deadZone: 0.5 }), false, 'no change');
+  assert.deepEqual(values, [0.5]);
+  assert.ok(heard.length >= 2, 'the card hears it');
+  assert.deepEqual(JSON.parse(storage.map.get('gev.nav.gamepad')), pad.get());
+  // A new page reads it back once the source registers again.
+  const again = createNavSettings({ storage }).registerSection(spec);
+  assert.equal(again.get().deadZone, 0.5);
+  assert.equal(again.get().invertY, true);
+  // Reset: the section too.
+  store.reset();
+  assert.deepEqual(pad.get(), {
+    deadZone: 0.15,
+    sensitivity: 1,
+    invertX: false,
+    invertY: false,
+  });
+  // Registering again replaces; unregister removes.
+  const replaced = store.registerSection({ ...spec, title: 'Controller' });
+  assert.deepEqual(
+    store.sections().map((s) => s.title),
+    ['Controller'],
+  );
+  replaced.unregister();
+  assert.deepEqual(store.sections(), []);
+  assert.throws(() => store.registerSection({ id: 'settings' }), TypeError);
+  assert.throws(() => store.registerSection({ id: 'Bad id' }), TypeError);
 });

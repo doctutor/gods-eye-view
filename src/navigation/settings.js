@@ -175,6 +175,9 @@ export function createNavSettings({ storage } = {}) {
       }
     }
   };
+  // Sections other sources add to the card (a gamepad's), each kept
+  // under gev.nav.<id> beside these settings.
+  const sections = new Map();
   /** Who has a code now: the action, or null. */
   const holder = (code) =>
     ACTIONS.find((action) => bindings[action].includes(code)) ?? null;
@@ -224,12 +227,36 @@ export function createNavSettings({ storage } = {}) {
       changed();
       return true;
     },
-    /** Everything back to the defaults, the bindings too. */
+    /** Everything back to the defaults, the bindings and sections too. */
     reset() {
       settings = { ...DEFAULT_SETTINGS };
       bindings = cleanBindings(null);
+      for (const section of sections.values()) section.reset({ quiet: true });
       changed();
     },
+    /**
+     * A section of the card for another input source: {id, title, rows:
+     * [{key, label, type: 'range' | 'toggle', min, max, step, default}]}
+     * (title and labels as msg() strings, the card translates them). Its
+     * values are kept under gev.nav.<id> (ranges within min…max, toggles
+     * booleans) and reset with the rest. Returns {id, title, rows, get(),
+     * set(patch), reset(), subscribe(listener), unregister()}; registering
+     * an id again replaces the section.
+     */
+    registerSection(spec) {
+      const section = createSection(spec, store, changed);
+      sections.get(section.id)?.unregister();
+      sections.set(section.id, section);
+      section.unregister = () => {
+        if (sections.get(section.id) !== section) return;
+        sections.delete(section.id);
+        changed();
+      };
+      changed();
+      return section;
+    },
+    /** The registered sections, in the order registered. */
+    sections: () => [...sections.values()],
     /** code → held intent, for the keyboard source (inputs.js). */
     keyMap() {
       const map = {};
@@ -245,6 +272,107 @@ export function createNavSettings({ storage } = {}) {
     },
   };
   return api;
+}
+
+const SECTION_ID = /^[a-z][a-zA-Z0-9]{0,31}$/;
+
+/** A row's value checked: ranges clamped (and finite), toggles booleans. */
+function cleanRow(row, value, fallback) {
+  if (row.type === 'toggle')
+    return typeof value === 'boolean' ? value : fallback;
+  const number = Number(value);
+  if (value === null || value === '' || !Number.isFinite(number))
+    return fallback;
+  return clamp(number, [row.min, row.max]);
+}
+
+function createSection({ id, title, rows } = {}, store, notifyStore) {
+  if (!SECTION_ID.test(String(id)) || id === 'settings')
+    throw new TypeError(`a settings section needs an id like "gamepad": ${id}`);
+  const clean = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row || typeof row.key !== 'string' || !row.key) continue;
+    if (row.type === 'toggle')
+      clean.push(
+        Object.freeze({
+          key: row.key,
+          label: String(row.label ?? row.key),
+          type: 'toggle',
+          default: row.default === true,
+        }),
+      );
+    else if (row.type === 'range') {
+      const min = Number(row.min);
+      const max = Number(row.max);
+      if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) continue;
+      const step = Number(row.step) > 0 ? Number(row.step) : (max - min) / 100;
+      const range = { type: 'range', min, max };
+      clean.push(
+        Object.freeze({
+          key: row.key,
+          label: String(row.label ?? row.key),
+          ...range,
+          step,
+          default: cleanRow(range, row.default, min),
+        }),
+      );
+    }
+  }
+  const storageKey = `gev.nav.${id}`;
+  const defaults = () =>
+    Object.fromEntries(clean.map((row) => [row.key, row.default]));
+  let values = defaults();
+  try {
+    const saved = JSON.parse(store?.getItem(storageKey) || 'null');
+    if (saved && typeof saved === 'object')
+      for (const row of clean)
+        values[row.key] = cleanRow(row, saved[row.key], row.default);
+  } catch {
+    /* nothing kept, or unreadable: the defaults */
+  }
+  const listeners = new Set();
+  const changed = ({ quiet = false } = {}) => {
+    try {
+      store?.setItem(storageKey, JSON.stringify(values));
+    } catch {
+      /* not kept this time */
+    }
+    for (const listener of [...listeners]) {
+      try {
+        listener({ ...values });
+      } catch (error) {
+        console.warn('[Navigation] section listener failed:', error);
+      }
+    }
+    if (!quiet) notifyStore();
+  };
+  return {
+    id,
+    title: String(title ?? id),
+    rows: Object.freeze(clean),
+    get: () => ({ ...values }),
+    set(patch) {
+      let any = false;
+      for (const row of clean) {
+        if (!patch || !(row.key in patch)) continue;
+        const next = cleanRow(row, patch[row.key], values[row.key]);
+        if (next === values[row.key]) continue;
+        values = { ...values, [row.key]: next };
+        any = true;
+      }
+      if (any) changed();
+      return any;
+    },
+    reset(options) {
+      values = defaults();
+      changed(options);
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    unregister() {},
+  };
 }
 
 let shared = null;
@@ -274,7 +402,12 @@ export function flySpeedAfterWheel(speed, deltaY, deltaMode = 0) {
       : deltaMode === 2
         ? deltaY
         : deltaY / NOTCH_PX) || 0;
-  const next = speed * WHEEL_NOTCH_FACTOR ** -notches;
+  return flySpeedAfterSteps(speed, -notches);
+}
+
+/** Fly speed `steps` notches faster (negative: slower), within the range. */
+export function flySpeedAfterSteps(speed, steps) {
+  const next = speed * WHEEL_NOTCH_FACTOR ** (Number(steps) || 0);
   return clamp(next, FLY_SPEED_RANGE);
 }
 

@@ -7580,7 +7580,20 @@ Spectator, so older links read the same) and opens in the mode
   one-shot), merged (held OR'd, looks added) and turned into the model's
   input for the mode. `addInputSource(source)` adds one (a gamepad); in
   Spectator such a source's walkHere/flyHere is read each frame while it
-  is registered.
+  is registered. A stick gives `analog: {forward, right}` (−1…1): per axis
+  the larger of it and the keys' ±1 wins, and a stick part way walks part
+  speed (never faster than a key on the diagonal). One-shots besides
+  walkHere/flyHere: `release` leaves the mode (the pointer let go,
+  Spectator), `toggleMode` switches Walk and Fly, `flySpeedStep` (±1 a
+  press) moves Fly's speed a wheel notch. `showInputHint(text, ms)` (or
+  `binding.hint`) says a line over the crosshair. Looks are pointer-lock
+  pixels at each source's own sensitivity and inversion: the Controls'
+  mouse sensitivity and invert Y apply to the mouse alone (as it moves),
+  so a gamepad's own settings never compound with them. A source adds
+  its own rows to the Controls card with
+  `navSettings().registerSection({id, title, rows})` (rows: `range` with
+  min, max, step, or `toggle`; each with a default), kept under
+  `gev.nav.<id>` and reset with the rest.
 - **Fly.** No gravity, 10.8 m/s (W twice doubles it), Space up and Shift down
   at 7.5 m/s; the ground and blocks still stop it. The mouse wheel sets the
   speed, Minecraft spectator's: 1.25× a notch, up faster, between 1 and

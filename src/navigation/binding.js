@@ -22,7 +22,12 @@ import {
   look,
   step,
 } from './movement.js';
-import { createFovEaser, flySpeedAfterWheel, navSettings } from './settings.js';
+import {
+  createFovEaser,
+  flySpeedAfterSteps,
+  flySpeedAfterWheel,
+  navSettings,
+} from './settings.js';
 import { createBlockWorld, createHeightfieldWorld } from './worlds.js';
 import { EXIT_FLIGHT_S, MODE_HINTS, entryPose, exitView } from './entry.js';
 import {
@@ -451,15 +456,9 @@ export function createNavigationBinding({
   const fovEaser = createFovEaser();
   const codesFor = (action) => settings?.codesFor?.(action) ?? [];
 
-  /** In Fly, the wheel sets the speed (Minecraft's spectator), said in the hint. */
-  const onWheel = (event) => {
-    if (!active || mode !== 'fly') return;
-    event.preventDefault();
-    flySpeed = flySpeedAfterWheel(
-      flySpeed ?? controls().fly,
-      event.deltaY,
-      event.deltaMode,
-    );
+  /** Fly's speed set (the wheel, a gamepad's steps), said in the hint. */
+  const setFlySpeed = (next) => {
+    flySpeed = next;
     showHintText(
       t('Fly speed {speed} m/s', {
         speed: formatNumber(Math.round(flySpeed * 10) / 10),
@@ -467,6 +466,22 @@ export function createNavigationBinding({
       FLY_SPEED_HINT_MS,
     );
   };
+  /** In Fly, the wheel sets the speed (Minecraft's spectator). */
+  const onWheel = (event) => {
+    if (!active || mode !== 'fly') return;
+    event.preventDefault();
+    setFlySpeed(
+      flySpeedAfterWheel(
+        flySpeed ?? controls().fly,
+        event.deltaY,
+        event.deltaMode,
+      ),
+    );
+  };
+  // Other sources (a gamepad) say things in the same overlay.
+  const offHinter = inputs.setHinter?.((text, ms) =>
+    showHintText(String(text ?? ''), Number(ms) > 0 ? Number(ms) : HINT_MS),
+  );
 
   // ── Input ───────────────────────────────────────────────────────────
 
@@ -493,7 +508,14 @@ export function createNavigationBinding({
   const onBlur = () => inputs.reset();
   const onMouseMove = (event) => {
     if (!active || documentRef.pointerLockElement !== canvas) return;
-    keyboard.look(event.movementX, event.movementY);
+    // The mouse's own sensitivity and invert Y: other sources (a gamepad)
+    // scale and invert their looks themselves.
+    const set = controls();
+    const scale = set.sensitivity ?? 1;
+    keyboard.look(
+      event.movementX * scale,
+      event.movementY * scale * (set.invertY ? -1 : 1),
+    );
   };
   const onCanvasClick = () => {
     if (!active || documentRef.pointerLockElement === canvas) return;
@@ -560,13 +582,24 @@ export function createNavigationBinding({
     // Every source's intents this frame (the keys, the mouse, a gamepad).
     const intents = inputs.read(Math.min(0.1, Math.max(0, dt)));
     const set = controls();
-    // Mouse look at the chosen sensitivity, Y inverted if asked.
+    // Every source's looks, in pointer-lock pixels (each already at its
+    // own sensitivity: the mouse's in onMouseMove).
     if (intents.lookDx || intents.lookDy)
-      state = look(
-        state,
-        intents.lookDx,
-        intents.lookDy * (set.invertY ? -1 : 1),
-        LOOK_RAD_PER_PX * (set.sensitivity ?? 1),
+      state = look(state, intents.lookDx, intents.lookDy, LOOK_RAD_PER_PX);
+    // A source's one-shots: leave the mode, Walk ⇄ Fly, Fly's speed.
+    if (intents.release) {
+      if (documentRef?.pointerLockElement === canvas)
+        documentRef.exitPointerLock?.();
+      store.set('spectator');
+      return;
+    }
+    if (intents.toggleMode) {
+      store.set(mode === 'walk' ? 'fly' : 'walk');
+      return;
+    }
+    if (intents.flySpeedStep && mode === 'fly')
+      setFlySpeed(
+        flySpeedAfterSteps(flySpeed ?? set.fly, intents.flySpeedStep),
       );
     const wasHovering = state.hovering;
     const input = inputFromIntents(intents, mode);
@@ -579,7 +612,7 @@ export function createNavigationBinding({
     fovEaser.update(
       set.sprintFov !== false &&
         input.sprint &&
-        input.forward &&
+        (input.forward || input.analog?.forward > 0) &&
         !state.sneaking,
       Math.min(0.1, Math.max(0, dt)),
     );
@@ -843,6 +876,7 @@ export function createNavigationBinding({
     destroy() {
       unsubscribe();
       offInputs?.();
+      offHinter?.();
       if (spectatorPolling)
         scene.preUpdate.removeEventListener(onSpectatorFrame);
       spectatorPolling = false;
@@ -857,6 +891,8 @@ export function createNavigationBinding({
     },
     /** Walk or Fly here (as G and Shift+G do). */
     enterHere,
+    /** A line in the keys-hint overlay over the crosshair for `ms`. */
+    hint: (text, ms = HINT_MS) => showHintText(String(text ?? ''), ms),
     /**
      * Add an input source (inputs.js: {read(dt) → partial intents,
      * reset?()}); returns its removal.
