@@ -7722,9 +7722,114 @@ under a 34 m ceiling; Fly stopped at a building's wall and rested on its
 roof; the outline sat on the wall block under the crosshair (12 edges, its
 corners exact), a building block.
 
-### Third person, the compass, home and waypoints
+## Navigation controls
 
-In Walk and Fly (Spectator keeps GEV's own keys and camera):
+How Walk and Fly are driven, Minecraft's way, from the keyboard and mouse,
+a gamepad, the Controls card, and the view, compass and waypoints around
+them. All of it applies only while the **Move** drop-down beside Render
+says Walk or Fly; Spectator is GEV's own camera and keeps its own
+controls (below). The movement itself is "Walk and Fly" above.
+
+### Keys
+
+Defaults (Minecraft Java's, where it has one). Every key is
+`KeyboardEvent.code`, so the layout's letters do not matter; every
+action's key, T and B too, can be rebound in the Controls card. No Ctrl
+anywhere: Ctrl+W closes the browser tab, and a page cannot stop it.
+
+| Action               | Walk                            | Fly                             | Spectator   |
+| -------------------- | ------------------------------- | ------------------------------- | ----------- |
+| Move                 | W A S D, the arrows             | W A S D, the arrows             | GEV's own   |
+| Look                 | the mouse, the pointer captured | the mouse, the pointer captured | GEV's own   |
+| Capture / release    | click the globe / Esc           | click the globe / Esc           | —           |
+| Jump / up            | Space (jump)                    | Space (up, 7.5 m/s)             | —           |
+| Sneak / down         | Shift (sneak: hold, or toggle)  | Shift (down)                    | —           |
+| Sprint               | W twice within 300 ms, held     | W twice: double speed           | —           |
+| Fly speed            | —                               | the wheel: 1.25× a notch        | —           |
+| Walk here / Fly here | —                               | —                               | G / Shift+G |
+| View                 | T: first, behind, in front      | T                               | —           |
+| Set home / go home   | B / Shift+B                     | B / Shift+B                     | —           |
+
+Esc lets the pointer go and stays in the mode; the Move drop-down (or a
+gamepad's Start) goes back to Spectator. The movement keys are taken in the
+capture phase, outside form fields, so the app's own shortcuts (D cycles
+detection) wait while a mode is on; T and B are not the app's, and do
+nothing in Spectator.
+
+### Gamepad
+
+`src/navigation/gamepad.js` (worker2's), Minecraft Bedrock's layout on
+the standard mapping, an input source beside the keyboard
+(`addInputSource`). It is polled only while Walk or Fly is on and a pad
+is connected.
+
+| Control              | Walk                          | Fly                       |
+| -------------------- | ----------------------------- | ------------------------- |
+| Left stick           | move, at the tilt's speed     | move, at the tilt's speed |
+| Right stick          | look                          | look                      |
+| A                    | jump                          | up                        |
+| B                    | sneak                         | down                      |
+| LT / RT              | —                             | down / up                 |
+| Stick click (either) | sprint, until the stick rests | double speed              |
+| Start                | leave for Spectator           | leave for Spectator       |
+| Back (Select)        | to Fly                        | to Walk                   |
+| D-pad left / right   | —                             | fly speed down / up       |
+
+A stick part way walks part speed (per axis the larger of the stick and a
+key wins, never faster than a key on the diagonal). The right stick turns
+at 600 pointer-lock pixels a second at full tilt, the tilt squared past the
+dead zone so a small tilt aims finely. Start, Back and the D-pad fire once
+a press. Its settings (dead zone 0–0.5, 0.15; sensitivity 0.5–3×; invert
+X; invert Y) are the Controls card's Gamepad section, kept under
+`gev.nav.gamepad`, and never compound with the mouse's.
+
+### The Controls card
+
+The gear (⚙) beside Move opens it, in every mode
+(`src/navigation/controlsPanel.js`, worker1's, on the settings of
+`src/navigation/settings.js`). It opens under the gear in the page's
+body, so the layer panel does not clip it. Everything is kept in this
+browser (`gev.nav.settings`), never in a link, and applies at once. Top
+to bottom:
+
+- **Mouse**: sensitivity, a slider (0.1–2×, 1×); invert Y, a checkbox.
+- **Field of view (vertical)**: a slider, 30–110° (70°).
+- **Speeds**: fields in m/s: walk (0.5–20, 4.3), sprint (0.5–30, 5.6),
+  fly (1–50, 10.8). The wheel moves Fly's speed from there for that
+  flight only; the next entry starts again from the field.
+- **Sneak**: Hold (while the sneak key is down) or Toggle (each press
+  flips it). Toggle applies in Walk only: in Fly the key is down, held.
+- **Sprinting widens the view**: a checkbox (10° over 0.2 s, Minecraft's
+  dynamic FOV; on).
+- **View bobbing**: a checkbox (off). The eye dips 0.05 m at each
+  footfall, a step every 1.67 m walked (2.6 a second at the walk). It
+  fades in and out over 0.15 s, and only in first person, walking on the
+  ground, out of water.
+- **Gamepad**: the section above, drawn from what the gamepad source
+  registers (`navSettings().registerSection`): dead zone, sensitivity,
+  invert X, invert Y. It is registered when the app starts, so it shows
+  with or without a pad.
+- **Keys**: a row for each of the 14 actions (the held ones, Walk here,
+  Fly here, release, Cycle the view, and Set home), with a button showing
+  its keys ("W / ↑" until rebound, "—" when unbound).
+  - A click on the button says "Press a key…". The next key becomes the
+    action's only key, Esc cancels, and Backspace leaves the action
+    unbound. A second click on the button, or focus leaving it, also
+    cancels.
+  - A refused key is named in the status line, and the capture keeps
+    listening. There are three reasons. "belongs to the browser (Ctrl+W
+    closes the tab)": Ctrl, the system key, F1–F12. "is one of the app's
+    own shortcuts": 1–7, H, O, V, F, D, C, Esc, `, unless the key is that
+    action's own default (D is Right's, Esc is release's). "is already
+    {action}": a key another action has.
+- **Reset to defaults**: everything back, the keys and the Gamepad
+  section too.
+
+Keys pressed on the card reach neither the walker nor the app's
+shortcuts. Esc (outside a capture), the ×, or a click outside the card
+closes it.
+
+### Third person, the compass, home and waypoints
 
 - **T** cycles the view: first person, **behind** the walker, **in front**
   of it looking back (Minecraft's F5, which a browser keeps for reloading).
@@ -7742,11 +7847,12 @@ In Walk and Fly (Spectator keeps GEV's own keys and camera):
   at the top; with a home set, an orange tick on the rim points to it
   (the great-circle bearing less the heading).
 - **Home**: **B** (or **Set home** beside Move) keeps where the walker
-  stands, its longitude, latitude, eye height, the block level underfoot
-  and its heading; **Shift+B** (or **Home**) goes back there, walking in
+  stands: its longitude, latitude, eye height, the block level underfoot
+  and its heading. **Shift+B** (or **Home**) goes back there, walking in
   from Spectator, keeping Walk or Fly otherwise. Going uses the navigation
-  store's entry with a pose (`store.requestEntry(mode, pose)`), the path G
-  uses for "Walk here".
+  store's entry with a pose (`store.requestEntry(mode, pose)`), and the
+  walker is placed the way each frame places it (third person, the field
+  of view, the marker).
 - **Places**: a list of waypoints under the same card: a name and **Add
   here** keep where the walker stands (up to 50, the oldest go), a click on
   one goes there, ✕ deletes it. Each row says where: "39.32140, −76.62920 ·
@@ -7760,6 +7866,16 @@ Home and waypoints are kept in this browser (`gev.nav.home`,
 `gev.nav.waypoints`), never in a link, as absolute places, so they outlive
 the Blocks region they were set in (a region is anchored at the camera and
 moves on with it).
+
+### What Spectator keeps
+
+Spectator is GEV's own camera, unchanged: its mouse and touch controls,
+Cesium's collision, the app's keyboard shortcuts (H, O, V, F, D, C, 1–7,
+Esc), the search and its flights. Nothing of the above listens there
+except G and Shift+G (and the Here button), which walk or fly onto the
+block under the pointer, and a gamepad's walk-here, read only while a pad
+is registered. A link without `nav=` opens in Spectator, as every link
+from before Walk and Fly does.
 
 ## Smaller additions
 
