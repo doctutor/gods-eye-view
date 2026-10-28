@@ -26,7 +26,10 @@ import {
   chunkMatrix,
   createBlocksRenderer,
   primitive3D,
+  levelChunkKey,
+  parseLevelChunkKey,
   regionFrame,
+  ringsFog,
   splitMesh,
 } from './renderer.js';
 
@@ -859,4 +862,143 @@ test('compactPart: byte normals and 16-bit indices, kept and counted', () => {
   // 4 vertices: 48 bytes of positions, 12 of normals, 16 of colours, 12 of indices.
   assert.ok(Math.abs(renderer.getState().retainedMB - 88 / 1e6) < 1e-12);
   renderer.destroy();
+});
+
+test('level chunk keys and their batches: one lattice of chunks a ring', () => {
+  assert.equal(levelChunkKey(1920, -3, 7), 'L1920:-3:7');
+  assert.deepEqual(parseLevelChunkKey('L1920:-3:7'), {
+    blockM: 1920,
+    ci: -3,
+    cj: 7,
+  });
+  assert.equal(parseLevelChunkKey('3:7'), null);
+  assert.equal(parseLevelChunkKey('c:3:7'), null);
+  assert.equal(batchKeyOf('L1920:-3:7'), 'L1920:g:-1:1');
+  assert.notEqual(batchKeyOf('L480:5:5'), batchKeyOf('L1920:5:5'));
+  assert.notEqual(batchKeyOf('L480:5:5'), batchKeyOf('5:5'));
+});
+
+test("ringsFog: from 70% of the outermost ring's reach to it", () => {
+  const regions = [{ blockM: 30 }, { blockM: 120 }, { blockM: 480 }];
+  assert.deepEqual(ringsFog(regions, 512), {
+    startM: 0.7 * 512 * 480,
+    endM: 512 * 480,
+  });
+});
+
+test('setRegions: K rings, each its frame, block edges and chunks; a ring changed or gone drops only its own', () => {
+  const viewer = fakeViewer();
+  const renderer = createBlocksRenderer({ viewer });
+  const fine = stubRegion({ lon0: 1, lat0: 2, blockM: 30 });
+  const mid = stubRegion({ lon0: 1.01, lat0: 2, blockM: 120 });
+  const far = stubRegion({ lon0: 1.2, lat0: 2.1, blockM: 480 });
+  // Any order, an array or a Map: the finest is the primary region.
+  let state = renderer.setRegions(
+    new Map([
+      [480, far],
+      [30, fine],
+      [120, mid],
+    ]),
+    { fogReachBlocks: 512 },
+  );
+  assert.equal(state.region, fine);
+  assert.deepEqual(
+    state.regions.map((entry) => entry.blockM),
+    [30, 120, 480],
+  );
+  assert.equal(state.fog.endM, 512 * 480);
+  assert.equal(state.fog.startM, 0.7 * 512 * 480);
+  renderer.upsert('0:0', tinyMesh());
+  renderer.upsert(levelChunkKey(120, 2, -1), tinyMesh());
+  renderer.upsert(levelChunkKey(480, 0, 0), tinyMesh());
+  const [a, b, c] = [0, 1, 2].map((k) => renderer.getCollection().get(k));
+  // Each in its own frame: a ring's chunk at its region's chunk origin.
+  const expect = (region, origin) =>
+    translation(chunkMatrix(regionFrame(region), origin));
+  assert.ok(
+    Cesium.Cartesian3.equalsEpsilon(
+      translation(b.modelMatrix),
+      expect(mid, { x: 2 * 64 * 120, y: -64 * 120 }),
+      1e-6,
+    ),
+  );
+  assert.ok(
+    Cesium.Cartesian3.equalsEpsilon(
+      translation(c.modelMatrix),
+      expect(far, { x: 0, y: 0 }),
+      1e-6,
+    ),
+  );
+  // Each with its own block edges.
+  assert.equal(a.appearance.material.uniforms.blockM, 30);
+  assert.equal(b.appearance.material.uniforms.blockM, 120);
+  assert.equal(c.appearance.material.uniforms.blockM, 480);
+  // The fog reaches every ring's appearances.
+  for (const primitive of [a, b, c])
+    assert.equal(primitive.appearance.material.uniforms.fogEndM, 512 * 480);
+  assert.deepEqual(
+    renderer.getState().regions.map((entry) => entry.chunks),
+    [1, 1, 1],
+  );
+  // The 120 m ring moves: only its chunk goes.
+  state = renderer.setRegions([
+    fine,
+    stubRegion({ lon0: 1.02, lat0: 2, blockM: 120 }),
+    far,
+  ]);
+  assert.deepEqual(renderer.keys().sort(), ['0:0', 'L480:0:0']);
+  // The 480 m ring is no longer asked for: its chunk and frame go.
+  state = renderer.setRegions([fine, mid]);
+  assert.deepEqual(renderer.keys(), ['0:0']);
+  assert.throws(
+    () => renderer.upsert(levelChunkKey(480, 0, 0), tinyMesh()),
+    /no ring of 480 m/,
+  );
+  // The datum offset moves every ring's chunks too.
+  renderer.upsert(levelChunkKey(120, 0, 0), tinyMesh());
+  const ring = renderer
+    .getCollection()
+    .get(renderer.getCollection().length - 1);
+  const before = translation(ring.modelMatrix);
+  renderer.setRegions([fine, mid], { datumOffsetM: 20 });
+  const raised = translation(ring.modelMatrix);
+  assert.ok(Math.abs(Cesium.Cartesian3.distance(before, raised) - 20) < 1e-6);
+  // K = 1 as before: setRegion alone, a new primary drops the rings.
+  renderer.setRegion(stubRegion({ lon0: 5, lat0: 5, blockM: 30 }));
+  assert.deepEqual(renderer.keys(), []);
+  assert.deepEqual(
+    renderer.getState().regions.map((entry) => entry.blockM),
+    [30],
+  );
+  renderer.destroy();
+});
+
+test("a ring's chunks batch apart from the primary's and keep their frame", () => {
+  const { renderer, advance, frame } = batchSetup();
+  const fine = renderer.getState().region;
+  const mid = stubRegion({ lon0: 0.01, lat0: 0, blockM: 4 });
+  renderer.setRegions([fine, mid]);
+  for (let ci = 0; ci < 4; ci++)
+    for (let cj = 0; cj < 4; cj++) {
+      renderer.upsert(`${ci}:${cj}`, tinyMesh());
+      renderer.upsert(levelChunkKey(4, ci, cj), tinyMesh());
+    }
+  advance(1500);
+  frame();
+  frame();
+  const collection = renderer.getCollection();
+  assert.equal(renderer.getState().batches, 2);
+  assert.equal(collection.length, 2);
+  const ring = [0, 1]
+    .map((k) => collection.get(k))
+    .find((primitive) => primitive.appearance.material.uniforms.blockM === 4);
+  assert.ok(ring);
+  assert.ok(
+    Cesium.Cartesian3.equalsEpsilon(
+      translation(ring.modelMatrix),
+      translation(chunkMatrix(regionFrame(mid), { x: 0, y: 0 })),
+      1e-6,
+    ),
+  );
+  assert.equal(ring.geometryInstances.length, 16);
 });

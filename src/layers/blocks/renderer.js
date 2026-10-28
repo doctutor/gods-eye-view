@@ -437,6 +437,33 @@ export function regionFrame(region, datumOffsetM = 0) {
   );
 }
 
+/**
+ * A chunk of a ring's level (milestone 5, K rings): 'L<blockM>:ci:cj', its
+ * chunk (ci, cj) of the region setRegions gave for that block size.
+ */
+export const levelChunkKey = (blockM, ci, cj) => `L${blockM}:${ci}:${cj}`;
+
+/** A level chunk key's {blockM, ci, cj}, or null. */
+export function parseLevelChunkKey(key) {
+  const match = /^L(\d+(?:\.\d+)?):(-?\d+):(-?\d+)$/.exec(String(key));
+  return match
+    ? { blockM: Number(match[1]), ci: Number(match[2]), cj: Number(match[3]) }
+    : null;
+}
+
+/** The share of the outermost ring's reach the fog starts at. */
+export const RING_FOG_START = 0.7;
+
+/**
+ * The fog for K rings: from RING_FOG_START of the outermost ring's reach
+ * (`reachBlocks` of its blocks) to that reach.
+ */
+export function ringsFog(regions, reachBlocks, start = RING_FOG_START) {
+  const outer = Math.max(0, ...regions.map((region) => region?.blockM || 0));
+  const reach = reachBlocks * outer;
+  return { startM: start * reach, endM: reach };
+}
+
 /** Chunks a batch side: 4 × 4 chunks (a source.js group) draw as one primitive per kind. */
 export const BATCH_CHUNKS = 4;
 /** How long a batch's chunks are left alone before it is rebuilt with them, ms. */
@@ -447,6 +474,9 @@ export const BATCH_QUIET_MS = 1500;
  * group, coarse ones 'c:gi:gj' by 4 × 4 coarse chunks; any other key alone.
  */
 export function batchKeyOf(key) {
+  const level = parseLevelChunkKey(key);
+  if (level)
+    return `L${level.blockM}:g:${Math.floor(level.ci / BATCH_CHUNKS)}:${Math.floor(level.cj / BATCH_CHUNKS)}`;
   const fine = parseChunkKey(key);
   if (fine)
     return `g:${Math.floor(fine.ci / BATCH_CHUNKS)}:${Math.floor(fine.cj / BATCH_CHUNKS)}`;
@@ -493,6 +523,10 @@ export function createBlocksRenderer({
     opaque: blocksAppearance(false),
     water: blocksAppearance(true),
   };
+  // The rings past the primary region (setRegions), by block size: each
+  // its region, frame and appearances (their blockM for the edges).
+  /** blockM → {region, frame, appearances} */
+  const rings = new Map();
   // Chunks draw in batches of 4 × 4 (batchKeyOf): one opaque and one water
   // primitive a batch, one geometry instance a chunk, so hundreds of chunks
   // are tens of draw calls. A chunk that arrives or changes draws alone at
@@ -526,10 +560,23 @@ export function createBlocksRenderer({
 
   const requestRender = () => scene.requestRender?.();
 
+  /** Every appearance set, with the block size its edges are drawn at. */
+  const appearanceSets = () => [
+    { blockM: region?.blockM || 1, set: appearances },
+    ...[...rings].map(([blockM, ring]) => ({
+      blockM,
+      set: ring.appearances,
+    })),
+  ];
+
   /** The block size and the land's edge and dither uniforms. */
   function applyStyle() {
-    const blockM = region?.blockM || 1;
-    for (const [kind, appearance] of Object.entries(appearances)) {
+    for (const { blockM, set } of appearanceSets())
+      styleAppearances(set, blockM);
+  }
+
+  function styleAppearances(set, blockM) {
+    for (const [kind, appearance] of Object.entries(set)) {
       const uniforms = appearance.material.uniforms;
       const land = kind === 'opaque';
       uniforms.blockM = blockM;
@@ -544,7 +591,9 @@ export function createBlocksRenderer({
   applyStyle();
 
   function applyFog() {
-    for (const appearance of Object.values(appearances)) {
+    for (const appearance of appearanceSets().flatMap(({ set }) =>
+      Object.values(set),
+    )) {
       const uniforms = appearance.material.uniforms;
       uniforms.fogStartM = fog.startM;
       uniforms.fogEndM = fog.endM;
@@ -607,12 +656,21 @@ export function createBlocksRenderer({
     });
   }
 
-  function drawn(instances, kind, origin) {
+  /** A level's frame and appearances: a ring's, else the primary region's. */
+  const levelOf = (level) => {
+    const ring = level ? rings.get(level) : null;
+    return ring
+      ? { frame: ring.frame, set: ring.appearances }
+      : { frame, set: appearances };
+  };
+
+  function drawn(instances, kind, origin, level = null) {
+    const { frame: at, set } = levelOf(level);
     return collection.add(
       primitive3D({
         geometryInstances: instances,
-        appearance: appearances[kind],
-        modelMatrix: chunkMatrix(frame, origin),
+        appearance: set[kind],
+        modelMatrix: chunkMatrix(at, origin),
         asynchronous: false,
         compressVertices: false,
         allowPicking: true,
@@ -637,6 +695,7 @@ export function createBlocksRenderer({
           ],
           kind,
           held.origin,
+          held.level,
         ),
       );
   }
@@ -667,7 +726,7 @@ export function createBlocksRenderer({
     const before = batch.primitives;
     batch.primitives = ['opaque', 'water']
       .filter((kind) => instances[kind].length)
-      .map((kind) => drawn(instances[kind], kind, batch.origin));
+      .map((kind) => drawn(instances[kind], kind, batch.origin, batch.level));
     batch.built = built;
     for (const primitive of before) collection.remove(primitive);
     for (const key of batch.members) {
@@ -687,8 +746,7 @@ export function createBlocksRenderer({
     if (!ids) return;
     batch.built.delete(key);
     for (const primitive of batch.primitives) {
-      const id =
-        primitive.appearance === appearances.water ? ids.water : ids.opaque;
+      const id = primitive.appearance.translucent ? ids.water : ids.opaque;
       if (!id) continue;
       if (!primitive.ready) {
         batch.rebuildNow = true; // not drawn yet: rebuilt on the next frame
@@ -770,11 +828,29 @@ export function createBlocksRenderer({
   function placeAll() {
     for (const batch of batches.values())
       for (const primitive of batch.primitives)
-        primitive.modelMatrix = chunkMatrix(frame, batch.origin);
+        primitive.modelMatrix = chunkMatrix(
+          levelOf(batch.level).frame,
+          batch.origin,
+        );
     for (const held of chunks.values())
       for (const primitive of held.alone)
-        primitive.modelMatrix = chunkMatrix(frame, held.origin);
+        primitive.modelMatrix = chunkMatrix(
+          levelOf(held.level).frame,
+          held.origin,
+        );
   }
+
+  /** Drop the chunks of one ring's level (its region changed or went). */
+  function dropLevel(level) {
+    for (const [key, held] of [...chunks])
+      if (held.level === level) dropChunk(key);
+  }
+
+  const sameRegion = (a, b) =>
+    Boolean(a && b) &&
+    a.lon0 === b.lon0 &&
+    a.lat0 === b.lat0 &&
+    a.blockM === b.blockM;
 
   const api = {
     /**
@@ -786,19 +862,70 @@ export function createBlocksRenderer({
      */
     setRegion(next, { datumOffsetM: offset = 0 } = {}) {
       const offsetM = Number.isFinite(offset) ? offset : 0;
-      const same =
-        region &&
-        next &&
-        region.lon0 === next.lon0 &&
-        region.lat0 === next.lat0 &&
-        region.blockM === next.blockM;
+      const same = sameRegion(region, next);
       if (same && offsetM === datumOffsetM) return api.getState();
-      if (!same) dropAll();
+      if (!same) {
+        dropAll();
+        rings.clear();
+      }
       region = next || null;
       datumOffsetM = offsetM;
       frame = region ? regionFrame(region, datumOffsetM) : null;
+      for (const ring of rings.values())
+        ring.frame = regionFrame(ring.region, datumOffsetM);
       applyStyle();
       if (same) placeAll();
+      requestRender();
+      return api.getState();
+    },
+
+    /**
+     * K rings (milestone 5): a region a level, the finest the primary one
+     * (setRegion's: its chunks keyed 'ci:cj' and 'c:gi:gj' as before),
+     * each coarser one keyed levelChunkKey(blockM, ci, cj) and drawn in
+     * its own frame with its own block edges. `regions` is an array or a
+     * Map of them. A level whose region changed loses its chunks, one no
+     * longer given loses them and its frame; the primary changing drops
+     * everything (as setRegion). One datumOffsetM for every level.
+     * `fogReachBlocks`: the fog set from the outermost ring's reach
+     * (ringsFog), else left as it is.
+     */
+    setRegions(
+      regions,
+      { datumOffsetM: offset = 0, fogReachBlocks = null } = {},
+    ) {
+      const list = [...(regions instanceof Map ? regions.values() : regions)]
+        .filter(Boolean)
+        .sort((a, b) => a.blockM - b.blockM);
+      const [primary = null, ...outer] = list;
+      api.setRegion(primary, { datumOffsetM: offset });
+      const wanted = new Map(outer.map((next) => [next.blockM, next]));
+      for (const level of [...rings.keys()])
+        if (!wanted.has(level)) {
+          dropLevel(level);
+          rings.delete(level);
+        }
+      for (const [level, next] of wanted) {
+        const ring = rings.get(level);
+        if (ring && sameRegion(ring.region, next)) continue;
+        if (ring) dropLevel(level);
+        const set = ring?.appearances || {
+          opaque: blocksAppearance(false),
+          water: blocksAppearance(true),
+        };
+        rings.set(level, {
+          region: next,
+          frame: regionFrame(next, datumOffsetM),
+          appearances: set,
+        });
+        styleAppearances(set, level);
+      }
+      if (Number.isFinite(fogReachBlocks) && list.length) {
+        const ringFog = ringsFog(list, fogReachBlocks);
+        fog.startM = ringFog.startM;
+        fog.endM = ringFog.endM;
+      }
+      applyFog();
       requestRender();
       return api.getState();
     },
@@ -815,9 +942,14 @@ export function createBlocksRenderer({
         if (!dropChunk(key)) requestRender();
         return;
       }
-      const parsed = parseChunkKey(key);
+      const leveled = parseLevelChunkKey(key);
+      const ring = leveled ? rings.get(leveled.blockM) : null;
+      if (leveled && !ring)
+        throw new Error(`Blocks renderer: no ring of ${leveled.blockM} m`);
+      const parsed = leveled || parseChunkKey(key);
       const origin =
-        mesh.origin || (parsed && region.chunkOrigin(parsed.ci, parsed.cj));
+        mesh.origin ||
+        (parsed && (ring?.region || region).chunkOrigin(parsed.ci, parsed.cj));
       if (!origin) throw new Error(`Blocks renderer: no origin for ${key}`);
       const batchKey = batchKeyOf(key);
       const before = chunks.get(key);
@@ -829,6 +961,7 @@ export function createBlocksRenderer({
       if (!batch) {
         batch = {
           origin,
+          level: leveled?.blockM ?? null,
           members: new Set(),
           built: new Map(),
           primitives: [],
@@ -848,6 +981,7 @@ export function createBlocksRenderer({
           ]),
         ),
         chunk: [parsed?.ci ?? 0, parsed?.cj ?? 0],
+        level: leveled?.blockM ?? null,
         alone: [],
       };
       chunks.set(key, held);
@@ -932,6 +1066,17 @@ export function createBlocksRenderer({
 
     getState: () => ({
       region,
+      // Every level drawn, finest first: {blockM, lon0, lat0, chunks}.
+      regions: [region, ...[...rings.values()].map((ring) => ring.region)]
+        .filter(Boolean)
+        .map((entry, k) => ({
+          blockM: entry.blockM,
+          lon0: entry.lon0,
+          lat0: entry.lat0,
+          chunks: [...chunks.values()].filter((held) =>
+            k === 0 ? held.level === null : held.level === entry.blockM,
+          ).length,
+        })),
       datumOffsetM,
       style: {
         edges: style.edges && { ...style.edges },
@@ -966,6 +1111,7 @@ export function createBlocksRenderer({
       if (wake !== null) clearTimeoutImpl(wake);
       wake = null;
       dropAll();
+      rings.clear();
       scene.primitives.remove(collection);
       requestRender();
     },
