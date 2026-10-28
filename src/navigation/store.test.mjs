@@ -123,31 +123,32 @@ test('the Move drop-down sets the mode and follows it', () => {
   assert.equal(select.value, 'fly', 'destroyed: no longer follows');
 });
 
-test('the keys: Space jumps in Walk and rises in Fly; Shift sprints, or descends', () => {
+test('the keys (Minecraft’s): Space jumps in Walk and rises in Fly; Shift sneaks, or descends', () => {
   const held = new Set(['forward', 'space', 'shift']);
   assert.deepEqual(inputFromKeys(held, 'walk'), {
     forward: true,
     back: false,
     left: false,
     right: false,
+    sprint: false,
     jump: true,
-    sprint: true,
+    sneak: true,
   });
   assert.deepEqual(inputFromKeys(held, 'fly'), {
     forward: true,
     back: false,
     left: false,
     right: false,
+    sprint: false,
     up: true,
     down: true,
-    sprint: false,
   });
   // No Ctrl (Ctrl+W closes the tab): forward's double-tap sprints, and
-  // doubles Fly's speed.
+  // doubles Fly's speed; Shift no longer sprints.
   assert.equal(inputFromKeys(new Set(['control']), 'walk').sprint, false);
   assert.equal(inputFromKeys(new Set(['sprint']), 'walk').sprint, true);
   assert.equal(inputFromKeys(new Set(['sprint']), 'fly').sprint, true);
-  assert.equal(inputFromKeys(new Set(['shift']), 'fly').sprint, false);
+  assert.equal(inputFromKeys(new Set(['shift']), 'walk').sprint, false);
 });
 
 test('a double-tap of forward within 300 ms sprints; a slow second press does not', () => {

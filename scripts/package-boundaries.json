@@ -836,7 +836,9 @@
       "src/navigation/entry.js",
       "src/navigation/view.js",
       "src/navigation/playerMarker.js",
-      "src/navigation/waypoints.js"
+      "src/navigation/waypoints.js",
+      "src/navigation/inputs.js",
+      "src/navigation/settings.js"
     ],
     "external": ["cesium"]
   },
@@ -2770,7 +2772,9 @@
       "src/navigation/playerMarker.js",
       "src/navigation/waypoints.js",
       "src/navigation/wayfindingControl.js",
-      "src/data/earthEngineBudget.js"
+      "src/data/earthEngineBudget.js",
+      "src/navigation/inputs.js",
+      "src/navigation/settings.js"
     ],
     "external": [
       "hls.js",

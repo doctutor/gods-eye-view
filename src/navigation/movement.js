@@ -27,6 +27,11 @@ export const EYE_HEIGHT_M = 1.62;
 export const BODY_HEIGHT_M = 1.8;
 export const WALK_SPEED_M_S = 4.3;
 export const SPRINT_SPEED_M_S = 5.6;
+/** Sneaking (Shift, Minecraft's default): slower, the eye lower, edges held. */
+export const SNEAK_SPEED_M_S = 1.3;
+export const SNEAK_EYE_DROP_M = 0.3;
+/** How fast the eye moves to a new height (sneaking or not), m/s. */
+export const EYE_EASE_M_S = 3;
 export const FLY_SPEED_M_S = 10.8;
 /** Fly's sprint (a double-tap of forward) doubles the speed. */
 export const FLY_SPRINT_FACTOR = 2;
@@ -96,19 +101,30 @@ export function cesiumFovRad(verticalDeg, width, height) {
   return 2 * Math.atan(Math.tan(vertical / 2) * (width / height));
 }
 
+/** A stick's axis, −1…1 (0 for none). */
+const axisOf = (value) => Math.max(-1, Math.min(1, Number(value) || 0));
+
 /**
- * The horizontal unit direction the movement keys ask for, east and north,
- * in the yaw's frame; zero when none (or opposite ones) are held.
+ * The horizontal direction the movement keys (or a stick) ask for, east
+ * and north, in the yaw's frame: a unit vector for keys, shorter for a
+ * stick pushed part way (its magnitude scales the speed); zero when
+ * nothing (or opposite keys) is held. Per axis the larger of the keys' ±1
+ * and `input.analog` ({forward, right}) wins.
  */
 export function wishDirection(input, yaw) {
-  const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
-  const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  let forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
+  let strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  const stickForward = axisOf(input.analog?.forward);
+  const stickRight = axisOf(input.analog?.right);
+  if (Math.abs(stickForward) > Math.abs(forward)) forward = stickForward;
+  if (Math.abs(stickRight) > Math.abs(strafe)) strafe = stickRight;
   if (!forward && !strafe) return { x: 0, y: 0 };
   // Forward is the heading; right is the heading + 90°.
   const x = forward * Math.sin(yaw) + strafe * Math.cos(yaw);
   const y = forward * Math.cos(yaw) - strafe * Math.sin(yaw);
   const length = Math.hypot(x, y);
-  return { x: x / length, y: y / length };
+  const scale = length > 1 ? 1 / length : 1;
+  return { x: x * scale, y: y * scale };
 }
 
 /**
@@ -117,9 +133,12 @@ export function wishDirection(input, yaw) {
  * or NaN when a wall or a ceiling is in the way. An unknown column lets
  * the body through at its height.
  */
-function standAt(world, x, y, feet, rise) {
+function standAt(world, x, y, feet, rise, hold = -Infinity) {
   const ground = world.surfaceBelow(x, y, feet + rise + EPS);
-  if (!Number.isFinite(ground)) return feet;
+  // Sneaking on the ground (`hold` finite): never off an edge, nor into
+  // the unknown.
+  if (!Number.isFinite(ground)) return hold > -Infinity ? Number.NaN : feet;
+  if (ground < hold - EPS) return Number.NaN;
   if (ground > feet + rise + EPS) return Number.NaN;
   const standing = Math.max(feet, ground);
   if (world.blocked(x, y, standing + EPS, standing + BODY_HEIGHT_M))
@@ -136,8 +155,8 @@ const CONTACT_STEPS = 8;
  * part as far as it goes, so the body comes to the wall rather than
  * stopping a frame's travel short of it (18 cm at Fly's 10.8 m/s).
  */
-function slide(world, state, dx, dy, feet, rise) {
-  const at = (x, y) => standAt(world, x, y, feet, rise);
+function slide(world, state, dx, dy, feet, rise, hold = -Infinity) {
+  const at = (x, y) => standAt(world, x, y, feet, rise, hold);
   const whole = at(state.x + dx, state.y + dy);
   if (Number.isFinite(whole))
     return { x: state.x + dx, y: state.y + dy, feet: whole };
@@ -188,26 +207,37 @@ function slide(world, state, dx, dy, feet, rise) {
  * Space jumps (swims up in water) and `sprint` (Shift, or a double-tap of
  * forward) sprints; in Fly, Space rises, Shift descends and `sprint` (the
  * double-tap) doubles the speed. With nothing known
- * under the body it hovers: no fall, no climb.
+ * under the body it hovers: no fall, no climb. `sneak` (Walk): 1.3 m/s,
+ * the eye 0.3 m lower, and on the ground the body never steps off an
+ * edge deeper than it follows a slope (SNAP_DOWN_M), nor into the unknown.
+ * `tuning` ({walk, sprint, sneak, fly, eye}: m/s and the standing eye
+ * height) overrides the defaults (the Controls settings).
  */
-export function step(state, input, dt, world, mode = 'walk') {
+export function step(state, input, dt, world, mode = 'walk', tuning = {}) {
   const time = Math.max(0, Math.min(MAX_DT_S, Number(dt) || 0));
-  if (mode === 'fly') return flyStep(state, input, time, world);
+  if (mode === 'fly') return flyStep(state, input, time, world, tuning);
   if (mode !== 'walk') return state;
   const stepUp = world.stepUpM ?? DEFAULT_STEP_UP_M;
-  let feet = state.z - EYE_HEIGHT_M;
+  const standing = tuning.eye ?? EYE_HEIGHT_M;
+  const eyeNow = state.eyeM ?? standing;
+  let feet = state.z - eyeNow;
   const under = world.surfaceBelow(state.x, state.y, feet + EPS);
   const inWater = Boolean(
     world.waterAt(state.x, state.y, feet + BODY_HEIGHT_M / 4),
   );
   const wish = wishDirection(input, state.yaw);
+  const sneaking = Boolean(input.sneak) && !inWater;
   const speed = inWater
     ? SWIM_SPEED_M_S
-    : input.sprint
-      ? SPRINT_SPEED_M_S
-      : WALK_SPEED_M_S;
+    : sneaking
+      ? (tuning.sneak ?? SNEAK_SPEED_M_S)
+      : input.sprint
+        ? (tuning.sprint ?? SPRINT_SPEED_M_S)
+        : (tuning.walk ?? WALK_SPEED_M_S);
   // A walker climbs a step from the ground or out of the water, not in mid-air.
   const rise = state.onGround || inWater ? stepUp : 0;
+  // Sneaking on the ground: no lower than a slope it follows.
+  const hold = sneaking && state.onGround ? feet - SNAP_DOWN_M : -Infinity;
   const moved = slide(
     world,
     state,
@@ -215,7 +245,15 @@ export function step(state, input, dt, world, mode = 'walk') {
     wish.y * speed * time,
     feet,
     rise,
+    hold,
   );
+  // The eye moves to its height for sneaking or standing.
+  const eyeTarget = sneaking ? standing - SNEAK_EYE_DROP_M : standing;
+  const eyeStep = EYE_EASE_M_S * time;
+  const eye =
+    Math.abs(eyeTarget - eyeNow) <= eyeStep
+      ? eyeTarget
+      : eyeNow + Math.sign(eyeTarget - eyeNow) * eyeStep;
   feet = moved.feet;
   const ground = world.surfaceBelow(moved.x, moved.y, feet + EPS);
   if (!Number.isFinite(ground) && !Number.isFinite(under))
@@ -223,11 +261,13 @@ export function step(state, input, dt, world, mode = 'walk') {
       ...state,
       x: moved.x,
       y: moved.y,
-      z: feet + EYE_HEIGHT_M,
+      z: feet + eye,
+      eyeM: eye,
       vz: 0,
       onGround: false,
       inWater,
       hovering: true,
+      sneaking,
     };
   const floor = Number.isFinite(ground) ? ground : under;
   let vz = state.vz;
@@ -270,19 +310,31 @@ export function step(state, input, dt, world, mode = 'walk') {
     ...state,
     x: moved.x,
     y: moved.y,
-    z: next + EYE_HEIGHT_M,
+    z: next + eye,
+    eyeM: eye,
     vz,
     onGround: onGround && next === floor,
     inWater,
     hovering: false,
+    sneaking,
   };
 }
 
 /** Creative flight: no gravity, the keys move it, the world still stops it. */
-function flyStep(state, input, time, world) {
+function flyStep(state, input, time, world, tuning = {}) {
   const wish = wishDirection(input, state.yaw);
-  const speed = FLY_SPEED_M_S * (input.sprint ? FLY_SPRINT_FACTOR : 1);
-  let feet = state.z - EYE_HEIGHT_M;
+  const fly = tuning.fly ?? FLY_SPEED_M_S;
+  const speed = fly * (input.sprint ? FLY_SPRINT_FACTOR : 1);
+  // Up and down scale with the chosen speed (Minecraft's spectator wheel).
+  const vertical = FLY_VERTICAL_M_S * (fly / FLY_SPEED_M_S);
+  const standing = tuning.eye ?? EYE_HEIGHT_M;
+  const eyeNow = state.eyeM ?? standing;
+  const eyeStep = EYE_EASE_M_S * time;
+  const eye =
+    Math.abs(standing - eyeNow) <= eyeStep
+      ? standing
+      : eyeNow + Math.sign(standing - eyeNow) * eyeStep;
+  let feet = state.z - eyeNow;
   const moved = slide(
     world,
     state,
@@ -293,7 +345,7 @@ function flyStep(state, input, time, world) {
   );
   feet = moved.feet;
   const climb = (input.up ? 1 : 0) - (input.down ? 1 : 0);
-  let next = feet + climb * FLY_VERTICAL_M_S * time;
+  let next = feet + climb * vertical * time;
   const floor = world.surfaceBelow(moved.x, moved.y, feet + EPS);
   if (Number.isFinite(floor) && next < floor) next = floor;
   if (
@@ -305,8 +357,10 @@ function flyStep(state, input, time, world) {
     ...state,
     x: moved.x,
     y: moved.y,
-    z: next + EYE_HEIGHT_M,
+    z: next + eye,
+    eyeM: eye,
     vz: 0,
+    sneaking: false,
     onGround: Number.isFinite(floor) && next === floor,
     inWater: Boolean(world.waterAt(moved.x, moved.y, next + BODY_HEIGHT_M / 4)),
     hovering: !Number.isFinite(floor),

@@ -7554,18 +7554,58 @@ Spectator, so older links read the same) and opens in the mode
 (`src/navigation/store.js`). Spectator changes nothing.
 
 - **Walk.** The eye 1.62 m above the feet, gravity (32 m/s², so a jump
-  rises 1.25 m in Minecraft's 0.6 s), walk 4.3 m/s, sprint 5.6 (Shift, or
-  W twice within 300 ms, held), Space jumps, a step up climbed without jumping (one block under
-  Blocks, 0.6 m elsewhere), drops of 0.3 m or less followed rather than
-  fallen, swimming in water (2.2 m/s across, Space up at 2 m/s, sinking at
-  1 m/s). A walker more than 50 m above a known surface is put down on it.
+  rises 1.25 m in Minecraft's 0.6 s), walk 4.3 m/s, sprint 5.6 (W twice
+  within 300 ms, held), Space jumps, a step up climbed without jumping (one
+  block under Blocks, 0.6 m elsewhere), drops of 0.3 m or less followed
+  rather than fallen, swimming in water (2.2 m/s across, Space up at 2 m/s,
+  sinking at 1 m/s). A walker more than 50 m above a known surface is put
+  down on it. Shift sneaks, Minecraft's default: 1.3 m/s, the eye eased
+  0.3 m lower over 0.1 s, and on the ground the body never steps off an
+  edge deeper than a slope it follows (0.3 m), nor into ground not yet
+  known; it closes on the edge as on a wall, and a jump still leaves it.
+- **Controls** (`src/navigation/settings.js`). Kept in this browser
+  (localStorage `gev.nav.settings`), never in the link: mouse sensitivity
+  (0.1–2×), invert Y, the vertical field of view (30–110°, 70), the walk,
+  sprint and fly speeds, sneak held or toggled, the sprint widening, view
+  bobbing, and the key bindings (`event.code`, one key an action once
+  rebound). Minecraft's defaults: WASD and the arrows, Space, Shift, G
+  walks here, Esc releases; sprint, up, down and fly-here unbound (sprint
+  is W twice). A key is refused where the app has a shortcut (1–7, H, O,
+  V, F, D, C, Esc, `) unless it is that action's own default (D is right),
+  and where another action has it. Bindings apply at once.
+- **Inputs** (`src/navigation/inputs.js`). The keys and the mouse are one
+  input source among others: each frame every source's `read(dt)` gives
+  partial intents (forward, back, left, right, jump, sneak, sprint, up,
+  down held; `lookDx`/`lookDy` in pointer-lock pixels; `walkHere`/`flyHere`
+  one-shot), merged (held OR'd, looks added) and turned into the model's
+  input for the mode. `addInputSource(source)` adds one (a gamepad); in
+  Spectator such a source's walkHere/flyHere is read each frame while it
+  is registered. A stick gives `analog: {forward, right}` (−1…1): per axis
+  the larger of it and the keys' ±1 wins, and a stick part way walks part
+  speed (never faster than a key on the diagonal). One-shots besides
+  walkHere/flyHere: `release` leaves the mode (the pointer let go,
+  Spectator), `toggleMode` switches Walk and Fly, `flySpeedStep` (±1 a
+  press) moves Fly's speed a wheel notch. `showInputHint(text, ms)` (or
+  `binding.hint`) says a line over the crosshair. Looks are pointer-lock
+  pixels at each source's own sensitivity and inversion: the Controls'
+  mouse sensitivity and invert Y apply to the mouse alone (as it moves),
+  so a gamepad's own settings never compound with them. A source adds
+  its own rows to the Controls card with
+  `navSettings().registerSection({id, title, rows})` (rows: `range` with
+  min, max, step, or `toggle`; each with a default), kept under
+  `gev.nav.<id>` and reset with the rest.
 - **Fly.** No gravity, 10.8 m/s (W twice doubles it), Space up and Shift down
-  at 7.5 m/s; the ground and blocks still stop it.
+  at 7.5 m/s; the ground and blocks still stop it. The mouse wheel sets the
+  speed, Minecraft spectator's: 1.25× a notch, up faster, between 1 and
+  50 m/s (a log scale), said over the crosshair for 2 s; entering Fly
+  starts again from the Controls' fly speed.
 - **Looking.** WASD (or the arrows) and the mouse under Pointer Lock: a
   click on the globe captures the pointer, Esc releases it. Yaw and pitch
-  only; roll is held at 0. The field of view is 70° from top to bottom,
-  Cesium's horizontal `fov` for the canvas's shape (96° at 16:10), and the
-  previous one comes back on leaving. A crosshair marks the centre, and the
+  only; roll is held at 0. The field of view is 70° from top to bottom (the
+  Controls' setting), Cesium's horizontal `fov` for the canvas's shape (96°
+  at 16:10), and the previous one comes back on leaving. Sprinting forward
+  widens it 10° over 0.2 s and back (Minecraft's dynamic FOV), unless the
+  Controls hold it fixed. A crosshair marks the centre, and the
   looked-at block is outlined (its 12 edges; a ray through `occupancy` to
   the first solid block within 64 blocks), or off the Blocks a small ring
   where the centre's depth pick lands. The HUD's MODE line names the mode

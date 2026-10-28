@@ -752,11 +752,11 @@ export class IntelHUD {
     const mode = this._navigation?.mode;
     if (mode === 'walk')
       return t(
-        'Walk: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space jumps, Shift or W twice sprints',
+        'Walk: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space jumps, Shift sneaks (slow, the eye lower, never off an edge), W twice sprints',
       );
     if (mode === 'fly')
       return t(
-        'Fly: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space up, Shift down, W twice doubles the speed',
+        'Fly: WASD or the arrows move, the mouse looks (click the globe to capture it, Esc releases), Space up, Shift down, the wheel sets the speed (1–50 m/s), W twice doubles it',
       );
     return t(
       'Spectator: the usual camera. G walks onto the block under the pointer (or the ground at the centre), Shift+G flies there',

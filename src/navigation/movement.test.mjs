@@ -16,6 +16,8 @@ import {
   MAX_DT_S,
   PITCH_LIMIT_RAD,
   SINK_M_S,
+  SNEAK_EYE_DROP_M,
+  SNEAK_SPEED_M_S,
   SPRINT_SPEED_M_S,
   SWIM_SPEED_M_S,
   SWIM_UP_M_S,
@@ -469,4 +471,165 @@ test('buildings: the looked-at block is the wall, a building block', () => {
   assert.deepEqual([hit.i, hit.j, hit.y], [10, 14, 7]);
   assert.deepEqual(hit.face, [0, -1, 0]);
   assert.equal(world.occupancy(hit.i, hit.j, hit.y), MATERIALS.BUILDING);
+});
+
+// ── Sneaking (Shift, Minecraft's default) ─────────────────────────────
+
+test('sneak: 1.3 m/s, the eye eased 0.3 m lower, sprint overridden', () => {
+  const world = field(() => 10);
+  const start = standingOn(10);
+  const sneaked = run(
+    start,
+    { forward: true, sneak: true, sprint: true },
+    1,
+    world,
+  );
+  const last = sneaked.at(-1);
+  assert.ok(Math.abs(last.y - 10.5 - SNEAK_SPEED_M_S) < 1e-6, `${last.y}`);
+  assert.ok(Math.abs(last.z - (10 + EYE_HEIGHT_M - SNEAK_EYE_DROP_M)) < 1e-9);
+  assert.equal(last.sneaking, true);
+  // Eased, not cut: 0.3 m at 3 m/s takes 0.1 s.
+  assert.ok(sneaked[1].z > 10 + EYE_HEIGHT_M - SNEAK_EYE_DROP_M);
+  const settled = sneaked.findIndex(
+    (s) => Math.abs(s.z - (10 + EYE_HEIGHT_M - SNEAK_EYE_DROP_M)) < 1e-9,
+  );
+  assert.ok(settled * DT >= 0.09 && settled * DT <= 0.12, `${settled * DT} s`);
+  // Let go: back up to the standing eye.
+  const up = run(last, {}, 0.5, world).at(-1);
+  assert.ok(Math.abs(up.z - (10 + EYE_HEIGHT_M)) < 1e-9);
+  assert.equal(up.sneaking, false);
+});
+
+test('sneak holds an edge: a roof’s edge is not walked off; a slope is followed; a jump still leaves it', () => {
+  // A roof (level 10, its top at 11 m) over (5…15)², the ground at 6 m.
+  const { world } = blocks(5, {
+    tops: Array.from({ length: 121 }, (_, k) => [
+      5 + (k % 11),
+      5 + Math.floor(k / 11),
+      10,
+    ]),
+  });
+  const onRoof = standingOn(11, 10.5, 14.5);
+  const held = run(onRoof, { forward: true, sneak: true }, 3, world).at(-1);
+  assert.ok(held.y < 16 && held.y > 15.99, `stopped at the edge: ${held.y}`);
+  assert.ok(
+    Math.abs(held.z - (11 + EYE_HEIGHT_M - SNEAK_EYE_DROP_M)) < 1e-9,
+    'still on the roof',
+  );
+  // Without sneaking it walks off and falls.
+  const fell = run(onRoof, { forward: true }, 3, world).at(-1);
+  assert.ok(fell.y > 16 && Math.abs(fell.z - (6 + EYE_HEIGHT_M)) < 1e-9);
+  // Diagonally at the corner it slides along the edge, still on the roof.
+  const corner = run(
+    onRoof,
+    { forward: true, right: true, sneak: true },
+    3,
+    world,
+  ).at(-1);
+  assert.ok(corner.x <= 16 && corner.y <= 16 && corner.z > 11);
+  // A slope (0.2 per metre) is walked down sneaking: no edge there.
+  const slope = field((x, y) => -0.2 * y);
+  const down = run(
+    standingOn(-0.2 * 10.5),
+    { forward: true, sneak: true },
+    2,
+    slope,
+  ).at(-1);
+  assert.ok(down.y > 10.5 + 2.5, `${down.y}`);
+  // A jump while sneaking still leaves the roof (the hold is on the
+  // ground only): 0.2 m from the edge, a jump at 1.3 m/s carries 0.7 m.
+  const nearEdge = standingOn(11, 10.5, 15.8);
+  const jumped = run(
+    step(nearEdge, { jump: true, sneak: true, forward: true }, DT, world),
+    { forward: true, sneak: true },
+    2,
+    world,
+  ).at(-1);
+  assert.ok(jumped.y > 16 && jumped.z < 11, 'jumped off');
+  // From 1.5 m back, the same jump lands on the roof again and holds.
+  const short = run(
+    step(onRoof, { jump: true, sneak: true, forward: true }, DT, world),
+    { forward: true, sneak: true },
+    3,
+    world,
+  ).at(-1);
+  assert.ok(short.y < 16 && short.z > 11, 'held after landing');
+  // Nothing known ahead: a sneaking walker does not walk into it.
+  const edgeOfData = field((x, y) => (y > 11 ? Number.NaN : 0));
+  const kept = run(
+    standingOn(0),
+    { forward: true, sneak: true },
+    2,
+    edgeOfData,
+  ).at(-1);
+  assert.ok(kept.y <= 11.0001, `${kept.y}`);
+});
+
+test('tuning: the Controls settings’ speeds and eye height', () => {
+  const world = field(() => 0);
+  const walked = run(standingOn(0), { forward: true }, 1, world, 'walk', DT).at(
+    -1,
+  );
+  assert.ok(Math.abs(walked.y - 10.5 - WALK_SPEED_M_S) < 1e-6);
+  const tuned = (input, mode, tuning, seconds = 1, start = standingOn(0)) => {
+    const states = [start];
+    for (let t = 0; t < seconds - 1e-9; t += DT)
+      states.push(step(states.at(-1), input, DT, world, mode, tuning));
+    return states.at(-1);
+  };
+  assert.ok(
+    Math.abs(tuned({ forward: true }, 'walk', { walk: 6 }).y - 16.5) < 1e-6,
+  );
+  assert.ok(
+    Math.abs(
+      tuned({ forward: true, sprint: true }, 'walk', { sprint: 8 }).y - 18.5,
+    ) < 1e-6,
+  );
+  assert.ok(
+    Math.abs(
+      tuned({ forward: true, sneak: true }, 'walk', { sneak: 2 }).y - 12.5,
+    ) < 1e-6,
+  );
+  const air = createNavState({ x: 0, y: 0, z: 20 });
+  assert.ok(
+    Math.abs(tuned({ forward: true }, 'fly', { fly: 30 }, 1, air).y - 30) <
+      1e-6,
+  );
+  // Fly's up and down scale with its speed (7.5 m/s at 10.8).
+  const rose = tuned({ up: true }, 'fly', { fly: FLY_SPEED_M_S * 2 }, 1, air);
+  assert.ok(Math.abs(rose.z - 20 - 2 * FLY_VERTICAL_M_S) < 1e-6);
+  // A taller eye: the eye rises to it.
+  assert.ok(Math.abs(tuned({}, 'walk', { eye: 1.8 }).z - 1.8) < 1e-9);
+});
+
+test('a stick part way walks part speed; the keys still win when larger', () => {
+  const half = wishDirection({ analog: { forward: 0.5, right: 0 } }, 0);
+  assert.ok(Math.abs(half.y - 0.5) < 1e-12 && Math.abs(half.x) < 1e-12);
+  // Pushed fully on the diagonal: no faster than a key.
+  const corner = wishDirection({ analog: { forward: 1, right: 1 } }, 0);
+  assert.ok(Math.abs(Math.hypot(corner.x, corner.y) - 1) < 1e-12);
+  // W held with the stick a little back: the key's 1 wins forward.
+  const keyWins = wishDirection(
+    { forward: true, analog: { forward: -0.3 } },
+    0,
+  );
+  assert.ok(Math.abs(keyWins.y - 1) < 1e-12);
+  // Speed scales: half a stick walks half as far.
+  const world = blocks(10).world;
+  let full = standingOn(11);
+  let part = { ...full };
+  for (let k = 0; k < 20; k++) {
+    full = step(full, { forward: true }, 0.05, world, 'walk');
+    part = step(
+      part,
+      { analog: { forward: 0.5, right: 0 } },
+      0.05,
+      world,
+      'walk',
+    );
+  }
+  const fullM = full.y - 10.5;
+  const partM = part.y - 10.5;
+  assert.ok(fullM > 4, `full: ${fullM}`);
+  assert.ok(Math.abs(partM / fullM - 0.5) < 0.02, `part: ${partM / fullM}`);
 });
