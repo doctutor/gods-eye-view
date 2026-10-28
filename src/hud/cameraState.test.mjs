@@ -18,6 +18,7 @@ import {
   surfaceSampleStands,
   surfaceUnderCamera,
   viewDiagnostics,
+  viewFootprintM,
 } from './cameraState.js';
 
 const TAHOE = { lat: 39.02, lon: -120.12 };
@@ -277,4 +278,31 @@ test('a surface sample stands only near the camera, at about its height, and fre
     false,
     'a sample without its camera height is sampled again',
   );
+});
+
+test('the footprint at the view’s centre: the centre’s distance across the wider side at the field of view (Blocks’ block size)', () => {
+  // Nothing picked: the camera's height stands for the distance.
+  const { viewer } = fakeViewer({ cameraHeightM: 50_000 });
+  const fovRad = viewer.camera.frustum.fov;
+  const expected = (2 * 50_000 * Math.tan(fovRad / 2)) / 1017;
+  assert.ok(Math.abs(viewFootprintM(viewer) - expected) < 1e-6);
+  // The ray along the centre meets the ground 2 km off.
+  const { viewer: near } = fakeViewer({
+    rayCentre: (ray) =>
+      Cesium.Cartesian3.add(
+        ray.origin,
+        Cesium.Cartesian3.multiplyByScalar(
+          ray.direction,
+          2000,
+          new Cesium.Cartesian3(),
+        ),
+        new Cesium.Cartesian3(),
+      ),
+  });
+  const nearPx = viewFootprintM(near);
+  assert.ok(
+    Math.abs(nearPx - (2 * 2000 * Math.tan(fovRad / 2)) / 1017) < 0.01,
+    String(nearPx),
+  );
+  assert.ok(Number.isNaN(viewFootprintM({})));
 });

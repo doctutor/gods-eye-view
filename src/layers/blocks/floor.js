@@ -1,11 +1,29 @@
 // Personal fork: what Blocks is doing now, for those that show it without
 // loading the controller (index.js), which sets it:
 // - the block size drawn, the HUD's data floor (src/hud/precision.js
-//   dataFloor: "· Blocks 1 m"), null when Blocks shows nothing;
+//   dataFloor: "· Blocks 1 m", "· Blocks 1.9 km"), null when Blocks shows
+//   nothing, and how a block size is written (blockSizeText);
 // - whether Blocks is on with the Elevation layer, and whether it hid the
 //   globe: the Earth Engine layers re-drape when the globe comes and goes
 //   (src/layers/earthEngine/index.js), and the Elevation row says "Shown
 //   as blocks" rather than that the map hides it.
+
+import { formatNumber, t } from '../../i18n/index.js';
+
+/**
+ * A block size or level height for the status line and the HUD: metres
+ * under a kilometre ("30 m", "120 m"), else kilometres to two figures
+ * ("1.9 km", "7.7 km", "31 km").
+ */
+export function blockSizeText(metres) {
+  if (!(metres >= 1000))
+    return t('{size} m', {
+      size: formatNumber(Math.round((Number(metres) || 0) * 10) / 10),
+    });
+  return t('{size} km', {
+    size: formatNumber(metres / 1000, { maximumSignificantDigits: 2 }),
+  });
+}
 
 let floorM = null;
 let scene = Object.freeze({ active: false, globeHidden: false });

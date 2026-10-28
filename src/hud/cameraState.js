@@ -9,7 +9,7 @@
  * the same way.
  */
 import * as Cesium from 'cesium';
-import { DEFAULT_FOV_DEG } from './precision.js';
+import { DEFAULT_FOV_DEG, pixelFootprintM } from './precision.js';
 import {
   judgeHit,
   judgedRayHit,
@@ -305,6 +305,23 @@ export function surfaceUnderCamera(viewer, cesium = Cesium) {
   const globe = globeHeightM(viewer, lat, lon, cesium);
   if (plausibleSurfaceM(globe)) return { heightM: globe, via: 'globe' };
   return { heightM: Number.NaN, via: null };
+}
+
+/**
+ * What one screen pixel covers at the view's centre (m): the centre's
+ * distance (centreDistanceM) across the canvas's wider side at the
+ * frustum's field of view, as the HUD's PX (precision.js
+ * pixelFootprintM); NaN when the view cannot be measured. Blocks picks
+ * its block size from it (src/layers/blocks/index.js).
+ */
+export function viewFootprintM(viewer, cesium = Cesium) {
+  const view = readCameraView(viewer, cesium);
+  if (!view) return Number.NaN;
+  return pixelFootprintM({
+    distanceM: centreDistanceM(viewer, cesium).distanceM,
+    fovRad: cesium.Math.toRadians(view.fovDeg),
+    widthPx: canvasSpanPx(viewer),
+  });
 }
 
 /**

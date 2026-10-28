@@ -1,8 +1,9 @@
 // Personal fork: the Blocks controller (docs/BLOCKS-PLAN.md). With "Render:
 // Blocks" picked beside the ANALYSIS heading and the Elevation layer on, the
 // ground around the camera is streamed as chunks of cubes on a grid anchored
-// to the world: a region (grid.js) is anchored at the camera with the
-// elevation source's block size (source.regionFor), the chunks within the
+// to the world: a region (grid.js) is anchored at the camera with a block
+// size from the view's pixel footprint up the source's pyramid of levels
+// (source.regionFor; docs/BLOCKS-PLAN.md milestone 5), the chunks within the
 // render distance are loaded (source.loadChunk), meshed with their
 // neighbours (mesh.js buildChunkMesh) and handed to the renderer
 // (renderer.js), nearest the camera's column first and a few per tick;
@@ -26,24 +27,99 @@ export const GROUP_CHUNKS = 4;
 /** The coarse ring reaches this many times the render distance (R2 = 4·R1). */
 export const COARSE_REACH = 4;
 /**
+ * The block size follows the view (docs/BLOCKS-PLAN.md milestone 5): the
+ * smallest level of the pyramid at least the source's native cell and
+ * FOOTPRINT_BLOCKS screen pixels at the view's centre, so a block is never
+ * finer than the data nor than about two pixels.
+ */
+export const FOOTPRINT_BLOCKS = 2;
+/** The largest native cell: up to it a block is a cube (levelM = blockM). */
+export const NATIVE_TOP_M = 30;
+/**
+ * The pyramid: the native cells (1, 2, 8, 10, 30 m), then ×4 from 30 m up
+ * to the top level.
+ */
+export const BLOCK_PYRAMID_M = Object.freeze([
+  1, 2, 8, 10, 30, 120, 480, 1920, 7680, 30_720,
+]);
+export const TOP_LEVEL_M = BLOCK_PYRAMID_M[BLOCK_PYRAMID_M.length - 1];
+/** A level changes only when the wanted cell is this far past it, either way. */
+export const LEVEL_HYSTERESIS = 2;
+/** Above the native cells a level is at least this tall (m). */
+export const MIN_COARSE_LEVEL_M = 30;
+/** Above the native cells, this many levels to a block's width at most. */
+export const LEVELS_PER_BLOCK = 32;
+
+/**
+ * The block size for a wanted cell (m): the smallest pyramid level at least
+ * max(native, wanted); the native cell itself when it is coarser than the
+ * wanted one (or the wanted one is unknown); the top level past it.
+ */
+export function pyramidLevelM(nativeM, wantedM) {
+  const native = nativeM > 0 ? nativeM : BLOCK_PYRAMID_M[0];
+  const want = Math.max(native, wantedM > 0 ? wantedM : 0);
+  if (want <= native) return native;
+  return BLOCK_PYRAMID_M.find((level) => level >= want) ?? TOP_LEVEL_M;
+}
+
+/**
+ * The level height for a block size (m): a cube at the native cells; above
+ * them max(30 m, blockM / 32): 120 m blocks on 30 m levels, 1,920 m on
+ * 60 m, 30,720 m on 960 m.
+ */
+export function levelMFor(blockM) {
+  if (!(blockM > NATIVE_TOP_M)) return blockM;
+  return Math.max(MIN_COARSE_LEVEL_M, blockM / LEVELS_PER_BLOCK);
+}
+
+/**
+ * The level a region at `levelM` (the one asked for) should move to for
+ * a wanted cell, or null to stay: up once even half the wanted cell needs
+ * a coarser level, down once even twice it fits a finer one (×2 either
+ * way, so a view near a boundary does not re-anchor on every move).
+ */
+export function nextLevelM(levelM, wantedM, nativeM) {
+  if (!(wantedM > 0) || !(levelM > 0)) return null;
+  const up = pyramidLevelM(nativeM, wantedM / LEVEL_HYSTERESIS) > levelM;
+  const down = pyramidLevelM(nativeM, wantedM * LEVEL_HYSTERESIS) < levelM;
+  if (!up && !down) return null;
+  const next = pyramidLevelM(nativeM, wantedM);
+  return next === levelM ? null : next;
+}
+
+/**
  * Blocks builds nothing while the camera is higher above the ground than
- * this many times the farthest ring (4 × R2 × blockM: 8 km at 1 m, 246 km
- * at 30 m), nor at all above NO_REGION_CEILING_M before a region says the
- * block size: every chunk is Earth Engine data someone pays for, and from
- * orbit none of it can be seen.
+ * this many times the farthest ring at a block size (4 × R2 × blockM).
+ * With the block following the footprint that is never reached below the
+ * top level's (251,658 km at 30,720 m); it holds only a region whose source
+ * had no level as coarse as asked (8 km at 1 m, 246 km at 30 m): every
+ * chunk is Earth Engine data someone pays for, and a block finer than a
+ * pixel cannot be seen.
  */
 export const CEILING_REACHES = 4;
-export const NO_REGION_CEILING_M = 100_000;
 /** The ground's plausible heights over the ellipsoid, for the ceiling (m). */
 const GROUND_FLOOR_M = 500;
 const GROUND_CEILING_M = 9000;
 
 /** The height above the ground over which Blocks builds nothing (m). */
 export function ceilingM(blockM, radiusBlocks) {
-  return blockM > 0
-    ? CEILING_REACHES * radiusBlocks * COARSE_REACH * blockM
-    : NO_REGION_CEILING_M;
+  return (
+    CEILING_REACHES *
+    radiusBlocks *
+    COARSE_REACH *
+    (blockM > 0 ? blockM : TOP_LEVEL_M)
+  );
 }
+
+/**
+ * A height drawn under the Relief control, as Cesium draws the globe's
+ * (scene.verticalExaggeration about its relative height; photoreal.js
+ * exaggerate), so the blocks stay on the exaggerated ground.
+ */
+export const drawnHeightM = (heightM, { factor = 1, relativeM = 0 } = {}) =>
+  factor > 1 ? (heightM - relativeM) * factor + relativeM : heightM;
+/** No relief: true heights. */
+const NO_RELIEF = Object.freeze({ factor: 1, relativeM: 0 });
 
 /**
  * Whether the camera is in flight (Cesium's flyTo in progress) or an
@@ -359,6 +435,13 @@ export function sourceName(source) {
  *     Positron, dark, Countries), where Blocks hides the globe,
  *   datum?: {flat: () => boolean, undulation: (lat: number, lon: number)
  *     => number|Promise<number>, subscribe?: Function},
+ *   footprint?: () => number, what one screen pixel covers at the view's
+ *     centre, m (src/hud/cameraState.js viewFootprintM); NaN when unknown,
+ *     and the block is then the native cell,
+ *   relief?: () => {factor: number, relativeM: number}, the Relief
+ *     control as the scene draws it (scene.verticalExaggeration and its
+ *     relative height): the drawn heights follow, the readouts keep metres,
+ *   subscribeRelief?: (listener: Function) => Function,
  *   radiusBlocks?: number, budget?: number, tickMs?: number,
  *   requestRender?: Function, now?: () => number,
  *   setIntervalImpl?: typeof setInterval, clearIntervalImpl?: typeof clearInterval,
@@ -383,6 +466,9 @@ export function createBlocksController({
   inFlight = null,
   supergroupGroups = 0,
   meshBacklog = null,
+  footprint = () => Number.NaN,
+  relief = () => NO_RELIEF,
+  subscribeRelief = null,
   setTimeoutImpl = (...args) => setTimeout(...args),
   clearTimeoutImpl = (...args) => clearTimeout(...args),
   radiusBlocks = RENDER_DISTANCE_BLOCKS,
@@ -401,7 +487,7 @@ export function createBlocksController({
   clearSunIntervalImpl = (handle) => clearInterval(handle),
 }) {
   let _viewer = viewer;
-  let _region = null; // {region, blockM, sourceName, sun}
+  let _region = null; // {region, blockM, levelM, askedM, nativeM, relief, sourceName, sun}
   let _anchoring = null; // the regionFor promise in flight
   let _generation = 0;
   let _interval = null;
@@ -580,6 +666,8 @@ export function createBlocksController({
           ? 'ready'
           : 'failed',
       blockM: _region.blockM,
+      levelM: _region.levelM,
+      relief: _region.relief.factor,
       chunks: shown,
       coarse,
       pending,
@@ -608,16 +696,23 @@ export function createBlocksController({
       if (!unavailable)
         console.warn('[Blocks] no region:', error?.message || error);
     };
+    // The cell the view wants: two pixels at its centre.
+    const wantedM = wantedCellM();
     _anchoring = call(() =>
-      source.regionFor(camera.lon, camera.lat, REGION_WINDOW_M),
+      source.regionFor(camera.lon, camera.lat, REGION_WINDOW_M, { wantedM }),
     ).then(
       async (found) => {
         if (stale()) return;
         const blockM = Number(found?.blockM);
         if (!(blockM > 0)) throw new Error('no block size for this region');
+        // The source's native cell (a source without levels answers it).
+        const nativeM =
+          Number(found?.nativeM) > 0 ? Number(found.nativeM) : blockM;
+        const levelM = levelMFor(blockM);
         const region = grid.createRegion({
           ...anchorPoint(camera, blockM),
           blockM,
+          levelM,
         });
         // Where sea level is: the ellipsoid on flat ground, the geoid on terrain.
         const flat = Boolean(datum.flat());
@@ -626,15 +721,28 @@ export function createBlocksController({
         _anchoring = null;
         // The sun at the region, once: mesh.js bakes it into the colours.
         const light = sun(camera.lon, camera.lat) || STUDY_SUN;
-        call(() => renderer.setRegion(region, { datumOffsetM })).catch(
-          (error) =>
-            console.warn('[Blocks] region not set:', error?.message || error),
+        const shown = readRelief();
+        call(() =>
+          renderer.setRegion(region, {
+            datumOffsetM: drawnHeightM(datumOffsetM, shown),
+          }),
+        ).catch((error) =>
+          console.warn('[Blocks] region not set:', error?.message || error),
         );
         renderer.setSun?.(light.dir, { fixed: Boolean(light.fixed) });
         renderer.setFog?.(fogFor(radiusBlocks, blockM, coarseOn()));
         _region = {
           region,
           blockM,
+          levelM,
+          // A coarse chunk is a block of four: its own level height.
+          coarseLevelM: levelMFor(blockM * GROUP_CHUNKS),
+          // The level asked for (the source may have none so coarse).
+          askedM: pyramidLevelM(nativeM, wantedM),
+          followsView: wantedM > 0,
+          nativeM,
+          relief: shown,
+          reliefEpoch: 0,
           sourceName: sourceName(found.source),
           sun: light,
           sunEpoch: 0,
@@ -647,6 +755,57 @@ export function createBlocksController({
       (error) => fail(error, [404, 501, 503].includes(Number(error?.status))),
     );
     _anchoring.catch((error) => fail(error));
+  }
+
+  /** The cell the view wants (m): FOOTPRINT_BLOCKS pixels, NaN unknown. */
+  function wantedCellM() {
+    let px = Number.NaN;
+    try {
+      px = Number(footprint());
+    } catch {
+      /* not measured */
+    }
+    return px > 0 ? FOOTPRINT_BLOCKS * px : Number.NaN;
+  }
+
+  /** The Relief control now: {factor ≥ 1, relativeM}. */
+  function readRelief() {
+    let now = NO_RELIEF;
+    try {
+      now = relief() || NO_RELIEF;
+    } catch {
+      /* none */
+    }
+    const factor = Number(now.factor) > 1 ? Number(now.factor) : 1;
+    const relativeM = Number.isFinite(Number(now.relativeM))
+      ? Number(now.relativeM)
+      : 0;
+    return Object.freeze({ factor, relativeM: factor > 1 ? relativeM : 0 });
+  }
+
+  /**
+   * Follow the Relief control: a new relative height moves the region
+   * (the renderer keeps the chunks); a new factor meshes them again (the
+   * level height drawn is levelM × the factor).
+   * @returns {boolean} whether anything changed
+   */
+  function syncRelief() {
+    if (!_region) return false;
+    const next = readRelief();
+    const before = _region.relief;
+    if (next.factor === before.factor && next.relativeM === before.relativeM)
+      return false;
+    if (next.factor !== before.factor) _region.reliefEpoch += 1;
+    _region.relief = next;
+    call(() =>
+      renderer.setRegion(_region.region, {
+        datumOffsetM: drawnHeightM(_region.datumOffsetM, next),
+      }),
+    ).catch((error) =>
+      console.warn('[Blocks] region not moved:', error?.message || error),
+    );
+    requestRender('blocks-relief');
+    return true;
   }
 
   /**
@@ -790,8 +949,8 @@ export function createBlocksController({
    * ring meets the coarse one, so neither shows the background between:
    * - a fine chunk, along a border whose fine neighbour is neither loaded
    *   nor coming: down to the lowest ground of the coarse chunk beyond
-   *   (four fine levels to a coarse one), for where the fine ground is
-   *   higher;
+   *   (coarseRatio fine levels to a coarse one: four for cubes), for where
+   *   the fine ground is higher;
    * - a coarse chunk, along a border with a group drawn fine: down to the
    *   lowest fine ground there (in coarse levels), for where the coarse
    *   ground is higher. None toward other coarse chunks.
@@ -807,7 +966,7 @@ export function createBlocksController({
         if (!groupDrawn(gi, gj)) continue;
         const lowest = lowestFine(gi, gj);
         if (lowest === null) continue;
-        skirt[name] = Math.floor(lowest / GROUP_CHUNKS);
+        skirt[name] = Math.floor(lowest / coarseRatio());
         any = true;
       }
       return any ? skirt : null;
@@ -823,11 +982,14 @@ export function createBlocksController({
       if (!beyond?.chunk) continue;
       const lowest = lowestTop(beyond);
       if (lowest === null) continue;
-      skirt[name] = lowest * GROUP_CHUNKS;
+      skirt[name] = Math.floor(lowest * coarseRatio());
       any = true;
     }
     return any ? skirt : null;
   }
+
+  /** Fine levels to a coarse one (4 for cubes, 1 at 120 m and up). */
+  const coarseRatio = () => _region.coarseLevelM / _region.levelM;
 
   /** What a chunk is meshed from, and the signature that says when again. */
   function meshInputs(entry) {
@@ -839,8 +1001,9 @@ export function createBlocksController({
     return {
       neighbours,
       skirt,
-      // The sun's epoch too: the light is baked, so a new sun meshes again.
-      signature: `${signatureOf(entry.chunk, neighbours)}|${floors}|s${_region.sunEpoch ?? 0}`,
+      // The sun's epoch too: the light is baked, so a new sun meshes again;
+      // and the relief's, the level height drawn.
+      signature: `${signatureOf(entry.chunk, neighbours)}|${floors}|s${_region.sunEpoch ?? 0}|r${_region.reliefEpoch ?? 0}`,
     };
   }
 
@@ -849,6 +1012,14 @@ export function createBlocksController({
     neighbours,
     // A coarse chunk's levels are in its own unit, four blocks.
     blockM: _region.blockM * (entry.coarse ? GROUP_CHUNKS : 1),
+    // The level height drawn: the chunk's own (a source that says it), or
+    // the rule's, times the relief.
+    levelM:
+      (Number(entry.chunk?.levelM) > 0
+        ? Number(entry.chunk.levelM)
+        : entry.coarse
+          ? _region.coarseLevelM
+          : _region.levelM) * _region.relief.factor,
     sunDir: _region.sun.dir,
     ...(skirt ? { skirt } : {}),
   });
@@ -1130,14 +1301,24 @@ export function createBlocksController({
 
   /**
    * Why Blocks waits now, or null: 'flying' while the camera flies or an
-   * arrival correction owns it, 'too-high' above the ceiling (the region's
-   * block size's, or NO_REGION_CEILING_M before one).
+   * arrival correction owns it, 'too-high' above the ceiling (ceilingNow).
    */
   function holdFor(camera) {
     if (!camera) return null;
     if (inFlight ? inFlight() : cameraInFlight(_viewer)) return 'flying';
-    const ceiling = ceilingM(_region?.blockM, radiusBlocks);
-    return heightAboveGround(camera) > ceiling ? 'too-high' : null;
+    return heightAboveGround(camera) > ceilingNow() ? 'too-high' : null;
+  }
+
+  /**
+   * The ceiling now: the top level's, unless the region cannot follow the
+   * view: its source had no level as coarse as was asked (a source without
+   * levels), or the view's footprint was not known when it was anchored.
+   * Its own block size then bounds it, as before the pyramid.
+   */
+  function ceilingNow() {
+    const bounded =
+      _region && (_region.blockM < _region.askedM || !_region.followsView);
+    return ceilingM(bounded ? _region.blockM : TOP_LEVEL_M, radiusBlocks);
   }
 
   /** The camera's height over the ground: over the globe's surface where it answers, else the ellipsoid. */
@@ -1204,10 +1385,7 @@ export function createBlocksController({
     if (!camera) return;
     if (held) {
       // Nothing anchored or asked for; what is drawn stays.
-      setStatus({
-        state: held,
-        ceilingM: ceilingM(_region?.blockM, radiusBlocks),
-      });
+      setStatus({ state: held, ceilingM: ceilingNow() });
       // In flight: tick until it lands (a correction may end without a
       // moveEnd); too high: the next moveEnd looks again.
       if (held === 'flying' || _moving) startTicking();
@@ -1227,7 +1405,12 @@ export function createBlocksController({
         typeof _region.region.within === 'function'
           ? !_region.region.within(camera.lon, camera.lat, radiusM)
           : needsReanchor(local, _region.blockM, radiusBlocks);
-      if (left || Boolean(datum.flat()) !== _region.flat) {
+      // The view wants another level (×2 past it either way). Not mid-move:
+      // a zoom re-anchors where it settles.
+      const level =
+        !_moving &&
+        nextLevelM(_region.askedM, wantedCellM(), _region.nativeM) !== null;
+      if (left || level || Boolean(datum.flat()) !== _region.flat) {
         clearAll('anchoring');
         startTicking();
       }
@@ -1236,6 +1419,7 @@ export function createBlocksController({
       anchor(camera);
       return;
     }
+    syncRelief();
     const { region } = _region;
     const local = region.toLocal(camera.lon, camera.lat);
     const { i, j } = region.columnOf(local.x, local.y);
@@ -1472,6 +1656,16 @@ export function createBlocksController({
   }
 
   _removers.push(store.subscribe(() => tick()));
+  // The Relief control: read on the next turn, once the scene has it.
+  const offRelief = subscribeRelief?.(() =>
+    setTimeoutImpl(() => {
+      if (!_destroyed && syncRelief()) {
+        statusNow();
+        startTicking();
+      }
+    }, 0),
+  );
+  if (typeof offRelief === 'function') _removers.push(offRelief);
   // A new map stack can flip the ground between flat and terrain.
   const offDatum = datum.subscribe?.(() => tick());
   if (typeof offDatum === 'function') _removers.push(offDatum);

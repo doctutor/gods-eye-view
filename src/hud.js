@@ -63,6 +63,7 @@ import {
   viewDiagnostics,
 } from './hud/cameraState.js';
 import { dataFloor, pixelFootprintM, viewPrecision } from './hud/precision.js';
+import { blockSizeText } from './layers/blocks/floor.js';
 // Personal fork: the compass's angles (Walk and Fly).
 import { compassAngles } from './navigation/view.js';
 import { formatBlockTarget } from './hud/blockTarget.js';
@@ -812,7 +813,7 @@ export class IntelHUD {
     if (mode !== 'spectator') {
       if (status.surface === 'blocks')
         parts.push(
-          t('Blocks {size} m', { size: formatNumber(status.blockM ?? 1) }),
+          t('Blocks {size}', { size: blockSizeText(status.blockM ?? 1) }),
         );
       else if (status.surface === 'surface') {
         let floor;
