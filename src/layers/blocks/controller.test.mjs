@@ -2719,3 +2719,69 @@ test('buildings and land cover only up to 30 m blocks: none asked of Overpass at
   assert.equal(controller.getBuildings(), true, 'the switch stays on');
   controller.destroy();
 });
+
+test('a moveEnd that never comes: the camera still for SETTLE_MS is settled, and the first region anchors', async () => {
+  const { SETTLE_MS } = await import('./index.js');
+  const source = fakeSource();
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  // A camera with a pose (positionWC, direction, up) as Cesium's has.
+  Object.assign(viewer.camera, {
+    positionWC: { x: 1_000_000, y: -4_800_000, z: 4_000_000 },
+    direction: { x: 0, y: 0.6, z: -0.8 },
+    up: { x: 0, y: 0.8, z: 0.6 },
+  });
+  const layers = fakeLayers(false);
+  let clock = 0;
+  const timers = { callback: null };
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers,
+    source,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    now: () => clock,
+    setIntervalImpl(callback) {
+      timers.callback = callback;
+      return 1;
+    },
+    clearIntervalImpl() {
+      timers.callback = null;
+    },
+  });
+  // A flight lands with Blocks just turned on: Cesium said moveStart and
+  // never moveEnd (its up vector churning by ~1e-16 a frame).
+  viewer.camera.moveStart.raise();
+  layers.set(true);
+  await drain(controller, 5);
+  assert.equal(source.regions.length, 0, 'not anchored mid-move');
+  // The camera moves on every tick: never settled.
+  for (let k = 0; k < 6; k += 1) {
+    clock += 400;
+    viewer.camera.positionWC = {
+      ...viewer.camera.positionWC,
+      x: viewer.camera.positionWC.x + 50,
+    };
+    timers.callback?.();
+  }
+  await drain(controller, 5);
+  assert.equal(source.regions.length, 0, 'still moving');
+  // Then still, with the up vector's last-digit churn: settled after SETTLE_MS.
+  timers.callback?.();
+  clock += SETTLE_MS - 100;
+  viewer.camera.up = { x: 1e-16, y: 0.8, z: 0.6 };
+  timers.callback?.();
+  assert.equal(source.regions.length, 0, 'not yet: under SETTLE_MS');
+  clock += 200;
+  viewer.camera.up = { x: -1e-16, y: 0.8, z: 0.6 };
+  timers.callback?.();
+  await drain(controller, 20);
+  assert.equal(source.regions.length, 1, 'anchored without a moveEnd');
+  assert.notEqual(controller.getStatus().state, 'flying');
+  controller.destroy();
+});
