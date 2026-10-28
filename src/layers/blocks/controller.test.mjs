@@ -2790,3 +2790,122 @@ test('settleMs: the first region waits until the camera has been still that long
   assert.equal(controller.getStatus().blockM, 120);
   controller.destroy();
 });
+
+test('ringLevels: each ring the next level at least 4 × the cell before, R1 blocks in reach, to the ring that passes the horizon or the top', async () => {
+  const { ringLevels } = await import('./index.js');
+  // A 1 m region without a coarse ring, R1 64, from 300 m (77 km cut).
+  assert.deepEqual(
+    ringLevels({
+      nativeM: 1,
+      innerCellM: 1,
+      innerReachM: 64,
+      radiusBlocks: 64,
+      horizonM: 77_000,
+    }),
+    [8, 120, 480, 1920],
+  );
+  // 1 m with the coarse ring (4 m to 2 km), R1 512, 300 m up: 30 m to
+  // 15 km, 120 m to 61 km, 480 m to 246 km (past 77 km: the last).
+  assert.deepEqual(
+    ringLevels({
+      nativeM: 1,
+      innerCellM: 4,
+      innerReachM: 2048,
+      radiusBlocks: 512,
+      horizonM: 77_000,
+    }),
+    [30, 120, 480],
+  );
+  // Nothing past a horizon the coarse ring already reaches.
+  assert.deepEqual(
+    ringLevels({
+      nativeM: 1,
+      innerCellM: 7680,
+      innerReachM: 3.9e6,
+      radiusBlocks: 512,
+      horizonM: 3.2e6,
+    }),
+    [],
+  );
+  // Never past the top.
+  assert.deepEqual(
+    ringLevels({
+      nativeM: 30,
+      innerCellM: 7680,
+      innerReachM: 1e6,
+      radiusBlocks: 512,
+      horizonM: 1e9,
+    }),
+    [30_720],
+  );
+});
+
+test('K rings: each its own region at its own level through setRegions, keyed L<blockM>:ci:cj, meshed at its block and level, loaded after the fine ring; the fog from the outermost', async () => {
+  const { ringKey } = await import('./index.js');
+  const { levelMFor } = await import('./pyramid.js');
+  const source = pyramidSource(1);
+  const renderer = fakeRenderer();
+  const sets = [];
+  renderer.setRegions = (regions, options) => {
+    sets.push({ levels: regions.map((r) => r.blockM), options });
+  };
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  const meshes = [];
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh(chunk, options) {
+      meshes.push({ chunk, options });
+      return { faces: 1, chunk };
+    },
+    footprint: () => 0.3,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller, 400);
+  assert.deepEqual(sets.at(-1).levels, [1, 8, 120, 480, 1920]);
+  assert.equal(sets.at(-1).options.fogReachBlocks, 64);
+  const rings = controller._state().rings;
+  assert.deepEqual([...rings.keys()], [8, 120, 480, 1920]);
+  for (const [level, ring] of rings) {
+    assert.equal(ring.region.blockM, level);
+    assert.equal(ring.region.levelM, levelMFor(level));
+    assert.ok(ring.chunks.size > 0, `ring ${level} loaded`);
+    for (const entry of ring.chunks.values()) {
+      assert.equal(entry.key, ringKey(level, entry.ci, entry.cj));
+      assert.ok(renderer.shown.has(entry.key), entry.key);
+    }
+  }
+  // Meshed at their own block and level.
+  const ringMesh = meshes.find((m) => m.options.blockM === 480);
+  assert.equal(ringMesh.options.blockM, 480);
+  assert.equal(ringMesh.options.levelM, 30);
+  assert.equal(ringMesh.options.skirt, undefined);
+  // Loaded only after every fine chunk was in.
+  const firstRing = source.loads.findIndex((l) => l.region.blockM !== 1);
+  const lastFine = source.loads.findLastIndex((l) => l.region.blockM === 1);
+  assert.ok(firstRing > lastFine, 'the near ground first');
+  // Each ring's chunks within R1 of it, none whose centre the ring inside covers.
+  const ring120 = rings.get(120);
+  for (const entry of ring120.chunks.values()) {
+    const c = Math.hypot(
+      (entry.ci + 0.5) * C - 0.5,
+      (entry.cj + 0.5) * C - 0.5,
+    );
+    assert.ok(c > (64 * 8) / 120, 'outside ring 8');
+  }
+  // The status counts them with the coarse ring.
+  const status = controller.getStatus();
+  const ringChunks = [...rings.values()].reduce((n, r) => n + r.chunks.size, 0);
+  assert.equal(status.coarse, ringChunks);
+  assert.equal(status.state, 'ready');
+  controller.destroy();
+});

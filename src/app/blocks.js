@@ -144,6 +144,7 @@ export function lazyRenderer(make) {
   const made = () => (renderer ||= make());
   return {
     setRegion: (region, options) => made().setRegion(region, options),
+    setRegions: (regions, options) => made().setRegions(regions, options),
     upsert: (key, mesh) => made().upsert(key, mesh),
     remove: (key) => renderer?.remove(key),
     setSun: (dir, options) => made().setSun?.(dir, options),

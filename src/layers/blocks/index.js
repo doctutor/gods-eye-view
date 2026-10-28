@@ -63,6 +63,41 @@ export const horizonM = (heightM) => {
   const h = Math.max(1, Number(heightM) || 0);
   return Math.sqrt(2 * EARTH_RADIUS_M * h + h * h);
 };
+/** Each ring past the primary region is the next level at least this × the cell before. */
+export const RING_STEP = 4;
+
+/**
+ * The rings past the primary region (milestone 5, decision 4): each the
+ * next pyramid level at least RING_STEP × the cell before it, with a reach
+ * of R1 blocks of it, until a ring's reach passes the horizon (that ring
+ * is the last) or the top level. The primary's outermost ring is where
+ * they start: its coarse ring (4 × blockM, 4 × R1 × blockM), else its fine
+ * disc.
+ * @returns {number[]} the rings' block sizes, finest first
+ */
+export function ringLevels({
+  nativeM,
+  innerCellM,
+  innerReachM,
+  radiusBlocks,
+  horizonM: horizon,
+}) {
+  const levels = [];
+  let cell = innerCellM;
+  let reach = innerReachM;
+  while (reach < horizon && cell < TOP_LEVEL_M) {
+    const level = pyramidLevelM(nativeM, cell * RING_STEP);
+    if (!(level > cell)) break;
+    levels.push(level);
+    cell = level;
+    reach = radiusBlocks * level;
+  }
+  return levels;
+}
+
+/** A ring chunk's renderer key (renderer.js levelChunkKey): 'L<blockM>:ci:cj'. */
+export const ringKey = (blockM, ci, cj) => `L${blockM}:${ci}:${cj}`;
+
 /** A level changes only when the wanted cell is this far past it, either way. */
 export const LEVEL_HYSTERESIS = 2;
 
@@ -502,6 +537,17 @@ export function createBlocksController({
   const _chunks = new Map();
   /** 'c:gi:gj' → the same, for the coarse ring ({gi, gj}, and its mesh kept). */
   const _coarse = new Map();
+  /**
+   * The rings past the primary region's coarse ring, by block size: {level,
+   * region (its own, anchored at the camera), chunks: ringKey → entry}.
+   */
+  const _rings = new Map();
+  /** The map an entry is kept in. */
+  const heldOf = (entry) =>
+    entry.ring ? entry.ring.chunks : entry.coarse ? _coarse : _chunks;
+  /** Every ring chunk's entry. */
+  const ringEntries = () =>
+    [..._rings.values()].flatMap((ring) => [...ring.chunks.values()]);
   /** Overpass said it is not configured: no buildings this page. */
   let _overpassMissing = false;
   /** 'gi:gj' → the ids of the buildings placed in that group. */
@@ -616,7 +662,11 @@ export function createBlocksController({
   function clearAll(state) {
     _generation++;
     _anchoring = null;
-    for (const entry of [..._chunks.values(), ..._coarse.values()])
+    for (const entry of [
+      ..._chunks.values(),
+      ..._coarse.values(),
+      ...ringEntries(),
+    ])
       if (entry.shown) {
         try {
           renderer.remove(entry.key);
@@ -626,6 +676,7 @@ export function createBlocksController({
       }
     _chunks.clear();
     _coarse.clear();
+    _rings.clear();
     _groupBuildings.clear();
     _region = null;
     stopTicking();
@@ -650,6 +701,12 @@ export function createBlocksController({
       if (entry.shown) coarse++;
       else if (entry.failed) failed++;
       else if (!entry.chunk) pending++;
+    }
+    // The rings past the coarse one count with it.
+    for (const entry of ringEntries()) {
+      if (entry.shown) coarse++;
+      else if (entry.failed) failed++;
+      else pending++;
     }
     // Buildings drawn: those placed in groups with a fine chunk drawn
     // with its buildings, each once; not counted at all while a drawn
@@ -861,8 +918,8 @@ export function createBlocksController({
 
   function load(entry) {
     const generation = _generation;
-    const { region } = _region;
-    const held = entry.coarse ? _coarse : _chunks;
+    const region = entry.ring ? entry.ring.region : _region.region;
+    const held = heldOf(entry);
     entry.loading = call(() =>
       entry.coarse
         ? source.loadCoarseChunk(region, entry.gi, entry.gj)
@@ -898,9 +955,12 @@ export function createBlocksController({
    * wall), so a chunk is meshed again when any of the eight arrives.
    */
   function neighboursOf(entry) {
-    const at = entry.coarse
-      ? (gi, gj) => _coarse.get(coarseKey(gi, gj))?.chunk || null
-      : (ci, cj) => _chunks.get(grid.chunkKey(ci, cj))?.chunk || null;
+    const { ring } = entry;
+    const at = ring
+      ? (ci, cj) => ring.chunks.get(ringKey(ring.level, ci, cj))?.chunk || null
+      : entry.coarse
+        ? (gi, gj) => _coarse.get(coarseKey(gi, gj))?.chunk || null
+        : (ci, cj) => _chunks.get(grid.chunkKey(ci, cj))?.chunk || null;
     const [a, b] = entry.coarse ? [entry.gi, entry.gj] : [entry.ci, entry.cj];
     const out = {};
     for (const [name, di, dj] of NEIGHBOURS) {
@@ -964,6 +1024,8 @@ export function createBlocksController({
    *   ground is higher. None toward other coarse chunks.
    */
   function skirtFor(entry) {
+    // The rings past the coarse one hang none (their edges are in fog).
+    if (entry.ring) return null;
     let any = false;
     const skirt = {};
     if (entry.coarse) {
@@ -1015,10 +1077,15 @@ export function createBlocksController({
   /** What buildChunkMesh (or meshAsync) is given: plain data but the chunks. */
   const meshOptions = (entry, { neighbours, skirt }) => ({
     neighbours,
-    // A coarse chunk's blocks are four wide, on the region's levels.
-    blockM: _region.blockM * (entry.coarse ? GROUP_CHUNKS : 1),
-    // The level height drawn: the region's, times the relief.
-    levelM: _region.levelM * _region.relief.factor,
+    // A coarse chunk's blocks are four wide, on the region's levels; a
+    // ring's, its own level's.
+    blockM: entry.ring
+      ? entry.ring.level
+      : _region.blockM * (entry.coarse ? GROUP_CHUNKS : 1),
+    // The level height drawn: the region's (the ring's), times the relief.
+    levelM:
+      (entry.ring ? entry.ring.region.levelM : _region.levelM) *
+      _region.relief.factor,
     sunDir: _region.sun.dir,
     ...(skirt ? { skirt } : {}),
   });
@@ -1072,7 +1139,7 @@ export function createBlocksController({
       return;
     }
     const generation = _generation;
-    const held = entry.coarse ? _coarse : _chunks;
+    const held = heldOf(entry);
     entry.meshing = inputs.signature;
     call(() => meshAsync(entry.chunk, options)).then(
       (built) => {
@@ -1517,6 +1584,21 @@ export function createBlocksController({
     );
     // The fine ring's buildings (never the coarse ring's).
     syncStructures(ring, perTick, time);
+    // The rings past the coarse one: loaded once the fine ring is in, so
+    // the near ground comes first.
+    const rings = syncRings(camera, horizonCut);
+    const fineIn = ring.every(({ ci, cj }) => {
+      const entry = _chunks.get(grid.chunkKey(ci, cj));
+      return Boolean(entry && !entry.loading && (entry.chunk || entry.failed));
+    });
+    if (fineIn)
+      for (const { ring: outer, list } of rings)
+        startLoads(
+          list,
+          outer.chunks,
+          ({ ci, cj }) => ringKey(outer.level, ci, cj),
+          (key, { ci, cj }) => newEntry({ key, ci, cj, ring: outer }),
+        );
     // Mesh what arrived or changed (its version, or a neighbour's), nearest
     // first; a coarse chunk goes when the 16 fine chunks under it are drawn
     // and comes back (its mesh kept) when one of them is dropped.
@@ -1592,10 +1674,14 @@ export function createBlocksController({
       ({ gi, gj }) => coarseKey(gi, gj),
       (entry) => groupDrawn(entry.gi, entry.gj),
     );
+    for (const { ring: outer, list } of rings)
+      meshEach(list, outer.chunks, ({ ci, cj }) =>
+        ringKey(outer.level, ci, cj),
+      );
     statusNow();
     if (changed) requestRender('blocks-chunks');
     // Keep ticking while moving or while work remains; stop when settled.
-    if (_moving || hasWork(ring, groups)) startTicking();
+    if (_moving || hasWork(ring, groups, rings)) startTicking();
     else stopTicking();
   }
 
@@ -1604,8 +1690,12 @@ export function createBlocksController({
    * a retry, a mesh is stale, or a coarse chunk is shown when it should not
    * be, or the other way round.
    */
-  function hasWork(ring, groups = []) {
-    for (const entry of [..._chunks.values(), ..._coarse.values()])
+  function hasWork(ring, groups = [], rings = []) {
+    for (const entry of [
+      ..._chunks.values(),
+      ..._coarse.values(),
+      ...ringEntries(),
+    ])
       if (entry.loading || entry.meshing) return true;
     // Not asked yet, or a retry still to come.
     const waiting = (entry) =>
@@ -1636,7 +1726,129 @@ export function createBlocksController({
       if (!covered && entry.signature !== meshInputs(entry).signature)
         return true;
     }
+    for (const { ring: outer, list } of rings)
+      for (const { ci, cj } of list) {
+        const entry = outer.chunks.get(ringKey(outer.level, ci, cj));
+        if (waiting(entry)) return true;
+        if (!entry.chunk) continue;
+        if (!entry.shown || entry.signature !== meshInputs(entry).signature)
+          return true;
+      }
     return false;
+  }
+
+  /**
+   * The rings past the primary's coarse ring for the camera now
+   * (ringLevels, to the horizon): each its own region at its own level,
+   * anchored at the camera and again when the camera leaves it, its chunks
+   * within R1 blocks less those whose centre the ring inside it covers,
+   * none past the horizon (at most its 3 × 3 lattice tiles). The renderer
+   * hears of a change through setRegions; one without setRegions draws
+   * the primary region alone.
+   * @returns {{ring: object, list: {ci: number, cj: number}[]}[]}
+   */
+  function syncRings(camera, horizonCut) {
+    if (typeof renderer.setRegions !== 'function') return [];
+    const coarse = coarseOn();
+    const innerReachM =
+      radiusBlocks * (coarse ? COARSE_REACH : 1) * _region.blockM;
+    const levels = ringLevels({
+      nativeM: _region.nativeM,
+      innerCellM: _region.blockM * (coarse ? GROUP_CHUNKS : 1),
+      innerReachM,
+      radiusBlocks,
+      horizonM: horizonCut,
+    });
+    let changed = false;
+    for (const level of [..._rings.keys()])
+      if (!levels.includes(level)) {
+        _rings.delete(level);
+        changed = true;
+      }
+    const size = grid.CHUNK_COLUMNS;
+    const out = [];
+    let inner = innerReachM;
+    for (const level of levels) {
+      let outer = _rings.get(level);
+      const left =
+        outer &&
+        (typeof outer.region.within === 'function'
+          ? !outer.region.within(
+              camera.lon,
+              camera.lat,
+              reanchorRadiusM(level, radiusBlocks),
+            )
+          : needsReanchor(
+              outer.region.toLocal(camera.lon, camera.lat),
+              level,
+              radiusBlocks,
+            ));
+      if (!outer || left) {
+        outer = {
+          level,
+          region: grid.createRegion({
+            lon0: camera.lon,
+            lat0: camera.lat,
+            blockM: level,
+            levelM: levelMFor(level),
+          }),
+          chunks: new Map(),
+        };
+        _rings.set(level, outer);
+        changed = true;
+      }
+      const local = outer.region.toLocal(camera.lon, camera.lat);
+      const { i, j } = outer.region.columnOf(local.x, local.y);
+      const at = { x: i + 0.5, y: j + 0.5 };
+      // Drop what fell behind.
+      for (const entry of [...outer.chunks.values()]) {
+        if (
+          chunkDistance(at, entry.ci, entry.cj, size) <=
+          radiusBlocks * REMOVE_FACTOR
+        )
+          continue;
+        if (entry.shown) renderer.remove(entry.key);
+        outer.chunks.delete(entry.key);
+      }
+      const innerBlocks = inner / level;
+      const list = chunkRing({
+        i,
+        j,
+        radius: radiusBlocks,
+        chunkColumns: size,
+      }).filter(
+        ({ ci, cj, distance }) =>
+          Math.hypot((ci + 0.5) * size - at.x, (cj + 0.5) * size - at.y) >
+            innerBlocks && distance * level <= horizonCut,
+      );
+      out.push({ ring: outer, list });
+      inner = radiusBlocks * level;
+    }
+    if (changed) applyRegions();
+    return out;
+  }
+
+  /**
+   * The primary region and the rings to the renderer (setRegions: one
+   * datum, the fog from the outermost ring); without rings, the primary
+   * region's own fog as before.
+   */
+  function applyRegions() {
+    const regions = [
+      _region.region,
+      ...[..._rings.values()].map((outer) => outer.region),
+    ];
+    call(() =>
+      renderer.setRegions(regions, {
+        datumOffsetM: drawnHeightM(_region.datumOffsetM, _region.relief),
+        fogReachBlocks: _rings.size ? radiusBlocks : null,
+      }),
+    ).catch((error) =>
+      console.warn('[Blocks] rings not set:', error?.message || error),
+    );
+    if (!_rings.size)
+      renderer.setFog?.(fogFor(radiusBlocks, _region.blockM, coarseOn()));
+    requestRender('blocks-rings');
   }
 
   const statusOff = () =>
@@ -1728,6 +1940,7 @@ export function createBlocksController({
       region: _region,
       chunks: _chunks,
       coarse: _coarse,
+      rings: _rings,
       ticking: _interval !== null,
       moving: _moving,
     }),
