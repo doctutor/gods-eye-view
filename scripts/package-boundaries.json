@@ -833,7 +833,10 @@
       "src/navigation/binding.js",
       "src/navigation/target.js",
       "src/navigation/targeting.js",
-      "src/navigation/entry.js"
+      "src/navigation/entry.js",
+      "src/navigation/view.js",
+      "src/navigation/playerMarker.js",
+      "src/navigation/waypoints.js"
     ],
     "external": ["cesium"]
   },
@@ -2763,6 +2766,10 @@
       "src/navigation/target.js",
       "src/navigation/targeting.js",
       "src/navigation/entry.js",
+      "src/navigation/view.js",
+      "src/navigation/playerMarker.js",
+      "src/navigation/waypoints.js",
+      "src/navigation/wayfindingControl.js",
       "src/data/earthEngineBudget.js"
     ],
     "external": [
