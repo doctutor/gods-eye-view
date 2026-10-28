@@ -399,6 +399,24 @@ test('structureLevels: a footprint from lon/lat lands on its columns, walls down
   assert.equal(top[at(40, 100)], NONE);
 });
 
+test('structureLevels: a building on levels of levelM stands that many levels, not blocks', () => {
+  // 120 m blocks on 30 m levels: a 96 m tower is 3 levels, not 1 block.
+  const region = {
+    ...createRegion({ lon0: -76.61, lat0: 39.29, blockM: 120 }),
+    levelM: 30,
+  };
+  const { top } = structureLevels(
+    region,
+    0,
+    0,
+    [squareAt(region, { height: '96' }, 3600, 12000, 3840, 12240)],
+    groundOf(() => 0),
+  );
+  const set = [...top.keys()].filter((index) => top[index] !== NONE);
+  assert.ok(set.length > 0);
+  assert.equal(top[set[0]], 3); // round(96 / 30)
+});
+
 test('a sloped square gets a level roof; its walls reach down the slope', () => {
   const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
   // The ground rises one level every 2 m east: 10 … 14 under x 20 … 30.

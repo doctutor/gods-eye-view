@@ -173,6 +173,78 @@ test('a close window reads the finest band, at most at the source’s own cell',
   assert.equal(calls.length, 1);
 });
 
+test('a cell coarser than the source is the mean over it (reduceResolution), a native one is not', async (t) => {
+  const { service: values, calls } = service(t);
+  // 700 m cells over the Alps, FABDEM 30 m beneath: reduced.
+  const coarse = decodeRasterValues((await values.values(query())).body);
+  assert.equal(coarse.header.aggregation, 'mean');
+  const reduced = JSON.stringify(calls[0].expression);
+  assert.match(reduced, /"Image\.reduceResolution"/);
+  assert.match(reduced, /"Reducer\.mean"/);
+  assert.match(reduced, /"bestEffort":\{"constantValue":true\}/);
+  assert.match(reduced, /"maxPixels":\{"constantValue":256\}/);
+  // The mosaic given its source's 30 m cells before it is reduced.
+  assert.match(reduced, /"scale":\{"constantValue":30\}/);
+  // A 1 m window over 3DEP: the cells as they are, no reduction.
+  await values.values(
+    query({
+      west: '-76.6125',
+      south: '39.29',
+      east: '-76.61',
+      north: '39.2918',
+      cells: '512',
+    }),
+  );
+  assert.doesNotMatch(JSON.stringify(calls[1].expression), /reduceResolution/);
+});
+
+test('a reduction Earth Engine refuses: the sampled cells, said so and not kept; a 429 is not retried', async (t) => {
+  const root = tempRoot(t);
+  let refuse = 400;
+  const calls = [];
+  const ee = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    layers: EARTH_ENGINE_LAYERS,
+    backend: {
+      async computePixels(expression, grid) {
+        calls.push(expression);
+        if (JSON.stringify(expression).includes('reduceResolution'))
+          return { status: refuse, error: 'refused' };
+        const { width, height } = grid.dimensions;
+        const v = new Float32Array(width * height).fill(500);
+        const m = new Float32Array(width * height).fill(1);
+        return { status: 200, body: npy(height, width, { v, m }) };
+      },
+    },
+  });
+  const values = createRasterValuesService({
+    sourceRoot: root,
+    env: {},
+    earthEngine: ee,
+    cacheDir: path.join(root, 'raster-values'),
+  });
+  t.after(() => values.close());
+  const warn = console.warn;
+  console.warn = () => {};
+  t.after(() => (console.warn = warn));
+  const answer = await values.values(query());
+  assert.equal(answer.status, 200);
+  const { header, values: grid } = decodeRasterValues(answer.body);
+  assert.equal(header.aggregation, 'sample');
+  assert.equal(grid[0], 500);
+  assert.equal(calls.length, 2);
+  // Not kept: asked again next time (the reduction first).
+  const again = await values.values(query());
+  assert.notEqual(again.cached, true);
+  assert.equal(calls.length, 4);
+  // The budget's 429 is the answer as it is: no sampled second try.
+  refuse = 429;
+  const spent = await values.values(query({ cells: '63' }));
+  assert.equal(spent.status, 429);
+  assert.equal(calls.length, 5);
+});
+
 test('modes: each its own expression, units and legend; the default is the first', async (t) => {
   const { service: values, calls } = service(t);
   const population = decodeRasterValues(

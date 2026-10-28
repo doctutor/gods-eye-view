@@ -6246,15 +6246,46 @@ cell over 64 m (GMTED alone) takes a second probe, 4 km a side. The block
 size is the cell under the camera, not the window's finest, so a corner
 of 3DEP 1 m does not turn a 30 m view into 1 m blocks.
 
-**Groups.** One request answers a group of 4 × 4 chunks
-(`CHUNK_GROUP`): 256 cells over the group's box, on a 4-chunk grid. Each
-column reads the cell under its centre (`region.columnCentre`), not the
-cell of its index, since the server may answer a cell short. A column's
-level is floor(h / block size); at or below 0 m it is sea, water at level
-0 over a bed at most level −1; nodata is no column. All 16 chunks go into
-the cache at once, so a chunk's neighbours come free: a 1 m view asks
-about 20 times, not 270, and every Earth Engine answer is a tile against
-the day's budget. Splitting a group takes about 20 ms.
+**The pyramid** (milestone 5). The block need not be the native cell.
+`src/layers/blocks/pyramid.js` (pure, shared with the controller) holds
+`BLOCK_PYRAMID_M`, the native cells (1, 2, 8, 10, 30 m) continued ×4 from
+30 m (120, 480, 1,920, 7,680 and 30,720 m); `pyramidLevelM(nativeM,
+wantedM)`, the smallest level at least both (a wantedM that is not a
+finite positive number is the native cell; a native cell off the
+pyramid, 231 m at sea, snaps up to 480 m; never above the top); and
+`levelMFor(blockM)`, the metres a level: a cube to 30 m, above that
+max(30 m, blockM / 32). `regionFor(lon, lat, windowM, {wantedM})`
+answers `{blockM, levelM, nativeM, source, cellSizeM}` (`blockM` by
+pyramidLevelM, `levelM` by levelMFor) for `createRegion({lon0, lat0,
+blockM, levelM})`; `regionFor(lon, lat, {windowM, wantedM})` says the
+same. Every level is served alike: a region at 1,920 m loads its groups
+and its coarse ring at 7,680 m exactly as one at 1 m does. A column's
+level is floor(h / region.levelM), the coarse ring's too: a coarse
+column is four blocks across and one level up, as the controller meshes
+fine and coarse at one levelM and matches them one to one at the skirts
+(`coarseLevelM` on the region overrides it).
+
+**The lattice.** The values are asked in tiles of a global equal-angle
+lattice a level (`src/layers/blocks/lattice.js`): 512 cells of the level
+a side, `blockM` of latitude a cell, from 180° W and 90° S, cut at the
+antimeridian and the poles. A tile's box is the same for every view,
+however the camera anchored the region, so the server's 30-day cache
+answers any region at that level and `npm run blocks:pyramid` can fill
+it ahead of time. A group reads its columns from the tiles under them
+(at most 2 × 2), and the last 24 tiles are kept (about 1 MB each), so
+neighbouring groups share them: a fresh view (a fine disc 1,024 blocks
+across and its coarse ring) spans at most 3 × 3 tiles a level, 18
+requests at any level. Past the tangent plane's reach (the polar radius,
+less 1 %) the frame meets no ground, and those columns are nodata until
+the curved frame (milestone 5, decision 5).
+
+**Groups.** A group of 4 × 4 chunks (`CHUNK_GROUP`) is built at once
+from its 256 × 256 columns, on a 4-chunk grid. Each column reads the
+tile cell under its centre, not the cell of its index. A column's level
+is floor(h / levelM); at or below 0 m it is sea, water at level 0 over a
+bed at most level −1; nodata is no column. All 16 chunks go into the
+cache at once, so a chunk's neighbours come free. Splitting a group
+takes about 20 ms.
 
 **Coarse chunks.** `loadCoarseChunk(region, gi, gj)` gives a group's
 ground as one chunk of 64 × 64 columns at four times the block size:
@@ -6262,17 +6293,32 @@ ground as one chunk of 64 × 64 columns at four times the block size:
 - from the fine group, when it is loaded or on its way: each column the
   mean of the finite heights of the 4 × 4 fine columns under it (none: no
   column; at or below 0 m: water);
-- otherwise from its supergroup: one request of 256 cells over 4 × 4
-  groups (1,024 blocks a side, so the server answers at four times the
-  block size), split into its 16 coarse chunks. A fine group's own coarse
-  chunk replaces the supergroup's when the group loads.
-
-A 2 km ring at 1 m is about 14 requests, not 210.
+- otherwise from its supergroup: 256 × 256 coarse columns over 4 × 4
+  groups (1,024 blocks a side), read from the lattice of the coarse
+  level, split into its 16 coarse chunks. A fine group's own coarse chunk
+  replaces the supergroup's when the group loads.
 
 **The cache.** An LRU of 1,024 chunks, fine and coarse, keyed by the
-region (its origin and block size) and the chunk. Groups and supergroups
-in flight are shared. A failure is not kept, so the controller's retry
-asks again. The server keeps the answers 30 days on disk.
+region (its origin, block size and level heights) and the chunk. Groups,
+supergroups and tiles in flight are shared. A failure is not kept, so
+the controller's retry asks again (only the tile that failed). The
+server keeps the answers 30 days on disk.
+
+**Coarse cells are means.** The server makes an Elevation cell coarser
+than 1.5 × the source's own the mean over it: the DEM stack given its
+cells as a default projection, then `Image.reduceResolution` with a
+mean (`bestEffort`, at most 256 pixels a cell, so a 30 km cell is the
+mean of 16 × 16 pixels of a 1.9 km pyramid level), and says `mean` in
+the header's `aggregation`. A reduction Earth Engine refuses (not a 429
+or a 503) is sampled that once, said `sample`, and not kept.
+
+**Warming the cache.** `npm run blocks:pyramid -- --bbox w,s,e,n
+--levels 1920,7680,30720 [--pace ms] [--dry-run]` asks every lattice
+tile over the box at each level through the values service, as the app's
+server would (its disk cache, its Earth Engine day). It prints the count
+first and stops past 2,000 or past what the day has left; one at a time,
+500 ms apart, a cached tile free; a 429 stops it. The continental US at
+1,920, 7,680 and 30,720 m is 25 tiles.
 
 ### Blocks: the renderer
 
@@ -6336,6 +6382,48 @@ chunks, 6.8 M vertices; headless Chrome, ANGLE D3D11):
 The meshes are kept to rebuild batches from, compact (byte normals, which
 the GPU reads too, and 16-bit indices): 159 MB at that view
 (`getState().retainedMB`).
+
+**K rings** (milestone 5). `setRegions(regions, {datumOffsetM,
+fogReachBlocks})` takes a region a level (an array or a Map by block
+size). The finest is the primary region, `setRegion`'s, its chunks keyed
+`ci:cj` and `c:gi:gj` as before; each coarser one is a ring, its chunks
+keyed `levelChunkKey(blockM, ci, cj)` (`L1920:3:-2`), drawn in its own
+frame (its region's origin, the same datum offset) with its own block
+edges, batched apart. A ring whose region changes loses only its own
+chunks, one no longer given loses them and its frame; a new primary
+drops everything, as `setRegion` does. `fogReachBlocks` sets the fog
+from the outermost ring: from 70 % of its reach to its reach
+(`ringsFog`). `getState().regions` lists each level drawn and its chunk
+count. `setRegion(region)` alone is K = 1, unchanged.
+
+### Blocks: the Elevation layer's Blocks style
+
+`src/data/blocksStyle.js` and `blocksStyleExpression` in
+`server/providers/earthEngine.js` (worker2's; milestone 5, decision 6).
+The continental picture top-down, the cost of the Elevation tiles alone:
+at each coarse level of the pyramid (120, 480, 1,920, 7,680 and 30,720
+m), the DEM stack's heights averaged over equal-angle cells of the level
+(EPSG:4326 at that scale, as the lattice), quantised down to the level
+height (`blocksLevelM`: a cube to 30 m, then max(30 m, cell / 32): 30,
+30, 60, 240 and 960 m), coloured as the Elevation layer colours that
+height, each cell shaded flat by the hillshade of the quantised surface
+(÷ 180, a flat cell's), and its west and south sides drawn 38 % darker
+(the outer 6 % of a cell, `Image.pixelCoordinates` in degrees mod the
+cell). An RGB map, drawn 0 to 255.
+
+It is a mode of the Elevation layer on the moded tile route, not in the
+catalog (so the panel lists no new modes); each level's map is made when
+its first tile asks, kept until it nears expiry, and its tiles are kept,
+counted and refused past the day's budget (429) as the layer's own:
+
+    GET /api/earth-engine/tile/ee-elevation/blocks-<cellM>/<variant>/default/<z>/<x>/<y>
+
+`<variant>` is the Elevation layer's (`zoom` lets the server pick the
+band for z). Another cell is a 404, a colour scale (`?s=`) a 400. For
+the client (worker3): `blocksStyleTemplate(cellM)` gives the template,
+`blocksStyleLevelFor(pixelM)` the level for a pixel footprint (the
+smallest cell of at least 2 px, else the coarsest), `BLOCKS_STYLE_LEVELS_M`
+the levels and `blocksLevelM` the level heights.
 
 ### Blocks: buildings and land cover
 
