@@ -193,6 +193,29 @@ test('one-shots for a gamepad: release, toggleMode, and fly-speed steps summed',
   assert.equal(createIntents().flySpeedStep, 0);
 });
 
+test("a pad's Spectator block: summed across sources, zeros by default", () => {
+  assert.deepEqual(createIntents().spectator, {
+    panX: 0,
+    panY: 0,
+    orbitYaw: 0,
+    orbitPitch: 0,
+    zoom: 0,
+  });
+  const registry = createInputRegistry();
+  registry.add({ read: () => ({ spectator: { panX: 0.5, orbitYaw: 2 } }) });
+  registry.add({
+    read: () => ({ spectator: { panX: 0.25, zoom: -1, orbitPitch: 'x' } }),
+  });
+  registry.add({ read: () => null });
+  assert.deepEqual(registry.read(0.016).spectator, {
+    panX: 0.75,
+    panY: 0,
+    orbitYaw: 2,
+    orbitPitch: 0,
+    zoom: -1,
+  });
+});
+
 test('the hint channel: a source says a line through the binding’s overlay', () => {
   const registry = createInputRegistry();
   assert.equal(
