@@ -19,10 +19,14 @@ import {
 } from './blocksStyle.js';
 import { EARTH_ENGINE_LAYERS, layerVariants } from './earthEngineLayers.js';
 import {
+  BLOCKS_EDGE_PARTS,
+  BLOCKS_MEAN_SUB,
   ZOOM_VARIANT,
+  blocksStyleGrid,
   createEarthEngineService,
   mapRequestFor,
 } from '../../server/providers/earthEngine.js';
+import { latticeBox } from '../layers/blocks/lattice.js';
 import { BLOCK_PYRAMID_M, levelMFor } from '../layers/blocks/pyramid.js';
 
 const elevation = EARTH_ENGINE_LAYERS.find(
@@ -56,11 +60,13 @@ test('blocksLevelM: cubes to 30 m, then max(30 m, cell / 32)', () => {
   assert.equal(blocksLevelM(30720), 960);
 });
 
-test('blocksStyleLevelFor: the smallest cell of at least two pixels, else the coarsest', () => {
+test('blocksStyleLevelFor: the smallest cell of at least eight pixels (an edge line of one), else the coarsest', () => {
   assert.equal(blocksStyleLevelFor(10), 120);
-  assert.equal(blocksStyleLevelFor(100), 480);
-  assert.equal(blocksStyleLevelFor(900), 1920);
-  assert.equal(blocksStyleLevelFor(5000), 30720);
+  assert.equal(blocksStyleLevelFor(15), 120);
+  assert.equal(blocksStyleLevelFor(50), 480);
+  assert.equal(blocksStyleLevelFor(200), 1920);
+  assert.equal(blocksStyleLevelFor(900), 7680);
+  assert.equal(blocksStyleLevelFor(3000), 30720);
   assert.equal(blocksStyleLevelFor(1e6), 30720);
 });
 
@@ -74,7 +80,18 @@ function references(node, out = []) {
   return out;
 }
 
-test('the expression: a mean over each cell, quantised to its level, coloured, shaded flat, edged; drawn as RGB', () => {
+/** The arguments of every call to `name` in a node graph. */
+function callsOf(node, name, out = []) {
+  if (Array.isArray(node)) for (const item of node) callsOf(item, name, out);
+  else if (node && typeof node === 'object') {
+    if (node.functionInvocationValue?.functionName === name)
+      out.push(node.functionInvocationValue.arguments);
+    for (const value of Object.values(node)) callsOf(value, name, out);
+  }
+  return out;
+}
+
+test('the expression: every property a cell’s own: heights averaged on the cell grid, water by share, level, colour and shade from the cells, edges an eighth on a grid of eighths', () => {
   const variant = layerVariants(elevation)[0];
   const body = mapRequestFor(elevation, variant, 'default', 'blocks-1920');
   const text = JSON.stringify(body.expression);
@@ -83,20 +100,73 @@ test('the expression: a mean over each cell, quantised to its level, coloured, s
   assert.ok(values[result]);
   for (const ref of references(values))
     assert.ok(ref in values, `missing value ${ref}`);
-  assert.match(text, /"Image\.reduceResolution"/);
-  assert.match(text, /"Reducer\.mean"/);
-  assert.match(text, /"Image\.reproject"/);
-  assert.match(text, /"scale":\{"constantValue":1920\}/);
-  // Quantised to 60 m levels.
-  assert.match(text, /"constantValue":60\}/);
-  assert.match(text, /"Image\.floor"/);
-  assert.match(text, /"Terrain\.hillshade"/);
-  assert.match(text, /"Image\.pixelCoordinates"/);
-  assert.match(text, /"Image\.visualize"/);
+  // 1,920 m and up read the far band (GMTED 230 m), whatever the tile.
+  assert.match(text, /USGS\/GMTED2010_FULL/);
+  assert.doesNotMatch(text, /FABDEM/);
   assert.match(
-    text,
-    new RegExp(`"palette":\\{"constantValue":\\["${elevation.vis.palette[0]}"`),
+    JSON.stringify(mapRequestFor(elevation, variant, 'default', 'blocks-480')),
+    /FABDEM/,
   );
+  // Grids: the cell's, its quarters (the mean's samples) and its eighths
+  // (the edges), all from 180° W and whole cells from 90° S.
+  const cell = blocksStyleGrid(1920);
+  assert.ok(Math.abs(cell.deg - 1920 / 111_319.49) < 1e-12);
+  assert.ok(
+    Math.abs(((cell.top + 90) / cell.deg) % 1) < 1e-6 ||
+      Math.abs((((cell.top + 90) / cell.deg) % 1) - 1) < 1e-6,
+  );
+  const transforms = callsOf(body.expression, 'Image.reproject').map(
+    ({ crsTransform }) => crsTransform.constantValue,
+  );
+  assert.ok(transforms.length >= 4);
+  const parts = new Set(transforms.map((t) => Math.round(cell.deg / t[0])));
+  assert.deepEqual(
+    [...parts].sort((a, b) => a - b),
+    [1, BLOCKS_EDGE_PARTS],
+  );
+  for (const t of transforms) {
+    assert.equal(t[2], -180);
+    assert.ok(Math.abs(t[5] - cell.top) < 1e-9);
+    assert.equal(t[4], -t[0]);
+  }
+  // The mean: BLOCKS_MEAN_SUB² samples at a quarter cell.
+  const reduced = callsOf(body.expression, 'Image.reduceResolution');
+  assert.equal(reduced.length, 2); // the heights and the share with heights
+  for (const { maxPixels, image } of reduced) {
+    assert.equal(maxPixels.constantValue, BLOCKS_MEAN_SUB ** 2);
+    const grid =
+      image.functionInvocationValue.arguments.crsTransform.constantValue;
+    assert.ok(Math.abs(grid[0] - cell.deg / BLOCKS_MEAN_SUB) < 1e-15);
+  }
+  // Water: under half the samples with heights, or a mean at or below 0 m,
+  // in the Blocks water colour.
+  assert.ok(
+    callsOf(body.expression, 'Image.lt').some((call) =>
+      /"constantValue":0\.5/.test(JSON.stringify(call.image2)),
+    ),
+  );
+  assert.match(text, /"constantValue":\[58,112,190\]/);
+  // The level: 60 m steps of the cell mean; colour and shade from it.
+  assert.match(text, /"constantValue":60\}/);
+  const shade = callsOf(body.expression, 'Terrain.hillshade');
+  assert.equal(shade.length, 1);
+  assert.ok(shade[0].input.valueReference);
+  assert.match(
+    JSON.stringify(callsOf(body.expression, 'Image.visualize')[0].image),
+    new RegExp(`"valueReference":"${shade[0].input.valueReference}"`),
+  );
+  assert.ok(
+    text.includes(`"palette":{"constantValue":["${elevation.vis.palette[0]}"`),
+  );
+  // The edges: the westmost and southmost of eight parts.
+  assert.match(text, /"Image\.pixelCoordinates"/);
+  const mods = callsOf(body.expression, 'Image.mod');
+  assert.equal(mods.length, 2);
+  for (const { image2 } of mods)
+    assert.match(JSON.stringify(image2), /"constantValue":8\}/);
+  // Fill values masked in each source before it is resampled or averaged.
+  assert.match(text, /"Image\.gte".{0,200}"constantValue":-500/s);
+  assert.match(text, /"Image\.lte".{0,200}"constantValue":9000/s);
   // Already coloured: drawn 0 to 255, no palette of the map's own.
   assert.deepEqual(body.visualizationOptions, {
     ranges: [{ min: 0, max: 255 }],
@@ -108,11 +178,17 @@ test('the expression: a mean over each cell, quantised to its level, coloured, s
     /reduceResolution|pixelCoordinates/,
   );
   assert.ok(plain.visualizationOptions.paletteColors.length > 1);
-  // One map a level: each level its own request.
-  assert.notEqual(
-    JSON.stringify(mapRequestFor(elevation, variant, 'default', 'blocks-480')),
-    JSON.stringify(body),
-  );
+});
+
+test('blocksStyleGrid: a style cell is a Blocks lattice cell (the same edges)', () => {
+  for (const cellM of BLOCKS_STYLE_LEVELS_M) {
+    const { deg, top } = blocksStyleGrid(cellM);
+    const box = latticeBox(cellM, 3, 2);
+    const k = (box.south - (top - Math.ceil(180 / deg) * deg)) / deg;
+    assert.ok(Math.abs(k - Math.round(k)) < 1e-6, `${cellM}: ${k}`);
+    const i = (box.west + 180) / deg;
+    assert.ok(Math.abs(i - Math.round(i)) < 1e-6);
+  }
 });
 
 function fakeBackend() {
