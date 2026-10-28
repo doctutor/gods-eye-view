@@ -6311,7 +6311,7 @@ finer than about two screen pixels.
   their edges; 7,680 m blocks from 3,000 km asked 17. The server's cache
   answers any view of a tile seen
   before, and a warm-up (`npm run blocks:pyramid -- --bbox w,s,e,n
-  --levels 1920,7680,30720`) fills it with exactly what later views ask
+--levels 1920,7680,30720`) fills it with exactly what later views ask
   for. A level change is a fresh view. From orbit that is one view of
   30,720 m blocks, not the thousands of 30 m chunks a fixed block size
   would need. The 20,000-tile Earth Engine day is unchanged.
