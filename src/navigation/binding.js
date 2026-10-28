@@ -43,6 +43,7 @@ import { blocksWorldNow } from './blocksSource.js';
 import { createRegion } from '../layers/blocks/grid.js';
 import { CHUNK_COLUMNS } from '../layers/blocks/grid.js';
 import { surfaceAt } from '../surfaceTrust.js';
+import { applySpectatorPad } from './gamepad.js';
 import {
   applyCameraView,
   globeHeightM,
@@ -107,6 +108,8 @@ export function createNavigationBinding({
   inputs = inputRegistry(),
   settings = navSettings(),
   keys = () => settings?.keyMap?.() ?? DEFAULT_KEYS,
+  requestFrame = globalThis.requestAnimationFrame?.bind(globalThis),
+  cancelFrame = globalThis.cancelAnimationFrame?.bind(globalThis),
 }) {
   const scene = viewer.scene;
   const camera = viewer.camera;
@@ -816,23 +819,40 @@ export function createNavigationBinding({
   };
 
   /**
-   * In Spectator, another source's (a gamepad's) walkHere / flyHere, read
-   * each frame only while such a source is registered: the keyboard's G
-   * keys come through onEntryKey instead.
+   * In Spectator, another source's (a gamepad's) walkHere / flyHere and
+   * its camera block (gamepad.js applySpectatorPad), read each animation
+   * frame only while such a source is registered — not on the scene's
+   * frames, which stop while the render is idle. The keyboard's G keys
+   * come through onEntryKey instead.
    */
+  let spectatorFrame = null;
+  let spectatorAt = 0;
   const onSpectatorFrame = () => {
+    spectatorFrame = requestFrame(onSpectatorFrame);
     if (mode !== 'spectator' || !inputs.hasOther(keyboard)) return;
-    const intents = inputs.read(0);
+    const at = now();
+    const dt = Math.min(0.1, Math.max(0, (at - spectatorAt) / 1000));
+    spectatorAt = at;
+    const intents = inputs.read(dt);
     if (intents.walkHere) enterHere('walk');
     else if (intents.flyHere) enterHere('fly');
+    else applySpectatorPad(viewer, intents.spectator, dt);
   };
   let spectatorPolling = false;
   const syncSpectatorPolling = () => {
-    const want = mode === 'spectator' && inputs.hasOther(keyboard);
+    const want =
+      mode === 'spectator' &&
+      inputs.hasOther(keyboard) &&
+      Boolean(requestFrame);
     if (want === spectatorPolling) return;
     spectatorPolling = want;
-    if (want) scene.preUpdate.addEventListener(onSpectatorFrame);
-    else scene.preUpdate.removeEventListener(onSpectatorFrame);
+    if (want) {
+      spectatorAt = now();
+      spectatorFrame = requestFrame(onSpectatorFrame);
+    } else {
+      cancelFrame?.(spectatorFrame);
+      spectatorFrame = null;
+    }
   };
   const offInputs = inputs.subscribe?.(syncSpectatorPolling);
 
@@ -877,8 +897,7 @@ export function createNavigationBinding({
       unsubscribe();
       offInputs?.();
       offHinter?.();
-      if (spectatorPolling)
-        scene.preUpdate.removeEventListener(onSpectatorFrame);
+      if (spectatorPolling) cancelFrame?.(spectatorFrame);
       spectatorPolling = false;
       removeKeyboard();
       offEntry?.();

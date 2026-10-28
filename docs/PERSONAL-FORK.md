@@ -7579,8 +7579,10 @@ Spectator, so older links read the same) and opens in the mode
   down held; `lookDx`/`lookDy` in pointer-lock pixels; `walkHere`/`flyHere`
   one-shot), merged (held OR'd, looks added) and turned into the model's
   input for the mode. `addInputSource(source)` adds one (a gamepad); in
-  Spectator such a source's walkHere/flyHere is read each frame while it
-  is registered. A stick gives `analog: {forward, right}` (−1…1): per axis
+  Spectator such a source's walkHere/flyHere and its `spectator` block
+  (`{panX, panY, orbitYaw, orbitPitch, zoom}`, summed) are read each
+  animation frame while it is registered (not on the scene's frames, which
+  stop while the render is idle). A stick gives `analog: {forward, right}` (−1…1): per axis
   the larger of it and the keys' ±1 wins, and a stick part way walks part
   speed (never faster than a key on the diagonal). One-shots besides
   walkHere/flyHere: `release` leaves the mode (the pointer let go,
@@ -7594,6 +7596,20 @@ Spectator, so older links read the same) and opens in the mode
   `navSettings().registerSection({id, title, rows})` (rows: `range` with
   min, max, step, or `toggle`; each with a default), kept under
   `gev.nav.<id>` and reset with the rest.
+- **Gamepad** (`src/navigation/gamepad.js`). Minecraft Bedrock's layout on
+  the standard mapping, a source registered only while a pad is connected
+  (a 3 s "controller connected" line). Walk and Fly: the left stick moves
+  (its tilt the speed), the right looks (600 px/s full over, tilt² for
+  fine aim), A jump or up, B sneak or down, RT/LT up/down in Fly, a stick
+  click sprints until the left stick rests, Start releases, Back switches
+  Walk and Fly, the D-pad's left/right step Fly's speed. Spectator, beside
+  GEV's mouse and keys (nothing happens while the pad rests): the left
+  stick pans level over the ground, a screen width a second at the
+  camera's height above the surface; the right orbits the ground under
+  the crosshair at 90°/s (pitch kept between −89.5° and −1°); RT/LT zoom
+  in/out by the height a second; A walks here; a step that would take the
+  camera within 2 m of the surface is undone. The Controls card's Gamepad
+  section: dead zone (0.15), sensitivity (0.5–3×), invert X and Y.
 - **Fly.** No gravity, 10.8 m/s (W twice doubles it), Space up and Shift down
   at 7.5 m/s; the ground and blocks still stop it. The mouse wheel sets the
   speed, Minecraft spectator's: 1.25× a notch, up faster, between 1 and
@@ -7616,7 +7632,7 @@ Spectator, so older links read the same) and opens in the mode
   height plus the region's geoid undulation plus its chunk's drop below the
   tangent plane, as the renderer places it). The Blocks controller
   provides it through `provideBlocksWorld(() => ({region, chunkAt,
-  geoidM}))` (`src/navigation/blocksSource.js`). Elsewhere, the trusted
+geoidM}))` (`src/navigation/blocksSource.js`). Elsewhere, the trusted
   surface (`src/surfaceTrust.js`: a ray from 9 km, coarse tiles refused)
   sampled per 0.5 m cell for a second, in a local frame anchored at the
   camera (again when it is 2 km out): buildings and trees are walls a
