@@ -6278,9 +6278,13 @@ finer than about two screen pixels.
     even half the wanted cell needs a coarser level, down once even twice
     it fits a finer one. A view near a boundary does not re-anchor on every
     move.
-  - The check runs where the camera settles, not mid-move. A level change
-    anchors a new region at the camera, every chunk replaced, as leaving
-    the region does.
+  - The check runs where the camera settles, not mid-move: the app
+    anchors a region, first or at a new level, only once the camera has
+    been still 2 s (`ANCHOR_SETTLE_MS`). A shared link's view comes by a
+    flight 1.5 s after the page opens; without the wait the opening orbit
+    was anchored first (a trace on 2026-10-28: 5 requests for 31 km blocks
+    nobody saw). A level change anchors a new region at the camera, every
+    chunk replaced, as leaving the region does.
   - In Walk and Fly there is no footprint (the view's centre is the
     horizon's), so the blocks underfoot keep their size. A region anchored
     there is the native cell, under its own ceiling.
@@ -6315,6 +6319,32 @@ finer than about two screen pixels.
   for. A level change is a fresh view. From orbit that is one view of
   30,720 m blocks, not the thousands of 30 m chunks a fixed block size
   would need. The 20,000-tile Earth Engine day is unchanged.
+- **The rings** (decision 4). Past the primary region's fine disc and
+  coarse ring, each further ring is the next pyramid level at least 4 ×
+  the cell before it (`ringLevels`): from a 1 m region, 30 m to 15 km,
+  120 m to 61 km, 480 m to 246 km. Each reaches R1 (512) blocks of its
+  level, and they stop with the first whose reach passes the horizon
+  (with a margin of 1.25), or at the top level. Each ring is its own
+  region anchored at the camera, at its own level, keyed
+  `L<blockM>:ci:cj` and drawn through `renderer.setRegions` with the fog
+  from the outermost. Its chunks are those within R1 blocks whose centre
+  the ring inside does not cover and that lie before the horizon, at most
+  its 3 × 3 lattice tiles. They load once every fine chunk is in, so the
+  near ground comes first, and the status line counts them with the
+  coarse ring. The coarse ring stops at the horizon too: from 500 km it
+  ran over the pole on the tangent plane, about 22 of the view's 48
+  requests.
+- **The Elevation layer's Blocks style** (decision 6, step F's client
+  half). Over blocks coarser than the native cells, and where Blocks
+  cannot build (above its ceiling, failed, no values service), the
+  controller names the style's level for the view's pixel footprint
+  (`blocksStyleLevelFor`, src/data/blocksStyle.js) in the Blocks scene
+  (`blocksScene().style`) and keeps the globe shown.
+  - The Elevation layer then drapes `blocks-<cellM>` at the style's zoom
+    band (`blocksStyleZoomBand`), the top-down picture under and beyond
+    the geometry. Its row says "Blocks style: 1.9 km cells".
+  - There is no style under 30 m blocks and finer, where the geometry
+    covers the view, nor in Walk and Fly (no footprint) or in flight.
 - **Buildings and land cover** (OpenStreetMap through Overpass) come only
   with blocks of 30 m or finer (`STRUCTURES_MAX_BLOCK_M`). Coarser, a
   group's query box runs from 30 km across at 120 m blocks to 8,000 km at
@@ -6324,9 +6354,11 @@ finer than about two screen pixels.
   a few hundred kilometres the Earth falls away under it (300 km at a
   2,000 km reach), so the continental levels wait for the curved frame of
   step D; until then the lattice answers columns beyond the plane's reach
-  as nodata (it matters only at 30,720 m). The controller still draws the
-  fine disc and one coarse ring (K = 1 of decision 4); the renderer's
-  `setRegions` for K rings is there for the next step.
+  as nodata (it matters only at 30,720 m), and each ring keeps its own
+  plane at the camera. Where two rings meet, the outer ring's chunks
+  either overlap the inner ring's edge or leave a gap of up to half a
+  chunk, by where their centres fall. There are no skirts between rings,
+  and the fog hides the seam at that range.
 
 ### Blocks: the chunk source
 
