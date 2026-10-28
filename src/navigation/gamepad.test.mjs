@@ -295,7 +295,12 @@ test('the source: nothing polled with no pad; a connected pad reads in each mode
   assert.equal(spectator.spectator.panY, 1);
   assert.equal(spectator.walkHere, false);
   assert.equal(spectator.forward, undefined);
+  // Fly begun with A still held: latched until let go, then it rises.
   mode = 'fly';
+  assert.equal(source.read(1 / 60).up, false);
+  env.setPads([pad()]);
+  source.read(1 / 60);
+  env.setPads([pad({ held: [BUTTONS.A] })]);
   assert.equal(source.read(1 / 60).up, true);
   env.listeners.get('gamepaddisconnected')({ gamepad: {} });
   assert.equal(source.connected(), false);
@@ -331,6 +336,61 @@ test('the source: one-shot presses on their frame only; reset forgets what was h
     snapshotOf({ buttons: [1, 0], axes: [0.5] }).buttons[0].pressed,
     true,
   );
+});
+
+test('a mode entry latches A and RT: held from before, they neither jump nor rise until let go once', () => {
+  // The pure part: a latched button held does nothing; let go, it drops out.
+  const latchedA = { ...idleState(), latched: [BUTTONS.A] };
+  const held = gamepadIntents(pad({ held: [BUTTONS.A, BUTTONS.B] }), {
+    state: latchedA,
+  });
+  assert.equal(held.intents.jump, false);
+  assert.equal(held.intents.sneak, true); // B is not latched
+  assert.deepEqual(held.state.latched, [BUTTONS.A]);
+  const letGo = gamepadIntents(pad(), { state: held.state });
+  assert.deepEqual(letGo.state.latched, []);
+  assert.equal(
+    gamepadIntents(pad({ held: [BUTTONS.A] }), { state: letGo.state }).intents
+      .jump,
+    true,
+  );
+  // The source: A walks here in Spectator and is still held as Walk begins.
+  const env = fakeEnvironment();
+  env.setPads([pad({ held: [BUTTONS.A] })]);
+  let mode = 'spectator';
+  const source = createGamepadSource({
+    windowRef: env.windowRef,
+    navigatorRef: env.navigatorRef,
+    hint: () => {},
+    getMode: () => mode,
+  });
+  assert.equal(source.read(1 / 60).walkHere, true);
+  mode = 'walk';
+  source.reset(); // the binding, as the mode starts
+  assert.equal(source.read(1 / 60).jump, false);
+  source.reset(); // focus lost and back: still latched
+  assert.equal(source.read(1 / 60).jump, false);
+  env.setPads([pad()]);
+  assert.equal(source.read(1 / 60).jump, false);
+  env.setPads([pad({ held: [BUTTONS.A] })]);
+  assert.equal(source.read(1 / 60).jump, true); // pressed again: a jump
+  // Into Fly with RT pulled and A held: no rise until each is let go.
+  env.setPads([pad({ held: [BUTTONS.A], values: { [BUTTONS.RT]: 1 } })]);
+  mode = 'fly';
+  assert.equal(source.read(1 / 60).up, false);
+  env.setPads([pad({ values: { [BUTTONS.RT]: 1 } })]);
+  assert.equal(source.read(1 / 60).up, false); // RT still latched
+  env.setPads([pad()]);
+  source.read(1 / 60);
+  env.setPads([pad({ values: { [BUTTONS.RT]: 1 } })]);
+  assert.equal(source.read(1 / 60).up, true);
+  // Nothing held at the entry: nothing waits.
+  mode = 'walk';
+  env.setPads([pad()]);
+  source.read(1 / 60);
+  env.setPads([pad({ held: [BUTTONS.A] })]);
+  assert.equal(source.read(1 / 60).jump, true);
+  source.destroy();
 });
 
 test("the source: the look follows the section's sensitivity and inversion, nothing compounded", () => {

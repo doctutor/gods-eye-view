@@ -177,13 +177,20 @@ export function snapshotOf(gamepad) {
   };
 }
 
-/** A fresh mapper state: nothing held, no sprint. */
-export const idleState = () => ({ pressed: [], sprinting: false });
+/** A fresh mapper state: nothing held, no sprint, nothing latched. */
+export const idleState = () => ({ pressed: [], sprinting: false, latched: [] });
+/**
+ * The buttons a mode's entry latches (A, and RT for Fly's up): held as
+ * Walk or Fly begins (A walked here), they do nothing until let go once.
+ */
+export const ENTRY_LATCHED = Object.freeze([BUTTONS.A, BUTTONS.RT]);
 
 /**
  * A pad's snapshot to one frame of `dt` seconds in a mode ('walk' or
- * 'fly'; in 'spectator', the `spectator` block and walkHere). `state` is what the last call handed back (the buttons held
- * then, for presses that act once, and the sprint latch).
+ * 'fly'; in 'spectator', the `spectator` block and walkHere). `state` is
+ * what the last call handed back (the buttons held then, for presses that
+ * act once; the sprint latch; and `latched`, buttons ignored until let go,
+ * which the source sets to ENTRY_LATCHED as a mode begins).
  * @returns {{intents: object, state: object}} intents: the binding's
  *   partial intents (inputs.js) — held booleans forward, back, left,
  *   right, sprint, jump/sneak (Walk) or up/down (Fly); `analog` {forward,
@@ -208,6 +215,11 @@ export function gamepadIntents(
   const held = (index) => Boolean(buttons[index]?.pressed);
   const value = (index) => Number(buttons[index]?.value) || 0;
   const fresh = (index) => held(index) && !state.pressed[index];
+  // Latched buttons stay ignored while held; let go, they act again.
+  const down = (index) =>
+    index === BUTTONS.RT ? value(index) > TRIGGER_THRESHOLD : held(index);
+  const latched = (state.latched ?? []).filter(down);
+  const live = (index) => down(index) && !latched.includes(index);
 
   // Move: the left stick (up is −y on the standard mapping).
   const stick = deadZoned(axes[0], axes[1], deadZone);
@@ -237,7 +249,7 @@ export function gamepadIntents(
           zoom: pull(BUTTONS.RT) - pull(BUTTONS.LT),
         },
       },
-      state: { pressed, sprinting: false },
+      state: { pressed, sprinting: false, latched },
     };
   }
 
@@ -261,15 +273,15 @@ export function gamepadIntents(
       (fresh(BUTTONS.RIGHT) ? 1 : 0) - (fresh(BUTTONS.LEFT) ? 1 : 0),
   };
   if (mode === 'fly') {
-    intents.up = held(BUTTONS.A) || value(BUTTONS.RT) > TRIGGER_THRESHOLD;
+    intents.up = live(BUTTONS.A) || live(BUTTONS.RT);
     intents.down = held(BUTTONS.B) || value(BUTTONS.LT) > TRIGGER_THRESHOLD;
   } else {
-    intents.jump = held(BUTTONS.A);
+    intents.jump = live(BUTTONS.A);
     intents.sneak = held(BUTTONS.B);
   }
   return {
     intents,
-    state: { pressed, sprinting },
+    state: { pressed, sprinting, latched },
   };
 }
 
@@ -298,6 +310,7 @@ export function createGamepadSource({
     settings = gamepadSettings(values);
   });
   let state = idleState();
+  let lastMode = null;
   let connected = 0;
   const padsNow = () => {
     try {
@@ -338,6 +351,11 @@ export function createGamepadSource({
     /** This frame's intents from the pad, or null (no pad). */
     read(dt) {
       const mode = activeMode();
+      // Walk or Fly begun: A or RT still held (A walked here) waits to be
+      // let go before it jumps or rises.
+      if (mode !== lastMode && (mode === 'walk' || mode === 'fly'))
+        state = { ...state, latched: [...ENTRY_LATCHED] };
+      lastMode = mode;
       if (!mode || !connected) {
         state = idleState();
         return null;
@@ -353,9 +371,12 @@ export function createGamepadSource({
       state = result.state;
       return result.intents;
     },
-    /** Forget what was held (the binding calls it when a mode starts or ends). */
+    /**
+     * Forget what was held (the binding calls it when a mode starts or
+     * ends); the entry latch stays until its buttons are let go.
+     */
     reset() {
-      state = idleState();
+      state = { ...idleState(), latched: state.latched ?? [] };
     },
     /** Whether a pad is connected. */
     connected: () => connected > 0,
