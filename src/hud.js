@@ -54,8 +54,11 @@ import {
 import {
   applyCameraView,
   canvasSpanPx,
+  SURFACE_RISE_M,
   centreDistanceM,
+  plausibleSurfaceM,
   readCameraView,
+  surfaceSampleStands,
   surfaceUnderCamera,
   viewDiagnostics,
 } from './hud/cameraState.js';
@@ -188,8 +191,6 @@ const HUD_GEOID_CELL_DEG = 0.01;
  * twice this is not shown once the camera has left it.
  */
 const SURFACE_RETRY_MS = 1000;
-/** A sample still stands for the camera within this many metres of it. */
-const SURFACE_NEAR_M = 25;
 /**
  * The centre's distance is measured again when the view has changed, or
  * after this long: a missed depth pick falls back to a ray pick, a render
@@ -598,6 +599,7 @@ export class IntelHUD {
     this._surface = {
       lat: view.lat,
       lon: view.lon,
+      cameraM: view.heightM,
       heightM,
       via,
       at: Date.now(),
@@ -607,27 +609,59 @@ export class IntelHUD {
 
   /**
    * Personal fork: the surface's ellipsoidal height under the camera, NaN
-   * until one answers: the last sample while the camera is near it (or it
-   * is fresh), sampled again at most once a SURFACE_RETRY_MS otherwise.
+   * until one answers. In Walk and Fly it is the model's ground under the
+   * walker (the ground source), so AGL is the eye's 1.62 m at once.
+   * Otherwise the last sample while it stands (src/hud/cameraState.js
+   * surfaceSampleStands: near, at about the camera's height, under a
+   * second old); sampled again at once when the camera has risen or
+   * dropped, else at most once a SURFACE_RETRY_MS.
    */
   _surfaceUnderCamera(view) {
     this._watchTileset();
+    const ground = this._walkerGround();
+    if (Number.isFinite(ground)) return ground;
     const sample = this._surface;
     const now = Date.now();
-    const offM = sample
-      ? this._haversineKm(sample.lat, sample.lon, view.lat, view.lon) * 1000
-      : Infinity;
     const usable = sample && Number.isFinite(sample.heightM);
-    if (usable && offM <= SURFACE_NEAR_M) return sample.heightM;
+    if (usable && surfaceSampleStands(sample, view, now)) return sample.heightM;
     // A tile has loaded since a sample found no trusted surface: the leaves
     // may be here, so sample now rather than at the next retry.
     const arrived = this._tilesArrived && !usable;
     this._tilesArrived = false;
-    if (!sample || arrived || now - sample.at >= SURFACE_RETRY_MS)
+    // Up a building's side or off its roof: the sample is another height's.
+    const rose =
+      usable && !(Math.abs(view.heightM - sample.cameraM) <= SURFACE_RISE_M);
+    if (!sample || arrived || rose || now - sample.at >= SURFACE_RETRY_MS)
       return this._sampleSurface(view);
     return usable && now - sample.at < 2 * SURFACE_RETRY_MS
       ? sample.heightM
       : Number.NaN;
+  }
+
+  /**
+   * Personal fork: where the surface comes from while Walk or Fly is on: a
+   * function giving the ellipsoidal height of the ground under the walker
+   * (src/navigation/binding.js `place.groundM`), null or NaN otherwise.
+   */
+  setGroundSource(source) {
+    this._groundSource = typeof source === 'function' ? source : null;
+  }
+
+  _walkerGround() {
+    try {
+      const heightM = this._groundSource?.();
+      return plausibleSurfaceM(heightM) ? heightM : Number.NaN;
+    } catch {
+      return Number.NaN;
+    }
+  }
+
+  /**
+   * Personal fork: forget the surface sample (a mode entry, Home, a
+   * waypoint: the camera is somewhere else), so the next tick samples.
+   */
+  forgetSurface() {
+    this._surface = null;
   }
 
   /**

@@ -7474,6 +7474,21 @@ AIS stay). The summary wraps to three lines instead of clipping.
   plausible answer, sampled again on settling, when the tileset under the
   view loads a tile (`tileLoad`, `allTilesLoaded`), and at most once a
   second while it has none or the camera has left it.
+  A sample stands only while the camera is within 25 m of it across,
+  within 2 m of its height, and under a second old
+  (`surfaceSampleStands`). Rising or dropping further samples again at
+  once, and a still camera is sampled every second as the tiles refine.
+  An entry into Walk or Fly, Home, a waypoint or a mode change forgets the
+  sample. In worker1's sweep (2026-10-27, the qa town) the old rule, any
+  camera within 25 m across, read "0 m" for ~5 s after G onto a
+  building's side, "−9 … −43 m" for ~1.5 s after walking off its roof, and
+  "110 m" over a 61 m roof after a C move.
+  In Walk and Fly the surface is the model's ground under the walker's
+  feet (`walkerPlace(...).groundM`, `src/navigation/binding.js`), so AGL
+  reads the eye's 1.62 m at once, and the height above the ground below
+  mid-jump or in Fly. In third person the camera's height is read over the
+  walker's ground. Where the model knows no ground yet, the camera is
+  sampled as in Spectator.
   `window.__gevHudCamera.diagnostics()` in a live tab lists every way's raw
   answer beside the ones used, with the geometric error of the tile each
   ray met.
