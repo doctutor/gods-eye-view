@@ -29,6 +29,7 @@ import {
 } from '../../src/data/earthEngineScale.js';
 import {
   DEM_RESAMPLE,
+  VALID_HEIGHT_M,
   bandLayers,
   demBand,
   demSource,
@@ -786,8 +787,32 @@ function demStackExpression(
       value: bandOf(entry.asset, entry.asset.maskBand),
       sameFootprint: constant(false),
     });
+  /**
+   * A layer with `validRange` [low, high] (the Blocks values and style):
+   * a source's raw pixels outside it masked, before anything reads them.
+   */
+  const valid = (input) => {
+    if (!layer.validRange) return input;
+    const [low, high] = layer.validRange;
+    const above = invoke('Image.updateMask', {
+      image: input,
+      mask: invoke('Image.gte', {
+        image1: input,
+        image2: invoke('Image.constant', { value: constant(low) }),
+      }),
+    });
+    return invoke('Image.updateMask', {
+      image: above,
+      mask: invoke('Image.lte', {
+        image1: input,
+        image2: invoke('Image.constant', { value: constant(high) }),
+      }),
+    });
+  };
   /** What every source goes through: its masks, then terrain or a rename. */
-  const pipeline = (entry, mask, input) => {
+  const pipeline = (entry, mask, pixels) => {
+    // A fill value masked first, so the resampling never blends it in.
+    const input = valid(pixels);
     // Each source read as a smooth surface on its own grid (DEM_RESAMPLE;
     // the contours' own `resample`), before the mosaic, whose default
     // projection (1°) would resample it to ramps.
@@ -951,7 +976,10 @@ const M_PER_DEG_EQUATOR = 111_319.49;
  * cell). An RGB image: the map draws it 0 to 255.
  */
 export function blocksStyleExpression(layer, variant, cellM) {
-  const heights = demStackExpression({ ...layer, transform: null }, variant);
+  const heights = demStackExpression(
+    { ...layer, transform: null, validRange: VALID_HEIGHT_M },
+    variant,
+  );
   const levelM = blocksLevelM(cellM);
   const wgs84 = invoke('Projection', { crs: constant('EPSG:4326') });
   // The stack's own values ('1', '2', …) kept; its result moved off '0'.

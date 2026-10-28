@@ -6310,7 +6310,14 @@ cells as a default projection, then `Image.reduceResolution` with a
 mean (`bestEffort`, at most 256 pixels a cell, so a 30 km cell is the
 mean of 16 × 16 pixels of a 1.9 km pyramid level), and says `mean` in
 the header's `aggregation`. A reduction Earth Engine refuses (not a 429
-or a 503) is sampled that once, said `sample`, and not kept.
+or a 503) is sampled that once, said `sample`, and not kept. Before
+anything is resampled or averaged, each source's raw pixels outside
+`VALID_HEIGHT_M` (−500 to 9,000 m, `src/data/demStack.js`) are masked:
+REMA's −9999 and any 16-bit fill, which had made a coastal 30 km cell a
+pit thousands of metres deep. A cell with no valid pixel is nodata. The
+Elevation map tiles are drawn as before (the mask is the Blocks values'
+and style's only), and the chunk source reads any value outside that
+range as nodata too.
 
 **Warming the cache.** `npm run blocks:pyramid -- --bbox w,s,e,n
 --levels 1920,7680,30720 [--pace ms] [--dry-run]` asks every lattice

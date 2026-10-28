@@ -29,7 +29,7 @@
 // controller passes one.
 
 import { createRasterValuesClient } from '../../data/rasterValues.js';
-import { DEM_SOURCES } from '../../data/demStack.js';
+import { DEM_SOURCES, VALID_HEIGHT_M } from '../../data/demStack.js';
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
 import { MATERIALS, NONE, createChunk as storeChunk } from './store.js';
 import { levelMFor, pyramidLevelM } from './pyramid.js';
@@ -136,9 +136,18 @@ export function samplePlaces({ header, values }, size, placeOf) {
 }
 
 /**
+ * A height as the source may hold it, else NaN: a value outside
+ * VALID_HEIGHT_M is a fill value (−9999) that reached the answer, never
+ * a column (an answer cached before the server masked fills keeps them).
+ */
+const validHeight = (h) =>
+  h >= VALID_HEIGHT_M[0] && h <= VALID_HEIGHT_M[1] ? h : NaN;
+
+/**
  * A size × size grid of heights, index j × size + i, each read from the
  * lattice tile answer (`answers`: latticeKey → answer) at `blockM` under
- * placeOf(i, j); NaN where the place or its tile is missing.
+ * placeOf(i, j); NaN where the place or its tile is missing, or the value
+ * is a fill.
  */
 export function sampleLattice(answers, blockM, size, placeOf) {
   const heights = new Float32Array(size * size);
@@ -156,7 +165,7 @@ export function sampleLattice(answers, blockM, size, placeOf) {
             ((north - place.lat) / (north - south)) * rows,
           );
           if (col >= 0 && col < cols && row >= 0 && row < rows)
-            height = answer.values[row * cols + col];
+            height = validHeight(answer.values[row * cols + col]);
         }
       }
       heights[j * size + i] = height;

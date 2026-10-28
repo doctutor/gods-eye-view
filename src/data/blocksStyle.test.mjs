@@ -97,6 +97,9 @@ test('the expression: a mean over each cell, quantised to its level, coloured, s
     text,
     new RegExp(`"palette":\\{"constantValue":\\["${elevation.vis.palette[0]}"`),
   );
+  // Fill values masked in each source before it is resampled or averaged.
+  assert.match(text, /"Image\.gte".{0,200}"constantValue":-500/s);
+  assert.match(text, /"Image\.lte".{0,200}"constantValue":9000/s);
   // Already coloured: drawn 0 to 255, no palette of the map's own.
   assert.deepEqual(body.visualizationOptions, {
     ranges: [{ min: 0, max: 255 }],

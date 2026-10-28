@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { CHUNK_COLUMNS, createRegion } from './grid.js';
+import { CHUNK_COLUMNS, columnIndex, createRegion } from './grid.js';
 import { MATERIALS, NONE } from './store.js';
 import {
   ELEVATION_LAYER,
@@ -633,6 +633,34 @@ test("levels apart from blocks: a region's levelM sets its fine and coarse colum
     0,
   );
   assert.equal(cubes.top[0], 0); // 95 m in 120 m cubes
+});
+
+test('a fill value beside land is no column and no pit: fine columns NONE, the coarse mean of the land alone', async () => {
+  const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 30 });
+  // Land at 120 m, but the westmost 300 m of the group are −9999 (a
+  // source's fill, as a cached answer from before the server masked it
+  // may hold), and a strip of 16-bit fill north.
+  const heightAt = (lon, lat) => {
+    const { x, y } = region.toLocal(lon, lat);
+    if (x < 300) return -9999;
+    if (y > 6000 && y < 6300) return 32767;
+    return 120;
+  };
+  const { fetchValues } = fakeValues({ nativeM: 30, heightAt });
+  const source = createChunkSource({ fetchValues, createChunk });
+  const chunk = await source.loadChunk(region, 0, 0);
+  assert.equal(chunk.top[columnIndex(0, 5)], NONE); // the fill: no column
+  assert.equal(chunk.top[columnIndex(20, 5)], 4); // 120 m on 30 m levels
+  // The coarse chunk (120 m columns) over the edge: the mean of the land
+  // columns under it, not of the fill (−9999 would make a pit).
+  const coarse = await source.loadCoarseChunk(region, 0, 0);
+  for (let i = 0; i < CHUNK_COLUMNS; i++)
+    for (let j = 0; j < CHUNK_COLUMNS; j++) {
+      const top = coarse.top[columnIndex(i, j)];
+      assert.ok(top === NONE || top === 4, `coarse ${i},${j}: ${top}`);
+    }
+  // Nothing fell below sea level anywhere.
+  assert.ok([...chunk.top].every((top) => top === NONE || top >= 0));
 });
 
 test('createChunkSource builds store chunks unless given createChunk', async () => {
