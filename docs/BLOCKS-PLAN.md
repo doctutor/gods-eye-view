@@ -244,6 +244,28 @@ page above:
   progress); the sun's re-light costs a re-mesh of the ring every ~12 min of
   daylight.
 
+## Navigation controls, evening of 2026-10-27
+
+Asked for while the user was away: Minecraft-like controls that never
+interfere with GEV's own. Shipped in seven merges (PERSONAL-FORK.md
+"Navigation controls" has the tables):
+
+- Minecraft's key map in Walk and Fly only: WASD/arrows, Space jump, Shift
+  sneak (1.3 m/s, eye 0.3 m lower, never off an edge), W twice to sprint
+  with the FOV widening, the wheel for fly speed, G / Shift+G here, T for
+  first/third person, B / Shift+B set/go home. No Ctrl anywhere.
+- A Controls card (gear beside Move): sensitivity, invert Y, FOV, speeds,
+  sneak hold/toggle, bobbing, every action rebindable with refusals for the
+  app's shortcuts, other actions' keys and the browser's own; Reset.
+- A gamepad (Bedrock's layout) as an input source, with its own settings
+  section; in Spectator it pans, orbits and zooms Cesium's camera and A
+  walks here, and the mouse and keys are untouched.
+- Third person (behind / in front, pulled in by blocks), a compass with the
+  home bearing, home and up to 50 waypoints kept absolutely in
+  localStorage, never in the link.
+- Spectator keeps GEV's camera, collision, shortcuts and flights; links
+  without `nav=` open there.
+
 ## Out of scope now
 
 The 1 m lidar download for a local terrain mesh (separate approval), the
