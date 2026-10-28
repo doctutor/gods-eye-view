@@ -395,12 +395,11 @@ export class StyleManager extends ShellFacade {
       onStatus: (status) => this.hud?.setNavigationStatus(status),
     });
     // Personal fork: a gamepad (Bedrock's layout) for Walk and Fly, read by
-    // the binding as an input source; its "controller connected" line in
-    // the binding's keys hint.
+    // the binding as an input source; its settings the navigation card's
+    // Gamepad section, its "controller connected" line in the keys hint.
     this._gamepad = attachGamepad({
-      addInputSource: (source) => this._embodied.addSource(source),
       store: navigationStore(),
-      onHint: (text, ms) => this._embodied?.hint?.(text, ms),
+      addSource: (source) => this._embodied.addSource(source),
     });
     // Personal fork: under Blocks, the block under the crosshair (Walk,
     // Fly) or the pointer (Spectator): the HUD's BLOCK line, the outline.

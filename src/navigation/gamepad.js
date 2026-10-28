@@ -21,10 +21,13 @@
  * for one frame: the held booleans, the stick's `analog` tilt (which
  * scales speed), the look and the one-shot presses. `createGamepadSource`
  * polls navigator.getGamepads() only while a mode is on and a pad is
- * connected, and keeps the settings (dead zone, sensitivity, inversion)
- * in this browser under gev.nav.gamepad.*.
+ * connected; its settings (dead zone, sensitivity, inversion) are the
+ * navigation card's Gamepad section (settings.js, kept under
+ * gev.nav.gamepad).
  */
 import { msg, t } from '../i18n/index.js';
+import { addInputSource, showInputHint } from './inputs.js';
+import { navSettings } from './settings.js';
 
 /** The standard mapping's buttons (https://w3c.github.io/gamepad/#remapping). */
 export const BUTTONS = Object.freeze({
@@ -67,8 +70,33 @@ export const LOOK_EXPONENT = 2;
 export const TRIGGER_THRESHOLD = 0.5;
 /** A stick's direction counts as a key (forward, left …) past this share. */
 export const KEY_THRESHOLD = 0.3;
-/** The localStorage keys' prefix. */
-export const STORAGE_PREFIX = 'gev.nav.gamepad.';
+/** The navigation card's section for the settings (settings.js registerSection). */
+export const GAMEPAD_SECTION = Object.freeze({
+  id: 'gamepad',
+  title: msg('Gamepad'),
+  rows: Object.freeze([
+    {
+      key: 'deadZone',
+      label: msg('Dead zone'),
+      type: 'range',
+      min: DEAD_ZONE_RANGE[0],
+      max: DEAD_ZONE_RANGE[1],
+      step: 0.01,
+      default: GAMEPAD_DEFAULTS.deadZone,
+    },
+    {
+      key: 'sensitivity',
+      label: msg('Sensitivity'),
+      type: 'range',
+      min: SENSITIVITY_RANGE[0],
+      max: SENSITIVITY_RANGE[1],
+      step: 0.1,
+      default: GAMEPAD_DEFAULTS.sensitivity,
+    },
+    { key: 'invertX', label: msg('Invert X'), type: 'toggle' },
+    { key: 'invertY', label: msg('Invert Y'), type: 'toggle' },
+  ]),
+});
 /** How long the "controller connected" line stays in the keys hint, ms. */
 export const CONNECTED_HINT_MS = 3000;
 
@@ -142,7 +170,7 @@ export const idleState = () => ({ pressed: [], sprinting: false });
  *   right, sprint, jump/sneak (Walk) or up/down (Fly); `analog` {forward,
  *   right}, −1 … 1, the left stick past its dead zone; lookDx, lookDy in
  *   pointer-lock pixels for this frame (+x right, +y down), the gamepad's
- *   own sensitivity in them (the binding adds the mouse's); and the
+ *   own sensitivity and inversion in them (the mouse's don't apply); and the
  *   one-shot presses release, toggleMode (booleans) and flySpeedStep
  *   (−1, 0, +1).
  */
@@ -209,39 +237,27 @@ export function gamepadIntents(
   };
 }
 
-/** The settings kept in a Storage (gev.nav.gamepad.*), whole and in range. */
-export function readGamepadSettings(storage) {
-  const given = {};
-  for (const key of Object.keys(GAMEPAD_DEFAULTS)) {
-    try {
-      const raw = storage?.getItem?.(STORAGE_PREFIX + key);
-      if (raw !== null && raw !== undefined) given[key] = raw;
-    } catch {
-      /* no storage: the defaults */
-    }
-  }
-  return gamepadSettings(given);
-}
-
 /**
  * The gamepad as an input source: `read(dt)` polls the first connected pad
  * and gives its intents (inputs.js's partial intents), or null while no
  * mode is on (Spectator) or no pad is connected (nothing is polled then).
- * Connecting a pad shows CONNECTED_HINT for 3 s (`onHint`, the binding's
- * hint); a fly-speed press is also handed to `onFlySpeedStep(±1)`.
- * @param {{getMode: () => string, onHint?: Function, onFlySpeedStep?:
- *   Function, windowRef?: object,
- *   navigatorRef?: object, storage?: Storage}} options
+ * Its settings follow `section` (the navigation card's Gamepad section:
+ * get(), set(patch), subscribe(fn)); connecting a pad shows
+ * CONNECTED_HINT for 3 s through `hint` (the binding's keys hint).
+ * @param {{getMode: () => string, section?: object, hint?: Function,
+ *   windowRef?: object, navigatorRef?: object}} options
  */
 export function createGamepadSource({
   getMode,
-  onHint = () => {},
-  onFlySpeedStep = () => {},
+  section = null,
+  hint = showInputHint,
   windowRef = globalThis.window,
   navigatorRef = globalThis.navigator,
-  storage = globalThis.localStorage,
 } = {}) {
-  let settings = readGamepadSettings(storage);
+  let settings = gamepadSettings(section?.get?.() ?? {});
+  const unsubscribe = section?.subscribe?.((values) => {
+    settings = gamepadSettings(values);
+  });
   let state = idleState();
   let connected = 0;
   const padsNow = () => {
@@ -259,7 +275,7 @@ export function createGamepadSource({
   const onConnected = () => {
     connected++;
     state = idleState();
-    onHint(t(CONNECTED_HINT), CONNECTED_HINT_MS);
+    hint(t(CONNECTED_HINT), CONNECTED_HINT_MS);
   };
   const onDisconnected = () => {
     connected = Math.max(0, connected - 1);
@@ -291,9 +307,6 @@ export function createGamepadSource({
         dt,
       });
       state = result.state;
-      // Until the binding reads flySpeedStep, a callback hears it too.
-      if (result.intents.flySpeedStep)
-        onFlySpeedStep(result.intents.flySpeedStep);
       return result.intents;
     },
     /** Forget what was held (the binding calls it when a mode starts or ends). */
@@ -303,18 +316,8 @@ export function createGamepadSource({
     /** Whether a pad is connected. */
     connected: () => connected > 0,
     getSettings: () => ({ ...settings }),
-    /** Change settings (kept in this browser); the whole settings back. */
-    setSettings(next = {}) {
-      settings = gamepadSettings({ ...settings, ...next });
-      for (const [key, value] of Object.entries(settings))
-        try {
-          storage?.setItem?.(STORAGE_PREFIX + key, String(value));
-        } catch {
-          /* not kept: this page only */
-        }
-      return { ...settings };
-    },
     destroy() {
+      unsubscribe?.();
       windowRef?.removeEventListener?.('gamepadconnected', onConnected);
       windowRef?.removeEventListener?.('gamepaddisconnected', onDisconnected);
     },
@@ -322,27 +325,36 @@ export function createGamepadSource({
 }
 
 /**
- * The gamepad on the navigation: a source registered with
- * `addInputSource` (inputs.js), reading the mode from the store, its
- * "controller connected" line through `onHint` (the binding's hint).
- * @returns {{source: object, detach: () => void}}
+ * The gamepad on the navigation: its settings registered as the card's
+ * Gamepad section, a source registered with `addInputSource` (inputs.js)
+ * reading the mode from the store, its "controller connected" line through
+ * `hint` (inputs.js's showInputHint).
+ * @returns {{source: object, section: object, detach: () => void}}
  */
-export function attachGamepad({ addInputSource, store, onHint, ...options }) {
+export function attachGamepad({
+  store,
+  addSource = addInputSource,
+  settings = navSettings(),
+  ...options
+}) {
+  const section = settings.registerSection(GAMEPAD_SECTION);
   const source = createGamepadSource({
     ...options,
+    section,
     getMode: () => store.get(),
-    onHint,
   });
-  const remove = addInputSource({
+  const remove = addSource({
     id: source.id,
     read: (dt) => source.read(dt),
     reset: () => source.reset(),
   });
   return {
     source,
+    section,
     detach() {
       remove?.();
       source.destroy();
+      section.unregister();
     },
   };
 }

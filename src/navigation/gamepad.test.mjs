@@ -1,6 +1,7 @@
 // Personal fork: the gamepad for Walk and Fly (src/navigation/gamepad.js):
 // a pad's snapshot to the binding's intents (dead zone, tilt, look curve,
-// held buttons, presses that act once, the sprint latch), the settings,
+// held buttons, presses that act once, the sprint latch), the settings
+// section,
 // the source's connection handling (nothing polled while off), and its
 // attachment to the store and an input-source registry.
 import { test } from 'node:test';
@@ -10,17 +11,28 @@ import {
   BUTTONS,
   CONNECTED_HINT_MS,
   GAMEPAD_DEFAULTS,
+  GAMEPAD_SECTION,
   LOOK_PX_PER_S,
-  STORAGE_PREFIX,
   attachGamepad,
   createGamepadSource,
   deadZoned,
   gamepadIntents,
   gamepadSettings,
   idleState,
-  readGamepadSettings,
   snapshotOf,
 } from './gamepad.js';
+import { createNavSettings } from './settings.js';
+
+/** A Storage in memory, and what was kept in it. */
+function memoryStorage() {
+  const kept = new Map();
+  return {
+    kept,
+    getItem: (key) => (kept.has(key) ? kept.get(key) : null),
+    setItem: (key, value) => kept.set(key, String(value)),
+    removeItem: (key) => kept.delete(key),
+  };
+}
 
 /** A standard-mapping snapshot: axes [lx, ly, rx, ry], buttons held by index, analog values. */
 function pad({ axes = [0, 0, 0, 0], held = [], values = {} } = {}) {
@@ -173,7 +185,7 @@ test('sprint: a stick click starts it, and it lasts until the left stick rests',
   assert.equal(frame(pad({ held: [BUTTONS.RS] })).sprint, false);
 });
 
-test('settings: whole and in range, kept under gev.nav.gamepad.*', () => {
+test("settings: whole and in range; the source follows the card's Gamepad section, kept under gev.nav.gamepad", () => {
   assert.deepEqual(gamepadSettings(), { ...GAMEPAD_DEFAULTS });
   assert.deepEqual(
     gamepadSettings({ deadZone: 0.9, sensitivity: 9, invertY: 'true' }),
@@ -182,33 +194,44 @@ test('settings: whole and in range, kept under gev.nav.gamepad.*', () => {
   assert.equal(gamepadSettings({ sensitivity: 0.1 }).sensitivity, 0.5);
   assert.equal(gamepadSettings({ deadZone: 'x' }).deadZone, 0.15);
   assert.equal(gamepadSettings({ deadZone: '' }).deadZone, 0.15);
-  const kept = new Map();
-  const storage = {
-    getItem: (key) => (kept.has(key) ? kept.get(key) : null),
-    setItem: (key, value) => kept.set(key, value),
-  };
-  assert.deepEqual(readGamepadSettings(storage), { ...GAMEPAD_DEFAULTS });
+  // The section's rows: the defaults and ranges above.
+  assert.deepEqual(
+    GAMEPAD_SECTION.rows.map((row) => row.key),
+    ['deadZone', 'sensitivity', 'invertX', 'invertY'],
+  );
+  const storage = memoryStorage();
+  const section = createNavSettings({ storage }).registerSection(
+    GAMEPAD_SECTION,
+  );
+  assert.deepEqual(section.get(), { ...GAMEPAD_DEFAULTS });
   const source = createGamepadSource({
-    storage,
+    section,
+    hint: () => {},
     windowRef: null,
     navigatorRef: null,
     getMode: () => 'walk',
   });
-  source.setSettings({ sensitivity: 2, invertX: true });
-  assert.equal(kept.get(`${STORAGE_PREFIX}sensitivity`), '2');
-  assert.equal(kept.get(`${STORAGE_PREFIX}invertX`), 'true');
-  assert.deepEqual(readGamepadSettings(storage), {
-    deadZone: 0.15,
+  assert.deepEqual(source.getSettings(), { ...GAMEPAD_DEFAULTS });
+  section.set({ sensitivity: 2, invertX: true, deadZone: 0.9 });
+  assert.deepEqual(source.getSettings(), {
+    deadZone: 0.5,
     sensitivity: 2,
     invertX: true,
     invertY: false,
   });
-  const broken = {
-    getItem: () => {
-      throw new Error('denied');
-    },
-  };
-  assert.deepEqual(readGamepadSettings(broken), { ...GAMEPAD_DEFAULTS });
+  assert.deepEqual(JSON.parse(storage.kept.get('gev.nav.gamepad')), {
+    deadZone: 0.5,
+    sensitivity: 2,
+    invertX: true,
+    invertY: false,
+  });
+  // Kept: a new page's section starts from them.
+  const again = createNavSettings({ storage }).registerSection(GAMEPAD_SECTION);
+  assert.equal(again.get().sensitivity, 2);
+  // Gone after destroy: the source no longer follows.
+  source.destroy();
+  section.set({ sensitivity: 1 });
+  assert.equal(source.getSettings().sensitivity, 2);
 });
 
 /** A fake window with events, and a navigator whose pads the test sets. */
@@ -242,9 +265,8 @@ test('the source: nothing polled while off or with no pad; a connected pad reads
   const source = createGamepadSource({
     windowRef: env.windowRef,
     navigatorRef: env.navigatorRef,
-    storage: null,
     getMode: () => mode,
-    onHint: (text, ms) => hints.push([text, ms]),
+    hint: (text, ms) => hints.push([text, ms]),
   });
   const pollsAtStart = env.polls(); // one look at start, for a pad already in hand
   assert.equal(source.connected(), false);
@@ -285,7 +307,6 @@ test('the source: one-shot presses on their frame only; reset forgets what was h
   const source = createGamepadSource({
     windowRef: env.windowRef,
     navigatorRef: env.navigatorRef,
-    storage: null,
     getMode: () => 'walk',
   });
   assert.equal(source.connected(), true); // a pad already connected at load
@@ -309,43 +330,54 @@ test('the source: one-shot presses on their frame only; reset forgets what was h
   );
 });
 
-test('the source: a fly-speed press is also handed to onFlySpeedStep', () => {
+test("the source: the look follows the section's sensitivity and inversion, nothing compounded", () => {
   const env = fakeEnvironment();
-  env.setPads([pad({ held: [BUTTONS.LEFT] })]);
-  const steps = [];
+  env.setPads([pad({ axes: [0, 0, 1, 1] })]);
+  const section = createNavSettings({
+    storage: memoryStorage(),
+  }).registerSection(GAMEPAD_SECTION);
   const source = createGamepadSource({
+    section,
+    hint: () => {},
     windowRef: env.windowRef,
     navigatorRef: env.navigatorRef,
-    storage: null,
     getMode: () => 'fly',
-    onFlySpeedStep: (step) => steps.push(step),
   });
-  source.read(1 / 60);
-  source.read(1 / 60); // held: once
-  env.setPads([pad({ held: [BUTTONS.RIGHT] })]);
-  source.read(1 / 60);
-  assert.deepEqual(steps, [-1, 1]);
+  const dt = 1 / 60;
+  const plain = source.read(dt);
+  assert.ok(plain.lookDx > 0 && plain.lookDy > 0);
+  assert.ok(plain.lookDx < LOOK_PX_PER_S * dt);
+  section.set({ sensitivity: 2, invertX: true, invertY: true });
+  const turned = source.read(dt);
+  assert.ok(Math.abs(turned.lookDx + 2 * plain.lookDx) < 1e-9);
+  assert.ok(Math.abs(turned.lookDy + 2 * plain.lookDy) < 1e-9);
   source.destroy();
 });
 
-test('attachGamepad: registered as a source, reading the mode from the store, the hint through onHint', () => {
+test('attachGamepad: the Gamepad section on the card, a source reading the mode from the store, the hint; detach undoes them', () => {
   const env = fakeEnvironment();
   let mode = 'walk';
   const store = { get: () => mode };
   const registered = [];
   let removed = 0;
   const hints = [];
-  const { source, detach } = attachGamepad({
-    addInputSource: (entry) => {
+  const settings = createNavSettings({ storage: memoryStorage() });
+  const { source, section, detach } = attachGamepad({
+    addSource: (entry) => {
       registered.push(entry);
       return () => removed++;
     },
     store,
-    onHint: (text, ms) => hints.push(ms),
+    settings,
+    hint: (text, ms) => hints.push(ms),
     windowRef: env.windowRef,
     navigatorRef: env.navigatorRef,
-    storage: null,
   });
+  assert.deepEqual(
+    settings.sections().map((entry) => entry.id),
+    ['gamepad'],
+  );
+  assert.equal(section.title, GAMEPAD_SECTION.title);
   assert.equal(registered.length, 1);
   assert.equal(registered[0].id, 'gamepad');
   assert.equal(typeof registered[0].reset, 'function');
@@ -360,4 +392,5 @@ test('attachGamepad: registered as a source, reading the mode from the store, th
   detach();
   assert.equal(removed, 1);
   assert.equal(env.listeners.size, 0);
+  assert.deepEqual(settings.sections(), []);
 });
