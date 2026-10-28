@@ -96,6 +96,9 @@ const isFormTarget = (target) =>
     ) || target?.isContentEditable,
   );
 
+/** A ground nearer the eye than this is not believed (walkerPlace). */
+export const GROUND_BELOW_EYE_MIN_M = 0.5;
+
 /**
  * Where the walker stands in a frame, for wayfinding (waypoints.js) and
  * the HUD's AGL: {lon, lat, heightM (the eye), groundM (the ground under
@@ -113,6 +116,9 @@ export function walkerPlace(frame, state) {
   } catch {
     /* no world to ask */
   }
+  // No ground lies within half a metre of the eye (it stands 1.62 m,
+  // 1.32 m sneaking, over its feet): such a reading is not one.
+  if (state.z - ground < GROUND_BELOW_EYE_MIN_M) ground = Number.NaN;
   return {
     lon: at.lon,
     lat: at.lat,

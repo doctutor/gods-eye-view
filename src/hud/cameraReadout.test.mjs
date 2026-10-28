@@ -356,3 +356,20 @@ test('click to edit: Enter applies, a bad number stays open, Escape and leaving 
   spans.lat.dispatch('click');
   assert.equal(editing.editing(), null, 'detached');
 });
+
+test('Walk and Fly: the AGL from the model’s ground keeps its own step, not the data’s floor', () => {
+  // The data floor at 10 m (Blocks re-anchoring after an entry) rounded
+  // the eye's 1.62 m to "0 m".
+  const coarse = viewPrecision({ footprintM: 0.005, floor: { floorM: 10 } });
+  assert.equal(coarse.stepM, 10);
+  assert.equal(
+    formatCameraReadout(reading({ aglM: 1.62 }), coarse).agl.text,
+    '0 m',
+    'the data’s step, as before',
+  );
+  assert.equal(
+    formatCameraReadout(reading({ aglM: 1.62, aglStepM: 0.1 }), coarse).agl
+      .text,
+    '1.6 m',
+  );
+});

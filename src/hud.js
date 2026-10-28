@@ -197,6 +197,13 @@ const SURFACE_RETRY_MS = 1000;
  * pass of its own, which the 4 Hz tick should not repeat for a still view.
  */
 const CENTRE_REUSE_MS = 1000;
+/**
+ * Personal fork: the AGL's step in Walk and Fly, where the ground is the
+ * movement model's own (exact), not a sample of the elevation data: the
+ * data's floor (10 m while Blocks re-anchors after an entry) rounded the
+ * eye's 1.62 m to "0 m".
+ */
+const WALKER_AGL_STEP_M = 0.1;
 
 /**
  * Personal fork: the MODE line's names for the navigation modes
@@ -888,6 +895,7 @@ export class IntelHUD {
     const precision = this.cameraPrecision();
     const surfaceM = this._surfaceUnderCamera(view);
     const aglM = Number.isFinite(surfaceM) ? altM - surfaceM : Number.NaN;
+    const walkerGround = Number.isFinite(this._walkerGround());
     const spanPx = canvasSpanPx(this.viewer);
     const fields = formatCameraReadout(
       {
@@ -895,6 +903,7 @@ export class IntelHUD {
         altMslM,
         geoidApplied: Number.isFinite(geoidN),
         aglM,
+        aglStepM: walkerGround ? WALKER_AGL_STEP_M : null,
         footprintM: precision.footprintM,
         distanceM: this._lastDistanceM,
         sunElDeg: sunEl,
