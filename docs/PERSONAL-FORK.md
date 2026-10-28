@@ -6548,7 +6548,18 @@ counted and refused past the day's budget (429) as the layer's own:
     GET /api/earth-engine/tile/ee-elevation/blocks-<cellM>/<variant>/default/<z>/<x>/<y>
 
 `<variant>` is the Elevation layer's (`zoom` lets the server pick the
-band for z). Another cell is a 404, a colour scale (`?s=`) a 400. For
+band for z). Another cell is a 404, a colour scale (`?s=`) a 400.
+
+**Zoom band.** Each level is drawn from two zooms under its own
+(`blocksStyleZoom`: the deepest at which a cell is at most 8 px on the
+equator, about 6.3: 13, 11, 9, 7 and 5 for 120, 480, 1,920, 7,680 and
+30,720 m) to the layer's deepest, 14 (`blocksStyleZoomBand(cellM)` →
+`{min, max}`: 11, 9, 7, 5 and 3 to 14). A coarser tile is answered here
+with the transparent 256 × 256 PNG, 200, no map made, no Earth Engine
+request, nothing counted: Cesium asks for ancestor tiles whatever the
+view, and the 1,920 m level's z 4 tile (a quarter pixel a cell) timed
+out in Earth Engine. The client sets the imagery provider's
+`minimumLevel` and `maximumLevel` from the band. For
 the client (worker3): `blocksStyleTemplate(cellM)` gives the template,
 `blocksStyleLevelFor(pixelM)` the level for a pixel footprint (the
 smallest cell of at least 8 px, else the coarsest), `BLOCKS_STYLE_LEVELS_M`

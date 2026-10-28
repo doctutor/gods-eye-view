@@ -38,6 +38,7 @@ import {
   BLOCKS_STYLE_LAYER,
   blocksLevelM,
   blocksStyleCell,
+  blocksStyleZoomBand,
 } from '../../src/data/blocksStyle.js';
 
 /**
@@ -2095,6 +2096,15 @@ export function createEarthEngineService({
       const limit = 2 ** z;
       if (z > (layer.maxZoom ?? 12) || x >= limit || y >= limit)
         return { status: 400, error: 'Tile out of range' };
+      // The Blocks style under its level's zoom band: blank, made here, no
+      // Earth Engine request, nothing counted (src/data/blocksStyle.js).
+      if (blocksStyle && z < blocksStyleZoomBand(blocksStyle).min)
+        return {
+          status: 200,
+          contentType: 'image/png',
+          body: TRANSPARENT_TILE,
+          blank: true,
+        };
       if (z < (variant.minZoom ?? 0)) {
         // A band with zooms (the Rivers) answers a coarser tile with the
         // band drawn at that zoom: a 3D tileset drapes one tile per loaded
