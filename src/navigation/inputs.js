@@ -256,6 +256,8 @@ export function createKeyboardSource({
   now = () => globalThis.performance?.now?.() ?? Date.now(),
 } = {}) {
   const held = new Set();
+  /** Keys pressed since the last read: a tap shorter than a frame still counts once. */
+  const tapped = new Set();
   const doubleTap = createDoubleTap();
   let lookDx = 0;
   let lookDy = 0;
@@ -270,6 +272,7 @@ export function createKeyboardSource({
         if (name === 'forward' && !event.repeat && !held.has(event.code))
           if (doubleTap.press(now())) doubleSprint = true;
         held.add(event.code);
+        tapped.add(event.code);
       } else {
         held.delete(event.code);
         const map = keys();
@@ -285,10 +288,11 @@ export function createKeyboardSource({
     read() {
       const map = keys();
       const intents = {};
-      for (const code of held) {
+      for (const code of new Set([...held, ...tapped])) {
         const name = map[code];
         if (name) intents[name] = true;
       }
+      tapped.clear();
       if (doubleSprint) intents.sprint = true;
       intents.lookDx = lookDx;
       intents.lookDy = lookDy;
@@ -298,6 +302,7 @@ export function createKeyboardSource({
     },
     reset() {
       held.clear();
+      tapped.clear();
       doubleSprint = false;
       lookDx = 0;
       lookDy = 0;

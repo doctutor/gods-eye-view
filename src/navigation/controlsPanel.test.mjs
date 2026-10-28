@@ -68,7 +68,10 @@ test('refused keys are said, and the capture keeps listening', () => {
     result.message,
     'Left Ctrl belongs to the browser (Ctrl+W closes the tab)',
   );
-  assert.equal(capture.key({ code: 'F5' }).outcome, 'refused');
+  assert.equal(
+    capture.key({ code: 'F5' }).message,
+    'F5 belongs to the browser',
+  );
   assert.equal(capture.key({ code: 'KeyJ' }).outcome, 'bound');
   assert.deepEqual(settings.codesFor('jump'), ['KeyJ']);
   assert.equal(

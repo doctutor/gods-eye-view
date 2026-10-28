@@ -520,6 +520,13 @@ export function createNavigationBinding({
       event.preventDefault();
   };
   const onBlur = () => inputs.reset();
+  // Cesium's pointerdown calls setPointerCapture, which throws while the
+  // pointer is locked (an uncaught InvalidStateError on every click while
+  // walking); its inputs are off then anyway, so it is not told.
+  const onLockedPointerDown = (event) => {
+    if (active && documentRef?.pointerLockElement === canvas)
+      event.stopPropagation();
+  };
   const onMouseMove = (event) => {
     if (!active || documentRef.pointerLockElement !== canvas) return;
     // The mouse's own sensitivity and invert Y: other sources (a gamepad)
@@ -726,6 +733,7 @@ export function createNavigationBinding({
     target.addEventListener?.('keydown', onKey, true);
     target.addEventListener?.('keyup', onKey, true);
     target.addEventListener?.('blur', onBlur);
+    target.addEventListener?.('pointerdown', onLockedPointerDown, true);
     documentRef?.addEventListener?.('mousemove', onMouseMove);
     documentRef?.addEventListener?.('pointerlockchange', onLockChange);
     canvas.addEventListener?.('click', onCanvasClick);
@@ -749,6 +757,7 @@ export function createNavigationBinding({
     target.removeEventListener?.('keydown', onKey, true);
     target.removeEventListener?.('keyup', onKey, true);
     target.removeEventListener?.('blur', onBlur);
+    target.removeEventListener?.('pointerdown', onLockedPointerDown, true);
     documentRef?.removeEventListener?.('mousemove', onMouseMove);
     documentRef?.removeEventListener?.('pointerlockchange', onLockChange);
     canvas.removeEventListener?.('click', onCanvasClick);

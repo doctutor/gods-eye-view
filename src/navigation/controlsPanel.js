@@ -73,7 +73,9 @@ export function refusalMessage(verdict, code) {
   if (verdict.reason === 'app')
     return t('{key} is one of the app’s own shortcuts', { key });
   if (verdict.reason === 'browser')
-    return t('{key} belongs to the browser (Ctrl+W closes the tab)', { key });
+    return /^F\d/.test(code)
+      ? t('{key} belongs to the browser', { key })
+      : t('{key} belongs to the browser (Ctrl+W closes the tab)', { key });
   if (verdict.reason === 'taken')
     return t('{key} is already {action}', {
       key,
@@ -414,7 +416,14 @@ export function createNavControlsButton(
         Math.min(rect.right - width, view.innerWidth - width - 8),
       );
       card.element.style.left = `${Math.round(left)}px`;
-      card.element.style.top = `${Math.round(rect.bottom + 6)}px`;
+      // Under the gear, or as far up as keeps it inside the window (the
+      // gear sits low in a long layer panel).
+      const height = card.element.offsetHeight || 0;
+      const top = Math.max(
+        8,
+        Math.min(rect.bottom + 6, view.innerHeight - height - 8),
+      );
+      card.element.style.top = `${Math.round(top)}px`;
     }
     gear.setAttribute('aria-expanded', 'true');
     doc.addEventListener('pointerdown', onOutside, true);

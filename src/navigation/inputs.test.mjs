@@ -207,3 +207,15 @@ test('the hint channel: a source says a line through the binding’s overlay', (
   undo();
   assert.equal(registry.hint('again', 1), false);
 });
+
+test('a key tapped between two reads counts once (a sneak toggle, a jump)', () => {
+  const keyboard = createKeyboardSource();
+  keyboard.key({ type: 'keydown', code: 'ShiftLeft' });
+  keyboard.key({ type: 'keyup', code: 'ShiftLeft' });
+  assert.equal(keyboard.read().sneak, true, 'the tap reaches this read');
+  assert.equal(keyboard.read().sneak, undefined, 'and only this one');
+  keyboard.key({ type: 'keydown', code: 'Space' });
+  keyboard.key({ type: 'keyup', code: 'Space' });
+  keyboard.reset();
+  assert.equal(keyboard.read().jump, undefined, 'a reset forgets it');
+});
