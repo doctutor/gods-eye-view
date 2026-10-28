@@ -7736,6 +7736,10 @@ In Walk and Fly (Spectator keeps GEV's own keys and camera):
   one goes there, ✕ deletes it. Each row says where: "39.32140, −76.62920 ·
   level 36".
 
+T and B are the Controls' `view` and `home` bindings (`settings.js`):
+`attachWayfindingKeys` reads them at each key, so a key rebound on the
+card applies at once, and an unbound one does nothing.
+
 Home and waypoints are kept in this browser (`gev.nav.home`,
 `gev.nav.waypoints`), never in a link, as absolute places, so they outlive
 the Blocks region they were set in (a region is anchored at the camera and
