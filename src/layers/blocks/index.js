@@ -17,6 +17,7 @@
 import { ELEVATION_LAYER_ID } from '../lego/layerSpecs.js';
 import { setBlocksFloorM, setBlocksScene } from './floor.js';
 import { BLOCK_PYRAMID_M, levelMFor, pyramidLevelM } from './pyramid.js';
+import { blocksStyleLevelFor } from '../../data/blocksStyle.js';
 import { cameraArrivalPending } from '../../data/cameraArrival.js';
 
 /** The render distance, in blocks (512 m at 1 m, 15 km at 30 m). */
@@ -1334,12 +1335,40 @@ export function createBlocksController({
    */
   function applyGlobe(held = null) {
     const cannotBuild = held === 'too-high';
-    setGlobe(cannotBuild);
+    const style = styleCellNow(held);
+    // The style drapes the globe, so the globe shows while it is on.
+    setGlobe(cannotBuild || style !== null);
     // Told after the globe is set, so the overlays re-drape where it is.
     setBlocksScene({
       active: active() && !cannotBuild,
       globeHidden: _globeHidden,
+      style,
     });
+  }
+
+  /**
+   * The cell of the Elevation layer's Blocks style to drape now
+   * (blocksStyleLevelFor the view's pixel footprint), or null: under and
+   * beyond blocks coarser than the native cells, and where Blocks cannot
+   * build (above its ceiling, failed, no values service). Never while the
+   * native cells' geometry covers the view, nor without a footprint (Walk
+   * and Fly), nor in flight.
+   */
+  function styleCellNow(held) {
+    if (_destroyed || !active() || held === 'flying') return null;
+    const cannotBuild =
+      held === 'too-high' ||
+      _status.state === 'failed' ||
+      _status.state === 'unavailable';
+    const coarse = Boolean(_region) && _region.blockM > STRUCTURES_MAX_BLOCK_M;
+    if (!cannotBuild && !coarse) return null;
+    let px = Number.NaN;
+    try {
+      px = Number(footprint());
+    } catch {
+      /* not measured */
+    }
+    return px > 0 ? blocksStyleLevelFor(px) : null;
   }
 
   function setGlobe(cannotBuild) {

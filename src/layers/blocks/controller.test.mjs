@@ -2909,3 +2909,38 @@ test('K rings: each its own region at its own level through setRegions, keyed L<
   assert.equal(status.state, 'ready');
   controller.destroy();
 });
+
+test('the Elevation layer’s Blocks style: none over the native cells’ geometry; the footprint’s level over coarse blocks and where Blocks cannot build, the globe shown to drape it', async () => {
+  const { blocksScene } = await import('./floor.js');
+  const { blocksStyleLevelFor } = await import('../../data/blocksStyle.js');
+  const { viewer, view, controller } = footprintSetup();
+  await drain(controller);
+  assert.equal(controller.getStatus().blockM, 1);
+  controller.tick();
+  assert.equal(blocksScene().style, null, 'no style tiles under 1 m cubes');
+  assert.equal(viewer.scene.globe.show, false, 'hidden on a drawn style');
+  // 120 m blocks: the style under and beyond them, on a shown globe.
+  setHeight(viewer, 50_000);
+  view.px = 40;
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  controller.tick();
+  assert.equal(controller.getStatus().blockM, 120);
+  assert.equal(blocksScene().style, blocksStyleLevelFor(40));
+  assert.equal(viewer.scene.globe.show, true);
+  // Walk and Fly (no footprint): none.
+  view.px = Number.NaN;
+  controller.tick();
+  assert.equal(blocksScene().style, null);
+  controller.destroy();
+  assert.equal(blocksScene().style, null, 'gone with the controller');
+  // A source without levels held above its ceiling: the style as fallback.
+  const held = footprintSetup({ source: fakeSource({ blockM: 1 }), px: 2000 });
+  setHeight(held.viewer, 2_000_000);
+  held.viewer.camera.moveEnd.raise();
+  await drain(held.controller);
+  held.controller.tick();
+  assert.equal(held.controller.getStatus().state, 'too-high');
+  assert.equal(blocksScene().style, blocksStyleLevelFor(2000));
+  held.controller.destroy();
+});

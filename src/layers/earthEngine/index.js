@@ -16,6 +16,9 @@ import {
 import { resolveImageryHost } from '../../maps/imageryHost.js';
 // Personal fork: Render: Blocks hides the globe on a drawn style.
 import { blocksScene, subscribeBlocksScene } from '../blocks/floor.js';
+// Personal fork: the Elevation layer's Blocks style (milestone 5, step F);
+// the namespace, so a build without blocksStyleZoomBand keeps the full band.
+import * as blocksStyle from '../../data/blocksStyle.js';
 import { activeLuminance, readInkSetting, resolveInk } from '../../maps/ink.js';
 import {
   SLOW_DISTRICTS_ABOVE_M,
@@ -333,6 +336,8 @@ export function createEarthEngineLayer({
   clearTimeoutImpl = (...args) => clearTimeout(...args),
 }) {
   const store = storageOf(storage);
+  /** The Blocks style's cell a mounted key was made with, or null. */
+  const styleCellOf = (key) => Number(String(key).split('|').at(-1)) || null;
   /** The colour-scale model's subscription and the pending rebuild. */
   let _offScales = null;
   let _scaleTimer = null;
@@ -869,7 +874,12 @@ export function createEarthEngineLayer({
       ? demSourcesInView(record, wantedVariant(), box, maximumLevel)
       : [];
     const scaleToken = scaleTokenFor(mode);
-    const key = `${variant}|${ink}|${version}|${mode}|${v2Version}|${maximumLevel}|${demSources.map((entry) => entry.key).join(',')}|${overtureOptions?.url || ''}|${scaleToken}`;
+    // Render: Blocks over coarse blocks, or where it cannot build: the
+    // Elevation layer as its Blocks style, the level the controller picked
+    // from the footprint (src/layers/blocks/floor.js blocksScene().style).
+    const styleCell =
+      record.id === blocksStyle.BLOCKS_STYLE_LAYER ? blocksScene().style : null;
+    const key = `${variant}|${ink}|${version}|${mode}|${v2Version}|${maximumLevel}|${demSources.map((entry) => entry.key).join(',')}|${overtureOptions?.url || ''}|${scaleToken}|${styleCell ?? ''}`;
     if (
       _imagery &&
       _mountedKey === key &&
@@ -895,11 +905,27 @@ export function createEarthEngineLayer({
           layerVariants(record).find((entry) => entry.key === variant)
             ?.minZoom ??
           0);
+    // The style's zooms: from two under its level's own to the deepest
+    // (worker2's blocksStyleZoomBand; the server answers coarser tiles blank).
+    const styleBand = styleCell
+      ? (blocksStyle.blocksStyleZoomBand?.(styleCell) ?? {
+          min: minimumLevel,
+          max: maximumLevel,
+        })
+      : null;
     const provider = new cesium.UrlTemplateImageryProvider({
-      url: tileTemplate(record.id, variant, ink, version, mode, scaleToken),
+      url: styleCell
+        ? tileTemplate(
+            record.id,
+            variant,
+            'default',
+            '',
+            blocksStyle.blocksStyleMode(styleCell),
+          )
+        : tileTemplate(record.id, variant, ink, version, mode, scaleToken),
       tilingScheme: new cesium.WebMercatorTilingScheme(),
-      minimumLevel,
-      maximumLevel,
+      minimumLevel: styleBand ? styleBand.min : minimumLevel,
+      maximumLevel: styleBand ? styleBand.max : maximumLevel,
       credit: record.demStack
         ? demCreditText(demSources)
         : layer.attribution || record.attribution,
@@ -1346,6 +1372,8 @@ export function createEarthEngineLayer({
         hostless: _enabled && _hostKind === 'none',
         // Render: Blocks draws the Elevation layer as cubes.
         asBlocks: record.id === 'ee-elevation' && blocksScene().active,
+        // Draped as its Blocks style now: that level's cell.
+        blocksStyleM: _imagery && _mountedKey ? styleCellOf(_mountedKey) : null,
         ceilingM: _enabled && _aboveCeiling ? record.maxHeightM : null,
         level: _level,
         onLevel: setLevel,
