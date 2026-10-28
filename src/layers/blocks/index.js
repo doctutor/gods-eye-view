@@ -34,6 +34,9 @@ export const COARSE_REACH = 4;
  */
 export const CEILING_REACHES = 4;
 export const NO_REGION_CEILING_M = 100_000;
+/** The ground's plausible heights over the ellipsoid, for the ceiling (m). */
+const GROUND_FLOOR_M = 500;
+const GROUND_CEILING_M = 9000;
 
 /** The height above the ground over which Blocks builds nothing (m). */
 export function ceilingM(blockM, radiusBlocks) {
@@ -1141,9 +1144,16 @@ export function createBlocksController({
   function heightAboveGround(camera) {
     let ground = 0;
     try {
+      // A hidden globe (Blocks hides it through a flight hold) answers from
+      // tiles it no longer updates: tens of kilometres below the ellipsoid
+      // just after landing, which read as too high to build until the next
+      // moveEnd. Only a shown globe's height counts, and only a plausible
+      // one (no land lies 500 m below the ellipsoid, none 9 km above).
+      const globe = _viewer?.scene?.globe;
       const at = _viewer?.camera?.positionCartographic;
-      const h = at ? _viewer?.scene?.globe?.getHeight?.(at) : undefined;
-      if (Number.isFinite(h)) ground = h;
+      const h = at && globe?.show ? globe.getHeight?.(at) : undefined;
+      if (Number.isFinite(h) && h > -GROUND_FLOOR_M && h < GROUND_CEILING_M)
+        ground = h;
     } catch {
       /* no globe */
     }

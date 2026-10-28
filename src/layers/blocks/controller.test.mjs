@@ -2376,3 +2376,40 @@ test('the building count waits for every drawn group’s ids: “buildings…”
   );
   controller.destroy();
 });
+
+test('just landed with the globe hidden: its stale height is not trusted, so it builds without a moveEnd', async () => {
+  const source = fakeSource();
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  setHeight(viewer, 300);
+  // What a hidden globe answered in the sweep just after a landing.
+  viewer.scene.globe.getHeight = () => (viewer.scene.globe.show ? 0 : -44_953);
+  const renderer = fakeRenderer();
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller);
+  assert.equal(viewer.scene.globe.show, false, 'hidden over a drawn style');
+  assert.equal(source.regions.length, 1, 'anchored');
+  assert.notEqual(controller.getStatus().state, 'too-high');
+  assert.ok(renderer.shown.size > 0, 'building');
+  // An implausible answer from a shown globe is not trusted either.
+  viewer.scene.globe.show = true;
+  viewer.scene.globe.getHeight = () => -30_000;
+  setHeight(viewer, 310);
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  assert.notEqual(controller.getStatus().state, 'too-high');
+  controller.destroy();
+});
