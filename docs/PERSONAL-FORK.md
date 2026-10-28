@@ -7690,6 +7690,41 @@ under a 34 m ceiling; Fly stopped at a building's wall and rested on its
 roof; the outline sat on the wall block under the crosshair (12 edges, its
 corners exact), a building block.
 
+### Third person, the compass, home and waypoints
+
+In Walk and Fly (Spectator keeps GEV's own keys and camera):
+
+- **T** cycles the view: first person, **behind** the walker, **in front**
+  of it looking back (Minecraft's F5, which a browser keeps for reloading).
+  The camera stands 4 m from the eye along the look direction and is
+  pulled in to just short of a block or the surface between them
+  (`src/navigation/view.js`: the Blocks occupancy's raycast, else the
+  trusted surface walked in 0.25 m steps; never nearer than 0.3 m). The
+  walker still moves and looks; the camera only watches. An orange
+  0.6 × 1.8 m box stands where the walker stands, turned to its heading
+  (`playerMarker.js`, one primitive moved by its model matrix). The choice
+  is kept in this browser (`gev.nav.view`); the HUD's MODE line says
+  "· 3rd" (or "· 3rd, front"). The view button beside Move does the same.
+- **The compass**: a small rose in the HUD's pose block while a mode is
+  on, turning with the walker's heading, N in red, the straight-ahead mark
+  at the top; with a home set, an orange tick on the rim points to it
+  (the great-circle bearing less the heading).
+- **Home**: **B** (or **Set home** beside Move) keeps where the walker
+  stands, its longitude, latitude, eye height, the block level underfoot
+  and its heading; **Shift+B** (or **Home**) goes back there, walking in
+  from Spectator, keeping Walk or Fly otherwise. Going uses the navigation
+  store's entry with a pose (`store.requestEntry(mode, pose)`), the path G
+  uses for "Walk here".
+- **Places**: a list of waypoints under the same card: a name and **Add
+  here** keep where the walker stands (up to 50, the oldest go), a click on
+  one goes there, ✕ deletes it. Each row says where: "39.32140, −76.62920 ·
+  level 36".
+
+Home and waypoints are kept in this browser (`gev.nav.home`,
+`gev.nav.waypoints`), never in a link, as absolute places, so they outlive
+the Blocks region they were set in (a region is anchored at the camera and
+moves on with it).
+
 ## Smaller additions
 
 - **What the dev server watches and scans** (`build/vite.js`). Vite's

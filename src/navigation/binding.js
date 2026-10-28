@@ -40,6 +40,9 @@ import {
 export { DOUBLE_TAP_MS, createDoubleTap } from './inputs.js';
 import { formatNumber, t } from '../i18n/index.js';
 import { blocksWorldNow } from './blocksSource.js';
+// Personal fork: third person (view.js) and the walker's marker.
+import { thirdPersonPose } from './view.js';
+import { createPlayerMarker } from './playerMarker.js';
 import { createRegion } from '../layers/blocks/grid.js';
 import { CHUNK_COLUMNS } from '../layers/blocks/grid.js';
 import { surfaceAt } from '../surfaceTrust.js';
@@ -107,6 +110,9 @@ export function createNavigationBinding({
   inputs = inputRegistry(),
   settings = navSettings(),
   keys = () => settings?.keyMap?.() ?? DEFAULT_KEYS,
+  // Third person: the view store (view.js) and the marker; none: first person.
+  view: viewChoice = null,
+  marker = viewChoice ? createPlayerMarker({ viewer }) : null,
 }) {
   const scene = viewer.scene;
   const camera = viewer.camera;
@@ -124,6 +130,7 @@ export function createNavigationBinding({
         surface: 'none',
         blockM: null,
         locked: documentRef?.pointerLockElement === canvas,
+        view: viewChoice?.get?.() ?? 'first',
         ...patch,
       });
     } catch {
@@ -535,15 +542,33 @@ export function createNavigationBinding({
 
   // ── The frame loop ──────────────────────────────────────────────────
 
+  /** A frame's metres as a Cartesian3 (for the marker). */
+  const worldPoint = (frame, x, y, z) => {
+    if (frame.toWorld) return frame.toWorld(x, y, z);
+    const place = frame.toCartographic(x, y, z);
+    return Cesium.Cartesian3.fromDegrees(place.lon, place.lat, place.heightM);
+  };
+
   const placeCamera = () => {
     const { frame, state } = active;
-    const place = frame.toCartographic(state.x, state.y, state.z);
+    // First person the camera is the eye; in third person (view.js) it
+    // stands behind or in front, pulled in short of what is between.
+    const viewMode = viewChoice?.get?.() ?? 'first';
+    const pose = thirdPersonPose(state, viewMode, { world: frame.world });
+    const place = frame.toCartographic(pose.x, pose.y, pose.z);
+    if (viewMode === 'first') marker?.hide();
+    else
+      try {
+        marker?.update(state, (x, y, z) => worldPoint(frame, x, y, z));
+      } catch {
+        marker?.hide();
+      }
     applyCameraView(viewer, {
       lon: place.lon,
       lat: place.lat,
       heightM: place.heightM,
-      headingDeg: Cesium.Math.toDegrees(state.yaw),
-      pitchDeg: Cesium.Math.toDegrees(state.pitch),
+      headingDeg: Cesium.Math.toDegrees(pose.yaw),
+      pitchDeg: Cesium.Math.toDegrees(pose.pitch),
       rollDeg: 0,
       fovDeg: Cesium.Math.toDegrees(
         cesiumFovRad(
@@ -574,8 +599,21 @@ export function createNavigationBinding({
         MOVED_ELSEWHERE_M;
     const frame = frameFor(view, active.frame);
     if (active.resync || moved || frame !== active.frame) {
+      const thirdPerson = (viewChoice?.get?.() ?? 'first') !== 'first';
+      if (thirdPerson && !active.resync && !moved && active.state) {
+        // The camera stands off the walker: carry the walker into the new
+        // frame instead of reading it back from the camera.
+        const at = active.frame.toCartographic(
+          active.state.x,
+          active.state.y,
+          active.state.z,
+        );
+        const local = frame.toLocal(
+          Cesium.Cartographic.fromDegrees(at.lon, at.lat, at.heightM),
+        );
+        active.state = { ...active.state, ...local };
+      } else active.state = stateFromCamera(frame);
       active.frame = frame;
-      active.state = stateFromCamera(frame);
       active.resync = false;
     }
     let state = active.state;
@@ -699,6 +737,7 @@ export function createNavigationBinding({
     if (outlines && scene.primitives.contains(outlines))
       scene.primitives.remove(outlines);
     outlines = null;
+    marker?.hide();
     releaseRender?.();
     if (crosshair) crosshair.hidden = true;
     scene.requestRender();
@@ -761,7 +800,12 @@ export function createNavigationBinding({
    * camera's heading with its pitch kept; with nothing targeted, on the
    * surface under the view's centre; with nothing there, from the camera.
    */
-  const enterHere = (next) => {
+  const enterHere = (next, pose = null) => {
+    // A place to go (Home, a waypoint): from any mode, the walker put there.
+    if (pose && Number.isFinite(pose.lon) && Number.isFinite(pose.lat)) {
+      goToPose(next, pose);
+      return;
+    }
     if (mode !== 'spectator') return;
     const view = readCameraView(viewer);
     let place = null;
@@ -836,6 +880,56 @@ export function createNavigationBinding({
   };
   const offInputs = inputs.subscribe?.(syncSpectatorPolling);
 
+  /**
+   * The walker put at a pose ({lon, lat, heightM: the eye, headingDeg,
+   * pitchDeg}): Home and waypoints (waypoints.js). From Spectator the
+   * camera is put at the eye and the mode set (entering it); then, in any
+   * mode, the walker's state is made at the pose in the frame there (put
+   * down on the ground in Walk) and the camera placed the way the frame
+   * loop places it (placeCamera: third person, the field of view, the
+   * marker).
+   */
+  const goToPose = (next, pose) => {
+    let heightM = Number(pose.heightM);
+    if (!Number.isFinite(heightM)) {
+      const ground = globeHeightM(viewer, pose.lat, pose.lon);
+      heightM = (plausibleSurfaceM(ground) ? ground : 0) + EYE_HEIGHT_M;
+    }
+    const headingDeg = Number(pose.headingDeg) || 0;
+    const pitchDeg = Number(pose.pitchDeg) || 0;
+    if (mode === 'spectator') {
+      const current = readCameraView(viewer);
+      applyCameraView(viewer, {
+        lon: pose.lon,
+        lat: pose.lat,
+        heightM,
+        headingDeg,
+        pitchDeg,
+        rollDeg: 0,
+        fovDeg: current?.fovDeg ?? 60,
+      });
+      store.set(next);
+    }
+    if (!active) return;
+    const frame = frameFor({ lon: pose.lon, lat: pose.lat }, active.frame);
+    const local = frame.toLocal(
+      Cesium.Cartographic.fromDegrees(pose.lon, pose.lat, heightM),
+    );
+    let state = createNavState({
+      x: local.x,
+      y: local.y,
+      z: local.z,
+      yaw: Cesium.Math.toRadians(headingDeg),
+      pitch: Cesium.Math.toRadians(pitchDeg),
+    });
+    if (mode === 'walk') state = land(state, frame.world);
+    active.frame = frame;
+    active.state = state;
+    active.resync = false;
+    placeCamera();
+    status(statusOf(frame, state));
+  };
+
   // G walks here, Shift+G flies here (in Spectator, outside form fields).
   const onEntryKey = (event) => {
     if (mode !== 'spectator') return;
@@ -853,6 +947,12 @@ export function createNavigationBinding({
   const unsubscribe = store.subscribe((next) => {
     apply(next);
     syncSpectatorPolling();
+  });
+  // A new view: the MODE line says it, the next frame places the camera.
+  const offView = viewChoice?.subscribe?.(() => {
+    if (!active) return;
+    status(statusOf(active.frame, active.state ?? {}));
+    scene.requestRender();
   });
   apply(store.get());
   syncSpectatorPolling();
@@ -873,8 +973,31 @@ export function createNavigationBinding({
     get state() {
       return active?.state ?? null;
     },
+    /**
+     * Where the walker stands, for wayfinding (waypoints.js): {lon, lat,
+     * heightM (the eye), level (the block underfoot, under Blocks),
+     * blockM, headingDeg}; null in Spectator.
+     */
+    get place() {
+      if (!active?.state) return null;
+      const { frame, state } = active;
+      const at = frame.toCartographic(state.x, state.y, state.z);
+      const blockM = frame.kind === 'blocks' ? frame.region.blockM : null;
+      return {
+        lon: at.lon,
+        lat: at.lat,
+        heightM: at.heightM,
+        level: blockM
+          ? Math.round((state.z - EYE_HEIGHT_M) / blockM) - 1
+          : null,
+        blockM,
+        headingDeg: ((Cesium.Math.toDegrees(state.yaw) % 360) + 360) % 360,
+      };
+    },
     destroy() {
       unsubscribe();
+      offView?.();
+      marker?.destroy?.();
       offInputs?.();
       offHinter?.();
       if (spectatorPolling)
