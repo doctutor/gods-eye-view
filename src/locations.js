@@ -580,8 +580,13 @@ export function viewportMetrics(viewport) {
 
   const latSpanDeg = northeast.lat - southwest.lat;
   // Longitude span measured the short way round so an antimeridian-crossing box
-  // (Pacific features) doesn't read as ~340° wide.
-  const lonSpanDeg = (((northeast.lng - southwest.lng) % 360) + 360) % 360;
+  // (Pacific features) doesn't read as ~340° wide. A box from −180 to 180 (the
+  // United States with its territories) wraps the whole way round: it is 360°
+  // wide, not 0° (which framed a sliver of ocean at 180° from 13,180 km).
+  const fullWrap = northeast.lng - southwest.lng >= 360;
+  const lonSpanDeg = fullWrap
+    ? 360
+    : (((northeast.lng - southwest.lng) % 360) + 360) % 360;
   const centerLat = (southwest.lat + northeast.lat) / 2;
   let centerLng = southwest.lng + lonSpanDeg / 2;
   if (centerLng > 180) centerLng -= 360;
@@ -612,6 +617,14 @@ function wrapLongitude(lng) {
  * never be gated on span alone.
  */
 export const PLACE_VIEWPORT_MAX_SPAN_KM = 300;
+/**
+ * A viewport wider than this east to west (degrees) is framed about its
+ * geocoded location instead (placeFramingViewport), at most these half-extents:
+ * the lower 48 of the United States, whose box runs from −180 to 180.
+ */
+export const WIDE_VIEWPORT_LON_DEG = 180;
+export const WIDE_FRAME_HALF_LAT_DEG = 20;
+export const WIDE_FRAME_HALF_LON_DEG = 32;
 
 /**
  * Fraction of a viewport's diagonal that its own geocoded location may sit away
@@ -687,8 +700,24 @@ export function placeFramingViewport(
   anchorLng,
   types = [],
 ) {
-  if (Array.isArray(types) && types.includes('country')) return viewport;
   const metrics = viewportMetrics(viewport);
+  // A box wider than half the globe east to west (a country with territories
+  // across the antimeridian, ±180°) has no centre worth flying to: frame its
+  // own geocoded location instead, countries included (the United States
+  // lands over the lower 48).
+  if (
+    metrics &&
+    metrics.lonSpanDeg > WIDE_VIEWPORT_LON_DEG &&
+    Number.isFinite(anchorLat) &&
+    Number.isFinite(anchorLng)
+  )
+    return anchoredBox(
+      anchorLat,
+      anchorLng,
+      Math.min(Math.abs(metrics.latSpanDeg) / 2, WIDE_FRAME_HALF_LAT_DEG),
+      WIDE_FRAME_HALF_LON_DEG,
+    );
+  if (Array.isArray(types) && types.includes('country')) return viewport;
   if (!metrics || metrics.spanKm <= PLACE_VIEWPORT_MAX_SPAN_KM) return viewport;
   if (!Number.isFinite(anchorLat) || !Number.isFinite(anchorLng))
     return viewport;
@@ -705,15 +734,20 @@ export function placeFramingViewport(
   // Guard the cosine so a near-polar anchor cannot blow the longitude half-extent up.
   const cosLat = Math.max(0.05, Math.cos(Cesium.Math.toRadians(anchorLat)));
   const lngHalfDeg = PLACE_FALLBACK_HALF_SPAN_KM / (KM_PER_DEGREE * cosLat);
-  const wrapLng = (lng) => ((((lng + 180) % 360) + 360) % 360) - 180;
+  return anchoredBox(anchorLat, anchorLng, latHalfDeg, lngHalfDeg);
+}
+
+/** A box of the given half-extents (degrees) about a point, longitudes wrapped. */
+function anchoredBox(lat, lng, latHalfDeg, lngHalfDeg) {
+  const wrapLng = (value) => ((((value + 180) % 360) + 360) % 360) - 180;
   return {
     southwest: {
-      lat: Math.max(-89.9, anchorLat - latHalfDeg),
-      lng: wrapLng(anchorLng - lngHalfDeg),
+      lat: Math.max(-89.9, lat - latHalfDeg),
+      lng: wrapLng(lng - lngHalfDeg),
     },
     northeast: {
-      lat: Math.min(89.9, anchorLat + latHalfDeg),
-      lng: wrapLng(anchorLng + lngHalfDeg),
+      lat: Math.min(89.9, lat + latHalfDeg),
+      lng: wrapLng(lng + lngHalfDeg),
     },
   };
 }

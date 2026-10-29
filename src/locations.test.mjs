@@ -20,6 +20,8 @@ import {
   REGION_SWATH_SPAN_KM,
   GLOBE_VIEW,
   searchAndFlyTo,
+  viewportMetrics,
+  WIDE_FRAME_HALF_LON_DEG,
 } from './locations.js';
 
 function stubViewer() {
@@ -659,4 +661,47 @@ test('a precise search without an outline frames against the resolved ground, no
   assert.ok(Math.abs(target.height - (171 + 30)) < 0.5, `target ${target.height}`);
   const eye = target.height + flight.offset.range * Math.sin(-flight.offset.pitch);
   assert.ok(eye > 171 + 100, `eye ${eye} must clear the 171 m surface`);
+});
+
+test('a viewport wrapping the whole way round (the United States, −180 to 180) frames its geocoded location, not a sliver at 180°', () => {
+  // The geocode answer on 2026-10-29: territories from American Samoa to the
+  // Aleutians; it read as 0° wide at −180 and framed the mid-Pacific.
+  const us = {
+    southwest: { lat: -14.7608358, lng: -180 },
+    northeast: { lat: 71.5889534, lng: 180 },
+  };
+  assert.equal(viewportMetrics(us).lonSpanDeg, 360);
+  const framed = placeFramingViewport(us, 39.7837304, -100.445882, [
+    'country',
+    'political',
+  ]);
+  const centre = viewportMetrics(framed);
+  assert.ok(Math.abs(centre.centerLat - 39.78) < 0.01, String(centre.centerLat));
+  assert.ok(Math.abs(centre.centerLng - -100.45) < 0.01, String(centre.centerLng));
+  assert.equal(centre.lonSpanDeg, 2 * WIDE_FRAME_HALF_LON_DEG, 'the lower 48');
+  assert.ok(centre.latSpanDeg <= 40);
+});
+
+test('a box crossing 180° but under half the globe keeps its framing, and its centre the short way round', () => {
+  // Alaska: 172.4°E to 129.9°W, 57.7° wide, centred at 158.8°W.
+  const alaska = {
+    southwest: { lat: 51.2, lng: 172.4 },
+    northeast: { lat: 71.4, lng: -129.9 },
+  };
+  const metrics = viewportMetrics(alaska);
+  assert.ok(Math.abs(metrics.lonSpanDeg - 57.7) < 1e-9);
+  assert.ok(Math.abs(metrics.centerLng - -158.75) < 1e-9);
+  assert.equal(
+    placeFramingViewport(alaska, 64.2, -152.5, [
+      'administrative_area_level_1',
+      'political',
+    ]),
+    alaska,
+  );
+  // An ordinary country, not crossing: as shipped.
+  const france = {
+    southwest: { lat: 41.3, lng: -5.2 },
+    northeast: { lat: 51.1, lng: 9.6 },
+  };
+  assert.equal(placeFramingViewport(france, 46.2, 2.2, ['country']), france);
 });

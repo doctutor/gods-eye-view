@@ -50,6 +50,7 @@ export function createApplicationBlocks({
   const buildings = createStructuresSource({
     loadChunk: (region, ci, cj) => chunks.loadChunk(region, ci, cj),
   });
+  const renderer = lazyRenderer(() => createBlocksRenderer({ viewer }));
   const controller = createBlocksController({
     viewer,
     store,
@@ -58,7 +59,7 @@ export function createApplicationBlocks({
       subscribeActivity: (listener) => dataManager.subscribeActivity(listener),
     },
     source: chunks,
-    renderer: lazyRenderer(() => createBlocksRenderer({ viewer })),
+    renderer,
     grid,
     buildChunkMesh,
     // Coarse chunks come a supergroup at a time (source.js).
@@ -102,6 +103,14 @@ export function createApplicationBlocks({
       isFlatBasemap(mapStackController?.getActiveStack?.()) === true,
     requestRender: governorRequestRender,
   });
+  // A QA page (scripts/qa-blocks-compare.mjs --sequence) that set
+  // window.__gevBlocksProbe before the app loaded is handed the controller
+  // and its renderer to watch; nothing else reads it.
+  const probe = globalThis.__gevBlocksProbe;
+  if (probe && typeof probe === 'object') {
+    probe.controller = controller;
+    probe.renderer = renderer;
+  }
   const unprovide = provideBlocksWorld(() => controller.world());
   const destroy = controller.destroy;
   controller.destroy = () => {

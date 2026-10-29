@@ -665,6 +665,8 @@ export function createBlocksController({
    * region (its own, anchored at the camera), chunks: ringKey → entry}.
    */
   const _rings = new Map();
+  /** The ring holes last told to the renderer (syncRings), as JSON. */
+  let _ringHolesKey = null;
   /** The map an entry is kept in. */
   const heldOf = (entry) =>
     entry.ring ? entry.ring.chunks : entry.coarse ? _coarse : _chunks;
@@ -800,6 +802,7 @@ export function createBlocksController({
     _chunks.clear();
     _coarse.clear();
     _rings.clear();
+    _ringHolesKey = null;
     _groupBuildings.clear();
     _region = null;
     stopTicking();
@@ -1863,8 +1866,10 @@ export function createBlocksController({
       );
     statusNow();
     if (changed) requestRender('blocks-chunks');
-    // Keep ticking while moving or while work remains; stop when settled.
-    if (_moving || hasWork(ring, groups, rings)) startTicking();
+    // Keep ticking while moving, while the camera is settling (the level
+    // check waits for it: stopping here left a cached view at the last
+    // level), or while work remains; stop when settled.
+    if (_moving || !settled || hasWork(ring, groups, rings)) startTicking();
     else stopTicking();
   }
 
@@ -2016,11 +2021,16 @@ export function createBlocksController({
       inner = radiusBlocks * level;
     }
     if (changed) applyRegions();
-    call(() =>
-      renderer.setRingHoles?.(
-        levels.length ? { lon: camera.lon, lat: camera.lat, reachM } : null,
-      ),
-    ).catch(() => {});
+    // Told only when they change (the camera moved, a ring came or went):
+    // a still camera ticking asked the same holes every 500 ms.
+    const holes = levels.length
+      ? { lon: camera.lon, lat: camera.lat, reachM }
+      : null;
+    const key = JSON.stringify(holes);
+    if (key !== _ringHolesKey) {
+      _ringHolesKey = key;
+      call(() => renderer.setRingHoles?.(holes)).catch(() => {});
+    }
     return out;
   }
 
