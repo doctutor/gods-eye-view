@@ -13,6 +13,8 @@ import {
   GROUP_COLUMNS,
   LAND_SHARE,
   SUPERGROUP,
+  TILE_RETRY_MS,
+  retryable,
   coarseHeights,
   coarseLevelOf,
   columnsFromHeights,
@@ -27,7 +29,12 @@ import {
   sampleColumns,
   snapBlockM,
 } from './source.js';
-import { LATTICE_CELLS, latticeBox, latticeIndex } from './lattice.js';
+import {
+  LATTICE_CELLS,
+  latticeBox,
+  latticeIndex,
+  latticeSideDeg,
+} from './lattice.js';
 
 const M_PER_DEG = 111_319.49;
 
@@ -533,7 +540,12 @@ test('loadCoarseChunk: a failed supergroup rejects its waiting chunks and is ask
     heightAt: () => 12,
     fail: 1,
   });
-  const source = createChunkSource({ fetchValues, createChunk });
+  // No retries here: the failure itself.
+  const source = createChunkSource({
+    fetchValues,
+    createChunk,
+    retryMs: [],
+  });
   const results = await Promise.allSettled([
     source.loadCoarseChunk(region, 0, 0),
     source.loadCoarseChunk(region, 1, 1),
@@ -557,7 +569,12 @@ test('loadChunk: a failure rejects with its status and is asked again', async ()
     heightAt: () => 12,
     fail: 1,
   });
-  const source = createChunkSource({ fetchValues, createChunk });
+  // No retries here: the failure itself.
+  const source = createChunkSource({
+    fetchValues,
+    createChunk,
+    retryMs: [],
+  });
   await assert.rejects(
     source.loadChunk(region, 0, 0),
     (error) => error.status === 503,
@@ -715,6 +732,133 @@ test('a sampled sea column (0 m, as the server answers the masked sea) is water 
   assert.equal(chunk.water[land], NONE);
   // Every column has a top: the sea is never a hole.
   assert.ok([...chunk.top].every((top) => top !== NONE));
+});
+
+test('a tile that fails is asked again after 5 s, then 20 s; a 4xx or 429 is not', async () => {
+  const region = createRegion({ lon0: 0.5, lat0: 51.5, blockM: 30 });
+  const slept = [];
+  const sleep = async (ms) => slept.push(ms);
+  // Each tile: two 503s (Earth Engine gave no answer), then the answer.
+  const { fetchValues: answer } = fakeValues({
+    nativeM: 30,
+    heightAt: () => 12,
+  });
+  const failedBy = new Map();
+  const flaky = async (request) => {
+    const key = JSON.stringify(request.box);
+    const failed = failedBy.get(key) || 0;
+    if (failed < 2) {
+      failedBy.set(key, failed + 1);
+      const error = new Error('Raster values: HTTP 503');
+      error.status = 503;
+      throw error;
+    }
+    return answer(request);
+  };
+  const source = createChunkSource({ fetchValues: flaky, createChunk, sleep });
+  const chunk = await source.loadChunk(region, 0, 0);
+  assert.equal(chunk.top[0], 0);
+  // Each tile waited 5 s, then 20 s.
+  const tiles = failedBy.size;
+  assert.ok(tiles >= 1);
+  assert.equal(slept.filter((ms) => ms === 5_000).length, tiles);
+  assert.equal(slept.filter((ms) => ms === 20_000).length, tiles);
+  assert.deepEqual(TILE_RETRY_MS, [5_000, 20_000]);
+  // Three failures: the last delay spent, it rejects (the controller's own
+  // retry asks again later).
+  slept.length = 0;
+  const down = fakeValues({ nativeM: 30, heightAt: () => 12, fail: 9 });
+  await assert.rejects(
+    createChunkSource({
+      fetchValues: down.fetchValues,
+      createChunk,
+      sleep,
+    }).loadChunk(region, 0, 0),
+    (error) => error.status === 503,
+  );
+  assert.ok(slept.length > 0);
+  assert.ok(slept.every((ms) => ms === 5_000 || ms === 20_000));
+  // Not retried: the request itself, or the day's budget.
+  for (const status of [400, 404, 413, 429]) {
+    assert.equal(retryable({ status }), false, String(status));
+  }
+  for (const status of [0, 500, 502, 503, 504])
+    assert.equal(retryable({ status }), true, String(status));
+});
+
+/** A region anchored on a lattice corner of its level, so its groups straddle tile seams. */
+function seamRegion(blockM) {
+  const side = latticeSideDeg(blockM);
+  const lon0 = -180 + Math.round((-76.6 + 180) / side) * side;
+  const lat0 = -90 + Math.round((39.3 + 90) / side) * side;
+  return { region: createRegion({ lon0, lat0, blockM }), lon0, lat0 };
+}
+
+test('a chunk across a lattice seam is stitched from both tiles: east-west, north-south and at a corner', async () => {
+  const { region } = seamRegion(30);
+  // A field every tile answers from its own grid: a 10% ramp east of the
+  // anchor about 2,000 m, plus 1,000 m north of it (all valid heights).
+  const mPerLon = M_PER_DEG * Math.cos((39.3 * Math.PI) / 180);
+  const heightAt = (lon, lat) =>
+    2000 + (lon - region.lon0) * mPerLon * 0.1 + (lat > region.lat0 ? 1000 : 0);
+  const { fetchValues, calls } = fakeValues({ nativeM: 30, heightAt });
+  const source = createChunkSource({ fetchValues, createChunk });
+  // The four chunks about the anchor: the seams run between them.
+  const chunks = await Promise.all(
+    [
+      [-1, -1],
+      [0, -1],
+      [-1, 0],
+      [0, 0],
+    ].map(([ci, cj]) => source.loadChunk(region, ci, cj)),
+  );
+  // Four tiles meet at the anchor; all four were asked, once each.
+  assertLatticeCalls(calls, 30);
+  assert.equal(calls.length, 4);
+  for (const [k, [ci, cj]] of [
+    [-1, -1],
+    [0, -1],
+    [-1, 0],
+    [0, 0],
+  ].entries()) {
+    const chunk = chunks[k];
+    for (const i of [0, 31, 62, 63])
+      for (const j of [0, 31, 62, 63]) {
+        const place = region.columnCentre(ci * 64 + i, cj * 64 + j);
+        const top = chunk.top[columnIndex(i, j)];
+        assert.notEqual(top, NONE, `chunk ${ci},${cj} column ${i},${j}`);
+        // Within a level of the field at the column: its own tile's cell.
+        assert.ok(
+          Math.abs(top - Math.floor(heightAt(place.lon, place.lat) / 30)) <= 1,
+          `chunk ${ci},${cj} column ${i},${j}: ${top}`,
+        );
+      }
+  }
+});
+
+test('a seam tile that fails once is retried, and the chunk across the seam is whole', async () => {
+  const { region } = seamRegion(30);
+  let failures = 1;
+  const { fetchValues: base } = fakeValues({ nativeM: 30, heightAt: () => 90 });
+  // The second tile asked fails once: one side of the seam.
+  let asked = 0;
+  const fetchValues = async (request) => {
+    if (++asked === 2 && failures-- > 0) {
+      const error = new Error('Raster values: HTTP 503');
+      error.status = 503;
+      throw error;
+    }
+    return base(request);
+  };
+  const source = createChunkSource({
+    fetchValues,
+    createChunk,
+    sleep: async () => {},
+  });
+  const chunk = await source.loadChunk(region, 0, 0);
+  const corner = await source.loadChunk(region, -1, -1);
+  for (const c of [chunk, corner])
+    assert.ok([...c.top].every((top) => top === 3)); // 90 m on 30 m levels
 });
 
 test('createChunkSource builds store chunks unless given createChunk', async () => {

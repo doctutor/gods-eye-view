@@ -6552,6 +6552,17 @@ The meshes are kept to rebuild batches from, compact (byte normals, which
 the GPU reads too, and 16-bit indices): 159 MB at that view
 (`getState().retainedMB`).
 
+**Order, and curved chunks** (milestone 5). Pending batches are built
+nearest the view's centre first (the screen's centre on the ellipsoid),
+one a frame as before; a batch covering the centre waits 250 ms of quiet
+(`CENTRE_QUIET_MS`), not 1.5 s, so at 31 km cells, where a batch is
+about 7,900 km across, the one under the view comes first. Chunks on the
+curved grid (`chunkIsCurved`: a mesh's own `curved`, else 1,920 m blocks
+and up: a ring's level, the primary region's, or four times it for a
+`c:` coarse chunk) draw without block edges or dither, since their local
+positions are off the block lattice the shader reads; the fog still
+applies.
+
 **K rings** (milestone 5). `setRegions(regions, {datumOffsetM,
 fogReachBlocks})` takes a region a level (an array or a Map by block
 size). The finest is the primary region, `setRegion`'s, its chunks keyed
@@ -6582,13 +6593,18 @@ m), every property of a cell the cell's own:
   (the source's pyramid, itself means), over valid pixels only;
 - water: a cell under half of whose samples have heights (the sea, which
   every source masks) or whose mean is at or below 0 m is level 0, one
-  flat colour, the Blocks water's;
+  flat colour, the Blocks water's blue;
 - the level: the mean quantised down to the level height (`blocksLevelM`:
-  30, 30, 60, 240 and 960 m), coloured as the Elevation layer colours
-  that height, shaded flat by the hillshade of the quantised cells (÷ 180,
-  a flat cell's);
+  30, 30, 60, 240 and 960 m), in the Blocks terrain's sand, shaded flat
+  by the hillshade of the quantised cells (÷ 180, a flat cell's);
+- the colours: the geometry's (`lighting.js` MATERIAL_COLORS: sand 200,
+  194, 176 and water 58, 112, 190), as a top face shows them under the
+  study sun (× 0.883), so a chunk missing or beyond the geometry reads as
+  the chunks about it (`BLOCKS_STYLE_TERRAIN_RGB`, `BLOCKS_STYLE_WATER_RGB`,
+  `BLOCKS_STYLE_TOP_LIGHT` in `blocksStyle.js`, held equal to lighting.js
+  by a test);
 - the edges: the westmost and southmost eighth of each cell, on a grid of
-  eighths, 38 % darker.
+  eighths, 12 % darker, as the geometry's block edges.
 
 Each is reprojected onto its grid, so a cell is one colour at any zoom;
 an RGB map, drawn 0 to 255. The client picks the level whose cell is at

@@ -16,6 +16,23 @@ export const BLOCKS_STYLE_LEVELS_M = Object.freeze([
   120, 480, 1920, 7680, 30720,
 ]);
 
+/**
+ * The geometry's colours, so the style and the Blocks chunks read as one
+ * surface (src/layers/blocks/lighting.js MATERIAL_COLORS, worker1's;
+ * copied, not imported, as the server reads this file; a test holds them
+ * equal): the terrain's neutral sand and the water's blue, each as a top
+ * face shows them under the study sun (FACE_SHADE.up × sunTerm(up) =
+ * 0.6 + 0.4 · sin 45°), and the block edges' darkening (renderer.js
+ * EDGE_DEFAULTS.strength, 12 %).
+ */
+export const BLOCKS_STYLE_TERRAIN_RGB = Object.freeze([200, 194, 176]);
+export const BLOCKS_STYLE_WATER_RGB = Object.freeze([58, 112, 190]);
+export const BLOCKS_STYLE_TOP_LIGHT = 0.6 + 0.4 * Math.SQRT1_2;
+export const BLOCKS_STYLE_EDGE_TONE = 1 - 0.12;
+/** A colour as a top face shows it: × BLOCKS_STYLE_TOP_LIGHT, rounded. */
+export const blocksStyleLit = (rgb) =>
+  rgb.map((value) => Math.round(value * BLOCKS_STYLE_TOP_LIGHT));
+
 /** The layer the style belongs to. */
 export const BLOCKS_STYLE_LAYER = 'ee-elevation';
 

@@ -35,8 +35,12 @@ import {
   demSource,
 } from '../../src/data/demStack.js';
 import {
+  BLOCKS_STYLE_EDGE_TONE,
   BLOCKS_STYLE_LAYER,
+  BLOCKS_STYLE_TERRAIN_RGB,
+  BLOCKS_STYLE_WATER_RGB,
   blocksLevelM,
+  blocksStyleLit,
   blocksStyleCell,
   blocksStyleZoomBand,
 } from '../../src/data/blocksStyle.js';
@@ -96,6 +100,16 @@ const MAX_TILE_BYTES = 2 * 1024 * 1024;
 /** computePixels: 512² cells of two float bands is 2 MB. */
 const MAX_PIXELS_BYTES = 4 * 1024 * 1024;
 const TILE_TIMEOUT_MS = 30_000;
+/**
+ * A values request (image:computePixels) waits this long: a 512-cell
+ * tile reduced to a mean at a coarse level often takes longer than a map
+ * tile's 30 s.
+ */
+export const VALUES_TIMEOUT_MS = 120_000;
+/** One more try after a values request gets no answer, this long after. */
+export const VALUES_RETRY_MS = 2_000;
+/** What a client is told to wait before asking again after no answer, s. */
+export const VALUES_RETRY_AFTER_S = 30;
 /** A token exchange is tried this many times while it may pass (no answer, 429, 5xx, a 200 without a token)… */
 export const SIGN_IN_ATTEMPTS = 4;
 /** …waiting this long before the second, doubling after. */
@@ -966,7 +980,7 @@ const FLAT_HILLSHADE = 180;
  */
 export const BLOCKS_EDGE_PARTS = 8;
 /** … darkened to this share of the cell's tone. */
-export const BLOCKS_EDGE_TONE = 0.62;
+export const BLOCKS_EDGE_TONE = BLOCKS_STYLE_EDGE_TONE;
 /**
  * A cell is the mean of SUB × SUB samples of its source, read at a quarter
  * of the cell (from the source's pyramid, itself means): 16 a cell, so a
@@ -976,7 +990,13 @@ export const BLOCKS_MEAN_SUB = 4;
 /** A cell is water (level 0) when less than this share of it has heights. */
 export const BLOCKS_LAND_SHARE = 0.5;
 /** The water's colour: the Blocks water's (mesh.js), flat. */
-export const BLOCKS_WATER_RGB = Object.freeze([58, 112, 190]);
+export const BLOCKS_WATER_RGB = Object.freeze(
+  blocksStyleLit(BLOCKS_STYLE_WATER_RGB),
+);
+/** The land's colour: the Blocks terrain's sand, lit as a top face. */
+export const BLOCKS_TERRAIN_RGB = Object.freeze(
+  blocksStyleLit(BLOCKS_STYLE_TERRAIN_RGB),
+);
 /** The finest level read from the far band (GMTED 230 m); finer ones read FABDEM 30 m. */
 export const BLOCKS_FAR_FROM_M = 1920;
 const M_PER_DEG_EQUATOR = 111_319.49;
@@ -1004,10 +1024,11 @@ export function blocksStyleGrid(cellM, part = 1) {
  *   masked in every source), or whose mean is at or below 0 m: level 0,
  *   one flat colour, as the Blocks geometry draws water;
  * - the level: the mean quantised down to blocksLevelM; its colour the
- *   Elevation layer's for that height, shaded flat by the hillshade of the
- *   quantised cells (÷ 180, a flat cell's);
+ *   Blocks terrain's sand as a top face shows it (blocksStyle.js, the
+ *   geometry's), shaded flat by the hillshade of the quantised cells
+ *   (÷ 180, a flat cell's); water the Blocks water's blue, lit alike;
  * - the edges: the westmost and southmost eighth of each cell, on a grid
- *   of eighths, BLOCKS_EDGE_TONE as dark.
+ *   of eighths, BLOCKS_EDGE_TONE as dark (the geometry's 12 %).
  * Each is reprojected to its grid, so a cell is one colour at any zoom. An
  * RGB image, drawn 0 to 255.
  */
@@ -1095,17 +1116,9 @@ export function blocksStyleExpression(layer, variant, cellM) {
     test: reference(refs.water),
     value: imageConstant(0),
   });
-  const land = invoke('Image.visualize', {
-    image: invoke('Image.sqrt', {
-      value: invoke('Image.max', {
-        image1: reference(refs.level),
-        image2: imageConstant(0),
-      }),
-    }),
-    min: constant(layer.vis.min),
-    max: constant(layer.vis.max),
-    palette: constant([...layer.vis.palette]),
-  });
+  // The Blocks terrain's sand as a flat top shows it; the relief is the
+  // shade's (the geometry has one terrain colour, light carries shape).
+  const land = imageConstant([...BLOCKS_TERRAIN_RGB]);
   // The hillshade of the quantised cells, on the cells' grid.
   const shade = invoke('Image.divide', {
     image1: onGrid(
@@ -1514,8 +1527,9 @@ export function createRestBackend({
   project,
   auth,
   fetchImpl = (...args) => fetch(...args),
+  valuesTimeoutMs = VALUES_TIMEOUT_MS,
 }) {
-  async function authorized(url, init = {}) {
+  async function authorized(url, init = {}, timeoutMs = TILE_TIMEOUT_MS) {
     const send = async () =>
       fetchImpl(url, {
         ...init,
@@ -1523,7 +1537,7 @@ export function createRestBackend({
           ...(init.headers || {}),
           Authorization: `Bearer ${await auth.token()}`,
         },
-        signal: AbortSignal.timeout(TILE_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
         redirect: 'error',
       });
     let response = await send();
@@ -1596,14 +1610,26 @@ export function createRestBackend({
      * @returns {Promise<{status: number, body: Buffer|null, error?: string}>}
      */
     async computePixels(expression, grid) {
-      const response = await authorized(
-        `${EE_API}/projects/${encodeURIComponent(project)}/image:computePixels`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ expression, fileFormat: 'NPY', grid }),
-        },
-      );
+      let response;
+      try {
+        response = await authorized(
+          `${EE_API}/projects/${encodeURIComponent(project)}/image:computePixels`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ expression, fileFormat: 'NPY', grid }),
+          },
+          valuesTimeoutMs,
+        );
+      } catch (error) {
+        // No answer in time (or a dropped connection): a 504, which the
+        // service tries once more, not a thrown error (a route's 500).
+        return {
+          status: 504,
+          body: null,
+          error: `Earth Engine gave no answer (${String(error?.message || error).slice(0, 120)})`,
+        };
+      }
       if (!response.ok)
         return {
           status: response.status,
@@ -1742,6 +1768,7 @@ export function createEarthEngineService({
   backend = null,
   fetchImpl = (...args) => fetch(...args),
   now = () => Date.now(),
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 } = {}) {
   const byId = new Map(layers.map((layer) => [layer.id, layer]));
   const dir = path.join(sourceRoot, CACHE_DIR);
@@ -2195,8 +2222,36 @@ export function createEarthEngineService({
           status: 503,
           error: 'This Earth Engine backend has no computePixels',
         };
-      countTile(layerId);
-      const answer = await engine.computePixels(expression, grid);
+      // No answer (504, or a backend that throws): once more after
+      // VALUES_RETRY_MS, each try counted; still none, a 503 to ask again
+      // later (VALUES_RETRY_AFTER_S), never kept.
+      let answer;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt) {
+          if (usage().tiles >= current.dailyTiles)
+            return {
+              status: 429,
+              error: `The day's ${current.dailyTiles} Earth Engine tiles are used`,
+            };
+          await sleep(VALUES_RETRY_MS);
+        }
+        countTile(layerId);
+        try {
+          answer = await engine.computePixels(expression, grid);
+        } catch (error) {
+          answer = {
+            status: 504,
+            error: `Earth Engine gave no answer (${String(error?.message || error).slice(0, 120)})`,
+          };
+        }
+        if (answer.status !== 504) break;
+      }
+      if (answer.status === 504)
+        return {
+          status: 503,
+          error: `${answer.error}; ask again later`,
+          retryAfterS: VALUES_RETRY_AFTER_S,
+        };
       if (answer.status !== 200 || !answer.body)
         return {
           status: answer.status === 200 ? 502 : answer.status,

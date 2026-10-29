@@ -9,6 +9,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  BLOCKS_STYLE_EDGE_TONE,
+  BLOCKS_STYLE_TERRAIN_RGB,
+  BLOCKS_STYLE_TOP_LIGHT,
+  BLOCKS_STYLE_WATER_RGB,
+  blocksStyleLit,
   BLOCKS_STYLE_LAYER,
   BLOCKS_STYLE_LEVELS_M,
   BLOCKS_STYLE_MAX_ZOOM,
@@ -31,6 +36,14 @@ import {
   mapRequestFor,
 } from '../../server/providers/earthEngine.js';
 import { latticeBox } from '../layers/blocks/lattice.js';
+import {
+  FACE_SHADE,
+  MATERIAL_COLORS,
+  litColor,
+  sunTerm,
+} from '../layers/blocks/lighting.js';
+import { MATERIALS } from '../layers/blocks/store.js';
+import { EDGE_DEFAULTS } from '../layers/blocks/renderer.js';
 import { BLOCK_PYRAMID_M, levelMFor } from '../layers/blocks/pyramid.js';
 
 const elevation = EARTH_ENGINE_LAYERS.find(
@@ -149,19 +162,25 @@ test('the expression: every property a cell’s own: heights averaged on the cel
       /"constantValue":0\.5/.test(JSON.stringify(call.image2)),
     ),
   );
-  assert.match(text, /"constantValue":\[58,112,190\]/);
-  // The level: 60 m steps of the cell mean; colour and shade from it.
+  // The geometry's colours, lit as a top face under the study sun.
+  assert.ok(
+    text.includes(
+      `"constantValue":[${blocksStyleLit(BLOCKS_STYLE_WATER_RGB)}]`,
+    ),
+  );
+  assert.ok(
+    text.includes(
+      `"constantValue":[${blocksStyleLit(BLOCKS_STYLE_TERRAIN_RGB)}]`,
+    ),
+  );
+  // No height ramp: the Elevation palette is not the style's.
+  assert.equal(callsOf(body.expression, 'Image.visualize').length, 0);
+  assert.ok(!text.includes(elevation.vis.palette[0]));
+  // The level: 60 m steps of the cell mean; the shade from it.
   assert.match(text, /"constantValue":60\}/);
   const shade = callsOf(body.expression, 'Terrain.hillshade');
   assert.equal(shade.length, 1);
   assert.ok(shade[0].input.valueReference);
-  assert.match(
-    JSON.stringify(callsOf(body.expression, 'Image.visualize')[0].image),
-    new RegExp(`"valueReference":"${shade[0].input.valueReference}"`),
-  );
-  assert.ok(
-    text.includes(`"palette":{"constantValue":["${elevation.vis.palette[0]}"`),
-  );
   // The edges: the westmost and southmost of eight parts.
   assert.match(text, /"Image\.pixelCoordinates"/);
   const mods = callsOf(body.expression, 'Image.mod');
@@ -329,4 +348,16 @@ test('under its band a level’s tile is blank: 200, the transparent PNG, no map
   assert.equal(backend.made.length, 1);
   // Out of range is still out of range.
   assert.equal((await tile('blocks-1920', 4, 16, 0)).status, 400);
+});
+
+test("the style's colours are the geometry's: lighting.js's sand and water, a top face's light, the renderer's edge", () => {
+  const rgb = (material) => [...MATERIAL_COLORS[material]].slice(0, 3);
+  assert.deepEqual([...BLOCKS_STYLE_TERRAIN_RGB], rgb(MATERIALS.TERRAIN));
+  assert.deepEqual([...BLOCKS_STYLE_WATER_RGB], rgb(MATERIALS.WATER));
+  const top = FACE_SHADE.up * sunTerm({ east: 0, north: 0, up: 1 });
+  assert.ok(Math.abs(BLOCKS_STYLE_TOP_LIGHT - top) < 1e-12);
+  assert.equal(BLOCKS_STYLE_EDGE_TONE, 1 - EDGE_DEFAULTS.strength);
+  // A flat cell is the colour of a lit top face (litColor's rounding).
+  const lit = litColor(MATERIALS.TERRAIN, top);
+  assert.deepEqual(blocksStyleLit(BLOCKS_STYLE_TERRAIN_RGB), lit.slice(0, 3));
 });

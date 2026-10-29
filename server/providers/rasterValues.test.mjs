@@ -9,7 +9,11 @@ import path from 'node:path';
 
 import { EARTH_ENGINE_LAYERS } from '../../src/data/earthEngineLayers.js';
 import { decodeRasterValues } from '../../src/data/rasterValues.js';
-import { createEarthEngineService } from './earthEngine.js';
+import {
+  VALUES_RETRY_AFTER_S,
+  createEarthEngineService,
+  createRestBackend,
+} from './earthEngine.js';
 import {
   createRasterValuesHandler,
   createRasterValuesService,
@@ -662,4 +666,102 @@ test('the route: octet-stream, JSON errors, same-site, GET only', async (t) => {
     headers: { origin: 'https://evil.example' },
   });
   assert.equal(foreign.statusCode, 403);
+});
+
+test('Earth Engine gives no answer: one more try (each counted), then a 503 with Retry-After, never kept', async (t) => {
+  const root = tempRoot(t);
+  let silent = 1;
+  const asked = [];
+  const ee = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    layers: EARTH_ENGINE_LAYERS,
+    sleep: async (ms) => asked.push(`sleep ${ms}`),
+    backend: {
+      async computePixels(expression, grid) {
+        asked.push('ask');
+        if (silent-- > 0)
+          return {
+            status: 504,
+            error: 'Earth Engine gave no answer (timeout)',
+          };
+        const { width, height } = grid.dimensions;
+        const v = new Float32Array(width * height).fill(42);
+        const m = new Float32Array(width * height).fill(1);
+        return { status: 200, body: npy(height, width, { v, m }) };
+      },
+    },
+  });
+  const values = createRasterValuesService({
+    sourceRoot: root,
+    env: {},
+    earthEngine: ee,
+    cacheDir: path.join(root, 'raster-values'),
+  });
+  t.after(() => values.close());
+  // Silent once: the second try answers; both counted.
+  const answer = await values.values(query());
+  assert.equal(answer.status, 200);
+  assert.deepEqual(asked, ['ask', 'sleep 2000', 'ask']);
+  assert.equal((await ee.budget()).total, 2);
+  // Silent twice: a 503 that says when to ask again, and nothing kept.
+  silent = 2;
+  asked.length = 0;
+  const later = await values.values(query({ cells: '63' }));
+  assert.equal(later.status, 503);
+  assert.equal(later.retryAfterS, VALUES_RETRY_AFTER_S);
+  assert.match(later.error, /ask again later/);
+  assert.deepEqual(asked, ['ask', 'sleep 2000', 'ask']);
+  silent = 0;
+  const again = await values.values(query({ cells: '63' }));
+  assert.equal(again.status, 200);
+  assert.notEqual(again.cached, true);
+  // The route: 503 and Retry-After, JSON, not a 500.
+  silent = 2;
+  const handler = createRasterValuesHandler({ service: values });
+  const res = {
+    statusCode: 200,
+    headers: {},
+    setHeader(name, value) {
+      this.headers[name.toLowerCase()] = value;
+    },
+    end(body) {
+      this.body = body;
+    },
+  };
+  await handler(
+    {
+      url: `/?${new URLSearchParams(query({ cells: '62' }))}`,
+      method: 'GET',
+      headers: { host: 'localhost:4173' },
+      socket: {},
+    },
+    res,
+  );
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.headers['retry-after'], String(VALUES_RETRY_AFTER_S));
+  assert.match(JSON.parse(res.body).error, /ask again later/);
+});
+
+test('the REST backend: a values request waits its own time, and no answer is a 504, not a throw', async () => {
+  const signals = [];
+  const backend = createRestBackend({
+    project: 'p',
+    auth: { token: async () => 't', forget() {} },
+    valuesTimeoutMs: 120_000,
+    fetchImpl: async (url, init) => {
+      signals.push(init.signal);
+      throw Object.assign(
+        new Error('The operation was aborted due to timeout'),
+        {
+          name: 'TimeoutError',
+        },
+      );
+    },
+  });
+  const answer = await backend.computePixels({}, {});
+  assert.equal(answer.status, 504);
+  assert.match(answer.error, /no answer .*timeout/);
+  assert.equal(signals.length, 1);
+  assert.ok(signals[0] instanceof AbortSignal);
 });

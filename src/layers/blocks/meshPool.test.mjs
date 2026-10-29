@@ -13,6 +13,7 @@ import { buildChunkMesh } from './mesh.js';
 import {
   edgeColumns,
   restoreChunk,
+  meshTransferList,
   runMeshJob,
   snapshotChunk,
   snapshotJob,
@@ -486,4 +487,14 @@ test('the snapshot carries levelM: a 120 m block on 30 m levels meshes the same 
     [...cube.positions.slice(0, 30)],
     [...direct.positions.slice(0, 30)],
   );
+});
+
+test('the block points travel: a job’s mesh carries blockCoords as the direct one does, its buffer transferred', () => {
+  const chunk = hilly(0, 0);
+  const neighbours = around(0, 0);
+  const direct = buildChunkMesh(chunk, { ...OPTIONS, neighbours });
+  const { job } = snapshotJob(chunk, { ...OPTIONS, neighbours });
+  const viaJob = runMeshJob(structuredClone(job));
+  assert.deepEqual([...viaJob.blockCoords], [...direct.blockCoords]);
+  assert.ok(meshTransferList(viaJob).includes(viaJob.blockCoords.buffer));
 });
