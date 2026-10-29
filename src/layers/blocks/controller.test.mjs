@@ -2920,6 +2920,16 @@ test('K rings: each its own region at its own level through setRegions, keyed L<
   assert.equal(holes.reachM[8], 64 * 1);
   assert.equal(holes.reachM[120], 64 * 8);
   assert.equal(holes.reachM[480], 64 * 120);
+  // Told on change only: a still camera ticking asks nothing more; a move
+  // asks once.
+  const told = renderer.holes.length;
+  assert.equal(told, 1, 'once for a camera that never moved');
+  for (let n = 0; n < 5; n++) controller.tick();
+  assert.equal(renderer.holes.length, told);
+  viewer.moveTo(east(20));
+  controller.tick();
+  assert.equal(renderer.holes.length, told + 1);
+  assert.notEqual(renderer.holes.at(-1).lon, holes.lon);
   // The status counts them with the coarse ring.
   const status = controller.getStatus();
   const ringChunks = [...rings.values()].reduce((n, r) => n + r.chunks.size, 0);
@@ -3177,4 +3187,60 @@ test('the anchor: on the ground point at the curved levels, half a supergroup so
     assert.ok(to.lat > -90 && to.lat < 90, JSON.stringify(to));
     assert.ok(to.lon >= -180 && to.lon <= 180, JSON.stringify(to));
   }
+});
+
+test('a cached view at a fine altitude after a coarse one changes level within the settle window: the ticker keeps running while the camera settles', async () => {
+  let time = 0;
+  const source = pyramidSource(1);
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  const view = { px: 40 };
+  setHeight(viewer, 50_000);
+  const timer = { callback: null };
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    footprint: () => view.px,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    settleMs: 2000,
+    now: () => time,
+    // Ticks come only from this interval, as in the app.
+    setIntervalImpl(callback) {
+      timer.callback = callback;
+      return 1;
+    },
+    clearIntervalImpl() {
+      timer.callback = null;
+    },
+  });
+  // Run the interval as the app would, until it stops of itself.
+  const runTicks = async (until) => {
+    while (timer.callback && time < until) {
+      await settle();
+      time += 500;
+      timer.callback?.();
+    }
+    await settle();
+  };
+  await runTicks(10_000);
+  assert.equal(controller.getStatus().blockM, 120);
+  assert.equal(timer.callback, null, 'settled: the ticker stopped');
+  // Down to 300 m over ground already loaded: the flight ends, nothing to
+  // load, and only the settle stands between it and 1 m blocks.
+  setHeight(viewer, 300);
+  view.px = 0.3;
+  viewer.camera.moveStart.raise();
+  viewer.camera.moveEnd.raise();
+  assert.notEqual(timer.callback, null, 'ticking while it settles');
+  await runTicks(time + 3000);
+  assert.equal(controller.getStatus().blockM, 1, 'not stuck at 120 m');
+  assert.equal(source.regions.length, 2);
+  controller.destroy();
 });
