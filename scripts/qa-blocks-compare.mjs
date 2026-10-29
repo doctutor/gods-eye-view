@@ -1320,7 +1320,14 @@ export function stepMetrics(
  * upsert for 2 s, nothing loading), with its requests, budget, long tasks,
  * frame rate and heap, and a frame with the HUD.
  */
-async function runSequence({ browser, dist, live, out, streetQuery }) {
+async function runSequence({
+  browser,
+  dist,
+  live,
+  out,
+  streetQuery,
+  only = null,
+}) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   await page.evaluateOnNewDocument(sequencePageProbe);
@@ -1373,7 +1380,11 @@ async function runSequence({ browser, dist, live, out, streetQuery }) {
     () => new Promise((resolve) => setTimeout(resolve, 8000)),
   );
   const results = [];
-  for (const step of SEQUENCE_STEPS) {
+  // --steps: only these, in their order (a check of one finding).
+  const steps = only
+    ? SEQUENCE_STEPS.filter((step) => only.includes(step.name))
+    : SEQUENCE_STEPS;
+  for (const step of steps) {
     const query = step.query ?? streetQuery;
     const from = Date.now();
     const budgetBefore = await budgetUsed(page);
@@ -1414,21 +1425,24 @@ async function runSequence({ browser, dist, live, out, streetQuery }) {
         });
       }, step.view);
     }
-    // The flight's end: no flight for 1 s (an arrival correction may follow).
-    await page.waitForFunction(
-      () => {
-        const ev = window.__qa.events;
-        const camera = window.__godsEyeView.viewer.camera;
-        if (camera._currentFlight) return false;
-        const last = ev.filter((e) => e[1] === 'flightEnd').at(-1);
-        return !last || Date.now() - last[0] > 1000;
-      },
-      { timeout: 120_000, polling: 100 },
-    );
-    const flightEnd = await page.evaluate(() => {
-      const ev = window.__qa.events;
-      return ev.filter((e) => e[1] === 'flightEnd').at(-1)?.[0] ?? Date.now();
-    });
+    // The flight's end: the first flight end after this step began, with no
+    // flight for 1 s after it (an arrival correction may follow). Taking the
+    // last end seen could catch the previous step's before the poller (50 ms)
+    // logged this one's.
+    const flightEnd = await page
+      .waitForFunction(
+        (since) => {
+          const ev = window.__qa.events;
+          if (window.__godsEyeView.viewer.camera._currentFlight) return false;
+          const ends = ev.filter((e) => e[1] === 'flightEnd' && e[0] >= since);
+          const last = ends.at(-1);
+          return last && Date.now() - last[0] > 1000 ? last[0] : false;
+        },
+        { timeout: 120_000, polling: 100 },
+        from,
+      )
+      .then((handle) => handle.jsonValue())
+      .catch(() => Date.now());
     // Settled: past the controller's wait to anchor (2 s still, then a
     // tick), no renderer or status event for 2 s, nothing loading,
     // anchoring or flying.
@@ -1565,6 +1579,11 @@ export async function main(argv = process.argv.slice(2)) {
         live,
         out,
         streetQuery: argValue(argv, '--street-query'),
+        only:
+          argValue(argv, '--steps')
+            ?.split(',')
+            .map((name) => name.trim())
+            .filter(Boolean) ?? null,
       });
       writeFileSync(
         path.join(out, 'sequence.json'),

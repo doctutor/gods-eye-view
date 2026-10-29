@@ -492,7 +492,14 @@ Findings, by what a user would notice:
    point branch, `src/locations.js`). With the globe hidden by Blocks, neither
    the arrival guard (`src/cameraGroundGuard.js`) nor the search's ground
    floor finds a surface to lift it to. Blocks then builds the unseen ground
-   (107 of the pass's Earth Engine tiles). Open: scoped, not fixed.
+   (107 of the pass's Earth Engine tiles). Fixed in two parts:
+   - A result typed only `point_of_interest` / `establishment` is framed by
+     its viewport's size (`viewportNavigationMode`): a region over 1,000 km
+     across, an area over 2 km. "Europe" now frames the continent from
+     9,425 km, and "Lake Tahoe" frames the lake from 70 km.
+   - The arrival guard takes a ground fallback, asked once when nothing
+     rendered answers under a hidden globe. `src/app/blocks.js` gives it one
+     point values probe.
 2. "United States" framed the mid-Pacific. Its viewport runs from −180 to
    180, which `viewportMetrics` read as 0° wide at 180°. Fixed: a full wrap
    reads 360° wide, and `placeFramingViewport` frames a box wider than half

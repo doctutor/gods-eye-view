@@ -199,3 +199,61 @@ test('a coarse tile streaming in does not lift the arrival; the leaves are waite
   );
   assert.ok(Math.abs(lifted.height - (25.4 + MIN_EYE_CLEARANCE_M)) < 0.5);
 });
+
+test('under a hidden globe with nothing rendered to measure, the ground fallback lifts the arrival once (Lake Tahoe under Blocks, 2026-10-29)', async () => {
+  // The camera at 136 m over a lake at 1,897 m; Blocks hides the globe and
+  // has drawn nothing yet, so no cell answers.
+  const viewer = fakeViewer({ cameraHeightM: 136, surfaceM: Number.NaN });
+  viewer.scene.globe = { show: false };
+  const asked = [];
+  const lifts = [];
+  guardCameraAboveGround(
+    viewer,
+    { lat: 39.0885, lon: -120.0504 },
+    {
+      intervalMs: 1,
+      attempts: 6,
+      onLift: (m) => lifts.push(m),
+      groundFallback: async (lat, lon) => {
+        asked.push([lat, lon]);
+        return 1897;
+      },
+    },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(asked.length, 1, 'asked once');
+  assert.deepEqual(asked[0], [39.0885, -120.0504]);
+  assert.equal(viewer.flights.length, 1);
+  const lifted = Cesium.Cartographic.fromCartesian(viewer.flights[0].destination);
+  assert.ok(Math.abs(lifted.height - (1897 + MIN_EYE_CLEARANCE_M)) < 0.5);
+  assert.equal(lifts.length, 1);
+});
+
+test('the ground fallback is not asked when the surface answers, nor while the globe is shown', async () => {
+  const asked = [];
+  const groundFallback = async () => {
+    asked.push(1);
+    return 5000;
+  };
+  // A hidden globe, but the drawn surface answers: measured as before.
+  const measured = fakeViewer({ cameraHeightM: 172, surfaceM: 171 });
+  measured.scene.globe = { show: false };
+  guardCameraAboveGround(
+    measured,
+    { lat: 30.3125, lon: -97.765 },
+    { intervalMs: 1, groundFallback },
+  );
+  // The globe shown and nothing answering yet (tiles streaming): waited for.
+  const streaming = fakeViewer({ cameraHeightM: 172, surfaceM: Number.NaN });
+  streaming.scene.globe = { show: true };
+  guardCameraAboveGround(
+    streaming,
+    { lat: 30.3125, lon: -97.765 },
+    { intervalMs: 1, attempts: 4, groundFallback },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(asked.length, 0);
+  const lifted = Cesium.Cartographic.fromCartesian(measured.flights[0].destination);
+  assert.ok(Math.abs(lifted.height - (171 + MIN_EYE_CLEARANCE_M)) < 0.5);
+  assert.equal(streaming.flights.length, 0);
+});
