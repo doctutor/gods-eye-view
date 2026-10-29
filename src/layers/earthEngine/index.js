@@ -16,9 +16,12 @@ import {
 import { resolveImageryHost } from '../../maps/imageryHost.js';
 // Personal fork: Render: Blocks hides the globe on a drawn style.
 import { blocksScene, subscribeBlocksScene } from '../blocks/floor.js';
-// Personal fork: the Elevation layer's Blocks style (milestone 5, step F);
-// the namespace, so a build without blocksStyleZoomBand keeps the full band.
-import * as blocksStyle from '../../data/blocksStyle.js';
+// Personal fork: the Elevation layer's Blocks style (milestone 5, step F).
+import {
+  BLOCKS_STYLE_LAYER,
+  blocksStyleMode,
+  blocksStyleZoomBand,
+} from '../../data/blocksStyle.js';
 import { activeLuminance, readInkSetting, resolveInk } from '../../maps/ink.js';
 import {
   SLOW_DISTRICTS_ABOVE_M,
@@ -878,7 +881,7 @@ export function createEarthEngineLayer({
     // Elevation layer as its Blocks style, the level the controller picked
     // from the footprint (src/layers/blocks/floor.js blocksScene().style).
     const styleCell =
-      record.id === blocksStyle.BLOCKS_STYLE_LAYER ? blocksScene().style : null;
+      record.id === BLOCKS_STYLE_LAYER ? blocksScene().style : null;
     const key = `${variant}|${ink}|${version}|${mode}|${v2Version}|${maximumLevel}|${demSources.map((entry) => entry.key).join(',')}|${overtureOptions?.url || ''}|${scaleToken}|${styleCell ?? ''}`;
     if (
       _imagery &&
@@ -906,13 +909,8 @@ export function createEarthEngineLayer({
             ?.minZoom ??
           0);
     // The style's zooms: from two under its level's own to the deepest
-    // (worker2's blocksStyleZoomBand; the server answers coarser tiles blank).
-    const styleBand = styleCell
-      ? (blocksStyle.blocksStyleZoomBand?.(styleCell) ?? {
-          min: minimumLevel,
-          max: maximumLevel,
-        })
-      : null;
+    // (blocksStyleZoomBand; the server answers coarser tiles blank).
+    const styleBand = styleCell ? blocksStyleZoomBand(styleCell) : null;
     const provider = new cesium.UrlTemplateImageryProvider({
       url: styleCell
         ? tileTemplate(
@@ -920,7 +918,7 @@ export function createEarthEngineLayer({
             variant,
             'default',
             '',
-            blocksStyle.blocksStyleMode(styleCell),
+            blocksStyleMode(styleCell),
           )
         : tileTemplate(record.id, variant, ink, version, mode, scaleToken),
       tilingScheme: new cesium.WebMercatorTilingScheme(),

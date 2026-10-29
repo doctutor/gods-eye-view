@@ -1251,11 +1251,13 @@ test('Render: Blocks over coarse blocks: the Elevation layer drapes its Blocks s
       String(styled.url),
       /\/tile\/ee-elevation\/blocks-1920\/[^/]+\/default\/\{z\}\/\{x\}\/\{y\}$/,
     );
-    const band = blocksStyle.blocksStyleZoomBand?.(1920);
-    if (band) {
-      assert.equal(styled.minimumLevel, band.min);
-      assert.equal(styled.maximumLevel, band.max);
-    }
+    // 1,920 m: its own zoom 9, so zooms 7 to 14.
+    assert.deepEqual(blocksStyle.blocksStyleZoomBand(1920), {
+      min: 7,
+      max: 14,
+    });
+    assert.equal(styled.minimumLevel, 7);
+    assert.equal(styled.maximumLevel, 14);
     assert.match(
       elevation.getRowControls().info,
       /Blocks style: 1\.9 km cells/,
