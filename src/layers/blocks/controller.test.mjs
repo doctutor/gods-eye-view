@@ -3341,3 +3341,85 @@ test('a 30,720 m region re-anchors when the camera flies to another continent (2
   assert.equal(controller._state().ticking, false);
   controller.destroy();
 });
+
+test('the Buildings switch takes the land cover off too, from chunks the source holds: no paint cut off along the chunk grid', async () => {
+  const { createChunk, MATERIALS } = await import('./store.js');
+  const { applyStructures } = await import('./structures.js');
+  const N = 64;
+  // The source hands out the same chunk object every time (source.js
+  // keeps its chunks), as a chunk dropped and asked again comes back.
+  const held = new Map();
+  const source = {
+    regionFor: () => Promise.resolve({ blockM: 1, source: '3DEP 1 m' }),
+    loadChunk: (region, ci, cj) => {
+      const key = `${ci}:${cj}`;
+      if (!held.has(key))
+        held.set(
+          key,
+          createChunk({
+            ci,
+            cj,
+            top: new Int32Array(N * N).fill(10),
+            water: new Int32Array(N * N).fill(-2147483648),
+          }),
+        );
+      return Promise.resolve(held.get(key));
+    },
+  };
+  // Land cover only (no buildings): a road down column 5, a park in the
+  // corner, an OSM pond at (20, 20).
+  const structures = {
+    loadChunk() {
+      const top = new Int32Array(N * N).fill(-2147483648);
+      const bottom = new Int32Array(N * N).fill(-2147483648);
+      const material = new Uint8Array(N * N);
+      for (let j = 0; j < N; j++) material[j * N + 5] = MATERIALS.ROAD;
+      for (let j = 0; j < 4; j++)
+        for (let i = 0; i < 4; i++) material[j * N + i] = MATERIALS.GRASS;
+      material[20 * N + 20] = MATERIALS.WATER;
+      return Promise.resolve({ top, bottom, material });
+    },
+    apply: applyStructures,
+  };
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const controller = createBlocksController({
+    viewer: fakeViewer(),
+    store,
+    layers: fakeLayers(true),
+    source,
+    structures,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller);
+  const paint = () =>
+    [...held.values()].filter((chunk) =>
+      chunk.material.some((m) => m !== MATERIALS.TERRAIN),
+    ).length;
+  assert.ok(held.size > 1);
+  assert.equal(paint(), held.size, 'on: every fine chunk painted');
+  const origin = held.get('0:0');
+  assert.equal(origin.material[5], MATERIALS.ROAD);
+  assert.equal(origin.top[20 * N + 20], 9, 'the pond');
+  // Off: the paint comes off every chunk, the pond's ground back.
+  store.setBuildings(false);
+  await drain(controller);
+  assert.equal(paint(), 0, 'off: no chunk keeps its paint');
+  assert.equal(origin.top[20 * N + 20], 10);
+  assert.equal(origin.water[20 * N + 20], -2147483648);
+  // A chunk that still carries an earlier pass's paint (the source's
+  // cache handing it back) is cleared too while the switch is off.
+  origin.setSurface(7, 7, MATERIALS.FOREST);
+  await drain(controller);
+  assert.equal(origin.material[7 * N + 7], MATERIALS.TERRAIN);
+  // On again: painted again everywhere.
+  store.setBuildings(true);
+  await drain(controller);
+  assert.equal(paint(), held.size);
+  controller.destroy();
+});

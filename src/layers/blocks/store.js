@@ -21,7 +21,10 @@
  * Land cover from OSM (structures.js) sets a column's surface with
  * setSurface: its material (grass, forest, road), or water, which puts the
  * column's water surface at its own top (the top block becomes water over
- * the ground below it), so a river above sea level reads as water.
+ * the ground below it), so a river above sea level reads as water. Like
+ * the structures it can be taken off again (clearSurfaces): each column's
+ * heightfield as it was before its first surface is kept, so a chunk the
+ * source holds and hands out again is never left painted.
  */
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
 
@@ -87,6 +90,8 @@ export function createChunk({ ci, cj, top, material, water } = {}) {
   const overlay = new Map();
   /** The structures layer, made on the first structure: top, bottom and material per column. */
   let structure = null;
+  /** Column index → [material, top, water] before its first surface (clearSurfaces). */
+  const unsurfaced = new Map();
   let version = 0;
 
   /** What the heightfield and structures put at a point. */
@@ -222,18 +227,45 @@ export function createChunk({ ci, cj, top, material, water } = {}) {
       const index = columnIndex(i, j);
       const top = tops[index];
       if (top === NONE) return false;
+      const keep = () => {
+        if (!unsurfaced.has(index))
+          unsurfaced.set(index, [materials[index], tops[index], waters[index]]);
+      };
       if (material === MATERIALS.WATER) {
         if (waters[index] !== NONE && waters[index] >= top) return false;
+        keep();
         waters[index] = top;
         tops[index] = top - 1;
       } else {
         if (!isSolid(material))
           throw new RangeError(`material ${material} is not a surface`);
         if (materials[index] === material) return false;
+        keep();
         materials[index] = material;
       }
       version += 1;
       return true;
+    },
+    /**
+     * Take the land cover off: every column setSurface changed gets its
+     * material, top and water back as they were before its first surface.
+     * @returns {number} columns restored
+     */
+    clearSurfaces() {
+      if (!unsurfaced.size) return 0;
+      for (const [index, [material, top, water]] of unsurfaced) {
+        materials[index] = material;
+        tops[index] = top;
+        waters[index] = water;
+      }
+      const count = unsurfaced.size;
+      unsurfaced.clear();
+      version += 1;
+      return count;
+    },
+    /** Whether any column carries land cover (setSurface). */
+    get surfaced() {
+      return unsurfaced.size > 0;
     },
     /** Remove every structure. */
     clearStructures() {

@@ -341,13 +341,20 @@ export function chunkRing({ i, j, radius, chunkColumns }) {
 }
 
 /**
- * Take a chunk's buildings off (its structures layer cleared column by
- * column, so its version moves on and it is meshed again).
+ * Take a chunk's buildings and land cover off: its structures layer
+ * cleared column by column, and its surfaces (roads, greens, OSM water)
+ * back to the heightfield's (store.js clearSurfaces), so its version moves
+ * on and it is meshed again. The land cover is painted into the chunk the
+ * source holds, so without this a chunk painted once stayed painted with
+ * the Buildings switch off, beside chunks first loaded bare: the paint
+ * cut off along the chunk grid.
  * @returns {number} columns cleared
  */
 export function clearStructures(chunk) {
-  if (!chunk?.structure || typeof chunk.setStructure !== 'function') return 0;
-  let cleared = 0;
+  const surfaces = chunk?.clearSurfaces?.() || 0;
+  if (!chunk?.structure || typeof chunk.setStructure !== 'function')
+    return surfaces;
+  let cleared = surfaces;
   // A column a value, a chunk square.
   const n = Math.round(Math.sqrt(chunk.structure.top.length));
   for (let j = 0; j < n; j++)
@@ -356,6 +363,9 @@ export function clearStructures(chunk) {
         chunk.setStructure(i, j, NO_TOP);
         cleared++;
       }
+  // The emptied layer goes, so the next call (each tick while the switch
+  // is off) has nothing to walk.
+  chunk.clearStructures?.();
   return cleared;
 }
 
@@ -1408,9 +1418,10 @@ export function createBlocksController({
   function syncStructures(ring, perTick, time) {
     if (!structures) return;
     if (!structuresHere()) {
+      // Every held chunk, not only those this pass painted: one the source
+      // handed back from its cache can carry an earlier pass's paint.
       for (const entry of _chunks.values()) {
-        if (entry.structures === 'done' && entry.chunk)
-          clearStructures(entry.chunk);
+        if (entry.chunk) clearStructures(entry.chunk);
         entry.structures = undefined;
       }
       _groupBuildings.clear();

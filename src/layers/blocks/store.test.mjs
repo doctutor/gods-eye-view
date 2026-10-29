@@ -129,3 +129,37 @@ test('levels from heights at 30 m levels (a 120 m block): what the store holds',
   assert.ok(isSolid(chunk.occupancy(3, 0, 3)));
   assert.equal(chunk.occupancy(3, 0, 4), MATERIALS.AIR);
 });
+
+test('land cover comes off: clearSurfaces gives each painted column its material, top and water back', () => {
+  const chunk = flatChunk(10);
+  const before = chunk.version;
+  assert.equal(chunk.surfaced, false);
+  assert.equal(chunk.setSurface(1, 0, MATERIALS.ROAD), true);
+  assert.equal(chunk.setSurface(1, 0, MATERIALS.GRASS), true, 'painted twice');
+  assert.equal(chunk.setSurface(2, 0, MATERIALS.WATER), true, 'an OSM lake');
+  assert.equal(chunk.surfaced, true);
+  assert.equal(chunk.material[1], MATERIALS.GRASS);
+  assert.equal(chunk.top[2], 9, 'the top block became water');
+  assert.equal(chunk.water[2], 10);
+  const painted = chunk.version;
+  assert.equal(chunk.clearSurfaces(), 2);
+  assert.equal(
+    chunk.material[1],
+    MATERIALS.TERRAIN,
+    'the first material, not the road',
+  );
+  assert.equal(chunk.top[2], 10);
+  assert.equal(chunk.water[2], NONE);
+  assert.ok(chunk.version > painted, 'meshed again');
+  assert.ok(isSolid(chunk.occupancy(2, 0, 10)));
+  // Nothing to take off: no change.
+  const cleared = chunk.version;
+  assert.equal(chunk.clearSurfaces(), 0);
+  assert.equal(chunk.version, cleared);
+  assert.equal(chunk.surfaced, false);
+  // Painted again after a clear: taken off again.
+  chunk.setSurface(1, 0, MATERIALS.FOREST);
+  assert.equal(chunk.clearSurfaces(), 1);
+  assert.equal(chunk.material[1], MATERIALS.TERRAIN);
+  assert.ok(chunk.version > before);
+});
