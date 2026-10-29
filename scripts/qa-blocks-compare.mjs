@@ -656,6 +656,9 @@ export const LIVE_ROUTES = Object.freeze([
   '/api/raster/values',
   '/api/overpass',
   '/api/earth-engine/',
+  // The location search (--sequence types into it).
+  '/api/geocode',
+  '/api/google/',
 ]);
 export const isLiveRoute = (pathname) =>
   LIVE_ROUTES.some((route) =>
@@ -778,6 +781,8 @@ function countRequest(url, log) {
 function respond(request, { dist, field, log, live }) {
   const url = new URL(request.url());
   if (url.origin !== ORIGIN) return request.abort('blockedbyclient');
+  if (log.requests && url.pathname.startsWith('/api/'))
+    log.requests.push({ at: Date.now(), path: url.pathname });
   if (live && isLiveRoute(url.pathname)) {
     countRequest(url, log);
     return proxy(request, url, live, log);
@@ -1060,6 +1065,453 @@ function probe(page) {
   });
 }
 
+// ── --sequence: location and scope changes in one session ─────────────
+
+/**
+ * The steps --sequence flies, in order: what is typed into the location
+ * search, and the view flown to by camera if the search does not fly
+ * (no geocoder in --build). Names are the frames' (never the query).
+ */
+export const SEQUENCE_STEPS = Object.freeze([
+  {
+    name: 'step1-continent',
+    query: 'Europe',
+    view: { lat: 50, lon: 10, alt: 5_000_000 },
+  },
+  {
+    name: 'step2-country',
+    query: 'United States',
+    view: { lat: 39.5, lon: -98.35, alt: 5_000_000 },
+  },
+  {
+    name: 'step3-lake',
+    query: 'Lake Tahoe, California',
+    view: { lat: 39.09, lon: -120.03, alt: 50_000 },
+  },
+  {
+    name: 'step4-city',
+    query: 'Baltimore, Maryland',
+    view: { lat: 39.29, lon: -76.61, alt: 20_000 },
+  },
+  {
+    name: 'step5-street',
+    // The user's street address: given with --street-query, never kept.
+    query: null,
+    view: { lat: 39.326, lon: -76.633, alt: 400 },
+  },
+]);
+
+/** The opening link: a whole-hemisphere view, Blocks and Elevation on. */
+export function sequenceHash() {
+  const params = new URLSearchParams({
+    lat: '30',
+    lon: '-40',
+    alt: '15000000',
+    heading: '0',
+    pitch: '-90',
+    map: 'blank-black',
+    bk: '1',
+    lo: 'f.e.1',
+    hv: '1',
+    hud: 'tactical',
+    cs: 'el.u..5000.n',
+  });
+  return `#${params.toString()}`;
+}
+
+/** What --sequence installs in the page before the app loads. */
+function sequencePageProbe() {
+  window.__gevBlocksProbe = {};
+  const qa = { longTasks: [], frames: [], heap: [], events: [] };
+  window.__qa = qa;
+  try {
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries())
+        qa.longTasks.push([
+          performance.timeOrigin + entry.startTime,
+          entry.duration,
+        ]);
+    }).observe({ type: 'longtask', buffered: true });
+  } catch {
+    /* no long-task timing */
+  }
+  const frame = () => {
+    qa.frames.push(Date.now());
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  setInterval(() => {
+    if (performance.memory)
+      qa.heap.push([Date.now(), performance.memory.usedJSHeapSize]);
+  }, 500);
+}
+
+/** Wrap the Blocks renderer and controller, and the camera, to log events. */
+function sequenceInstrument() {
+  const probe = window.__gevBlocksProbe;
+  const ev = window.__qa.events;
+  if (!probe?.renderer || !probe?.controller || window.__qa.wired) return false;
+  window.__qa.wired = true;
+  const renderer = probe.renderer;
+  for (const name of [
+    'upsert',
+    'remove',
+    'setRegion',
+    'setRegions',
+    'setRingHoles',
+    'setVisible',
+  ]) {
+    const original = renderer[name];
+    if (typeof original !== 'function') continue;
+    renderer[name] = function (...args) {
+      const detail =
+        name === 'upsert' || name === 'remove'
+          ? String(args[0])
+          : name === 'setRegion'
+            ? (args[0]?.blockM ?? null)
+            : name === 'setRegions'
+              ? [...(args[0] instanceof Map ? args[0].values() : args[0] || [])]
+                  .map((r) => r?.blockM)
+                  .join(',')
+              : '';
+      ev.push([Date.now(), name, detail]);
+      return original.apply(this, args);
+    };
+  }
+  probe.controller.subscribe((st) =>
+    ev.push([
+      Date.now(),
+      'status',
+      st.state,
+      st.blockM ?? null,
+      st.chunks ?? null,
+      st.coarse ?? null,
+      st.pending ?? null,
+    ]),
+  );
+  const camera = window.__godsEyeView.viewer.camera;
+  camera.moveStart.addEventListener(() => ev.push([Date.now(), 'moveStart']));
+  camera.moveEnd.addEventListener(() => ev.push([Date.now(), 'moveEnd']));
+  let flying = false;
+  setInterval(() => {
+    const now = Boolean(camera._currentFlight);
+    if (now !== flying)
+      ev.push([Date.now(), now ? 'flightStart' : 'flightEnd']);
+    flying = now;
+  }, 50);
+  return true;
+}
+
+/** What the page shows now: the status line, the HUD's readouts, the camera. */
+function sequenceReadout() {
+  const gev = window.__godsEyeView;
+  const carto = gev.viewer.camera.positionCartographic;
+  const text = (id) => document.getElementById(id)?.textContent?.trim() || '';
+  let floor = '';
+  try {
+    floor = gev.styleManager?.hud?.cameraPrecision?.()?.floor?.name || '';
+  } catch {
+    floor = '';
+  }
+  return {
+    status: document.querySelector('.lego-render-status')?.textContent || '',
+    heightM: Math.round(carto.height),
+    lat: Math.round((carto.latitude * 18000) / Math.PI) / 100,
+    lon: Math.round((carto.longitude * 18000) / Math.PI) / 100,
+    hud: {
+      alt: text('hud-cam-alt'),
+      agl: text('hud-cam-agl'),
+      px: text('hud-cam-px'),
+      floorNote: text('hud-cam-agl-floor'),
+      floor,
+    },
+    globeShown: gev.viewer.scene.globe.show,
+    drapes: gev.viewer.imageryLayers.length,
+  };
+}
+
+/** The Earth Engine tiles used today, from the catalog (null when not said). */
+async function budgetUsed(page) {
+  return page.evaluate(async () => {
+    try {
+      const answer = await fetch('/api/earth-engine/layers', {
+        cache: 'no-store',
+      });
+      const body = await answer.json();
+      return Number.isFinite(body?.tiles?.used) ? body.tiles.used : null;
+    } catch {
+      return null;
+    }
+  });
+}
+
+/** A step's numbers from the page's events and the requests between `from` and `to`. */
+export function stepMetrics(
+  { events, requests, longTasks, frames, heap },
+  from,
+  flightEnd,
+  to,
+) {
+  const inStep = (at) => at >= from && at <= to;
+  const after = (at) => at >= flightEnd && at <= to;
+  const evs = events.filter(([at]) => inStep(at));
+  const upserts = evs.filter((e) => e[1] === 'upsert');
+  const firstAfter = upserts.find(([at]) => at >= flightEnd);
+  const statuses = evs.filter((e) => e[1] === 'status');
+  const levels = [];
+  for (const st of statuses)
+    if (Number.isFinite(st[3]) && st[3] !== levels.at(-1)) levels.push(st[3]);
+  const reqs = requests.filter(({ at }) => inStep(at));
+  const kind = (test) => reqs.filter(({ path }) => test(path)).length;
+  const tasks = longTasks.filter(([at]) => after(at));
+  const frameTimes = frames.filter((at) => after(at));
+  const seconds = Math.max(0.001, (to - flightEnd) / 1000);
+  const gaps = frameTimes.slice(1).map((at, n) => at - frameTimes[n]);
+  const heapIn = heap.filter(([at]) => inStep(at)).map(([, bytes]) => bytes);
+  return {
+    firstBlocksMs: firstAfter ? firstAfter[0] - flightEnd : null,
+    settledMs: to - flightEnd,
+    levels,
+    levelChanges: Math.max(0, levels.length - 1),
+    upserts: upserts.length,
+    upsertKeys: new Set(upserts.map((e) => e[2])).size,
+    removes: evs.filter((e) => e[1] === 'remove').length,
+    anchors: statuses.filter((e) => e[2] === 'anchoring').length,
+    setRegions: evs.filter((e) => e[1] === 'setRegions' || e[1] === 'setRegion')
+      .length,
+    ringHoles: evs.filter((e) => e[1] === 'setRingHoles').length,
+    flights: evs.filter((e) => e[1] === 'flightStart').length,
+    requests: {
+      values: kind((path) => path === '/api/raster/values'),
+      styleTiles: kind((path) => /\/tile\/ee-elevation\/blocks-/.test(path)),
+      elevationTiles: kind(
+        (path) =>
+          path.startsWith('/api/earth-engine/tile/ee-elevation/') &&
+          !/\/blocks-/.test(path),
+      ),
+      otherTiles: kind(
+        (path) =>
+          path.startsWith('/api/earth-engine/tile/') &&
+          !path.startsWith('/api/earth-engine/tile/ee-elevation/'),
+      ),
+      overpass: kind((path) => path === '/api/overpass'),
+      search: kind(
+        (path) => path === '/api/geocode' || path.startsWith('/api/google/'),
+      ),
+      total: reqs.length,
+    },
+    longTasks: {
+      count: tasks.length,
+      totalMs: Math.round(tasks.reduce((sum, [, ms]) => sum + ms, 0)),
+      maxMs: Math.round(Math.max(0, ...tasks.map(([, ms]) => ms))),
+    },
+    fps: Math.round((frameTimes.length / seconds) * 10) / 10,
+    worstFrameMs: Math.round(Math.max(0, ...gaps)),
+    heapMaxMB: heapIn.length
+      ? Math.round(Math.max(...heapIn) / 1e5) / 10
+      : null,
+  };
+}
+
+/**
+ * --sequence: one page, the steps of SEQUENCE_STEPS in order through the
+ * app's location search (else a camera flight to the step's view), each
+ * timed from the flight's end to its first blocks and to settled (no chunk
+ * upsert for 2 s, nothing loading), with its requests, budget, long tasks,
+ * frame rate and heap, and a frame with the HUD.
+ */
+async function runSequence({ browser, dist, live, out, streetQuery }) {
+  const context = await browser.createBrowserContext();
+  const page = await context.newPage();
+  await page.evaluateOnNewDocument(sequencePageProbe);
+  const log = {
+    values: 0,
+    tiles: 0,
+    buildings: 0,
+    overpass: 0,
+    kinds: {},
+    live: {},
+    missing: new Set(),
+    errors: [],
+    started: Date.now(),
+    trail: [],
+    statusTrail: [],
+    requests: [],
+  };
+  page.on('pageerror', (error) =>
+    log.errors.push(String(error?.message || error)),
+  );
+  await page.setViewport({ width: WIDTH, height: HEIGHT });
+  await page.setRequestInterception(true);
+  const field = syntheticField();
+  page.on('request', (request) => {
+    Promise.resolve(respond(request, { dist, field, log, live })).catch(
+      (error) => log.errors.push(`respond: ${error?.message || error}`),
+    );
+  });
+  await page.goto(`${ORIGIN}/${sequenceHash()}`, {
+    waitUntil: 'domcontentloaded',
+  });
+  await page.waitForFunction(() => Boolean(window.__godsEyeView?.viewer), {
+    timeout: 120_000,
+  });
+  await page.waitForFunction(
+    () => window.__godsEyeView?.dataManager?.layers?.has?.('ee-elevation'),
+    { timeout: 120_000 },
+  );
+  await page.evaluate(() => {
+    const dm = window.__godsEyeView.dataManager;
+    if (!dm.isEnabled('ee-elevation'))
+      dm.setEnabled('ee-elevation', true, { origin: 'user' });
+  });
+  await page.waitForFunction(() => window.__gevBlocksProbe?.controller, {
+    timeout: 120_000,
+  });
+  await page.waitForFunction(sequenceInstrument, { timeout: 30_000 });
+  // The opening view settles before the first step.
+  await page.evaluate(
+    () => new Promise((resolve) => setTimeout(resolve, 8000)),
+  );
+  const results = [];
+  for (const step of SEQUENCE_STEPS) {
+    const query = step.query ?? streetQuery;
+    const from = Date.now();
+    const budgetBefore = await budgetUsed(page);
+    let via = 'search';
+    if (query)
+      await page.evaluate((q) => {
+        const input = document.getElementById('location-search');
+        input.value = q;
+        input.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+        );
+      }, query);
+    const flew = query
+      ? await page
+          .waitForFunction(
+            () => Boolean(window.__godsEyeView.viewer.camera._currentFlight),
+            { timeout: 20_000, polling: 50 },
+          )
+          .then(() => true)
+          .catch(() => false)
+      : false;
+    if (!flew) {
+      via = 'camera';
+      await page.evaluate(({ lat, lon, alt }) => {
+        const viewer = window.__godsEyeView.viewer;
+        const Cesium = window.Cesium;
+        const destination =
+          viewer.scene.globe.ellipsoid.cartographicToCartesian({
+            longitude: (lon * Math.PI) / 180,
+            latitude: (lat * Math.PI) / 180,
+            height: alt,
+          });
+        void Cesium;
+        viewer.camera.flyTo({
+          destination,
+          orientation: { heading: 0, pitch: -Math.PI / 2, roll: 0 },
+          duration: 3,
+        });
+      }, step.view);
+    }
+    // The flight's end: no flight for 1 s (an arrival correction may follow).
+    await page.waitForFunction(
+      () => {
+        const ev = window.__qa.events;
+        const camera = window.__godsEyeView.viewer.camera;
+        if (camera._currentFlight) return false;
+        const last = ev.filter((e) => e[1] === 'flightEnd').at(-1);
+        return !last || Date.now() - last[0] > 1000;
+      },
+      { timeout: 120_000, polling: 100 },
+    );
+    const flightEnd = await page.evaluate(() => {
+      const ev = window.__qa.events;
+      return ev.filter((e) => e[1] === 'flightEnd').at(-1)?.[0] ?? Date.now();
+    });
+    // Settled: past the controller's wait to anchor (2 s still, then a
+    // tick), no renderer or status event for 2 s, nothing loading,
+    // anchoring or flying.
+    const settled = await page
+      .waitForFunction(
+        (end) => {
+          if (Date.now() - end < 4500) return false;
+          const ev = window.__qa.events;
+          const quiet = new Set([
+            'upsert',
+            'remove',
+            'status',
+            'setRegion',
+            'setRegions',
+            'setRingHoles',
+          ]);
+          const last = ev.filter((e) => quiet.has(e[1])).at(-1)?.[0] ?? 0;
+          const text =
+            document.querySelector('.lego-render-status')?.textContent || '';
+          const busy = /loading|finding|waiting|buildings…/.test(text);
+          return !busy && Date.now() - last > 2000;
+        },
+        { timeout: 240_000, polling: 250 },
+        flightEnd,
+      )
+      .then(() => true)
+      .catch(() => false);
+    const qa = await page.evaluate(() => ({
+      events: window.__qa.events,
+      longTasks: window.__qa.longTasks,
+      frames: window.__qa.frames,
+      heap: window.__qa.heap,
+    }));
+    const lastUpsert =
+      qa.events
+        .filter((e) => e[1] === 'upsert' && e[0] >= flightEnd)
+        .at(-1)?.[0] ?? flightEnd;
+    const to = settled ? lastUpsert : Date.now();
+    const readout = await page.evaluate(sequenceReadout);
+    const file = path.join(out, `${step.name}.png`);
+    await page.screenshot({ path: file });
+    const budgetAfter = await budgetUsed(page);
+    const metrics = stepMetrics(
+      { ...qa, requests: log.requests },
+      from,
+      flightEnd,
+      to,
+    );
+    results.push({
+      name: step.name,
+      via,
+      settled,
+      flightSeconds: Math.round((flightEnd - from) / 100) / 10,
+      ...metrics,
+      budget:
+        budgetBefore !== null && budgetAfter !== null
+          ? budgetAfter - budgetBefore
+          : null,
+      readout,
+      file,
+    });
+    // A breath between steps, as a person would take.
+    await page.evaluate(
+      () => new Promise((resolve) => setTimeout(resolve, 2000)),
+    );
+  }
+  const qa = await page.evaluate(() => ({
+    events: window.__qa.events,
+    heap: window.__qa.heap,
+  }));
+  await context.close();
+  return {
+    results,
+    events: qa.events,
+    requests: log.requests,
+    heapMaxMB: qa.heap.length
+      ? Math.round(Math.max(...qa.heap.map(([, b]) => b)) / 1e5) / 10
+      : null,
+    errors: log.errors,
+    live: log.live,
+  };
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const out = path.resolve(argValue(argv, '--out', ''));
   if (!argValue(argv, '--out'))
@@ -1105,6 +1557,29 @@ export async function main(argv = process.argv.slice(2)) {
       '--disable-backgrounding-occluded-windows',
     ],
   });
+  if (argv.includes('--sequence')) {
+    try {
+      const run = await runSequence({
+        browser,
+        dist,
+        live,
+        out,
+        streetQuery: argValue(argv, '--street-query'),
+      });
+      writeFileSync(
+        path.join(out, 'sequence.json'),
+        `${JSON.stringify(run, null, 2)}\n`,
+      );
+      for (const step of run.results)
+        console.log(
+          `${step.name} (${step.via}${step.settled ? '' : ', not settled'}): first blocks ${step.firstBlocksMs} ms, settled ${step.settledMs} ms, levels ${step.levels.join(' → ')}, upserts ${step.upserts}, anchors ${step.anchors}, values ${step.requests.values}, budget ${step.budget}, long tasks ${step.longTasks.count}/${step.longTasks.totalMs} ms, ${step.fps} fps, heap ${step.heapMaxMB} MB`,
+        );
+      console.log(`sequence: ${path.join(out, 'sequence.json')}`);
+      return run;
+    } finally {
+      await browser.close();
+    }
+  }
   const field = syntheticField();
   const results = [];
   const altitudes = parseAltitudes(argValue(argv, '--altitudes'));

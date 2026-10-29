@@ -196,7 +196,12 @@ test('--live: which routes go to the running server, whether one answers, and th
     '/api/raster/values',
     '/api/overpass',
     '/api/earth-engine/',
+    '/api/geocode',
+    '/api/google/',
   ]);
+  // The location search (--sequence).
+  assert.equal(isLiveRoute('/api/geocode'), true);
+  assert.equal(isLiveRoute('/api/google/text-search'), true);
   assert.equal(isLiveRoute('/api/raster/values'), true);
   assert.equal(isLiveRoute('/api/overpass'), true);
   assert.equal(isLiveRoute('/api/earth-engine/layers'), true);
