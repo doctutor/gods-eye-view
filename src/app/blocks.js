@@ -204,6 +204,7 @@ export function lazyRenderer(make) {
     setFog: (fog) => made().setFog?.(fog),
     setVisible: (on) => renderer?.setVisible?.(on),
     keys: () => renderer?.keys?.() ?? [],
+    getState: () => renderer?.getState?.() ?? null,
     destroy() {
       renderer?.destroy?.();
       renderer = null;
