@@ -145,6 +145,8 @@ export function lazyRenderer(make) {
   return {
     setRegion: (region, options) => made().setRegion(region, options),
     setRegions: (regions, options) => made().setRegions(regions, options),
+    // Each ring's hole: the ground its inner rings draw (renderer.js).
+    setRingHoles: (holes) => made().setRingHoles?.(holes),
     upsert: (key, mesh) => made().upsert(key, mesh),
     remove: (key) => renderer?.remove(key),
     setSun: (dir, options) => made().setSun?.(dir, options),

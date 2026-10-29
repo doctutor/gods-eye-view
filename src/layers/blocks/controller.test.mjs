@@ -2850,6 +2850,8 @@ test('K rings: each its own region at its own level through setRegions, keyed L<
   renderer.setRegions = (regions, options) => {
     sets.push({ levels: regions.map((r) => r.blockM), options });
   };
+  renderer.holes = [];
+  renderer.setRingHoles = (holes) => renderer.holes.push(holes);
   const store = createRenderModeStore({ storage: memoryStorage() });
   store.setMode('blocks');
   const viewer = fakeViewer();
@@ -2894,15 +2896,30 @@ test('K rings: each its own region at its own level through setRegions, keyed L<
   const firstRing = source.loads.findIndex((l) => l.region.blockM !== 1);
   const lastFine = source.loads.findLastIndex((l) => l.region.blockM === 1);
   assert.ok(firstRing > lastFine, 'the near ground first');
-  // Each ring's chunks within R1 of it, none whose centre the ring inside covers.
-  const ring120 = rings.get(120);
-  for (const entry of ring120.chunks.values()) {
-    const c = Math.hypot(
-      (entry.ci + 0.5) * C - 0.5,
-      (entry.cj + 0.5) * C - 0.5,
-    );
-    assert.ok(c > (64 * 8) / 120, 'outside ring 8');
+  // Each ring's chunks within R1 of it, each reaching past the rings
+  // inside (a chunk wider than the hole is kept, its inside left out by
+  // the renderer): the camera's own chunk of every ring is there.
+  const { farthestDistance } = await import('./index.js');
+  let inner = 64 * 1; // the 1 m fine disc's reach (this source has no coarse ring)
+  for (const [level, ring] of rings) {
+    for (const entry of ring.chunks.values())
+      assert.ok(
+        farthestDistance({ x: 0.5, y: 0.5 }, entry.ci, entry.cj, C) >
+          inner / level,
+        `ring ${level} chunk ${entry.key}`,
+      );
+    inner = 64 * level;
   }
+  for (const [level, ring] of rings)
+    if (level >= 480)
+      assert.ok(ring.chunks.has(ringKey(level, 0, 0)), `ring ${level} 0:0`);
+  // The holes: the rings' inner reaches about the camera's ground.
+  const holes = renderer.holes.at(-1);
+  assert.ok(holes);
+  assert.deepEqual(Object.keys(holes.reachM).map(Number), [8, 120, 480, 1920]);
+  assert.equal(holes.reachM[8], 64 * 1);
+  assert.equal(holes.reachM[120], 64 * 8);
+  assert.equal(holes.reachM[480], 64 * 120);
   // The status counts them with the coarse ring.
   const status = controller.getStatus();
   const ringChunks = [...rings.values()].reduce((n, r) => n + r.chunks.size, 0);
