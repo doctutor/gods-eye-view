@@ -25,8 +25,8 @@ export const M_PER_DEG = 111_319.49;
 
 /**
  * The planes a request may add after the values, in this order: `water`,
- * the share of each cell that is water (0 to 1; Elevation only, from JRC
- * Global Surface Water, server/providers/rasterValues/earthEngineValues.js).
+ * the share of each cell that is water (0 to 1; Elevation only, from MODIS
+ * MOD44W, server/providers/rasterValues/earthEngineValues.js).
  */
 export const RASTER_VALUES_PLANES = Object.freeze(['water']);
 

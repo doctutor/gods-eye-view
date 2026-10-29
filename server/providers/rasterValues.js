@@ -54,7 +54,7 @@ import {
  *    source, version, aggregation}
  *
  * `&water=1` (Elevation only) adds the water plane after the values: the
- * share of each cell that is water, 0 to 1 (JRC Global Surface Water,
+ * share of each cell that is water, 0 to 1 (MODIS MOD44W,
  * rasterValues/earthEngineValues.js), the header's `planes` then
  * ['value', 'water']; the same Earth Engine request, so one tile counted.
  *
