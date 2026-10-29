@@ -3407,9 +3407,10 @@ test('each ring past the coarse one asks at most its 3 × 3 nearest lattice tile
         [0, 1],
         [1, 1],
       ]) {
+        // The source asks the chunk's whole 4 × 4 group.
         const { lon, lat } = ring.region.toLonLat(
-          (entry.ci + u) * C * level,
-          (entry.cj + v) * C * level,
+          (Math.floor(entry.ci / 4) + u) * 4 * C * level,
+          (Math.floor(entry.cj / 4) + v) * 4 * C * level,
         );
         const { ti, tj } = latticeIndex(level, lon, lat);
         tiles.add(`${ti}:${tj}`);

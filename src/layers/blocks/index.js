@@ -2122,12 +2122,15 @@ export function createBlocksController({
   }
 
   /**
-   * The lattice tiles a chunk of a ring's region asks (its corners'), as
-   * keys; none for a region without toLonLat (no lattice to count).
+   * The lattice tiles a chunk of a ring's region asks, as keys: its
+   * group's corners' (the source loads a 4 × 4 group of chunks at a time
+   * from every tile under it); none for a region without toLonLat (no
+   * lattice to count).
    */
   function chunkTiles(region, level, ci, cj, size) {
     if (typeof region.toLonLat !== 'function') return [];
-    const chunkM = size * level;
+    const groupM = size * GROUP_CHUNKS * level;
+    const { gi, gj } = groupOf(ci, cj);
     const keys = new Set();
     for (const [u, v] of [
       [0, 0],
@@ -2136,8 +2139,8 @@ export function createBlocksController({
       [1, 1],
     ]) {
       const { lon, lat } = region.toLonLat(
-        (ci + u) * chunkM,
-        (cj + v) * chunkM,
+        (gi + u) * groupM,
+        (gj + v) * groupM,
       );
       const { ti, tj } = latticeIndex(level, lon, lat);
       keys.add(`${ti}:${tj}`);
