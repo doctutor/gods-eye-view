@@ -14,6 +14,8 @@ import {
   LAND_SHARE,
   SUPERGROUP,
   TILE_RETRY_MS,
+  CURVED_REACH_M,
+  PLANE_REACH_M,
   retryable,
   coarseHeights,
   coarseLevelOf,
@@ -611,22 +613,75 @@ test('any level: a region at 1,920 m is served like one at 1 m, its coarse ring 
   assert.equal(coarse.top.length, CHUNK_COLUMNS * CHUNK_COLUMNS);
 });
 
-test("the top level: places past the tangent plane's reach are nodata, and every box is on the globe", async () => {
-  const region = createRegion({ lon0: 10, lat0: 50, blockM: 30720 });
+test("reach: a flat region's columns past its tangent plane are nodata; a curved region's reach the sphere, every box on the globe", async () => {
+  // Flat (480 m): chunk 210 is 6,451 km east, past the plane's reach.
+  const flat = createRegion({ lon0: 10, lat0: 50, blockM: 480 });
   const { fetchValues, calls } = fakeValues({
     nativeM: 30,
     heightAt: () => 300,
   });
   const source = createChunkSource({ fetchValues, createChunk });
-  const chunk = await source.loadCoarseChunk(region, 0, 0);
+  const far = await source.loadChunk(flat, 210, 0);
+  assert.equal(far.top[0], NONE);
+  assert.ok(210 * 64 * 480 > PLANE_REACH_M);
+  // Curved (30,720 m): a coarse chunk of 122,880 m columns runs 7,864 km
+  // east, all of it on the ground.
+  const top = createRegion({ lon0: 10, lat0: 50, blockM: 30720 });
+  assert.equal(top.curved, true);
+  const chunk = await source.loadCoarseChunk(top, 0, 0);
   for (const call of calls) {
     assert.ok(call.box.west >= -180 && call.box.east <= 180);
     assert.ok(call.box.south >= -90 && call.box.north <= 90);
   }
-  // A coarse chunk of 122,880 m columns runs 7,864 km east: past the
-  // Earth's radius the frame meets no ground, so its far columns are NONE.
-  assert.equal(chunk.top[CHUNK_COLUMNS - 1], NONE);
-  assert.equal(chunk.top[0], 0);
+  assert.equal(chunk.top[0], 0); // 300 m on 960 m levels
+  assert.equal(chunk.top[CHUNK_COLUMNS - 1], 0);
+  assert.ok(CURVED_REACH_M > 19_000_000);
+});
+
+test('a curved 7,680 m region anchored south-west of the camera: its fine disc across a lattice column seam and a row seam, past 6,300 km, is whole', async () => {
+  // As the controller anchors it: half a supergroup (3,932 km) south-west
+  // of a camera over Baltimore.
+  const halfM = (4 * 4 * 64 * 7680) / 2;
+  const region = createRegion({
+    lon0: -76.6 - halfM / (111_320 * Math.cos((39.3 * Math.PI) / 180)),
+    lat0: 39.3 - halfM / 111_320,
+    blockM: 7680,
+    levelM: 240,
+  });
+  assert.equal(region.curved, true);
+  const heightAt = (lon, lat) => 100 + Math.abs(lon) + Math.abs(lat);
+  const { fetchValues, calls } = fakeValues({ nativeM: 30, heightAt });
+  const source = createChunkSource({ fetchValues, createChunk });
+  // The camera's chunk and those east and north of it, out to the disc's
+  // edge (8 chunks), so past the 7,680 m lattice's seams at −74.03° and
+  // −38.71° and its row seam at 33.63° + 17.66°.
+  const seen = { lons: new Set(), lats: new Set() };
+  for (const ci of [8, 10, 12, 14, 16])
+    for (const cj of [8, 12, 16]) {
+      const chunk = await source.loadChunk(region, ci, cj);
+      for (const [i, j] of [
+        [0, 0],
+        [63, 63],
+        [31, 40],
+      ]) {
+        const top = chunk.top[columnIndex(i, j)];
+        const place = region.columnCentre(ci * 64 + i, cj * 64 + j);
+        assert.notEqual(top, NONE, `chunk ${ci},${cj} column ${i},${j}`);
+        assert.ok(
+          Math.abs(top - Math.floor(heightAt(place.lon, place.lat) / 240)) <= 1,
+          `chunk ${ci},${cj}: ${top}`,
+        );
+      }
+      const centre = region.columnCentre(ci * 64 + 32, cj * 64 + 32);
+      seen.lons.add(latticeIndex(7680, centre.lon, centre.lat).ti);
+      seen.lats.add(latticeIndex(7680, centre.lon, centre.lat).tj);
+    }
+  // The chunks lie in more than one lattice column and row: seams crossed.
+  assert.ok(seen.lons.size >= 2, `columns ${[...seen.lons]}`);
+  assert.ok(seen.lats.size >= 2, `rows ${[...seen.lats]}`);
+  // Chunk 16 is 7,864 km from the anchor: past the old plane's reach.
+  assert.ok(16 * 64 * 7680 > PLANE_REACH_M);
+  assertLatticeCalls(calls, 7680);
 });
 
 test("levels apart from blocks: a region's levelM sets its fine and coarse columns' levels", async () => {
