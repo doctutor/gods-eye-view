@@ -25,7 +25,9 @@ import {
   parseAltitudes,
   parseBlocksStatus,
   scaleViews,
+  blocksStyleTile,
 } from '../../../scripts/qa-blocks-compare.mjs';
+import zlib from 'node:zlib';
 import {
   decodeRasterValues,
   parseRasterValuesQuery,
@@ -303,4 +305,52 @@ test('the report reads the level from the Blocks status line', () => {
     ceilingKm: 8,
   });
   assert.equal(parseBlocksStatus('').state, 'other');
+});
+
+/** The RGBA pixels of an encodePng image (filter 0 rows, one IDAT). */
+function pngPixels(png) {
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  let at = 8;
+  let idat = null;
+  while (at < png.length) {
+    const length = png.readUInt32BE(at);
+    const type = png.toString('ascii', at + 4, at + 8);
+    if (type === 'IDAT') idat = png.subarray(at + 8, at + 8 + length);
+    at += 12 + length;
+  }
+  const raw = zlib.inflateSync(idat);
+  const rgba = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++)
+    rgba.set(
+      raw.subarray(y * (width * 4 + 1) + 1, (y + 1) * (width * 4 + 1)),
+      y * width * 4,
+    );
+  return { width, height, rgba };
+}
+
+test('--build serves the Elevation layer’s Blocks style: flat terrain sand on the style’s lattice, edged on each cell’s westmost and southmost eighth; transparent below the zoom band', () => {
+  // 1,920 m cells (zoom band 7 to 14): the zoom-9 tile over Baltimore.
+  const z = 9;
+  const n = 2 ** z;
+  const x = Math.floor(((-76.6292 + 180) / 360) * n);
+  const lat = (39.3214 * Math.PI) / 180;
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2) * n,
+  );
+  const { rgba } = pngPixels(blocksStyleTile(1920, z, x, y));
+  const counts = new Map();
+  for (let at = 0; at < rgba.length; at += 4) {
+    assert.equal(rgba[at + 3], 255, 'opaque in the band');
+    const key = `${rgba[at]},${rgba[at + 1]},${rgba[at + 2]}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  // Two colours: the terrain's sand and its edge.
+  assert.deepEqual([...counts.keys()].sort(), ['144,140,127', '200,194,176']);
+  // About 1 − (7/8)² of the pixels are edges (cells of about 12 px here).
+  const share = counts.get('144,140,127') / (256 * 256);
+  assert.ok(share > 0.15 && share < 0.32, String(share));
+  // Below the band (zoom 6 for 1,920 m): blank, as the server answers.
+  const below = pngPixels(blocksStyleTile(1920, 6, 18, 24)).rgba;
+  assert.ok(below.every((v) => v === 0));
 });

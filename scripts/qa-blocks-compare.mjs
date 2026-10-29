@@ -39,6 +39,10 @@
  *
  *   ... --altitudes 300,5000,50000,500000,3000000   # Blocks at any scale
  *
+ * In --build the Elevation layer's Blocks style (blocks-<cellM> tiles) is
+ * flat terrain sand on the style's lattice (blocksStyleTile), so the drape
+ * shows under and beyond coarse blocks; --live sends it to the server.
+ *
  * --altitudes shoots Baltimore straight from each height (metres above the
  * ellipsoid) at pitch −45 and −90, in Colour and in Blocks, as
  * scale-<height>-p<pitch>-colour.png and -blocks.png (milestone 5 of
@@ -68,6 +72,9 @@ import {
 import { encodeLayerStateParams } from '../src/data/layerState.js';
 import { EARTH_ENGINE_LAYERS } from '../src/data/earthEngineLayers.js';
 import { chromeExecutablePath } from './qa-chrome.mjs';
+import { blocksStyleZoomBand } from '../src/data/blocksStyle.js';
+import { MATERIAL_COLORS } from '../src/layers/blocks/lighting.js';
+import { MATERIALS } from '../src/layers/blocks/store.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const ORIGIN = 'http://gev-blocks.test';
@@ -401,6 +408,49 @@ export function colourTile(z, x, y, field, size = 256) {
       rgba[at] = r;
       rgba[at + 1] = g;
       rgba[at + 2] = b;
+      rgba[at + 3] = 255;
+    }
+  }
+  return encodePng(size, size, rgba);
+}
+
+/** The Blocks lattice's metres a degree (lattice.js, the server's style grid). */
+const LATTICE_M_PER_DEG = 111_319.49;
+/** The style's cell edges: the westmost and southmost eighth of a cell. */
+export const STYLE_EDGE_PARTS = 8;
+/** How much darker an edge is than the cell. */
+const STYLE_EDGE_SHADE = 0.72;
+
+/**
+ * A tile of the Elevation layer's Blocks style for --build (the server's
+ * is Earth Engine's, server/providers/earthEngine.js): flat terrain sand
+ * on the style's lattice, equal-angle cells of `cellM` from 180° W and, in
+ * whole cells, from 90° S, each edged on its westmost and southmost
+ * eighth; below the level's zoom band (blocksStyleZoomBand) transparent,
+ * as the server answers it.
+ */
+export function blocksStyleTile(cellM, z, x, y, size = 256) {
+  const rgba = new Uint8Array(size * size * 4);
+  if (z < blocksStyleZoomBand(cellM).min) return encodePng(size, size, rgba);
+  const cellDeg = cellM / LATTICE_M_PER_DEG;
+  const top = -90 + Math.ceil(180 / cellDeg) * cellDeg;
+  const [r, g, b] = MATERIAL_COLORS[MATERIALS.TERRAIN];
+  const edge = 1 / STYLE_EDGE_PARTS;
+  const scale = 2 ** z;
+  for (let py = 0; py < size; py++) {
+    const merc = Math.PI * (1 - (2 * (y + (py + 0.5) / size)) / scale);
+    const lat = (Math.atan(Math.sinh(merc)) * 180) / Math.PI;
+    const down = (top - lat) / cellDeg;
+    const south = down - Math.floor(down) > 1 - edge;
+    for (let px = 0; px < size; px++) {
+      const lon = ((x + (px + 0.5) / size) / scale) * 360 - 180;
+      const across = (lon + 180) / cellDeg;
+      const shade =
+        south || across - Math.floor(across) < edge ? STYLE_EDGE_SHADE : 1;
+      const at = (py * size + px) * 4;
+      rgba[at] = Math.round(r * shade);
+      rgba[at + 1] = Math.round(g * shade);
+      rgba[at + 2] = Math.round(b * shade);
       rgba[at + 3] = 255;
     }
   }
@@ -759,6 +809,20 @@ function respond(request, { dist, field, log, live }) {
     countRequest(url, log);
     log.buildings += answer.elements.length;
     return json(200, answer);
+  }
+  // The Elevation layer's Blocks style (moded: blocks-<cellM>/<variant>/<ink>).
+  const style =
+    /^\/api\/earth-engine\/tile\/ee-elevation\/blocks-(\d+)\/[^/]+\/[^/]+\/(\d+)\/(\d+)\/(\d+)$/.exec(
+      url.pathname,
+    );
+  if (style) {
+    countRequest(url, log);
+    const [cellM, z, x, y] = style.slice(1).map(Number);
+    return request.respond({
+      status: 200,
+      contentType: 'image/png',
+      body: blocksStyleTile(cellM, z, x, y),
+    });
   }
   const tile =
     /^\/api\/earth-engine\/tile\/ee-elevation\/[^/]+\/[^/]+\/(\d+)\/(\d+)\/(\d+)$/.exec(
