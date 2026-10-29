@@ -341,6 +341,20 @@ export function chunkRing({ i, j, radius, chunkColumns }) {
 }
 
 /**
+ * A structures answer without its buildings: the land cover (`material`)
+ * and the bridge decks (columns `structure` marks) kept, every other
+ * column's top NONE. The answer itself is not changed.
+ */
+export function withoutBuildings(levels) {
+  if (!levels?.top) return levels;
+  const top = new Int32Array(levels.top.length).fill(NO_TOP);
+  if (levels.structure)
+    for (let k = 0; k < top.length; k++)
+      if (levels.structure[k]) top[k] = levels.top[k];
+  return { ...levels, top };
+}
+
+/**
  * Take a chunk's buildings and land cover off: its structures layer
  * cleared column by column, and its surfaces (roads, greens, OSM water)
  * back to the heightfield's (store.js clearSurfaces), so its version moves
@@ -597,9 +611,10 @@ export function sourceName(source) {
  *   structures?: {loadChunk: (region, ci, cj) => Promise<{top: Int32Array,
  *     bottom: Int32Array}|null>, apply: (chunk, levels) => number,
  *     groupBuildings?: (region, gi, gj)
- *     => Promise<string[]>}, OpenStreetMap buildings (structures.js) for
- *     the fine chunks, while store.getBuildings() is not false and
- *     Overpass answers,
+ *     => Promise<string[]>}, OpenStreetMap land cover and buildings
+ *     (structures.js) for the fine chunks while Overpass answers: the land
+ *     cover (roads, greens, water, bridge decks) always, the buildings
+ *     while store.getBuildings() is not false,
  *   sun?: (lon: number, lat: number) => {dir: {east: number, north: number,
  *     up: number}, fixed: boolean},
  *   supergroupGroups?: number, the groups a side of the source's coarse
@@ -706,22 +721,34 @@ export function createBlocksController({
   /** 'gi:gj' → the ids of the buildings placed in that group. */
   const _groupBuildings = new Map();
   /**
-   * Whether buildings are drawn: a structures source, Overpass not known
-   * to be missing, and the Buildings switch not turned off (unchosen is on).
+   * Whether buildings can be drawn: a structures source, Overpass not
+   * known to be missing, and the Buildings switch not turned off (unchosen
+   * is on).
    */
   const buildingsOn = () =>
     Boolean(structures) &&
     !_overpassMissing &&
     store.getBuildings?.() !== false;
   /**
-   * Whether this region's chunks get buildings and land cover: the switch,
-   * and blocks no coarser than STRUCTURES_MAX_BLOCK_M (a group's Overpass
-   * box is 30 km across at 120 m blocks, 8,000 km at the top level).
+   * Whether this region's fine chunks get the OSM land cover (roads,
+   * greens, water, bridge decks): a structures source, Overpass not known
+   * to be missing, and blocks no coarser than STRUCTURES_MAX_BLOCK_M (a
+   * group's Overpass box is 30 km across at 120 m blocks, 8,000 km at the
+   * top level). Not the Buildings switch: the land cover is painted on
+   * every fine chunk from its first load either way, so no chunk's paint
+   * depends on when it came (a Baltimore street, 2026-10-29: roads and
+   * greens cut off along the chunk grid with Buildings off).
    */
   const structuresHere = () =>
-    buildingsOn() &&
+    Boolean(structures) &&
+    !_overpassMissing &&
     Boolean(_region) &&
     _region.blockM <= STRUCTURES_MAX_BLOCK_M;
+  /** Whether the fine chunks get their buildings too: the switch on. */
+  const buildingsHere = () =>
+    structuresHere() && store.getBuildings?.() !== false;
+  /** Whether the held answers were last applied with their buildings. */
+  let _buildingsApplied = null;
   /** Whether the source draws a coarse ring (loadCoarseChunk). */
   const coarseOn = () => typeof source.loadCoarseChunk === 'function';
   const _listeners = new Set();
@@ -868,7 +895,7 @@ export function createBlocksController({
     // place agree.
     const ids = new Set();
     let buildingsPending = false;
-    if (structuresHere()) {
+    if (buildingsHere()) {
       for (const entry of _chunks.values())
         if (entry.shown && structuresComing(entry)) buildingsPending = true;
       for (const [key, list] of _groupBuildings) {
@@ -894,7 +921,7 @@ export function createBlocksController({
       source: _region.sourceName,
       buildings: buildingsPending ? 0 : ids.size,
       buildingsPending,
-      buildingsOn: structuresHere(),
+      buildingsOn: buildingsHere(),
       // The study sun (the real one is under 15°): said on the line.
       sunFixed: Boolean(_region.sun?.fixed),
     });
@@ -1354,6 +1381,45 @@ export function createBlocksController({
    * A failure is asked again after the same backoff as a chunk; Overpass
    * saying it is not configured ends buildings for this page.
    */
+  /**
+   * Put a chunk's kept answer into it: the land cover and bridge decks
+   * always, the buildings with the switch on (withoutBuildings otherwise).
+   * The structures layer is cleared first, so a switch change re-applies
+   * in place; the surfaces are idempotent.
+   */
+  function applyLevels(entry) {
+    if (!entry.chunk) return;
+    entry.chunk.clearStructures?.();
+    if (!entry.levels) return;
+    structures.apply(
+      entry.chunk,
+      buildingsHere() ? entry.levels : withoutBuildings(entry.levels),
+    );
+  }
+
+  /** A group's building ids, for the count (asked once a group). */
+  function askGroupBuildings(entry) {
+    if (!structures.groupBuildings) return;
+    const generation = _generation;
+    const { region } = _region;
+    const { gi, gj } = groupOf(entry.ci, entry.cj);
+    const key = `${gi}:${gj}`;
+    if (_groupBuildings.has(key)) return;
+    // null while the ids are coming: the count waits for them.
+    _groupBuildings.set(key, null);
+    call(() => structures.groupBuildings(region, gi, gj)).then(
+      (list) => {
+        if (generation !== _generation || !_groupBuildings.has(key)) return;
+        _groupBuildings.set(key, Array.isArray(list) ? list : []);
+        statusNow();
+      },
+      () => {
+        // No ids: counted as none rather than waited for.
+        if (_groupBuildings.get(key) === null) _groupBuildings.set(key, []);
+      },
+    );
+  }
+
   function loadStructures(entry) {
     const generation = _generation;
     const { region } = _region;
@@ -1367,27 +1433,12 @@ export function createBlocksController({
           entry.structures = undefined;
           return;
         }
-        if (levels) structures.apply(entry.chunk, levels);
+        // The answer is kept (the structures source holds it anyway), so
+        // the switch can raise or drop its buildings without asking again.
+        entry.levels = levels || null;
+        applyLevels(entry);
         entry.structures = 'done';
-        const { gi, gj } = groupOf(entry.ci, entry.cj);
-        const key = `${gi}:${gj}`;
-        if (structures.groupBuildings && !_groupBuildings.has(key)) {
-          // null while the ids are coming: the count waits for them.
-          _groupBuildings.set(key, null);
-          call(() => structures.groupBuildings(region, gi, gj)).then(
-            (list) => {
-              if (generation !== _generation || !_groupBuildings.has(key))
-                return;
-              _groupBuildings.set(key, Array.isArray(list) ? list : []);
-              statusNow();
-            },
-            () => {
-              // No ids: counted as none rather than waited for.
-              if (_groupBuildings.get(key) === null)
-                _groupBuildings.set(key, []);
-            },
-          );
-        }
+        if (buildingsHere()) askGroupBuildings(entry);
       },
       (error) => {
         if (stale()) return;
@@ -1412,12 +1463,26 @@ export function createBlocksController({
   }
 
   /**
-   * Buildings for the fine ring, nearest first and under the budget, or,
-   * with the switch off, taken off every chunk that has them.
+   * The land cover (and, with the switch on, the buildings) for the fine
+   * ring, nearest first and under the budget. A switch change re-applies
+   * every held answer in place: buildings raised or dropped, the paint
+   * kept, nothing asked again. With no land cover here at all (Overpass
+   * missing, blocks too coarse) everything comes off every held chunk.
    */
   function syncStructures(ring, perTick, time) {
     if (!structures) return;
+    const withBuildings = buildingsHere();
+    if (structuresHere() && _buildingsApplied !== withBuildings) {
+      _buildingsApplied = withBuildings;
+      if (!withBuildings) _groupBuildings.clear();
+      for (const entry of _chunks.values()) {
+        if (entry.structures !== 'done') continue;
+        applyLevels(entry);
+        if (withBuildings) askGroupBuildings(entry);
+      }
+    }
     if (!structuresHere()) {
+      _buildingsApplied = null;
       // Every held chunk, not only those this pass painted: one the source
       // handed back from its cache can carry an earlier pass's paint.
       for (const entry of _chunks.values()) {
