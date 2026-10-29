@@ -22,6 +22,7 @@ import {
   searchAndFlyTo,
   viewportMetrics,
   WIDE_FRAME_HALF_LON_DEG,
+  viewportNavigationMode,
 } from './locations.js';
 
 function stubViewer() {
@@ -704,4 +705,52 @@ test('a box crossing 180° but under half the globe keeps its framing, and its c
     northeast: { lat: 51.1, lng: 9.6 },
   };
   assert.equal(placeFramingViewport(france, 46.2, 2.2, ['country']), france);
+});
+
+// The geocode answers of 2026-10-29: typed as places, with real viewports.
+const EUROPE_RESULT = {
+  formatted_address: 'Europe',
+  types: ['point_of_interest', 'establishment'],
+  geometry: {
+    location: { lat: 51, lng: 10 },
+    viewport: {
+      southwest: { lat: 26, lng: -15 },
+      northeast: { lat: 76, lng: 35 },
+    },
+  },
+};
+const TAHOE_VIEWPORT = {
+  southwest: { lat: 38.9281733, lng: -120.1639382 },
+  northeast: { lat: 39.2490133, lng: -119.9260578 },
+};
+
+test('a generic-typed result is framed by its viewport: Europe as a region, Lake Tahoe as an area, a small-viewport POI as a place', () => {
+  const generic = ['point_of_interest', 'establishment'];
+  assert.equal(
+    viewportNavigationMode(generic, EUROPE_RESULT.geometry.viewport),
+    'region-overview',
+  );
+  assert.equal(viewportNavigationMode(generic, TAHOE_VIEWPORT), 'area-overview');
+  // A shop: a viewport of about 300 m stays a place.
+  const shop = {
+    southwest: { lat: 39.3200, lng: -76.6310 },
+    northeast: { lat: 39.3227, lng: -76.6276 },
+  };
+  assert.equal(viewportNavigationMode(generic, shop), 'precise-place');
+  assert.equal(viewportNavigationMode(generic, null), 'precise-place');
+  // Classed types keep their own mode whatever the viewport.
+  assert.equal(
+    viewportNavigationMode(['restaurant', 'food', 'point_of_interest'], EUROPE_RESULT.geometry.viewport),
+    'precise-place',
+  );
+  assert.equal(viewportNavigationMode(['locality', 'political'], TAHOE_VIEWPORT), 'city-overview');
+});
+
+test('searching "Europe" frames the continent from above, not a street sector at sea level', async () => {
+  const viewer = stubViewer();
+  const outcome = await runSearch(viewer, {}, { result: EUROPE_RESULT, query: 'Europe' });
+  assert.equal(outcome.navigationMode, 'region-overview');
+  const flown = flownRectangleDegrees(viewer);
+  assert.ok(flown.west < -15 && flown.east > 35, JSON.stringify(flown));
+  assert.ok(flown.south < 26 && flown.north > 76);
 });

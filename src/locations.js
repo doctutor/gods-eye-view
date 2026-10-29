@@ -347,7 +347,8 @@ export async function searchAndFlyTo(viewer, query, options = {}) {
 
   const requestedRange = finitePositive(options.range);
   const duration = finitePositive(options.duration) || 3.0;
-  const navigationMode = geocodeNavigationMode(types);
+  // Generic-typed results ("Europe", a lake) are framed by their viewport.
+  const navigationMode = viewportNavigationMode(types, viewport);
 
   const explicitOverview = options.viewMode === 'overview';
 
@@ -539,6 +540,41 @@ export function geocodeNavigationMode(types) {
     return 'area-overview';
   }
   return 'precise-place';
+}
+
+/** The types a geocoder gives a result it has not classed (a place by name). */
+const GENERIC_PLACE_TYPES = new Set(['point_of_interest', 'establishment']);
+/**
+ * A result with only GENERIC_PLACE_TYPES is framed by its viewport's size
+ * (viewportNavigationMode): over this diagonal (km) as a region. The geocode
+ * answer for "Europe" (2026-10-29) is typed point_of_interest with a viewport
+ * of 26–76° N, 15° W–35° E, about 5,500 km; framed at the street range it put
+ * the camera underground.
+ */
+export const GENERIC_REGION_SPAN_KM = 1000;
+/**
+ * Over this diagonal (km), as an area. "Lake Tahoe, California" answers typed
+ * point_of_interest with a viewport of about 36 × 20 km (41 km across).
+ */
+export const GENERIC_AREA_SPAN_KM = 2;
+
+/**
+ * The navigation mode for a result's types and viewport: the types' mode
+ * (geocodeNavigationMode), except for a result with only generic types,
+ * which is framed by its viewport's size: a region over
+ * GENERIC_REGION_SPAN_KM, an area over GENERIC_AREA_SPAN_KM, else a place.
+ */
+export function viewportNavigationMode(types, viewport) {
+  const mode = geocodeNavigationMode(types);
+  if (mode !== 'precise-place') return mode;
+  const list = Array.isArray(types) ? types : [];
+  if (!list.length || !list.every((type) => GENERIC_PLACE_TYPES.has(type)))
+    return mode;
+  const metrics = viewportMetrics(viewport);
+  if (!metrics) return mode;
+  if (metrics.spanKm > GENERIC_REGION_SPAN_KM) return 'region-overview';
+  if (metrics.spanKm > GENERIC_AREA_SPAN_KM) return 'area-overview';
+  return mode;
 }
 
 /**
