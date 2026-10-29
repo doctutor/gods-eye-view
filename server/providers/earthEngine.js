@@ -378,29 +378,29 @@ const reference = (key) => ({ valueReference: key });
 
 /**
  * The Blocks lakes' source (the raster values' water plane and the Blocks
- * style): JRC Global Surface Water 1.4's occurrence, the share of months
- * 1984–2021 with water, in % (the Surface water layer's dataset).
+ * style): MODIS MOD44W's land-water mask for 2015, 250 m, 0 land and 1
+ * water, valid over land and sea alike. Not JRC Global Surface Water: its
+ * occurrence is masked wherever water never was, so a coarse pyramid
+ * pixel is the mean of its water pixels alone, and a 1.9 km pixel with one
+ * pond read as water (at 30 km cells half the US interior was "lakes").
+ * A mask valid over land averages its zeros too, at every pyramid level.
  */
-export const WATER_ASSET = 'JRC/GSW1_4/GlobalSurfaceWater';
-/** A pixel is water when it had water at least this often, %. */
-export const WATER_OCCURRENCE_MIN = 50;
-/** The dataset's own cell, metres (1″ at the equator, about 30 m). */
-export const WATER_NATIVE_M = 30;
+export const WATER_ASSET = 'MODIS/006/MOD44W/2015_01_01';
+/** Its band: 0 land, 1 water. */
+export const WATER_BAND = 'water_mask';
+/** The dataset's own cell, metres. */
+export const WATER_NATIVE_M = 250;
 
 /**
- * 1 where JRC's occurrence is at least WATER_OCCURRENCE_MIN, else 0 (a
- * float; outside the dataset, the open sea among it, 0, never masked).
- * Its mean over a cell is the share of the cell that is water.
+ * 1 where MOD44W says water, else 0, as a float (anywhere it is masked,
+ * 0). Its mean over a cell is the share of the cell that is water.
  */
 export const waterImage = () =>
   invoke('Image.unmask', {
     input: invoke('Image.toFloat', {
-      value: invoke('Image.gte', {
-        image1: invoke('Image.select', {
-          input: invoke('Image.load', { id: constant(WATER_ASSET) }),
-          bandSelectors: constant(['occurrence']),
-        }),
-        image2: imageConstant(WATER_OCCURRENCE_MIN),
+      value: invoke('Image.select', {
+        input: invoke('Image.load', { id: constant(WATER_ASSET) }),
+        bandSelectors: constant([WATER_BAND]),
       }),
     }),
     value: imageConstant(0),
@@ -1060,8 +1060,7 @@ export function blocksStyleGrid(cellM, part = 1) {
  *   masked in every source), or whose mean is at or below 0 m: level 0,
  *   one flat colour, as the Blocks geometry draws water;
  * - lakes: a cell at least BLOCKS_LAKE_SHARE of whose samples are water
- *   (waterImage: JRC Global Surface Water, as the Blocks columns' water
- *   plane) is the water's colour at its own level, the lake's surface;
+ *   (waterImage: MODIS MOD44W, as the Blocks columns' water plane) is the water's colour at its own level, the lake's surface;
  * - the level: the mean quantised down to blocksLevelM; its colour the
  *   Blocks terrain's sand as a top face shows it (blocksStyle.js, the
  *   geometry's), shaded flat by the hillshade of the quantised cells

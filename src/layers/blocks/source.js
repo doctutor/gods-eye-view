@@ -23,7 +23,7 @@
 // the DEM stack reports them; a column at or below 0 m is the sea, water at
 // level 0 over a seabed below it. Above the finest levels (whose lakes and
 // rivers are OSM's, structures.js) each tile carries the water plane too,
-// the share of each cell that is water (JRC Global Surface Water): a
+// the share of each cell that is water (MODIS MOD44W's land-water mask): a
 // column at least LAKE_SHARE water is a lake, its surface at the column's
 // own level (a DEM's height over a lake is its surface).
 //
@@ -53,7 +53,7 @@ export const ELEVATION_LAYER = 'ee-elevation';
 export const LAND_SHARE = 0.5;
 /**
  * A column above 0 m is a lake when at least this share of its cell is
- * water (the water plane: JRC occurrence ≥ 50 %, the cell's mean).
+ * water (the water plane: MOD44W's 0 land, 1 water, the cell's mean).
  */
 export const LAKE_SHARE = 0.5;
 /**
