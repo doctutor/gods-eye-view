@@ -6229,6 +6229,18 @@ eye-level view stands on the live ground under the camera (one values
 probe), and the report adds each live route's answers by status, time and
 bytes.
 
+For Blocks at any scale, `--altitudes 300,5000,50000,500000,3000000`
+shoots Baltimore from each height at pitch −45 and −90, in Colour and in
+Blocks (`scale-<height>-p<pitch>-<mode>.png`). The report gives each
+Blocks shot's level as its status line says it, its status lines in order
+(`statusTrail`), and its values requests in order with their boxes'
+centres (`trail`, which located the lattice seams). Without `--live`, the
+Elevation layer's Blocks style (`blocks-<cellM>` tiles) is flat terrain
+sand on the style's lattice (`blocksStyleTile`): equal-angle cells from
+180° W, each edged on its westmost and southmost eighth, and blank below
+the level's zoom band, as the server answers. So the synthetic frames show
+the drape under and beyond coarse blocks instead of the black basemap.
+
 **Tests.** `src/layers/blocks/controller.test.mjs`, on a fake grid,
 source, renderer and camera: the ring's order, the budget, re-meshing on a
 neighbour or a version, the hysteresis, re-anchoring at 25 km, the
