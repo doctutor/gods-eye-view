@@ -866,8 +866,15 @@ export function createBlocksRenderer({
     );
   }
 
+  /**
+   * How often geometry went through Cesium's (synchronous) pipeline: chunks
+   * drawn alone, batch rebuilds, and the chunks those rebuilds combined.
+   */
+  const stats = { alone: 0, rebuilds: 0, rebuiltChunks: 0 };
+
   /** A chunk drawn alone, at its own origin. */
   function drawAlone(key, held) {
+    stats.alone++;
     const zero = { x: 0, y: 0, z: 0 };
     return ['opaque', 'water']
       .filter((kind) => held.parts[kind])
@@ -893,6 +900,8 @@ export function createBlocksRenderer({
     const batch = batches.get(batchKey);
     pending.delete(batchKey);
     if (!batch) return;
+    stats.rebuilds++;
+    stats.rebuiltChunks += batch.members.size;
     batch.rebuildNow = false;
     const instances = { opaque: [], water: [] };
     const built = new Map();
@@ -1375,6 +1384,7 @@ export function createBlocksRenderer({
       },
       chunks: chunks.size,
       batches: batches.size,
+      stats: { ...stats },
       // What is kept to rebuild batches from, MB.
       retainedMB:
         [...chunks.values()].reduce(

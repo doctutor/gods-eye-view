@@ -1395,7 +1395,9 @@ function sequenceHoldings() {
           blockM: st.region?.blockM ?? null,
         }
       : null,
-    renderer: rs ? { chunks: rs.chunks, batches: rs.batches } : null,
+    renderer: rs
+      ? { chunks: rs.chunks, batches: rs.batches, stats: rs.stats ?? null }
+      : null,
     primitives: window.__godsEyeView?.viewer?.scene?.primitives?.length ?? null,
     imageryLayers: window.__godsEyeView?.viewer?.imageryLayers?.length ?? null,
   };
