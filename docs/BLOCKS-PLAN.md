@@ -349,3 +349,98 @@ without leaving Blocks, every level reading as a block map, and the
 The 1 m lidar download for a local terrain mesh (separate approval), the
 Google tiles as a block source (Voxel Earth-style), exporting to a Minecraft
 or Luanti world (Arnis exists for that; a side experiment at most).
+
+## Status, 2026-10-29
+
+Milestone 5 shipped on `local-fixes` (cd1bdd6d, pushed, 9,188 tests). The
+"Blocks at any scale" section of PERSONAL-FORK.md describes what exists.
+Against the decisions:
+
+1. **Footprint.** The block is the smallest pyramid level at least the
+   native cell and 2 × the HUD's PX at the view's centre, asked of the
+   source as `regionFor(lon, lat, windowM, { wantedM })`. A level changes
+   only ×2 past it either way, and only once the camera has been still for
+   2 s. The status line and the HUD name the cell ("1.9 km cells · 60 m
+   levels").
+2. **Level height.** `levelM` is a cube up to 30 m, else max(30 m, blockM /
+   32), through grid, store, mesh, lighting and the walker. Relief ×N draws
+   the levels and the region's base as Cesium draws the globe; the readouts
+   keep true metres.
+3. **Aggregates.** A coarse cell is the mean of the valid heights over it,
+   water at level 0 where under half is land or the mean is at or below
+   0 m. It is served on a global lattice of 512 cells a side, with a 120 s
+   timeout and retries, and cached for 30 days. `npm run blocks:pyramid`
+   warms a box.
+4. **N rings.** Past the fine disc and its coarse ring, each further ring
+   is the next level at least 4 × the cell before, R1 blocks of it, until
+   one passes the horizon (the ground distance, × 1.25). At continental
+   levels the fine ring is capped at the horizon too. They are drawn
+   through `renderer.setRegions`, with the fog from the outermost ring.
+5. **Curved grid.** From 1,920 m cells every column stands on the
+   ellipsoid, and the edges and dither come from the per-vertex block
+   coordinate.
+6. **Top-down style.** The Elevation layer's `blocks-<cellM>` mode drapes
+   at 8 px a cell, from two zooms under each level's own to 14. It drapes
+   over blocks coarser than 30 m and where Blocks cannot build, and the
+   HUD's floor names it ("Blocks style 31 km") until blocks draw.
+
+The record: Baltimore, real data from the app server at cd1bdd6d, the Blocks
+shot of each pair (its Colour twin beside it). The ring time runs from the
+Elevation layer coming on until the status line settles.
+
+| View         | Level                    | Chunks (fine + coarse) | Values requests | Overpass | Ring time |
+| ------------ | ------------------------ | ---------------------- | --------------- | -------- | --------- |
+| 300 m −45    | 1 m cubes                | 320 + 668              | 57              | 3        | 30.5 s    |
+| 300 m −90    | 1 m cubes                | 320 + 668              | 57              | 3        | 29.0 s    |
+| 5 km −45     | 8 m cubes                | 320 + 456              | 51              | 20       | 28.3 s    |
+| 5 km −90     | 8 m cubes                | 320 + 456              | 51              | 20       | 29.3 s    |
+| 50 km −45    | 120 m cells, 30 m levels | 320 + 436              | 44              | 0        | 32.3 s    |
+| 50 km −90    | 120 m cells, 30 m levels | 320 + 436              | 44              | 0        | 33.0 s    |
+| 500 km −45   | 1.9 km cells, 60 m       | 304 + 129              | 24              | 0        | 23.1 s    |
+| 500 km −90   | 1.9 km cells, 60 m       | 304 + 129              | 26 (2 failed)   | 0        | 24.0 s    |
+| 3,000 km −45 | 7.7 km cells, 240 m      | 336 + 23               | 21              | 0        | 63.3 s    |
+| 3,000 km −90 | 7.7 km cells, 240 m      | 336 + 29               | 21              | 0        | 16.3 s    |
+
+Every values request was answered 200, apart from two at 500 km −90 that
+failed at the connection. The coarse column counts the coarse ring and the
+rings past it. The 300 m view drew 1,497 buildings, the 5 km view 9,935.
+
+**The cost of a fresh view**:
+
+- 21 to 57 values requests: the probe plus the lattice tiles of the fine
+  disc, its coarse ring and the rings past it. Each is one Earth Engine
+  tile against the 20,000-tile day, and a view seen before costs nothing.
+- Overpass: 3 queries at 1 m, 20 at 8 m (land cover), none above 30 m
+  blocks (`STRUCTURES_MAX_BLOCK_M`).
+- From 50 km up, the style drape: 65 to 156 Earth Engine tiles at the
+  shot, where the Colour twin took 32 to 282.
+
+**Known not done:**
+
+- Nothing walks on cells of 1,920 m and up. Walk and Fly read the flat
+  frame, and the curved regions are not one.
+- The rings stop at the horizon, at most R1 blocks each. There are no
+  skirts between rings: where two meet, the outer ring overlaps the inner
+  ring's edge or leaves a gap of up to half a chunk, in the fog.
+- The style drapes only within each level's zoom band (two zooms under its
+  own to 14). The server answers coarser tiles blank, so a view whose
+  tiles fall below the band shows no drape for that level.
+- 5 km −45: east of a north-south line through the camera, the 8 m ground
+  and its coarse ring come back flat, one level with the buildings
+  standing on it. It was already there in the 2026-10-28 run, and it looks
+  like the 8 m values east of a lattice seam.
+- 3,000 km −90: the −74.04° gap is gone, but thin streaks remain along the
+  coast (New Jersey, Long Island) and in the water near it.
+- 3,000 km −45 took 63 s to settle, the slowest view.
+
+**The harness** (`scripts/qa-blocks-compare.mjs`, the PNGs beside
+`report.json`, with each shot's status lines and values requests in order):
+
+```sh
+node scripts/qa-blocks-compare.mjs --build --out <dir outside the repository> --altitudes 300,5000,50000,500000,3000000
+node scripts/qa-blocks-compare.mjs --build --out <dir> --live http://localhost:4173 --altitudes 300,5000,50000,500000,3000000
+node scripts/qa-blocks-compare.mjs --dist <an existing build> --out <dir> --live http://localhost:4173 --altitudes 500000
+```
+
+This record's frames are `.claude/blocks-compare/final-scale-*.png` in the
+main checkout, with `final-scale-report.json`.
