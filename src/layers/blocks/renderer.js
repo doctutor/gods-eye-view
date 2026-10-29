@@ -392,8 +392,40 @@ const partBytes = (part) =>
       part.indices.byteLength
     : 0;
 
+/**
+ * A part's bounding sphere from one pass over its positions (the box's
+ * corners): computed once when a chunk arrives and kept with it, where
+ * BoundingSphere.fromVertices on every geometry, alone and again at each
+ * batch rebuild, was a fifth of the main thread's geometry time while a
+ * view streamed in (QA, 2026-10-29).
+ */
+export function partSphere(positions) {
+  if (!positions?.length) return new Cesium.BoundingSphere();
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+  for (let k = 0; k < positions.length; k += 3) {
+    const x = positions[k];
+    const y = positions[k + 1];
+    const z = positions[k + 2];
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
+  return Cesium.BoundingSphere.fromCornerPoints(
+    new Cesium.Cartesian3(minX, minY, minZ),
+    new Cesium.Cartesian3(maxX, maxY, maxZ),
+  );
+}
+
 function meshGeometry(
-  { positions, normals, colors, blockCoords, indices },
+  { positions, normals, colors, blockCoords, indices, sphere },
   offset = null,
 ) {
   const vertexCount = positions.length / 3;
@@ -450,7 +482,19 @@ function meshGeometry(
           ? indices
           : Uint32Array.from(indices),
     primitiveType: Cesium.PrimitiveType.TRIANGLES,
-    boundingSphere: Cesium.BoundingSphere.fromVertices(positions),
+    // The part's own sphere (partSphere), moved with it into its batch.
+    boundingSphere: sphere
+      ? new Cesium.BoundingSphere(
+          offset
+            ? Cesium.Cartesian3.add(
+                sphere.center,
+                new Cesium.Cartesian3(offset.x, offset.y, offset.z || 0),
+                new Cesium.Cartesian3(),
+              )
+            : Cesium.Cartesian3.clone(sphere.center),
+          sphere.radius,
+        )
+      : Cesium.BoundingSphere.fromVertices(positions),
   });
 }
 
@@ -1216,7 +1260,13 @@ export function createBlocksRenderer({
         origin,
         parts: Object.fromEntries(
           Object.entries(splitMesh({ ...mesh, blockCoords })).map(
-            ([kind, part]) => [kind, compactPart(part)],
+            ([kind, part]) => {
+              const kept = compactPart(part);
+              return [
+                kind,
+                kept && { ...kept, sphere: partSphere(kept.positions) },
+              ];
+            },
           ),
         ),
         chunk: [parsed?.ci ?? 0, parsed?.cj ?? 0],

@@ -34,6 +34,7 @@ import {
   regionFrame,
   ringsFog,
   splitMesh,
+  partSphere,
 } from './renderer.js';
 
 // Cesium's Material asks whether a uniform is a canvas or an image.
@@ -1221,4 +1222,46 @@ test("a ring's hole: setRingHoles gives each ring the inner rings' reach about a
   renderer.setRingHoles(null);
   assert.equal(u(mid).holeRadiusM, 0);
   renderer.destroy();
+});
+
+test('each part’s bounding sphere is computed once, when its chunk arrives: none from the vertices while a group draws alone and then as a batch', () => {
+  // The sphere encloses every vertex.
+  const positions = new Float32Array([0, 0, 0, 64, 0, 3, 64, 64, 0, 0, 64, 9]);
+  const sphere = partSphere(positions);
+  for (let k = 0; k < positions.length; k += 3) {
+    const d = Cesium.Cartesian3.distance(
+      sphere.center,
+      new Cesium.Cartesian3(positions[k], positions[k + 1], positions[k + 2]),
+    );
+    assert.ok(d <= sphere.radius + 1e-6);
+  }
+  const fromVertices = Cesium.BoundingSphere.fromVertices;
+  let calls = 0;
+  Cesium.BoundingSphere.fromVertices = (...args) => {
+    calls++;
+    return fromVertices(...args);
+  };
+  try {
+    const { renderer, advance, frame } = batchSetup();
+    for (let ci = 4; ci < 8; ci++)
+      for (let cj = 0; cj < 4; cj++) renderer.upsert(`${ci}:${cj}`, tinyMesh());
+    advance(1500);
+    frame();
+    const batch = renderer.getCollection().get(0);
+    assert.equal(batch.geometryInstances.length, 16);
+    // Chunk 6:1's sphere moved by its offset in the batch (128, 64).
+    const six = batch.geometryInstances.find((i) => i.id.key === '6:1');
+    const own = partSphere(tinyMesh().positions);
+    assert.ok(
+      Math.abs(six.geometry.boundingSphere.center.x - (own.center.x + 128)) <
+        1e-6,
+    );
+    assert.ok(
+      Math.abs(six.geometry.boundingSphere.center.y - (own.center.y + 64)) <
+        1e-6,
+    );
+    assert.equal(calls, 0, 'no sphere from the vertices');
+  } finally {
+    Cesium.BoundingSphere.fromVertices = fromVertices;
+  }
 });
