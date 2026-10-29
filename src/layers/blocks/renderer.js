@@ -175,6 +175,8 @@ in vec3 v_localNormal;
 in vec2 v_chunk;
 
 void main() {
+  // A ring's ground the rings inside it already draw: not drawn twice.
+  if (blocks_inHole(v_positionEC)) discard;
   czm_materialInput materialInput;
   materialInput.positionToEyeEC = -v_positionEC;
   materialInput.normalEC = normalize(v_normalEC);
@@ -232,6 +234,16 @@ float blocks_tone(vec3 blockCoord, vec3 localNormal, vec2 chunk, float distanceM
   return tone;
 }
 
+// A ring's hole (setRingHoles): within holeRadiusM of the inner rings'
+// centre, measured across the ground (along the local up removed), the
+// rings inside draw the ground; 0 is no hole.
+bool blocks_inHole(vec3 positionEC) {
+  if (holeRadiusM <= 0.0) return false;
+  vec3 d = positionEC - holeCentreEC;
+  vec3 across = d - dot(d, holeUpEC) * holeUpEC;
+  return dot(across, across) < holeRadiusM * holeRadiusM;
+}
+
 czm_material czm_getMaterial(czm_materialInput materialInput) {
   czm_material material = czm_getDefaultMaterial(materialInput);
   float d = length(materialInput.positionToEyeEC);
@@ -257,6 +269,9 @@ function blocksMaterial(translucent) {
         edgeFadeStart: EDGE_DEFAULTS.fadeStartBlocks,
         edgeFadeEnd: EDGE_DEFAULTS.fadeEndBlocks,
         ditherAmount: 0,
+        holeRadiusM: 0,
+        holeCentreEC: new Cesium.Cartesian3(0, 0, 0),
+        holeUpEC: new Cesium.Cartesian3(0, 0, 1),
       },
       source: MATERIAL_SOURCE,
     },
@@ -713,8 +728,51 @@ export function createBlocksRenderer({
     return true;
   }
 
+  // The rings' holes (setRingHoles): a centre on the ground and, by ring
+  // level, the inner rings' reach; their uniforms follow the view each frame.
+  let holes = null;
+  function applyHoles() {
+    const view = scene.camera?.viewMatrix;
+    const radiusOf = (level) =>
+      holes && view ? Number(holes.reachM?.[level]) || 0 : 0;
+    let centreEC = null;
+    let upEC = null;
+    if (holes && view) {
+      const world = Cesium.Cartesian3.fromDegrees(
+        holes.lon,
+        holes.lat,
+        datumOffsetM || 0,
+      );
+      centreEC = Cesium.Matrix4.multiplyByPoint(
+        view,
+        world,
+        new Cesium.Cartesian3(),
+      );
+      const up = Cesium.Ellipsoid.WGS84.geodeticSurfaceNormal(
+        world,
+        new Cesium.Cartesian3(),
+      );
+      upEC = Cesium.Cartesian3.normalize(
+        Cesium.Matrix4.multiplyByPointAsVector(view, up, up),
+        up,
+      );
+    }
+    for (const [level, ring] of rings) {
+      const radius = radiusOf(level);
+      for (const appearance of Object.values(ring.appearances)) {
+        const uniforms = appearance.material.uniforms;
+        uniforms.holeRadiusM = radius;
+        if (radius > 0) {
+          uniforms.holeCentreEC = centreEC;
+          uniforms.holeUpEC = upEC;
+        }
+      }
+    }
+  }
+
   const removePreRender = scene.preRender?.addEventListener(() => {
     if (followBackground()) applyFog();
+    applyHoles();
     flush();
   });
   followBackground();
@@ -1036,6 +1094,23 @@ export function createBlocksRenderer({
      * `fogReachBlocks`: the fog set from the outermost ring's reach
      * (ringsFog), else left as it is.
      */
+    /**
+     * The rings' holes: the ground about {lon, lat} (the inner rings'
+     * centre, the camera's ground when they were chosen) within
+     * `reachM[level]` metres is the rings inside a ring's, so that ring
+     * does not draw it, whatever its chunks cover (a ring chunk is 64 of
+     * its blocks, the hole may be fewer). null: no holes.
+     */
+    setRingHoles(next) {
+      holes =
+        next && Number.isFinite(next.lon) && Number.isFinite(next.lat)
+          ? { lon: next.lon, lat: next.lat, reachM: { ...next.reachM } }
+          : null;
+      applyHoles();
+      requestRender();
+      return holes && { ...holes, reachM: { ...holes.reachM } };
+    },
+
     setRegions(
       regions,
       { datumOffsetM: offset = 0, fogReachBlocks = null } = {},
@@ -1230,6 +1305,7 @@ export function createBlocksRenderer({
     },
 
     getState: () => ({
+      holes: holes && { ...holes, reachM: { ...holes.reachM } },
       region,
       // Every level drawn, finest first: {blockM, lon0, lat0, chunks}.
       regions: [region, ...[...rings.values()].map((ring) => ring.region)]

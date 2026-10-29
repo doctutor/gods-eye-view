@@ -424,6 +424,13 @@ export function fogFor(radiusBlocks, blockM, coarse) {
   return { startM: FOG_START * reach, endM: reach };
 }
 
+/** Columns from the point {x, y} (in columns) to the farthest corner of the chunk's square. */
+export function farthestDistance({ x, y }, ci, cj, size) {
+  const dx = Math.max(Math.abs(ci * size - x), Math.abs((ci + 1) * size - x));
+  const dy = Math.max(Math.abs(cj * size - y), Math.abs((cj + 1) * size - y));
+  return Math.hypot(dx, dy);
+}
+
 /** Columns from the point {x, y} (in columns) to the chunk's square. */
 export function chunkDistance({ x, y }, ci, cj, size) {
   const dx = Math.max(ci * size - x, 0, x - (ci + 1) * size);
@@ -1869,6 +1876,9 @@ export function createBlocksController({
     const size = grid.CHUNK_COLUMNS;
     const out = [];
     let inner = innerReachM;
+    // Each ring's hole: the reach of the rings inside it, which draw that
+    // ground (renderer.setRingHoles), about the camera's ground now.
+    const reachM = {};
     for (const level of levels) {
       let outer = _rings.get(level);
       const left =
@@ -1912,6 +1922,11 @@ export function createBlocksController({
         outer.chunks.delete(entry.key);
       }
       const innerBlocks = inner / level;
+      reachM[level] = inner;
+      // A chunk any part of which lies past the rings inside: one ring
+      // chunk (64 blocks) may be wider than the hole, so a chunk whose
+      // centre is inside can still reach past it; the renderer leaves out
+      // its ground inside the hole.
       const list = chunkRing({
         i,
         j,
@@ -1919,13 +1934,18 @@ export function createBlocksController({
         chunkColumns: size,
       }).filter(
         ({ ci, cj, distance }) =>
-          Math.hypot((ci + 0.5) * size - at.x, (cj + 0.5) * size - at.y) >
-            innerBlocks && distance * level <= horizonCut,
+          farthestDistance(at, ci, cj, size) > innerBlocks &&
+          distance * level <= horizonCut,
       );
       out.push({ ring: outer, list });
       inner = radiusBlocks * level;
     }
     if (changed) applyRegions();
+    call(() =>
+      renderer.setRingHoles?.(
+        levels.length ? { lon: camera.lon, lat: camera.lat, reachM } : null,
+      ),
+    ).catch(() => {});
     return out;
   }
 

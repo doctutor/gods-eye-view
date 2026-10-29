@@ -6581,7 +6581,18 @@ chunks, one no longer given loses them and its frame; a new primary
 drops everything, as `setRegion` does. `fogReachBlocks` sets the fog
 from the outermost ring: from 70 % of its reach to its reach
 (`ringsFog`). `getState().regions` lists each level drawn and its chunk
-count. `setRegion(region)` alone is K = 1, unchanged.
+count.
+
+**Ring holes.** A ring's chunk is 64 of its blocks, often wider than the
+hole the rings inside leave (at 8 m the 480 m ring's hole is 34 of its
+blocks), so a ring chunk can cover ground the finer rings draw: at 5 km
+over Baltimore a 480 m chunk east of the camera stood over the 8 m disc
+as flat 30 m terraces. The controller keeps a ring chunk any part of
+which lies past the rings inside (`farthestDistance`), and tells the
+renderer each ring's hole (`setRingHoles({lon, lat, reachM})`: the
+inner rings' reach by level, about the camera's ground); a ring's
+fragments within that reach, across the ground, are discarded, so each
+piece of ground is drawn by the finest ring that has it. `setRegion(region)` alone is K = 1, unchanged.
 
 ### Blocks: the Elevation layer's Blocks style
 

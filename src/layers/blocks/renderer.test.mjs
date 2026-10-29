@@ -1173,3 +1173,52 @@ test('curved chunks with block points draw with edges and dither again; one with
   assert.ok([...coordsOf(plain)].every((v) => v === 0));
   renderer.destroy();
 });
+
+test("a ring's hole: setRingHoles gives each ring the inner rings' reach about a centre, and its fragments inside are discarded", () => {
+  const viewer = fakeViewer();
+  viewer.scene.camera = { viewMatrix: Cesium.Matrix4.IDENTITY };
+  const renderer = createBlocksRenderer({ viewer });
+  renderer.setRegions([
+    stubRegion({ blockM: 8 }),
+    stubRegion({ blockM: 480 }),
+    stubRegion({ blockM: 1920 }),
+  ]);
+  renderer.upsert('0:0', tinyMesh());
+  renderer.upsert(levelChunkKey(480, 0, 0), tinyMesh());
+  // A curved ring's chunk carries its block points (mesh.js), so it draws
+  // with its ring's appearance (and its hole).
+  renderer.upsert(levelChunkKey(1920, 0, 0), {
+    ...tinyMesh(),
+    blockCoords: Float32Array.from([0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1]),
+  });
+  const [fine, mid, far] = [0, 1, 2].map((k) =>
+    renderer.getCollection().get(k),
+  );
+  const u = (p) => p.appearance.material.uniforms;
+  assert.equal(u(mid).holeRadiusM, 0); // none until told
+  renderer.setRingHoles({
+    lon: -76.6,
+    lat: 39.3,
+    reachM: { 480: 16_384, 1920: 30_720 },
+  });
+  assert.equal(u(mid).holeRadiusM, 16_384);
+  assert.equal(u(far).holeRadiusM, 30_720);
+  assert.equal(u(fine).holeRadiusM, 0); // the primary region has none
+  // The centre in eye coordinates (here the view is the identity: world),
+  // the up its ground's normal.
+  const world = Cesium.Cartesian3.fromDegrees(-76.6, 39.3, 0);
+  assert.ok(Cesium.Cartesian3.equalsEpsilon(u(mid).holeCentreEC, world, 1e-6));
+  assert.ok(Math.abs(Cesium.Cartesian3.magnitude(u(mid).holeUpEC) - 1) < 1e-12);
+  assert.deepEqual(renderer.getState().holes.reachM, {
+    480: 16_384,
+    1920: 30_720,
+  });
+  // The shader leaves out what is inside, across the ground.
+  const fs = mid.appearance.getFragmentShaderSource();
+  assert.match(fs, /if \(blocks_inHole\(v_positionEC\)\) discard;/);
+  assert.match(fs, /d - dot\(d, holeUpEC_\d+\) \* holeUpEC_\d+/);
+  // null: no holes.
+  renderer.setRingHoles(null);
+  assert.equal(u(mid).holeRadiusM, 0);
+  renderer.destroy();
+});
