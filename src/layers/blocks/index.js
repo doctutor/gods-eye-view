@@ -424,6 +424,92 @@ export function fogFor(radiusBlocks, blockM, coarse) {
   return { startM: FOG_START * reach, endM: reach };
 }
 
+/**
+ * The sphere the anchor's shift runs on, metres: WGS84's equatorial
+ * radius, whose degree is the 111,320 m the shift has always used.
+ */
+const ANCHOR_SPHERE_M = 6_378_137;
+/** A region's anchor is never further than this from the camera's ground, metres. */
+export const ANCHOR_MAX_SHIFT_M = 1_000_000;
+
+/** Great-circle metres between two places, on the anchor's sphere. */
+export function groundDistanceM(a, b) {
+  const dLat = (b.lat - a.lat) * RAD;
+  const dLon = (b.lon - a.lon) * RAD;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.lat * RAD) * Math.cos(b.lat * RAD) * Math.sin(dLon / 2) ** 2;
+  return 2 * ANCHOR_SPHERE_M * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * The place `southM` metres south along the meridian and `westM` metres
+ * west along the parallel of {lon, lat} (negative: north, east): latitude
+ * within ±89.9°, longitude within ±180°, so a shift never wraps past a
+ * pole or the antimeridian.
+ */
+export function shiftAlongGround({ lon, lat }, southM, westM) {
+  const lat0 = Math.max(
+    -89.9,
+    Math.min(89.9, lat - southM / ANCHOR_SPHERE_M / RAD),
+  );
+  const perDegree = ANCHOR_SPHERE_M * RAD * Math.max(1e-6, Math.cos(lat * RAD));
+  const lon0 = lon - westM / perDegree;
+  return { lon: ((((lon0 + 180) % 360) + 360) % 360) - 180, lat: lat0 };
+}
+
+/**
+ * Where a region is anchored for a camera over {lon, lat} (its ground
+ * point) at a block size.
+ *
+ * Below the curved levels (blockM < curvedBlockM, 1,920 m): half a
+ * supergroup (supergroupGroups × 4 chunks × 64 columns × blockM / 2)
+ * south along the meridian and as far west along the camera's parallel,
+ * so the camera stands in the middle of a supergroup in the region's own
+ * metres and the buildings' one Overpass query a supergroup (30 m blocks
+ * and finer) reaches into as few as the ground allows. Each leg is capped
+ * at ANCHOR_MAX_SHIFT_M / √2, so the anchor is never more than 1,000 km
+ * from the ground point (at 480 m the shift is 246 km a leg; the cap never
+ * bites below the curved levels). This path, rather than one great circle
+ * at 225°, keeps the camera centred: the region's axes follow its anchor's
+ * meridian, and a great circle leaves the camera 3 to 10% off-centre at
+ * 480 m (6% at 60° N) where this path is within 1.3%. createRegion still
+ * snaps the point to the block graticule.
+ *
+ * The curved levels (1,920 m and up) anchor at the ground point itself:
+ * no buildings there, and the values come from the global lattice
+ * whatever the anchor, so the alignment helps nothing, while the shift
+ * grows with the block. Uncapped, in degrees, as it was: 3,932 km a leg at
+ * 7,680 m, and 15,728 km (141°) at 30,720 m, which put the anchor past
+ * the South Pole at lat0 −99.8° (about 80° S in Antarctica) and the
+ * camera's ground 13,500 km from it, past a hemisphere, where the curved
+ * grid's azimuthal mapping is distorted: North America drew streaked and
+ * out of place.
+ *
+ * No supergroups: the ground point.
+ * @returns {{lon0: number, lat0: number}}
+ */
+export function anchorFor(
+  { lon, lat },
+  blockM,
+  { supergroupGroups = 0, curvedBlockM = Infinity, chunkColumns = 64 } = {},
+) {
+  if (!(supergroupGroups > 0) || blockM >= curvedBlockM)
+    return { lon0: lon, lat0: lat };
+  const halfM = (supergroupGroups * GROUP_CHUNKS * chunkColumns * blockM) / 2;
+  let legM = Math.min(halfM, ANCHOR_MAX_SHIFT_M / Math.SQRT2);
+  let place = shiftAlongGround({ lon, lat }, legM, legM);
+  // Capped: the west leg is measured on the camera's parallel, a little
+  // longer on the ground further south; shorten both until it is in reach.
+  for (let k = 0; legM < halfM && k < 4; k++) {
+    const away = groundDistanceM({ lon, lat }, place);
+    if (away <= ANCHOR_MAX_SHIFT_M) break;
+    legM *= (ANCHOR_MAX_SHIFT_M / away) * 0.999;
+    place = shiftAlongGround({ lon, lat }, legM, legM);
+  }
+  return { lon0: place.lon, lat0: place.lat };
+}
+
 /** Columns from the point {x, y} (in columns) to the farthest corner of the chunk's square. */
 export function farthestDistance({ x, y }, ci, cj, size) {
   const dx = Math.max(Math.abs(ci * size - x), Math.abs((ci + 1) * size - x));
@@ -910,24 +996,13 @@ export function createBlocksController({
     return true;
   }
 
-  /**
-   * Where a region is anchored: half a supergroup (supergroupGroups × 4
-   * chunks × 64 columns / 2) south-west of the camera, so the camera stands
-   * in the middle of a supergroup and the fine ring reaches into as few as
-   * the ground allows (createRegion still snaps the point to the block
-   * graticule); the camera itself without supergroupGroups.
-   */
-  function anchorPoint(camera, blockM) {
-    const n = supergroupGroups;
-    if (!(n > 0)) return { lon0: camera.lon, lat0: camera.lat };
-    const halfM = (n * GROUP_CHUNKS * grid.CHUNK_COLUMNS * blockM) / 2;
-    const mPerDegLat = 111_320;
-    const mPerDegLon = mPerDegLat * Math.cos(camera.lat * RAD);
-    return {
-      lon0: camera.lon - halfM / mPerDegLon,
-      lat0: camera.lat - halfM / mPerDegLat,
-    };
-  }
+  /** Where a region is anchored (anchorFor, with this controller's supergroups). */
+  const anchorPoint = (camera, blockM) =>
+    anchorFor(camera, blockM, {
+      supergroupGroups,
+      curvedBlockM: grid.CURVED_BLOCK_M ?? Infinity,
+      chunkColumns: grid.CHUNK_COLUMNS,
+    });
 
   /**
    * The region's datum offset (m, added to its heights above sea level):
