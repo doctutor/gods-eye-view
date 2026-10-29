@@ -21,7 +21,11 @@
 // day's budget: at most 18 for a fresh view at any level (3 × 3 tiles for
 // the fine disc, 3 × 3 for its coarse ring). Heights are mean sea level as
 // the DEM stack reports them; a column at or below 0 m is the sea, water at
-// level 0 over a seabed below it.
+// level 0 over a seabed below it. Above the finest levels (whose lakes and
+// rivers are OSM's, structures.js) each tile carries the water plane too,
+// the share of each cell that is water (MODIS MOD44W's land-water mask): a
+// column at least LAKE_SHARE water is a lake, its surface at the column's
+// own level (a DEM's height over a lake is its surface).
 //
 // A region (grid.js) is used through lon0, lat0, blockM, levelM (the
 // metres a level, worker1's; blockM when absent), chunkBounds and
@@ -47,6 +51,19 @@ export const ELEVATION_LAYER = 'ee-elevation';
  * have heights: the server's rule for its means (rasterValues LAND_SHARE).
  */
 export const LAND_SHARE = 0.5;
+/**
+ * A column above 0 m is a lake when at least this share of its cell is
+ * water (the water plane: MOD44W's 0 land, 1 water, the cell's mean).
+ */
+export const LAKE_SHARE = 0.5;
+/**
+ * The finest level, metres, without the water plane: at and under it the
+ * lakes and rivers are OSM's (structures.js), and its tiles are asked as
+ * they always were.
+ */
+export const OSM_WATER_MAX_M = 30;
+/** Whether a level's tiles carry the water plane. */
+export const asksWater = (blockM) => blockM > OSM_WATER_MAX_M;
 /** Chunks kept in memory, fine and coarse. */
 export const MAX_CHUNKS = 1024;
 /** Lattice tiles' answers kept in memory (about 1 MB each). */
@@ -179,10 +196,12 @@ const validHeight = (h) =>
  * A size × size grid of heights, index j × size + i, each read from the
  * lattice tile answer (`answers`: latticeKey → answer) at `blockM` under
  * placeOf(i, j); NaN where the place or its tile is missing, or the value
- * is a fill.
+ * is a fill. `water` (size × size), when given, takes each cell's share of
+ * water from the answer's water plane, 0 where it has none.
  */
-export function sampleLattice(answers, blockM, size, placeOf) {
+export function sampleLattice(answers, blockM, size, placeOf, water = null) {
   const heights = new Float32Array(size * size);
+  if (water) water.fill(0);
   for (let j = 0; j < size; j++) {
     for (let i = 0; i < size; i++) {
       const place = placeOf(i, j);
@@ -196,8 +215,11 @@ export function sampleLattice(answers, blockM, size, placeOf) {
           const row = Math.floor(
             ((north - place.lat) / (north - south)) * rows,
           );
-          if (col >= 0 && col < cols && row >= 0 && row < rows)
+          if (col >= 0 && col < cols && row >= 0 && row < rows) {
             height = validHeight(answer.values[row * cols + col]);
+            const share = answer.water?.[row * cols + col];
+            if (water && share > 0) water[j * size + i] = share;
+          }
         }
       }
       heights[j * size + i] = height;
@@ -305,8 +327,11 @@ export function coarseHeights(heights, size, factor, { landShare = 0 } = {}) {
  * Heights to the store's columns: level = floor(h / levelM) (the metres a
  * level: blockM for cubes, more for the coarse levels); at or below 0 m
  * water fills level 0 over a seabed at most level -1; nodata is NONE.
+ * With `water` (each column's share of water), a column above 0 m at
+ * least LAKE_SHARE water is a lake: water at its level over a bed one
+ * level below, as structures.js paints an OSM lake.
  */
-export function columnsFromHeights(heights, levelM) {
+export function columnsFromHeights(heights, levelM, shares = null) {
   const count = heights.length;
   const top = new Int32Array(count);
   const material = new Uint8Array(count);
@@ -324,6 +349,9 @@ export function columnsFromHeights(heights, levelM) {
     if (h <= 0) {
       top[k] = Math.min(level, -1);
       water[k] = 0;
+    } else if (shares && shares[k] >= LAKE_SHARE) {
+      top[k] = level - 1;
+      water[k] = level;
     } else {
       top[k] = level;
       water[k] = NONE;
@@ -380,15 +408,25 @@ export function createChunkSource({
     while (held.size > maxChunks) held.delete(held.keys().next().value);
   }
 
-  const ask = (box, cells) =>
-    fetchValues({ layer: ELEVATION_LAYER, mode: '', box, cells });
+  const ask = (box, cells, water = false) =>
+    fetchValues({
+      layer: ELEVATION_LAYER,
+      mode: '',
+      box,
+      cells,
+      ...(water ? { water: true } : {}),
+    });
 
   const tiles = new Map(); // latticeKey → Promise<answer>, least recently used first
   /** A tile's answer, asked again after each of `retryMs` while retryable. */
   async function askTile(blockM, ti, tj) {
     for (let attempt = 0; ; attempt++) {
       try {
-        return await ask(latticeBox(blockM, ti, tj), LATTICE_CELLS);
+        return await ask(
+          latticeBox(blockM, ti, tj),
+          LATTICE_CELLS,
+          asksWater(blockM),
+        );
       } catch (error) {
         if (attempt >= retryMs.length || !retryable(error)) throw error;
         await sleep(retryMs[attempt]);
@@ -419,7 +457,9 @@ export function createChunkSource({
 
   /**
    * A size × size grid of heights at a level, each column read at
-   * placeOf(i, j) from the lattice tiles under the places (asked together).
+   * placeOf(i, j) from the lattice tiles under the places (asked together),
+   * and its share of water (null at a level without the water plane).
+   * @returns {Promise<{heights: Float32Array, water: Float32Array|null}>}
    */
   async function heightsAt(blockM, size, placeOf) {
     const lon = new Float64Array(size * size);
@@ -441,11 +481,17 @@ export function createChunkSource({
         answers.set(key, await tile(blockM, ti, tj));
       }),
     );
-    return sampleLattice(answers, blockM, size, (i, j) => ({
-      lon: lon[j * size + i],
-      lat: lat[j * size + i],
-    }));
+    const water = asksWater(blockM) ? new Float32Array(size * size) : null;
+    const heights = sampleLattice(
+      answers,
+      blockM,
+      size,
+      (i, j) => ({ lon: lon[j * size + i], lat: lat[j * size + i] }),
+      water,
+    );
+    return { heights, water };
   }
+  const chunkOf = (field, a, b) => (field ? chunkOfGroup(field, a, b) : null);
 
   const groupKey = (region, gi, gj) => `${regionKey(region)}|g${gi}:${gj}`;
   const coarseKey = (region, gi, gj) => `${regionKey(region)}|c${gi}:${gj}`;
@@ -466,8 +512,11 @@ export function createChunkSource({
       const blockM = region.blockM;
       const i0 = gi * GROUP_COLUMNS;
       const j0 = gj * GROUP_COLUMNS;
-      const heights = await heightsAt(blockM, GROUP_COLUMNS, (i, j) =>
-        placeAt(region, (i0 + i + 0.5) * blockM, (j0 + j + 0.5) * blockM),
+      const { heights, water } = await heightsAt(
+        blockM,
+        GROUP_COLUMNS,
+        (i, j) =>
+          placeAt(region, (i0 + i + 0.5) * blockM, (j0 + j + 0.5) * blockM),
       );
       const chunks = new Map();
       for (let b = 0; b < CHUNK_GROUP; b++)
@@ -477,6 +526,7 @@ export function createChunkSource({
           const columns = columnsFromHeights(
             chunkOfGroup(heights, a, b),
             levelOf(region),
+            chunkOf(water, a, b),
           );
           chunks.set(
             `${prefix}|${ci}:${cj}`,
@@ -491,6 +541,8 @@ export function createChunkSource({
             landShare: LAND_SHARE,
           }),
           coarseLevelOf(region),
+          // A coarse column's share of water: its fine columns' mean.
+          water && coarseHeights(water, GROUP_COLUMNS, CHUNK_GROUP),
         ),
       });
       return { chunks, coarse, coarseKey: coarseKey(region, gi, gj) };
@@ -524,8 +576,11 @@ export function createChunkSource({
     const promise = (async () => {
       const i0 = si * GROUP_COLUMNS;
       const j0 = sj * GROUP_COLUMNS;
-      const heights = await heightsAt(coarseM, GROUP_COLUMNS, (i, j) =>
-        placeAt(region, (i0 + i + 0.5) * coarseM, (j0 + j + 0.5) * coarseM),
+      const { heights, water } = await heightsAt(
+        coarseM,
+        GROUP_COLUMNS,
+        (i, j) =>
+          placeAt(region, (i0 + i + 0.5) * coarseM, (j0 + j + 0.5) * coarseM),
       );
       const chunks = new Map();
       for (let b = 0; b < SUPERGROUP; b++)
@@ -535,6 +590,7 @@ export function createChunkSource({
           const columns = columnsFromHeights(
             chunkOfGroup(heights, a, b),
             coarseLevelOf(region),
+            chunkOf(water, a, b),
           );
           chunks.set(
             coarseKey(region, gi, gj),

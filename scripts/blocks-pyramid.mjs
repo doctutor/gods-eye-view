@@ -8,7 +8,8 @@
  *
  * Asks the Elevation values of every lattice tile (src/layers/blocks/
  * lattice.js: 512 cells of the level a side, the boxes the Blocks source
- * asks) over the box at each level, one at a time, through the raster
+ * asks, with the water plane where it does: source.js asksWater) over
+ * the box at each level, one at a time, through the raster
  * values service as the app's server would: the same 30-day cache under
  * .gev-cache/raster-values (a tile already there costs nothing) and the
  * same Earth Engine day's budget (each fresh tile counts one). The count
@@ -28,7 +29,7 @@ import {
   latticeTilesOver,
 } from '../src/layers/blocks/lattice.js';
 import { BLOCK_PYRAMID_M } from '../src/layers/blocks/pyramid.js';
-import { ELEVATION_LAYER } from '../src/layers/blocks/source.js';
+import { ELEVATION_LAYER, asksWater } from '../src/layers/blocks/source.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** The most tiles one run may ask. */
@@ -92,6 +93,7 @@ export function planRequests(bbox, levels) {
           east: String(box.east),
           north: String(box.north),
           cells: String(LATTICE_CELLS),
+          ...(asksWater(level) ? { water: '1' } : {}),
         },
       });
     }

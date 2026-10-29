@@ -451,6 +451,31 @@ rings past it. The 300 m view drew 1,497 buildings, the 5 km view 9,935.
   (about 47.7° N 86.9° W) is GMTED2010 storing a rectangle of the lake as
   0 m, its sea value; a lake-water mask (JRC Global Surface Water) waits
   on the user.
+- Lakes above the fine levels (option A, approved 2026-10-29): the
+  Elevation values ask `water=1` at every level over 30 m
+  (`source.js asksWater`; 30 m and under keep their requests and caches,
+  their water is OSM's), and the answer adds a water plane: MODIS
+  MOD44W's land-water mask for 2015 (250 m, 0 land, 1 water), the mean
+  over each cell (the share of it that is water), from the same
+  computePixels call as the heights (another band in the NPY, no extra
+  tile counted). The first source, JRC Global Surface Water's occurrence
+  ≥ 50 %, failed live: occurrence is masked wherever water never was, so
+  a coarse pyramid pixel is the mean of its water pixels alone, and at
+  30 km cells 584 of 3,840 cells over the US interior read as at least
+  half water (the 5,000 km view speckled blue from the Plains to the
+  Lakes). MOD44W is valid over land, so its pyramid averages the dry
+  pixels too. A plane Earth Engine refuses is answered with the heights
+  alone, not kept, so Blocks still draws. The
+  plane rides on `raster-values/1` after the values, named in the
+  header's `planes`, so a reader that does not ask never gets it and one
+  that gets it but knows only the values reads them as before; the
+  plane's requests hash to another cache version. The rule
+  (`columnsFromHeights`): at or below 0 m the sea as before; above 0 m a
+  column at least `LAKE_SHARE` (0.5) water is a lake, water at
+  floor(h / levelM) over a bed one level below; nodata stays NONE. A
+  group's coarse column takes the mean of its fine shares. The Blocks
+  style (`blocksStyleExpression`) colours a cell at least half water as
+  water at its own level, so the drape and the columns agree.
 - After a search flew the camera from the opening view (15,000 km over
   30° N 40° W) to Europe or the United States at 30,720 m, 8 to 67 chunks
   stayed "loading" for minutes and the view never settled, though every
@@ -539,3 +564,82 @@ Findings, by what a user would notice:
 6. Values requests per fresh view ran 34 to 62 with the rings, and the drape
    took 28 to 112 tiles a step. Open: performance work.
 7. `setRingHoles` was called on every tick. Fixed: now only on change.
+
+## Milestone 6: a precomputed block tileset (2026-10-29, with the user)
+
+The user's goal: moving the camera in Blocks should be as fast and as
+reliable as in the default Google 3D Tiles mode. Today it is not. Google's
+tiles are a precomputed level-of-detail tree streamed from a CDN: Cesium
+picks the tiles for the view, draws the coarse ones first and refines in
+place as finer ones arrive, and nothing is computed per view. Blocks builds
+its world per view: heights reduced in Earth Engine on first request,
+buildings and land cover queried from Overpass per group, meshes built in
+the browser on the main thread, the level re-anchored and rebuilt on change.
+The refresh QA above measured 35 to 58 s to settle near the ground, and the
+user's own view (a Baltimore street at 297 m, Buildings off) showed the
+land-cover paint landing on some chunks and not their neighbours. Storage is
+not what stops a tree of our own: a quantised block world compresses far
+better than photoreal meshes.
+
+| Coverage                                  | Cells     | Raw 16-bit | Meshed, rough |
+| ----------------------------------------- | --------- | ---------- | ------------- |
+| Lower 48 at 30 m                          | 9 × 10⁹   | 18 GB      | 3 to 8 GB     |
+| A city at 1 m (Baltimore, 240 km²)        | 2.4 × 10⁸ | 0.5 GB     | ~100 MB       |
+| The planet at 30 m                        | 5.7 × 10¹¹| 1.1 TB     | 100 to 200 GB |
+| The planet at 1 m                         | 5 × 10¹⁴  |            | no such data  |
+
+### Decisions
+
+1. **Build once, stream like Google.** A build script takes a bounding box
+   and a finest level, pyramids a local DEM into the block levels (the same
+   pyramid as milestone 5: native, then ×4 from 30 m), quantises each level
+   to its `levelM`, bakes the sea and the lakes (milestone 5's water rules),
+   paints land cover and roads and raises buildings from the local Overpass
+   clone, greedy-meshes every tile and writes a 3D Tiles 1.1 tileset
+   (glTF tiles, implicit quadtree) under the gev cache. Minecraft itself
+   generates a chunk once and stores it in a region file.
+2. **The client adds it as a Cesium tileset.** Cesium's own traversal then
+   gives the coarse-first, refine-in-place behaviour, with no re-anchor on
+   a level change. The Blocks look (flat lit faces, edges, dither, relief)
+   moves into a `CustomShader` on the tileset, fed by the per-vertex block
+   coordinate the mesher already writes. Relief ×N scales the tileset's
+   model matrix or the shader's height, never a rebuild.
+3. **The live controller becomes the fallback**, outside the built boxes and
+   at levels the build did not reach, and it keeps the walker: Walk and Fly
+   need the column store for footing and targeting, so under the walker the
+   fine disc is still sourced live (or decoded from the tiles, a later
+   step). The HUD names the source ("Blocks tiles 2026-10 · lower 48").
+4. **Where it lives.** The served tileset on D: (`D:\gev-cache\blocks-tiles`,
+   small random reads, beside the server's other caches; 22 GB free with
+   the Overpass guard at 12 GB), its inputs and a copy on E: (the spinning
+   external, single-stream writes only). A country at 30 m plus a few
+   cities at 1 m fits D: today; a planet at 30 m does not, and is the point
+   where a new SSD stops being optional.
+5. **Inputs, with the user's yes before any download.** Heights: Copernicus
+   GLO-30 (30 m, public, about 10 GB as cloud-optimised GeoTIFFs for the
+   lower 48) rather than Earth Engine, whose 20,000-tile day would take
+   months for a country; USGS 3DEP 1 m for Baltimore (about 0.5 GB; the
+   earlier lidar download was never approved and this one needs its own
+   yes). Water: the milestone 5 rules on the same DEM, plus the lake mask.
+   Buildings, land cover, roads: the local Overpass clone, now a snapshot;
+   the tileset is dated by its inputs and rebuilt when the user chooses.
+6. **Scope of the first build.** The lower 48 at 30 m and above, Baltimore
+   at 1 m, roughly a weekend of compute on this PC, run as a resumable job
+   (tiles are written atomically, a rerun skips what exists) and never with
+   more than the default Node heap. Success: Baltimore to the continent and
+   back without a visible rebuild, the first picture within a second of a
+   flight's end, and the street view's roads and greens whole.
+
+### Work and ownership
+
+| Step | Owner                         | What                                                                                                                                                                                             |
+| ---- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A    | worker1, after blocks-paint   | `scripts/blocks-tileset.mjs`: DEM ingest and pyramid, quantise, water, greedy mesh per tile to glTF, implicit tileset JSON; a tiny box first (one Baltimore chunk at 30 m) with golden tests.    |
+| B    | worker1                       | Structures in the build: buildings, land cover and roads from the Overpass clone through the existing structures rules, per tile.                                                               |
+| C    | worker3, after blocks-perf    | Client: `Cesium3DTileset` under the Blocks render mode, the CustomShader look, relief, the HUD source line, the live controller as fallback outside the built boxes and under the walker.        |
+| D    | manager, with the user        | The downloads (decision 5), the lower-48 build on E: → D:, the comparison with Google's mode on the five-step sequence.                                                                           |
+
+Order: A before C's tileset work (C needs real tiles); B and C in
+parallel once A's tiny box builds. The live pipeline's fixes in flight
+(the lake mask, the drape and ring budgets, the paint bug) land first; they
+are the fallback's quality and the build's rules.

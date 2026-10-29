@@ -377,6 +377,37 @@ const imageConstant = (value) =>
 const reference = (key) => ({ valueReference: key });
 
 /**
+ * The Blocks lakes' source (the raster values' water plane and the Blocks
+ * style): MODIS MOD44W's land-water mask for 2015, 250 m, 0 land and 1
+ * water, valid over land and sea alike. Not JRC Global Surface Water: its
+ * occurrence is masked wherever water never was, so a coarse pyramid
+ * pixel is the mean of its water pixels alone, and a 1.9 km pixel with one
+ * pond read as water (at 30 km cells half the US interior was "lakes").
+ * A mask valid over land averages its zeros too, at every pyramid level.
+ */
+export const WATER_ASSET = 'MODIS/006/MOD44W/2015_01_01';
+/** Its band: 0 land, 1 water. */
+export const WATER_BAND = 'water_mask';
+/** The dataset's own cell, metres. */
+export const WATER_NATIVE_M = 250;
+
+/**
+ * 1 where MOD44W says water, else 0, as a float (anywhere it is masked,
+ * 0). Its mean over a cell is the share of the cell that is water.
+ */
+export const waterImage = () =>
+  invoke('Image.unmask', {
+    input: invoke('Image.toFloat', {
+      value: invoke('Image.select', {
+        input: invoke('Image.load', { id: constant(WATER_ASSET) }),
+        bandSelectors: constant([WATER_BAND]),
+      }),
+    }),
+    value: imageConstant(0),
+    sameFootprint: constant(false),
+  });
+
+/**
  * The expression of contour lines of an elevation every `step` metres (a
  * `contour` layer): the elevation, its sea (stored as 0) masked, is
  * quantised to the step (floor(dem / step)), and a pixel is on a line where
@@ -989,6 +1020,11 @@ export const BLOCKS_EDGE_TONE = BLOCKS_STYLE_EDGE_TONE;
 export const BLOCKS_MEAN_SUB = 4;
 /** A cell is water (level 0) when less than this share of it has heights. */
 export const BLOCKS_LAND_SHARE = 0.5;
+/**
+ * A cell above 0 m is a lake (water at its own level) when at least this
+ * share of it is water (waterImage): src/layers/blocks/source.js LAKE_SHARE.
+ */
+export const BLOCKS_LAKE_SHARE = 0.5;
 /** The water's colour: the Blocks water's (mesh.js), flat. */
 export const BLOCKS_WATER_RGB = Object.freeze(
   blocksStyleLit(BLOCKS_STYLE_WATER_RGB),
@@ -1023,6 +1059,8 @@ export function blocksStyleGrid(cellM, part = 1) {
  * - water: a cell less than half of whose samples have heights (the sea,
  *   masked in every source), or whose mean is at or below 0 m: level 0,
  *   one flat colour, as the Blocks geometry draws water;
+ * - lakes: a cell at least BLOCKS_LAKE_SHARE of whose samples are water
+ *   (waterImage: MODIS MOD44W, as the Blocks columns' water plane) is the water's colour at its own level, the lake's surface;
  * - the level: the mean quantised down to blocksLevelM; its colour the
  *   Blocks terrain's sand as a top face shows it (blocksStyle.js, the
  *   geometry's), shaded flat by the hillshade of the quantised cells
@@ -1073,6 +1111,7 @@ export function blocksStyleExpression(layer, variant, cellM) {
     water: String(count + 2),
     level: String(count + 3),
     mean: String(count + 4),
+    wet: String(count + 5),
   };
   // Shared, so Earth Engine reduces it once for the water and the level.
   const meanHeight = reference(refs.mean);
@@ -1135,17 +1174,19 @@ export function blocksStyleExpression(layer, variant, cellM) {
     image1: invoke('Image.multiply', { image1: land, image2: shade }),
     image2: imageConstant(255),
   });
+  // Coloured as water: the sea (level 0) or a lake (its level kept).
+  const wet = reference(refs.wet);
   const picture = invoke('Image.add', {
     image1: invoke('Image.multiply', {
       image1: landTone,
       image2: invoke('Image.subtract', {
         image1: imageConstant(1),
-        image2: reference(refs.water),
+        image2: wet,
       }),
     }),
     image2: invoke('Image.multiply', {
       image1: imageConstant([...BLOCKS_WATER_RGB]),
-      image2: reference(refs.water),
+      image2: wet,
     }),
   });
   // The edges: the westmost and southmost eighth of each cell, on the grid
@@ -1204,6 +1245,13 @@ export function blocksStyleExpression(layer, variant, cellM) {
       [refs.water]: water,
       [refs.level]: level,
       [refs.mean]: cellMean(reference(refs.heights)),
+      [refs.wet]: invoke('Image.max', {
+        image1: reference(refs.water),
+        image2: invoke('Image.gte', {
+          image1: cellMean(waterImage()),
+          image2: imageConstant(BLOCKS_LAKE_SHARE),
+        }),
+      }),
     },
     result: '0',
   };

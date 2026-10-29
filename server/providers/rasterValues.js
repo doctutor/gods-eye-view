@@ -53,6 +53,11 @@ import {
  *    north, cellSizeM, units, nodata, min, max, legendMin, legendMax,
  *    source, version, aggregation}
  *
+ * `&water=1` (Elevation only) adds the water plane after the values: the
+ * share of each cell that is water, 0 to 1 (MODIS MOD44W,
+ * rasterValues/earthEngineValues.js), the header's `planes` then
+ * ['value', 'water']; the same Earth Engine request, so one tile counted.
+ *
  * 400 bad parameters; 404 an unknown layer or mode; 413 more than 512
  * cells a side; 503 the layer's data not built or Earth Engine not set up;
  * 429 the day's Earth Engine budget used (a values request counts as one
@@ -305,7 +310,11 @@ export function createRasterValuesService({
       if (!adapter) return { status: 404, error: 'No values for that layer' };
       if (query.mode && !adapter.modes.includes(query.mode))
         return { status: 404, error: 'No such mode' };
-      const plan = adapter.plan(query.mode, query.box, query.cells);
+      if (query.water && !adapter.planes?.includes('water'))
+        return { status: 404, error: 'No water plane for that layer' };
+      const plan = adapter.plan(query.mode, query.box, query.cells, {
+        water: query.water,
+      });
       if (plan.status) return { status: plan.status, error: plan.error };
       const name = crypto
         .createHash('sha256')
@@ -351,7 +360,11 @@ export function createRasterValuesService({
             aggregation: answer.aggregation || plan.aggregation,
             ...(plan.band ? { band: plan.band } : {}),
           };
-          const body = encodeRasterValues(header, answer.values);
+          const body = encodeRasterValues(
+            header,
+            answer.values,
+            answer.water ? { water: answer.water } : {},
+          );
           // A stand-in answer (a refused reduction sampled) is served, not kept.
           if (answer.keep === false) return { status: 200, body };
           try {

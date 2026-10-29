@@ -6440,6 +6440,19 @@ bed at most level −1; nodata is no column. All 16 chunks go into the
 cache at once, so a chunk's neighbours come free. Splitting a group
 takes about 20 ms.
 
+**Lakes.** Above 30 m (whose lakes and rivers are OSM's, painted by the
+structures) a tile is asked with `water=1`, so the answer carries a
+second plane: the share of each cell that is water, from MODIS MOD44W's
+land-water mask for 2015 (250 m, 0 land, 1 water, the mean over the
+cell), in the same Earth Engine request as the heights. (Not JRC Global
+Surface Water: its occurrence is masked where water never was, so its
+coarse pyramid levels made dry plains read as water.) If Earth Engine
+refuses the plane, the heights come alone, not kept. A column above
+0 m at least half water is a lake: water at its own level over a bed one
+level below (a DEM's height over a lake is its surface), as the OSM
+water is painted. A coarse column's share is the mean of its fine ones'.
+The Blocks style colours the same cells as water at their level.
+
 **Coarse chunks.** `loadCoarseChunk(region, gi, gj)` gives a group's
 ground as one chunk of 64 × 64 columns at four times the block size:
 
