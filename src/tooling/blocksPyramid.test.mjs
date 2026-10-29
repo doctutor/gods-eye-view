@@ -48,6 +48,8 @@ test('planRequests: the lattice tiles over the box, the boxes the Blocks source 
     assert.equal(level, 1920);
     assert.equal(query.layer, 'ee-elevation');
     assert.equal(query.cells, String(LATTICE_CELLS));
+    // With the water plane, as the Blocks source asks a coarse level.
+    assert.equal(query.water, '1');
     const { ti, tj } = latticeIndex(
       1920,
       (Number(query.west) + Number(query.east)) / 2,

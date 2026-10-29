@@ -16,7 +16,12 @@ import {
   tilePixelM,
 } from '../../../src/data/demStack.js';
 import { windowGrid } from '../../../src/data/rasterValues.js';
-import { expressionFor, visFor } from '../earthEngine.js';
+import {
+  WATER_NATIVE_M,
+  expressionFor,
+  visFor,
+  waterImage,
+} from '../earthEngine.js';
 
 /**
  * What each layer's numbers are: units, how a coarse cell is made from the
@@ -40,6 +45,9 @@ export const EE_VALUE_LAYERS = Object.freeze({
     // A sampled cell without heights (the sea, masked in every source) is
     // 0 m: water at level 0, as a reduced cell under half land.
     seaIsWater: true,
+    // The water plane (?water=1): the share of each cell that is water,
+    // from JRC Global Surface Water (waterExpression), for the Blocks lakes.
+    planes: ['water'],
   },
   'ee-terrain-slope': { units: '°', aggregation: 'mean' },
   // Computed per cell from the heights at the cell's scale: a mean of
@@ -220,6 +228,52 @@ export function meanExpression(base, nativeM) {
 }
 
 /**
+ * The water plane as band `w`: earthEngine.js waterImage, 1 where JRC
+ * Global Surface Water had water at least half the time, else 0;
+ * `reduced`, the mean over each cell, as the heights' (meanExpression), so
+ * a cell's value is the share of it that is water. Never masked.
+ */
+export function waterExpression(reduced) {
+  const zero = invoke('Image.constant', { value: constant(0) });
+  const unmaskZero = (input) =>
+    invoke('Image.unmask', {
+      input,
+      value: zero,
+      sameFootprint: constant(false),
+    });
+  const wet = waterImage();
+  const share = reduced
+    ? unmaskZero(
+        invoke('Image.reduceResolution', {
+          image: invoke('Image.setDefaultProjection', {
+            image: wet,
+            crs: invoke('Projection', { crs: constant('EPSG:4326') }),
+            scale: constant(WATER_NATIVE_M),
+          }),
+          reducer: invoke('Reducer.mean', {}),
+          bestEffort: constant(true),
+          maxPixels: constant(MEAN_MAX_PIXELS),
+        }),
+      )
+    : wet;
+  return invoke('Image.rename', { input: share, names: constant(['w']) });
+}
+
+/** A values expression (valuesExpression's) with the water plane's band added. */
+export function withWater(values, reduced) {
+  return {
+    values: {
+      ...values.values,
+      rw: invoke('Image.addBands', {
+        dstImg: { valueReference: values.result },
+        srcImg: waterExpression(reduced),
+      }),
+    },
+    result: 'rw',
+  };
+}
+
+/**
  * The layer without what only colours it: Elevation's √, the log10 ramps
  * and the `atLeast` floors below which a map is clear (Population under 1
  * per km² is a number, 0 in a field, not nodata).
@@ -395,7 +449,9 @@ export function createEarthEngineAdapter(layer, earthEngine) {
   return {
     id: layer.id,
     modes: modes[0] === 'default' ? [''] : modes,
-    plan(mode, box, cells) {
+    planes: spec.planes || [],
+    /** `water`: the water plane too, in the same request (withWater). */
+    plan(mode, box, cells, { water = false } = {}) {
       const modeKey = mode || modes[0];
       const lat = (box.south + box.north) / 2;
       const lon = (box.west + box.east) / 2;
@@ -410,11 +466,14 @@ export function createEarthEngineAdapter(layer, earthEngine) {
       const picture = expressionFor(plain, variant, undefined, modeKey);
       const ownM = nativeM || DEFAULT_NATIVE_M;
       const reduced = spec.reduce === 'mean' && cellSizeM >= MEAN_ABOVE * ownM;
-      const sampled = valuesExpression(
-        spec.seaIsWater ? seaExpression(picture) : picture,
+      const plane = (values, isReduced) =>
+        water ? withWater(values, isReduced) : values;
+      const sampled = plane(
+        valuesExpression(spec.seaIsWater ? seaExpression(picture) : picture),
+        false,
       );
       const expression = reduced
-        ? valuesExpression(meanExpression(picture, ownM))
+        ? plane(valuesExpression(meanExpression(picture, ownM)), true)
         : sampled;
       const units = pick(spec.units, modeKey);
       let source = pick(spec.source, modeKey);
@@ -449,7 +508,13 @@ export function createEarthEngineAdapter(layer, earthEngine) {
             );
             if (answer.status !== 200) return answer;
             const { rows: r, cols: c, bands } = readNpy(answer.body);
-            if (r !== rows || c !== cols || !bands.v || !bands.m)
+            if (
+              r !== rows ||
+              c !== cols ||
+              !bands.v ||
+              !bands.m ||
+              (water && !bands.w)
+            )
               return {
                 status: 502,
                 error: 'Earth Engine answered another grid',
@@ -457,7 +522,11 @@ export function createEarthEngineAdapter(layer, earthEngine) {
             const values = bands.v;
             for (let i = 0; i < values.length; i++)
               if (!(bands.m[i] > 0)) values[i] = NaN;
-            return { status: 200, values };
+            return {
+              status: 200,
+              values,
+              ...(water ? { water: bands.w } : {}),
+            };
           };
           const answer = await pixels(expression);
           // A reduction Earth Engine refused (not the budget, not the

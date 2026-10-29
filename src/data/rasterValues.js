@@ -24,35 +24,56 @@ export class RasterValuesError extends Error {
 export const M_PER_DEG = 111_319.49;
 
 /**
+ * The planes a request may add after the values, in this order: `water`,
+ * the share of each cell that is water (0 to 1; Elevation only, from JRC
+ * Global Surface Water, server/providers/rasterValues/earthEngineValues.js).
+ */
+export const RASTER_VALUES_PLANES = Object.freeze(['water']);
+
+/**
  * The body: a 4-byte little-endian uint32 header length, the UTF-8 JSON
  * header, then the values as little-endian Float32, row-major, the north
- * row first and the west column first. Nodata is NaN.
+ * row first and the west column first. Nodata is NaN. Extra planes
+ * (`planes`: name → Float32Array, RASTER_VALUES_PLANES) follow the values
+ * in the same layout, named in the header's `planes` after 'value'; a
+ * reader that knows none of them reads the values and stops.
  * @param {object} header
  * @param {Float32Array} values cols × rows
+ * @param {Record<string, Float32Array>} [planes]
  * @returns {Uint8Array}
  */
-export function encodeRasterValues(header, values) {
+export function encodeRasterValues(header, values, planes = {}) {
+  const extra = RASTER_VALUES_PLANES.filter((name) => planes[name]);
   // JSON has no NaN: the header says "NaN" for nodata, min and max of an
   // empty grid are null.
   const json = new TextEncoder().encode(
-    JSON.stringify({ schema: RASTER_VALUES_SCHEMA, ...header, nodata: 'NaN' }),
+    JSON.stringify({
+      schema: RASTER_VALUES_SCHEMA,
+      ...header,
+      ...(extra.length ? { planes: ['value', ...extra] } : {}),
+      nodata: 'NaN',
+    }),
   );
   // The values start on a 4-byte boundary, so a Float32Array can view them.
   const pad = (4 - ((4 + json.length) % 4)) % 4;
   const headerLength = json.length + pad;
-  const out = new Uint8Array(4 + headerLength + values.length * 4);
+  const out = new Uint8Array(
+    4 + headerLength + values.length * 4 * (1 + extra.length),
+  );
   const view = new DataView(out.buffer);
   view.setUint32(0, headerLength, true);
   out.set(json, 4);
   out.fill(0x20, 4 + json.length, 4 + headerLength); // spaces: still JSON
   let at = 4 + headerLength;
-  for (let i = 0; i < values.length; i++, at += 4)
-    view.setFloat32(at, values[i], true);
+  for (const plane of [values, ...extra.map((name) => planes[name])])
+    for (let i = 0; i < values.length; i++, at += 4)
+      view.setFloat32(at, plane[i], true);
   return out;
 }
 
 /**
- * Decode a body: {header, values}, the header's nodata as NaN.
+ * Decode a body: {header, values}, the header's nodata as NaN, and each
+ * extra plane the header names (`water`) by its name.
  * @param {ArrayBuffer|Uint8Array} body
  */
 export function decodeRasterValues(body) {
@@ -76,10 +97,20 @@ export function decodeRasterValues(body) {
   const start = 4 + headerLength;
   if (start + count * 4 > bytes.byteLength)
     throw new RasterValuesError('Raster values: fewer values than cols × rows');
-  const values = new Float32Array(count);
-  for (let i = 0; i < count; i++)
-    values[i] = view.getFloat32(start + i * 4, true);
-  return { header, values };
+  const names = Array.isArray(header.planes) ? header.planes : ['value'];
+  if (start + count * 4 * names.length > bytes.byteLength)
+    throw new RasterValuesError('Raster values: fewer planes than the header');
+  const plane = (k) => {
+    const out = new Float32Array(count);
+    for (let i = 0, at = start + k * count * 4; i < count; i++, at += 4)
+      out[i] = view.getFloat32(at, true);
+    return out;
+  };
+  const decoded = { header, values: plane(0) };
+  names.forEach((name, k) => {
+    if (k > 0 && RASTER_VALUES_PLANES.includes(name)) decoded[name] = plane(k);
+  });
+  return decoded;
 }
 
 const EARTH_RADIUS_KM = 6371.0088;
@@ -129,8 +160,10 @@ export function windowGrid({ west, south, east, north }, cells, nativeM = 0) {
 
 /**
  * Check a request's parameters (URLSearchParams or a plain object).
+ * `water=1` asks for the water plane too (RASTER_VALUES_PLANES).
  * @returns {{ok: true, layer: string, mode: string, box: {west, south,
- *   east, north}, cells: number} | {ok: false, status: number, error: string}}
+ *   east, north}, cells: number, water: boolean} | {ok: false, status:
+ *   number, error: string}}
  */
 export function parseRasterValuesQuery(params) {
   const get = (key) =>
@@ -160,17 +193,29 @@ export function parseRasterValuesQuery(params) {
     return bad('cells must be a whole number from 1 to 512');
   if (cells * cells > MAX_CELLS * MAX_CELLS)
     return bad(`At most ${MAX_CELLS} cells a side`, 413);
-  return { ok: true, layer, mode, box, cells };
+  const rawWater = String(get('water') ?? '');
+  if (rawWater !== '' && rawWater !== '0' && rawWater !== '1')
+    return bad('water must be 1 or absent');
+  return { ok: true, layer, mode, box, cells, water: rawWater === '1' };
 }
 
-/** The key a window is cached under, on the server's disk and the client's LRU. */
-export function rasterValuesKey({ layer, mode = '', box, cells }) {
+/**
+ * The key a window is cached under, on the server's disk and the client's
+ * LRU; with the water plane it is another key.
+ */
+export function rasterValuesKey({ layer, mode = '', box, cells, water }) {
   const { west, south, east, north } = box;
-  return `${layer}|${mode}|${[west, south, east, north].join(',')}|${cells}`;
+  return (
+    `${layer}|${mode}|${[west, south, east, north].join(',')}|${cells}` +
+    (water ? '|water' : '')
+  );
 }
 
 /** The request's URL. */
-export function rasterValuesUrl({ layer, mode = '', box, cells }, base = '') {
+export function rasterValuesUrl(
+  { layer, mode = '', box, cells, water },
+  base = '',
+) {
   const query = new URLSearchParams({
     layer,
     mode,
@@ -179,6 +224,7 @@ export function rasterValuesUrl({ layer, mode = '', box, cells }, base = '') {
     east: String(box.east),
     north: String(box.north),
     cells: String(Math.min(MAX_CELLS, cells)),
+    ...(water ? { water: '1' } : {}),
   });
   return `${base}${RASTER_VALUES_ROUTE}?${query}`;
 }
