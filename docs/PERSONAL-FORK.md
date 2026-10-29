@@ -6529,13 +6529,18 @@ m), every property of a cell the cell's own:
   (the source's pyramid, itself means), over valid pixels only;
 - water: a cell under half of whose samples have heights (the sea, which
   every source masks) or whose mean is at or below 0 m is level 0, one
-  flat colour, the Blocks water's;
+  flat colour, the Blocks water's blue;
 - the level: the mean quantised down to the level height (`blocksLevelM`:
-  30, 30, 60, 240 and 960 m), coloured as the Elevation layer colours
-  that height, shaded flat by the hillshade of the quantised cells (÷ 180,
-  a flat cell's);
+  30, 30, 60, 240 and 960 m), in the Blocks terrain's sand, shaded flat
+  by the hillshade of the quantised cells (÷ 180, a flat cell's);
+- the colours: the geometry's (`lighting.js` MATERIAL_COLORS: sand 200,
+  194, 176 and water 58, 112, 190), as a top face shows them under the
+  study sun (× 0.883), so a chunk missing or beyond the geometry reads as
+  the chunks about it (`BLOCKS_STYLE_TERRAIN_RGB`, `BLOCKS_STYLE_WATER_RGB`,
+  `BLOCKS_STYLE_TOP_LIGHT` in `blocksStyle.js`, held equal to lighting.js
+  by a test);
 - the edges: the westmost and southmost eighth of each cell, on a grid of
-  eighths, 38 % darker.
+  eighths, 12 % darker, as the geometry's block edges.
 
 Each is reprojected onto its grid, so a cell is one colour at any zoom;
 an RGB map, drawn 0 to 255. The client picks the level whose cell is at

@@ -51,6 +51,18 @@ export const LAND_SHARE = 0.5;
 export const MAX_CHUNKS = 1024;
 /** Lattice tiles' answers kept in memory (about 1 MB each). */
 export const MAX_TILES = 24;
+/**
+ * A lattice tile that fails is asked again after these delays, ms: the
+ * server's 503 (Earth Engine gave no answer in time) or no answer at all.
+ * A 4xx (the request itself) or a 429 (the day's budget) is not.
+ */
+export const TILE_RETRY_MS = Object.freeze([5_000, 20_000]);
+
+/** Whether a failed values request is worth asking again. */
+export const retryable = (error) => {
+  const status = Number(error?.status) || 0;
+  return status === 0 || (status >= 500 && status !== 501);
+};
 /** Chunks a group side: one request answers CHUNK_GROUP² chunks and a coarse one. */
 export const CHUNK_GROUP = 4;
 /** Cells a group request asks for a side (under the server's 512). */
@@ -336,6 +348,8 @@ export function createChunkSource({
   createChunk = storeChunk,
   maxChunks = MAX_CHUNKS,
   maxTiles = MAX_TILES,
+  retryMs = TILE_RETRY_MS,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 } = {}) {
   if (!fetchValues) {
     const client = createRasterValuesClient({ maxEntries: 16 });
@@ -355,13 +369,30 @@ export function createChunkSource({
     fetchValues({ layer: ELEVATION_LAYER, mode: '', box, cells });
 
   const tiles = new Map(); // latticeKey → Promise<answer>, least recently used first
-  /** A lattice tile's answer, asked once while kept; a failure is not kept. */
+  /** A tile's answer, asked again after each of `retryMs` while retryable. */
+  async function askTile(blockM, ti, tj) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await ask(latticeBox(blockM, ti, tj), LATTICE_CELLS);
+      } catch (error) {
+        if (attempt >= retryMs.length || !retryable(error)) throw error;
+        await sleep(retryMs[attempt]);
+      }
+    }
+  }
+
+  /**
+   * A lattice tile's answer, asked once while kept (retried as askTile
+   * says); a failure is not kept. Every group whose columns lie in it
+   * waits on the same promise, so a group across a seam is built from
+   * all its tiles or not at all.
+   */
   function tile(blockM, ti, tj) {
     const key = latticeKey(blockM, ti, tj);
     let promise = tiles.get(key);
     if (promise) tiles.delete(key);
     else {
-      promise = ask(latticeBox(blockM, ti, tj), LATTICE_CELLS);
+      promise = askTile(blockM, ti, tj);
       promise.catch(() => {
         if (tiles.get(key) === promise) tiles.delete(key);
       });
