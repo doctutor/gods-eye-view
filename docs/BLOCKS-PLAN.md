@@ -464,8 +464,12 @@ rings past it. The 300 m view drew 1,497 buildings, the 5 km view 9,935.
   30 km cells 584 of 3,840 cells over the US interior read as at least
   half water (the 5,000 km view speckled blue from the Plains to the
   Lakes). MOD44W is valid over land, so its pyramid averages the dry
-  pixels too. A plane Earth Engine refuses is answered with the heights
-  alone, not kept, so Blocks still draws. The
+  pixels too. Its share is read from at most 4 × 4 samples a cell
+  (`WATER_MAX_PIXELS`): at the heights' 256 a fresh 1,920 m tile took
+  102 s against 40 s without the plane, and the harness's views stopped
+  at "24 loading" (ring tiles still on their way at 3 minutes). A plane
+  Earth Engine refuses is answered with the heights alone, not kept, so
+  Blocks still draws. The
   plane rides on `raster-values/1` after the values, named in the
   header's `planes`, so a reader that does not ask never gets it and one
   that gets it but knows only the values reads them as before; the

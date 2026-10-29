@@ -228,6 +228,16 @@ export function meanExpression(base, nativeM) {
 }
 
 /**
+ * The most input pixels a reduced cell's water share combines: 4 × 4, so
+ * Earth Engine reads a coarser level of MOD44W's pyramid (its 0/1 mask is
+ * valid over land, so a coarse pixel is still the share of water). At
+ * MEAN_MAX_PIXELS a fresh 1,920 m lattice tile read about 60 pixels of
+ * 250 m a cell, reprojected from MODIS's sinusoidal grid, and took 102 s
+ * against 40 s for the heights alone.
+ */
+export const WATER_MAX_PIXELS = 16;
+
+/**
  * The water plane as band `w`: earthEngine.js waterImage, MODIS MOD44W's
  * land-water mask, 1 water and 0 land;
  * `reduced`, the mean over each cell, as the heights' (meanExpression), so
@@ -252,7 +262,7 @@ export function waterExpression(reduced) {
           }),
           reducer: invoke('Reducer.mean', {}),
           bestEffort: constant(true),
-          maxPixels: constant(MEAN_MAX_PIXELS),
+          maxPixels: constant(WATER_MAX_PIXELS),
         }),
       )
     : wet;
