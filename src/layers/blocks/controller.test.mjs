@@ -3092,3 +3092,89 @@ test('continental levels: the fine ring to the horizon, not R1 (15,700 km at 30,
     real.destroy();
   }
 });
+
+test('the anchor: on the ground point at the curved levels, half a supergroup south and west along the ground below them, never past 1,000 km, a pole or the antimeridian', async () => {
+  const { anchorFor, shiftAlongGround, ANCHOR_MAX_SHIFT_M } =
+    await import('./index.js');
+  const { createRegion } = await import('./grid.js');
+  const R = 6_378_137;
+  const RAD = Math.PI / 180;
+  // Great-circle metres between two places.
+  const between = (a, b) => {
+    const dLat = (b.lat - a.lat) * RAD;
+    const dLon = (b.lon - a.lon) * RAD;
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(a.lat * RAD) * Math.cos(b.lat * RAD) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  };
+  const options = { supergroupGroups: 4, curvedBlockM: 1920, chunkColumns: 64 };
+  const onGlobe = ({ lon0, lat0 }) =>
+    lat0 > -90 && lat0 < 90 && lon0 >= -180 && lon0 <= 180;
+  assert.equal(ANCHOR_MAX_SHIFT_M, 1_000_000);
+  // The curved levels: the ground point itself, at both cameras.
+  for (const camera of [
+    { lon: -93, lat: 41 },
+    { lon: 10, lat: 60 },
+  ])
+    for (const blockM of [1920, 7680, 30720]) {
+      const anchor = anchorFor(camera, blockM, options);
+      assert.ok(onGlobe(anchor), `${blockM} at ${camera.lat}`);
+      assert.equal(between(camera, { lon: anchor.lon0, lat: anchor.lat0 }), 0);
+    }
+  // Below them, the flat levels as before: half a supergroup (at 480 m,
+  // 4 × 4 × 64 × 480 / 2 = 245,760 m) south and west, the old degrees to
+  // a metre, and the camera mid-supergroup in the region's own metres.
+  for (const camera of [
+    { lon: -93, lat: 41 },
+    { lon: 10, lat: 60 },
+  ]) {
+    const halfM = (4 * 4 * 64 * 480) / 2;
+    const flat = anchorFor(camera, 480, options);
+    const old = {
+      lon: camera.lon - halfM / (111_320 * Math.cos(camera.lat * RAD)),
+      lat: camera.lat - halfM / 111_320,
+    };
+    // (The degree here is 111,319.5 m, the old one 111,320: 2 m apart.)
+    assert.ok(between({ lon: flat.lon0, lat: flat.lat0 }, old) < 5);
+    const local = createRegion({ ...flat, blockM: 480 }).toLocal(
+      camera.lon,
+      camera.lat,
+    );
+    // As centred as the old shift: within 4% (3.3% north at 60° N).
+    assert.ok(Math.abs(local.x / halfM - 1) < 0.04, String(local.x / halfM));
+    assert.ok(Math.abs(local.y / halfM - 1) < 0.04, String(local.y / halfM));
+    assert.ok(
+      between(camera, { lon: flat.lon0, lat: flat.lat0 }) < ANCHOR_MAX_SHIFT_M,
+    );
+  }
+  // No supergroups: the ground point.
+  assert.deepEqual(anchorFor({ lon: -93, lat: 41 }, 30, {}), {
+    lon0: -93,
+    lat0: 41,
+  });
+  // The cap: 30,720 m as if it were flat (the old degrees put it at 99.8°
+  // S) stays within 1,000 km of the ground point.
+  const camera = { lon: -93.51, lat: 41.37 };
+  const capped = anchorFor(camera, 30720, {
+    supergroupGroups: 4,
+    chunkColumns: 64,
+  });
+  assert.ok(onGlobe(capped));
+  assert.ok(
+    between(camera, { lon: capped.lon0, lat: capped.lat0 }) <=
+      ANCHOR_MAX_SHIFT_M,
+  );
+  // Near a pole and across the antimeridian, a capped shift never wraps.
+  const leg = ANCHOR_MAX_SHIFT_M / Math.SQRT2;
+  for (const from of [
+    { lon: 179.9, lat: 89.95 },
+    { lon: -179.95, lat: -89.95 },
+    { lon: -179.99, lat: 0 },
+    { lon: 179.99, lat: -10 },
+  ]) {
+    const to = shiftAlongGround(from, leg, leg);
+    assert.ok(to.lat > -90 && to.lat < 90, JSON.stringify(to));
+    assert.ok(to.lon >= -180 && to.lon <= 180, JSON.stringify(to));
+  }
+});

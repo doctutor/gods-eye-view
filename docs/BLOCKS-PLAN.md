@@ -433,6 +433,24 @@ rings past it. The 300 m view drew 1,497 buildings, the 5 km view 9,935.
 - 3,000 km −90: the −74.04° gap is gone, but thin streaks remain along the
   coast (New Jersey, Long Island) and in the water near it.
 - 3,000 km −45 took 63 s to settle, the slowest view.
+- 5,465 km −90 on a 1600 × 900 window (31 km cells): North America drew
+  streaked and out of place. The controller anchored a region half a
+  supergroup south and west of the camera in degrees, which grows with the
+  block: 3,932 km a leg at 7,680 m, and 15,728 km (141°) at 30,720 m,
+  which put the anchor past the South Pole (lat0 −99.8°, about 80° S in
+  Antarctica) with the camera's ground 13,500 km from it, past a
+  hemisphere, where the curved grid's azimuthal mapping is distorted.
+  Fixed by `anchorFor` (index.js): the curved levels (1,920 m and up)
+  anchor at the camera's ground point, since without buildings there and
+  with the values on the global lattice the supergroup alignment helps
+  nothing; the flat levels keep the shift, south along the meridian and
+  west along the camera's parallel in metres (the camera mid-supergroup in
+  the region's own metres), capped so the anchor is never more than
+  1,000 km from the ground point, and never past a pole or the
+  antimeridian. The blue square over Lake Superior in the same view
+  (about 47.7° N 86.9° W) is GMTED2010 storing a rectangle of the lake as
+  0 m, its sea value; a lake-water mask (JRC Global Surface Water) waits
+  on the user.
 
 **The harness** (`scripts/qa-blocks-compare.mjs`, the PNGs beside
 `report.json`, with each shot's status lines and values requests in order):
