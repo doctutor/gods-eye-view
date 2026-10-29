@@ -226,6 +226,6 @@ export function runMeshJob(job) {
 
 /** The mesh's buffers, to transfer back. */
 export const meshTransferList = (mesh) =>
-  [mesh.positions, mesh.normals, mesh.colors, mesh.indices].map(
-    (array) => array.buffer,
-  );
+  [mesh.positions, mesh.normals, mesh.colors, mesh.blockCoords, mesh.indices]
+    .filter(Boolean)
+    .map((array) => array.buffer);

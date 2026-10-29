@@ -308,8 +308,15 @@ function curvedPlacement(curved, scale) {
  * `stats` counts block faces by direction (and water, and the skirts'
  * share in `skirt`), before merging.
  * @returns {{positions: Float32Array, normals: Float32Array,
- *   colors: Uint8Array, indices: Uint32Array, faces: number,
- *   opaqueIndexCount: number, stats: Object<string, number>}}
+ *   colors: Uint8Array, blockCoords: Float32Array, indices: Uint32Array,
+ *   faces: number, opaqueIndexCount: number, stats: Object<string, number>}}
+ *   `blockCoords`: each vertex's block point, three floats a vertex in the
+ *   order of `positions` — (i, j, level): columns east and north from the
+ *   chunk's south-west corner (0 … CHUNK_COLUMNS), and the level from mean
+ *   sea level; whole numbers at a face's corners, halves at a shaded
+ *   face's centre. The block lattice, flat or curved: the renderer's
+ *   edges and dither read it where a curved chunk's positions are off the
+ *   lattice by hundreds of kilometres.
  */
 export function buildChunkMesh(
   chunk,
@@ -474,6 +481,7 @@ function writeQuads(opaque, water, { scale, sunDir, counts, curved = null }) {
   const positions = new Float32Array(vertices * 3);
   const normals = new Float32Array(vertices * 3);
   const colors = new Uint8Array(vertices * 4);
+  const blockCoords = new Float32Array(vertices * 3);
   const indices = new Uint32Array(quads.length * 6 + fanned * 6);
   // Colour bytes by material, direction and light, made once each.
   const palette = new Map();
@@ -530,6 +538,7 @@ function writeQuads(opaque, water, { scale, sunDir, counts, curved = null }) {
           vB[c >= 2 ? 1 : 0],
         );
         positions.set(bend.position(b[0], b[1], b[2]), vertex * 3);
+        blockCoords.set(b, vertex * 3);
         const occlusion = AO[(rect.key >> (6 - 2 * c)) & 3];
         light += occlusion;
         writeVertex(
@@ -546,6 +555,7 @@ function writeQuads(opaque, water, { scale, sunDir, counts, curved = null }) {
       }
       const b = blockPoint(d, planeB, (uB[0] + uB[1]) / 2, (vB[0] + vB[1]) / 2);
       positions.set(bend.position(b[0], b[1], b[2]), centre * 3);
+      blockCoords.set(b, centre * 3);
       writeVertex(
         centre,
         d,
@@ -562,6 +572,7 @@ function writeQuads(opaque, water, { scale, sunDir, counts, curved = null }) {
     }
     // The plane along the face's axis, u and v across it, each axis at its
     // own scale (levels up, columns east and north).
+    const planeB = rect.slice + (d.normal[d.axis] > 0 ? 1 : 0);
     const plane = (rect.slice + (d.normal[d.axis] > 0 ? 1 : 0)) * scale[d.axis];
     const u0 = rect.u * scale[d.u];
     const v0 = rect.v * scale[d.v];
@@ -573,6 +584,10 @@ function writeQuads(opaque, water, { scale, sunDir, counts, curved = null }) {
       positions[vertex * 3 + d.axis] = plane;
       positions[vertex * 3 + d.u] = c === 1 || c === 2 ? u1 : u0;
       positions[vertex * 3 + d.v] = c >= 2 ? v1 : v0;
+      blockCoords[vertex * 3 + d.axis] = planeB;
+      blockCoords[vertex * 3 + d.u] =
+        c === 1 || c === 2 ? rect.u + rect.w : rect.u;
+      blockCoords[vertex * 3 + d.v] = c >= 2 ? rect.v + rect.h : rect.v;
       const occlusion = AO[(rect.key >> (6 - 2 * c)) & 3];
       light += occlusion;
       writeVertex(vertex, d, colorOf(material, rect.dirIndex, occlusion));
@@ -586,6 +601,9 @@ function writeQuads(opaque, water, { scale, sunDir, counts, curved = null }) {
     positions[centre * 3 + d.axis] = plane;
     positions[centre * 3 + d.u] = (u0 + u1) / 2;
     positions[centre * 3 + d.v] = (v0 + v1) / 2;
+    blockCoords[centre * 3 + d.axis] = planeB;
+    blockCoords[centre * 3 + d.u] = rect.u + rect.w / 2;
+    blockCoords[centre * 3 + d.v] = rect.v + rect.h / 2;
     writeVertex(centre, d, colorOf(material, rect.dirIndex, light / 4));
     for (let c = 0; c < 4; c += 1) {
       indices[index++] = base + c;
@@ -604,6 +622,7 @@ function writeQuads(opaque, water, { scale, sunDir, counts, curved = null }) {
     positions,
     normals,
     colors,
+    blockCoords,
     indices,
     faces: quads.length,
     opaqueIndexCount,

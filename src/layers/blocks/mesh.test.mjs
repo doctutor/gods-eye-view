@@ -1042,3 +1042,82 @@ test('on a curved level water and skirts stand on the ellipsoid too', async () =
     'the ground’s top, 1,440 m',
   );
 });
+
+// ── The block point a vertex (blockCoords) ────────────────────────────
+
+test('blockCoords: every vertex’s block point; on a flat chunk it is its position ÷ (blockM, blockM, levelM)', () => {
+  const chunk = chunkAt(3, { tops: [[5, 5, 6]], waters: [[9, 9, 4]] });
+  const mesh = buildChunkMesh(chunk, {
+    neighbours: flatAround(3),
+    blockM: 120,
+    levelM: 30,
+  });
+  assert.ok(mesh.blockCoords instanceof Float32Array);
+  assert.equal(mesh.blockCoords.length, mesh.positions.length);
+  const scale = [120, 120, 30];
+  for (let k = 0; k < mesh.positions.length; k += 1)
+    assert.ok(
+      Math.abs(mesh.blockCoords[k] * scale[k % 3] - mesh.positions[k]) < 1e-3,
+      `vertex ${Math.floor(k / 3)}`,
+    );
+  // Corners are whole block points; a shaded face's centre a half.
+  for (let k = 0; k < mesh.faces * 12; k += 1)
+    assert.equal(mesh.blockCoords[k], Math.round(mesh.blockCoords[k]));
+  // The raised column's top corner at (600 m, 600 m, 210 m): block point (5, 5, 7).
+  let found = -1;
+  for (let v = 0; v < mesh.faces * 4; v += 1)
+    if (
+      mesh.positions[v * 3] === 600 &&
+      mesh.positions[v * 3 + 1] === 600 &&
+      mesh.positions[v * 3 + 2] === 210
+    )
+      found = v;
+  assert.ok(found >= 0);
+  assert.deepEqual(
+    [...mesh.blockCoords.subarray(found * 3, found * 3 + 3)],
+    [5, 5, 7],
+  );
+});
+
+test('blockCoords on a curved 30,720 m chunk: the far corner carries its true block point while its position is hundreds of km off the lattice', async () => {
+  const { createRegion } = await import('./grid.js');
+  const region = createRegion({
+    lon0: -76.6,
+    lat0: 39.3,
+    blockM: 30720,
+    levelM: 960,
+  });
+  const corner = region.chunkOrigin(1, 0);
+  const mesh = buildChunkMesh(chunkAt(0, { ci: 1, cj: 0 }), {
+    neighbours: flatAround(0),
+    blockM: 30720,
+    levelM: 960,
+    greedy: false,
+    curved: {
+      lon0: region.lon0,
+      lat0: region.lat0,
+      regionBlockM: 30720,
+      cornerM: corner,
+      datumM: 0,
+    },
+  });
+  // The far (north-east) top corner: block point (64, 64, 1).
+  let far = -1;
+  for (let v = 0; v < mesh.faces * 4; v += 1)
+    if (
+      mesh.blockCoords[v * 3] === 64 &&
+      mesh.blockCoords[v * 3 + 1] === 64 &&
+      mesh.blockCoords[v * 3 + 2] === 1
+    )
+      far = v;
+  assert.ok(far >= 0, 'the far corner is there, whole numbers');
+  const p = [...mesh.positions.subarray(far * 3, far * 3 + 3)];
+  // Where the flat lattice would put it, from the chunk's origin.
+  const lattice = [64 * 30720, 64 * 30720, 960];
+  const off = Math.hypot(
+    p[0] - lattice[0],
+    p[1] - lattice[1],
+    p[2] - lattice[2],
+  );
+  assert.ok(off > 100_000, `off the lattice by ${Math.round(off / 1000)} km`);
+});
