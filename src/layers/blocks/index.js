@@ -60,11 +60,29 @@ const EARTH_RADIUS_M = 6_371_000;
  * the rings past it) only to this many times the distance to it.
  */
 export const HORIZON_MARGIN = 1.25;
-/** The distance to the horizon from a height above the ground (m). */
+/**
+ * The ground distance to the horizon from a height above the ground (m),
+ * along the sphere: R · acos(R / (R + h)). 62 km from 300 m, 2,445 km from
+ * 500 km, 5,245 km from 3,000 km, never past a quarter of the way round
+ * (10,007 km), so a ring cut by it never reaches the antipode.
+ */
 export const horizonM = (heightM) => {
   const h = Math.max(1, Number(heightM) || 0);
-  return Math.sqrt(2 * EARTH_RADIUS_M * h + h * h);
+  return EARTH_RADIUS_M * Math.acos(EARTH_RADIUS_M / (EARTH_RADIUS_M + h));
 };
+/** Half the way round: no ring reaches past it (m). */
+export const ANTIPODE_M = Math.PI * EARTH_RADIUS_M;
+
+/**
+ * The fine ring's radius in blocks: R1, or fewer where R1 blocks would
+ * pass the horizon cut (at 30,720 m R1 is 15,700 km, wider than the
+ * hemisphere: the chunks past the antipode folded back and nothing covered
+ * the camera); at least one chunk.
+ */
+export function fineRadiusBlocks(radiusBlocks, blockM, cutM, chunkColumns) {
+  const cap = Math.floor(Math.min(cutM, ANTIPODE_M) / blockM);
+  return Math.max(chunkColumns, Math.min(radiusBlocks, cap));
+}
 /** Each ring past the primary region is the next level at least this × the cell before. */
 export const RING_STEP = 4;
 
@@ -1572,7 +1590,16 @@ export function createBlocksController({
     // Drop what fell behind: fine chunks a group at a time.
     const at = { x: i + 0.5, y: j + 0.5 };
     const groupSize = size * GROUP_CHUNKS;
-    const far = radiusBlocks * REMOVE_FACTOR;
+    // The fine ring to R1 blocks, or to the horizon where that is nearer
+    // (continental levels); everything past the horizon is left out.
+    const horizonCut = HORIZON_MARGIN * horizonM(heightAboveGround(camera));
+    const radius = fineRadiusBlocks(
+      radiusBlocks,
+      _region.blockM,
+      horizonCut,
+      size,
+    );
+    const far = radius * REMOVE_FACTOR;
     let changed = false;
     for (const entry of [..._chunks.values()]) {
       const { gi, gj } = groupOf(entry.ci, entry.cj);
@@ -1599,8 +1626,7 @@ export function createBlocksController({
       }
       _coarse.delete(entry.key);
     }
-    const ring = fineRing({ i, j, radius: radiusBlocks, chunkColumns: size });
-    const horizonCut = HORIZON_MARGIN * horizonM(heightAboveGround(camera));
+    const ring = fineRing({ i, j, radius, chunkColumns: size });
     const groups = coarseOn()
       ? groupRing({
           i,
@@ -1609,7 +1635,7 @@ export function createBlocksController({
           chunkColumns: size,
         }).filter(
           ({ gi, gj, distance }) =>
-            !supergroupInside(at, gi, gj, groupSize, radiusBlocks) &&
+            !supergroupInside(at, gi, gj, groupSize, radius) &&
             // Not past the horizon (from 500 km the ring would run over
             // the pole on the tangent plane).
             distance * _region.blockM <= horizonCut,

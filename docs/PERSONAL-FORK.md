@@ -6334,6 +6334,15 @@ finer than about two screen pixels.
   coarse ring. The coarse ring stops at the horizon too: from 500 km it
   ran over the pole on the tangent plane, about 22 of the view's 48
   requests.
+- **The horizon** is the ground distance to it along the sphere
+  (`horizonM`: R · acos(R / (R + h))): 62 km from 300 m, 2,445 km from
+  500 km, 5,245 km from 3,000 km, never past a quarter of the way round.
+  The fine ring reaches R1 blocks or the horizon cut, whichever is nearer
+  (`fineRadiusBlocks`). At 30,720 m, R1 is 15,700 km, wider than the
+  hemisphere: the chunks past the antipode folded back, and nothing
+  covered the camera. From 3,000 km the fine ring at 30,720 m is now 213
+  blocks, from 20,000 km 343. Every ring is cut the same way, so no ring
+  reaches the antipode.
 - **The Elevation layer's Blocks style** (decision 6, step F's client
   half). Over blocks coarser than the native cells, and where Blocks
   cannot build (above its ceiling, failed, no values service), the

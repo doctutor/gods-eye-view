@@ -2723,7 +2723,8 @@ test('buildings and land cover only up to 30 m blocks: none asked of Overpass at
 test('the coarse ring stops at the horizon: from 300 m over 1 km blocks, no group past 1.25 × the 62 km to it; from 50 km all of them', async () => {
   const { horizonM, HORIZON_MARGIN } = await import('./index.js');
   assert.ok(Math.abs(horizonM(300) - 61_824) < 5);
-  assert.ok(Math.abs(horizonM(500_000) - 2_573_000) < 1000);
+  // Along the ground, not the line of sight (2,573 km).
+  assert.ok(Math.abs(horizonM(500_000) - 2_445_500) < 1000);
   const run = (height) => {
     const source = coarseSource({ blockM: 1000 });
     const { controller, viewer } = setup({ source, radiusBlocks: 128 });
@@ -3009,4 +3010,68 @@ test('a moveEnd that never comes: the camera still for SETTLE_MS is settled, and
   assert.equal(source.regions.length, 1, 'anchored without a moveEnd');
   assert.notEqual(controller.getStatus().state, 'flying');
   controller.destroy();
+});
+
+test('continental levels: the fine ring to the horizon, not R1 (15,700 km at 30,720 m, past the antipode); every ring within it; the camera’s own ground covered', async () => {
+  const { horizonM, HORIZON_MARGIN, fineRadiusBlocks, ANTIPODE_M } =
+    await import('./index.js');
+  // The ground to the horizon: 5,245 km from 3,000 km, 8,453 km from
+  // 20,000 km, never past a quarter of the way round.
+  assert.ok(Math.abs(horizonM(3_000_000) - 5_245_000) < 2000);
+  assert.ok(Math.abs(horizonM(20_000_000) - 8_453_000) < 2000);
+  assert.ok(horizonM(1e12) < ANTIPODE_M / 2 + 1);
+  const cut = (h) => HORIZON_MARGIN * horizonM(h);
+  assert.equal(fineRadiusBlocks(512, 30_720, cut(3_000_000), 64), 213);
+  assert.equal(fineRadiusBlocks(512, 30_720, cut(20_000_000), 64), 343);
+  assert.equal(fineRadiusBlocks(512, 7680, cut(3_000_000), 64), 512);
+  assert.equal(
+    fineRadiusBlocks(512, 1, cut(300), 64),
+    512,
+    'R1 near the ground',
+  );
+  assert.equal(fineRadiusBlocks(512, 30_720, 1000, 64), 64, 'at least a chunk');
+  // The controller at 30,720 m and 7,680 m, from 3,000 km and 20,000 km.
+  for (const [height, px, level] of [
+    [3_000_000, 3464, 7680],
+    [3_000_000, 5000, 30_720],
+    [20_000_000, 23_000, 30_720],
+  ]) {
+    const source = pyramidSource(30, 'FABDEM 30 m');
+    // R1 512 as in the app.
+    const store = createRenderModeStore({ storage: memoryStorage() });
+    store.setMode('blocks');
+    const view = fakeViewer();
+    setHeight(view, height);
+    const real = createBlocksController({
+      viewer: view,
+      store,
+      layers: fakeLayers(true),
+      source,
+      renderer: fakeRenderer(),
+      grid: fakeGrid,
+      buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+      footprint: () => px,
+      flatStyle: () => true,
+      setIntervalImpl: () => 1,
+      clearIntervalImpl: () => {},
+    });
+    await drain(real, 600);
+    assert.equal(real.getStatus().blockM, level, `${height} m`);
+    const radius = fineRadiusBlocks(512, level, cut(height), 64);
+    const loaded = source.loads.filter((l) => l.region.blockM === level);
+    assert.ok(loaded.length > 0);
+    // Every fine chunk in a whole 4 × 4 group within the capped radius of
+    // the camera's column, so within the horizon.
+    const far = Math.max(
+      ...loaded.map(({ ci, cj }) => {
+        const { gi, gj } = groupOf(ci, cj);
+        return chunkDistance({ x: 0.5, y: 0.5 }, gi, gj, 4 * 64);
+      }),
+    );
+    assert.ok(far <= radius, `${far} ≤ ${radius} at ${level} m`);
+    assert.ok(far * level <= cut(height), 'within the horizon');
+    // The camera's own chunk is among them.
+    assert.ok(loaded.some(({ ci, cj }) => ci === 0 && cj === 0));
+    real.destroy();
+  }
 });
