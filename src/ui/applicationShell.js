@@ -61,7 +61,7 @@ import { applyLocaleChoice, mountLocalePicker } from './localePicker.js';
 // Personal fork: the DATA LAYERS panel's Titles toggle (share link).
 import { titlesPreference } from './titles.js';
 // Personal fork: Blocks' block size, the HUD's data floor while it draws.
-import { blocksFloorM } from '../layers/blocks/floor.js';
+import { blocksFloorM, blocksScene } from '../layers/blocks/floor.js';
 
 /**
  * Central UI orchestrator for the God's Eye View application.
@@ -385,8 +385,10 @@ export class StyleManager extends ShellFacade {
           tilesetShown: Boolean(tileset),
           tileset,
           terrainId: viewer.terrainProvider?.gevTerrainId ?? null,
-          // Render: Blocks' cubes, while it draws them.
+          // Render: Blocks' cubes, while it draws them; else the
+          // Elevation layer's Blocks style, while it drapes.
           blocksM: blocksFloorM(),
+          blocksStyleM: blocksScene().style,
         };
       },
       onCameraEdited: () => this.shareLinkManager?.onCameraChange(),

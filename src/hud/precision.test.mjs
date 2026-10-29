@@ -103,8 +103,15 @@ test('which surface is under the camera, and its floor', () => {
 });
 
 test('Render: Blocks names its block size as the floor, over whatever is beneath', () => {
-  const floor = dataFloor({ tilesetShown: true, terrainId: 'world', blocksM: 1 });
-  assert.deepEqual({ ...floor }, { id: 'blocks', name: 'Blocks 1 m', floorM: 1 });
+  const floor = dataFloor({
+    tilesetShown: true,
+    terrainId: 'world',
+    blocksM: 1,
+  });
+  assert.deepEqual(
+    { ...floor },
+    { id: 'blocks', name: 'Blocks 1 m', floorM: 1 },
+  );
   assert.equal(dataFloor({ blocksM: 30 }).name, 'Blocks 30 m');
   assert.equal(dataFloor({ blocksM: null, terrainId: 'world' }).id, 'world');
   assert.equal(dataFloor({ blocksM: 0 }).id, 'flat');
@@ -172,4 +179,19 @@ test('lengths and the footprint as written', () => {
   assert.equal(formatFootprint(12.7), '13 m');
   assert.equal(formatFootprint(1234), '1.2 km');
   assert.equal(formatFootprint(NaN), '—');
+});
+
+test('Render: Blocks: the floor names the blocks drawn, else the Elevation layer’s Blocks style draped ("Blocks style 31 km"), else the ground', () => {
+  assert.equal(
+    dataFloor({ blocksM: 7680, blocksStyleM: 30_720 }).name,
+    'Blocks 7.7 km',
+  );
+  const style = dataFloor({ blocksStyleM: 30_720, terrainId: 'world' });
+  assert.equal(style.id, 'blocks-style');
+  assert.equal(style.name, 'Blocks style 31 km');
+  assert.equal(style.floorM, 30_720);
+  assert.equal(
+    dataFloor({ blocksStyleM: null, terrainId: 'world' }).id,
+    'world',
+  );
 });
