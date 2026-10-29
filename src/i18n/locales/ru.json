@@ -3569,6 +3569,7 @@
   "Blocks unavailable": "Блоки недоступны",
   "{count} loading": "загружается: {count}",
   "study sun": "условное солнце",
+  "Blocks style {size}": "Стиль блоков {size}",
   "Blocks style: {size} cells": "Стиль блоков: ячейки {size}",
   "Blocks {size}": "Блоки {size}",
   "{size} m": "{size} м",

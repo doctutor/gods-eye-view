@@ -6363,7 +6363,10 @@ finer than about two screen pixels.
   (`blocksScene().style`) and keeps the globe shown.
   - The Elevation layer then drapes `blocks-<cellM>` at the style's zoom
     band (`blocksStyleZoomBand`), the top-down picture under and beyond
-    the geometry. Its row says "Blocks style: 1.9 km cells".
+    the geometry. Its row says "Blocks style: 1.9 km cells". Where no
+    blocks are drawn yet, the HUD's data floor names the drape ("· Blocks
+    style 31 km") and the readout's precision stops at its cell; once
+    blocks draw, it names them ("· Blocks 7.7 km").
   - There is no style under 30 m blocks and finer, where the geometry
     covers the view, nor in Walk and Fly (no footprint) or in flight.
 - **Buildings and land cover** (OpenStreetMap through Overpass) come only
