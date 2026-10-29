@@ -35,8 +35,12 @@ import {
   demSource,
 } from '../../src/data/demStack.js';
 import {
+  BLOCKS_STYLE_EDGE_TONE,
   BLOCKS_STYLE_LAYER,
+  BLOCKS_STYLE_TERRAIN_RGB,
+  BLOCKS_STYLE_WATER_RGB,
   blocksLevelM,
+  blocksStyleLit,
   blocksStyleCell,
   blocksStyleZoomBand,
 } from '../../src/data/blocksStyle.js';
@@ -976,7 +980,7 @@ const FLAT_HILLSHADE = 180;
  */
 export const BLOCKS_EDGE_PARTS = 8;
 /** … darkened to this share of the cell's tone. */
-export const BLOCKS_EDGE_TONE = 0.62;
+export const BLOCKS_EDGE_TONE = BLOCKS_STYLE_EDGE_TONE;
 /**
  * A cell is the mean of SUB × SUB samples of its source, read at a quarter
  * of the cell (from the source's pyramid, itself means): 16 a cell, so a
@@ -986,7 +990,13 @@ export const BLOCKS_MEAN_SUB = 4;
 /** A cell is water (level 0) when less than this share of it has heights. */
 export const BLOCKS_LAND_SHARE = 0.5;
 /** The water's colour: the Blocks water's (mesh.js), flat. */
-export const BLOCKS_WATER_RGB = Object.freeze([58, 112, 190]);
+export const BLOCKS_WATER_RGB = Object.freeze(
+  blocksStyleLit(BLOCKS_STYLE_WATER_RGB),
+);
+/** The land's colour: the Blocks terrain's sand, lit as a top face. */
+export const BLOCKS_TERRAIN_RGB = Object.freeze(
+  blocksStyleLit(BLOCKS_STYLE_TERRAIN_RGB),
+);
 /** The finest level read from the far band (GMTED 230 m); finer ones read FABDEM 30 m. */
 export const BLOCKS_FAR_FROM_M = 1920;
 const M_PER_DEG_EQUATOR = 111_319.49;
@@ -1014,10 +1024,11 @@ export function blocksStyleGrid(cellM, part = 1) {
  *   masked in every source), or whose mean is at or below 0 m: level 0,
  *   one flat colour, as the Blocks geometry draws water;
  * - the level: the mean quantised down to blocksLevelM; its colour the
- *   Elevation layer's for that height, shaded flat by the hillshade of the
- *   quantised cells (÷ 180, a flat cell's);
+ *   Blocks terrain's sand as a top face shows it (blocksStyle.js, the
+ *   geometry's), shaded flat by the hillshade of the quantised cells
+ *   (÷ 180, a flat cell's); water the Blocks water's blue, lit alike;
  * - the edges: the westmost and southmost eighth of each cell, on a grid
- *   of eighths, BLOCKS_EDGE_TONE as dark.
+ *   of eighths, BLOCKS_EDGE_TONE as dark (the geometry's 12 %).
  * Each is reprojected to its grid, so a cell is one colour at any zoom. An
  * RGB image, drawn 0 to 255.
  */
@@ -1105,17 +1116,9 @@ export function blocksStyleExpression(layer, variant, cellM) {
     test: reference(refs.water),
     value: imageConstant(0),
   });
-  const land = invoke('Image.visualize', {
-    image: invoke('Image.sqrt', {
-      value: invoke('Image.max', {
-        image1: reference(refs.level),
-        image2: imageConstant(0),
-      }),
-    }),
-    min: constant(layer.vis.min),
-    max: constant(layer.vis.max),
-    palette: constant([...layer.vis.palette]),
-  });
+  // The Blocks terrain's sand as a flat top shows it; the relief is the
+  // shade's (the geometry has one terrain colour, light carries shape).
+  const land = imageConstant([...BLOCKS_TERRAIN_RGB]);
   // The hillshade of the quantised cells, on the cells' grid.
   const shade = invoke('Image.divide', {
     image1: onGrid(
