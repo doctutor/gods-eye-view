@@ -18,6 +18,7 @@ import { NO_RELIEF, drawnHeightM } from './relief.js';
 import { ELEVATION_LAYER_ID } from '../lego/layerSpecs.js';
 import { setBlocksFloorM, setBlocksScene } from './floor.js';
 import { BLOCK_PYRAMID_M, levelMFor, pyramidLevelM } from './pyramid.js';
+import { latticeIndex } from './lattice.js';
 import { blocksStyleLevelFor } from '../../data/blocksStyle.js';
 import { cameraArrivalPending } from '../../data/cameraArrival.js';
 
@@ -113,6 +114,33 @@ export function ringLevels({
     reach = radiusBlocks * level;
   }
   return levels;
+}
+
+/**
+ * A ring past the coarse one asks at most this many lattice tiles
+ * (lattice.js: 512 cells of its level a side): its 3 × 3 nearest. Uncapped,
+ * a ring straddling tile edges asked 4 × 4 (QA, 2026-10-29: 16 at 30 m), the
+ * farthest of them for the fog's edge.
+ */
+export const RING_MAX_TILES = 9;
+
+/**
+ * A ring's chunks (nearest first) cut to those whose tiles (`tilesOf(ci,
+ * cj)` → tile keys) fall within the first `maxTiles` met: a chunk adding a
+ * tile past the budget is left out. Without tiles (no lattice) the list
+ * stands.
+ */
+export function capRingTiles(list, tilesOf, maxTiles = RING_MAX_TILES) {
+  const kept = new Set();
+  const out = [];
+  for (const place of list) {
+    const tiles = tilesOf(place.ci, place.cj) || [];
+    const fresh = tiles.filter((key) => !kept.has(key));
+    if (kept.size + fresh.length > maxTiles) continue;
+    for (const key of fresh) kept.add(key);
+    out.push(place);
+  }
+  return out;
 }
 
 /** A ring chunk's renderer key (renderer.js levelChunkKey): 'L<blockM>:ci:cj'. */
@@ -2055,15 +2083,18 @@ export function createBlocksController({
       // chunk (64 blocks) may be wider than the hole, so a chunk whose
       // centre is inside can still reach past it; the renderer leaves out
       // its ground inside the hole.
-      const list = chunkRing({
-        i,
-        j,
-        radius: radiusBlocks,
-        chunkColumns: size,
-      }).filter(
-        ({ ci, cj, distance }) =>
-          farthestDistance(at, ci, cj, size) > innerBlocks &&
-          distance * level <= horizonCut,
+      const list = capRingTiles(
+        chunkRing({
+          i,
+          j,
+          radius: radiusBlocks,
+          chunkColumns: size,
+        }).filter(
+          ({ ci, cj, distance }) =>
+            farthestDistance(at, ci, cj, size) > innerBlocks &&
+            distance * level <= horizonCut,
+        ),
+        (ci, cj) => chunkTiles(outer.region, level, ci, cj, size),
       );
       out.push({ ring: outer, list });
       inner = radiusBlocks * level;
@@ -2080,6 +2111,30 @@ export function createBlocksController({
       call(() => renderer.setRingHoles?.(holes)).catch(() => {});
     }
     return out;
+  }
+
+  /**
+   * The lattice tiles a chunk of a ring's region asks (its corners'), as
+   * keys; none for a region without toLonLat (no lattice to count).
+   */
+  function chunkTiles(region, level, ci, cj, size) {
+    if (typeof region.toLonLat !== 'function') return [];
+    const chunkM = size * level;
+    const keys = new Set();
+    for (const [u, v] of [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ]) {
+      const { lon, lat } = region.toLonLat(
+        (ci + u) * chunkM,
+        (cj + v) * chunkM,
+      );
+      const { ti, tj } = latticeIndex(level, lon, lat);
+      keys.add(`${ti}:${tj}`);
+    }
+    return [...keys];
   }
 
   /**

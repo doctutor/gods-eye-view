@@ -47,6 +47,10 @@ const fakeGrid = {
         x: (lon - lon0) * M_PER_DEG * cos,
         y: (lat - lat0) * M_PER_DEG,
       }),
+      toLonLat: (x, y) => ({
+        lon: lon0 + x / (M_PER_DEG * cos),
+        lat: lat0 + y / M_PER_DEG,
+      }),
       columnOf: (x, y) => ({
         i: Math.floor(x / blockM),
         j: Math.floor(y / blockM),
@@ -3339,5 +3343,74 @@ test('a 30,720 m region re-anchors when the camera flies to another continent (2
   assert.equal(status.state, 'ready');
   assert.equal(status.pending, 0);
   assert.equal(controller._state().ticking, false);
+  controller.destroy();
+});
+
+test('capRingTiles: nearest first, a chunk that would add a tile past the budget is left out', async () => {
+  const { capRingTiles, RING_MAX_TILES } = await import('./index.js');
+  assert.equal(RING_MAX_TILES, 9);
+  // Chunk n sits in tile floor(n / 2): two chunks a tile, twelve tiles.
+  const list = Array.from({ length: 24 }, (_, n) => ({ ci: n, cj: 0 }));
+  const kept = capRingTiles(list, (ci) => [`t${Math.floor(ci / 2)}`], 9);
+  assert.equal(kept.length, 18);
+  assert.deepEqual(kept.at(-1), { ci: 17, cj: 0 });
+  // A chunk across two tiles needs both inside the budget.
+  const straddling = [
+    { ci: 0, cj: 0 },
+    { ci: 1, cj: 0 },
+  ];
+  const tiles = (ci) => (ci === 0 ? ['a'] : ['a', 'b']);
+  assert.equal(capRingTiles(straddling, tiles, 1).length, 1);
+  assert.equal(capRingTiles(straddling, tiles, 2).length, 2);
+  // No lattice: the list stands.
+  assert.equal(capRingTiles(list, () => []).length, 24);
+});
+
+test('each ring past the coarse one asks at most its 3 × 3 nearest lattice tiles (R1 512: 4 × 4 uncapped)', async () => {
+  const { RING_MAX_TILES } = await import('./index.js');
+  const { latticeIndex } = await import('./lattice.js');
+  const source = pyramidSource(1);
+  const renderer = fakeRenderer();
+  renderer.setRegions = () => {};
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    footprint: () => 0.3,
+    flatStyle: () => true,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller, 1500);
+  const rings = controller._state().rings;
+  assert.ok(rings.size > 0);
+  for (const [level, ring] of rings) {
+    const tiles = new Set();
+    for (const entry of ring.chunks.values())
+      for (const [u, v] of [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ]) {
+        const { lon, lat } = ring.region.toLonLat(
+          (entry.ci + u) * C * level,
+          (entry.cj + v) * C * level,
+        );
+        const { ti, tj } = latticeIndex(level, lon, lat);
+        tiles.add(`${ti}:${tj}`);
+      }
+    assert.ok(
+      tiles.size <= RING_MAX_TILES,
+      `ring ${level}: ${tiles.size} tiles`,
+    );
+  }
   controller.destroy();
 });
