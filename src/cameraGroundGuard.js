@@ -35,6 +35,29 @@ export const GUARD_REFINE_WAIT_MS = 15_000;
 const GUARD_EPSILON_M = 2;
 
 /**
+ * Personal fork: where the ground is when nothing rendered answers under a
+ * hidden globe (Render: Blocks hides it on a drawn basemap, and has drawn no
+ * blocks yet): (lat, lon) → a promise of the ground's ellipsoidal height in
+ * metres, NaN when unknown. src/app/blocks.js registers one point values
+ * probe. Without it a search framed at street range over high ground stayed
+ * underground (Lake Tahoe, 1,785 m under the lake, 2026-10-29).
+ */
+let groundFallbackSource = null;
+
+/**
+ * Register the ground fallback (null to clear); returns its removal.
+ * @param {((lat: number, lon: number) => Promise<number>|number)|null} fallback
+ * @returns {() => void}
+ */
+export function setGroundFallback(fallback) {
+  const next = typeof fallback === 'function' ? fallback : null;
+  groundFallbackSource = next;
+  return () => {
+    if (groundFallbackSource === next) groundFallbackSource = null;
+  };
+}
+
+/**
  * Highest rendered surface across a few cells, with how many cells answered
  * and how many answered from a tile too coarse to trust. A cell whose tiles
  * are not streamed yet, or only coarsely, contributes nothing.
@@ -101,6 +124,7 @@ export function guardCameraAboveGround(viewer, at, options = {}) {
     refineWaitMs = GUARD_REFINE_WAIT_MS,
     isStale = () => false,
     onLift = null,
+    groundFallback = groundFallbackSource,
   } = options;
   if (!viewer?.scene || !Number.isFinite(at?.lat) || !Number.isFinite(at?.lon))
     return () => {};
@@ -155,6 +179,53 @@ export function guardCameraAboveGround(viewer, at, options = {}) {
 
   let remaining = attempts;
   const startedAt = Date.now();
+  /** Raise the eye by `deficit` metres, heading and pitch held; the guard ends. */
+  const liftBy = (deficit) => {
+    stop();
+    const camera = viewer.camera;
+    const carto = camera.positionCartographic;
+    camera.flyTo({
+      destination: Cesium.Cartesian3.fromRadians(
+        carto.longitude,
+        carto.latitude,
+        carto.height + deficit,
+      ),
+      orientation: {
+        heading: camera.heading,
+        pitch: camera.pitch,
+        roll: camera.roll,
+      },
+      duration: 0.9,
+      easingFunction: Cesium.EasingFunction.CUBIC_IN_OUT,
+    });
+    try {
+      onLift?.(deficit);
+    } catch {
+      /* observer only */
+    }
+  };
+  // Personal fork: asked once, when nothing rendered answers under a hidden
+  // globe (groundFallbackSource).
+  let fallbackAsked = false;
+  const askFallback = () => {
+    fallbackAsked = true;
+    Promise.resolve()
+      .then(() => groundFallback(at.lat, at.lon))
+      .then(
+        (groundM) => {
+          if (done || isStale() || !Number.isFinite(groundM)) return;
+          const deficit = groundClearanceDeficitM(
+            viewer.camera.positionCartographic.height,
+            groundM,
+            clearanceM,
+          );
+          if (deficit > 0) liftBy(deficit);
+        },
+        () => {
+          /* no ground from it either: the attempts go on */
+        },
+      );
+  };
   const attempt = () => {
     if (done) return;
     if (isStale() || viewer.isDestroyed?.()) return stop();
@@ -172,34 +243,21 @@ export function guardCameraAboveGround(viewer, at, options = {}) {
     // Only coarse tiles answered: wait for the leaves, not spending an
     // attempt, for up to refineWaitMs.
     if (!(coarse > 0 && Date.now() - startedAt < refineWaitMs)) remaining -= 1;
+    // Nothing rendered answers and the globe is hidden: the fallback, once.
+    if (
+      sampled === 0 &&
+      !fallbackAsked &&
+      typeof groundFallback === 'function' &&
+      viewer.scene?.globe?.show === false
+    )
+      askFallback();
     if (sampled > 0 && Number.isFinite(heightM)) {
       const deficit = groundClearanceDeficitM(
         carto.height,
         heightM,
         clearanceM,
       );
-      if (deficit > 0) {
-        stop();
-        camera.flyTo({
-          destination: Cesium.Cartesian3.fromRadians(
-            carto.longitude,
-            carto.latitude,
-            carto.height + deficit,
-          ),
-          orientation: {
-            heading: camera.heading,
-            pitch: camera.pitch,
-            roll: camera.roll,
-          },
-          duration: 0.9,
-          easingFunction: Cesium.EasingFunction.CUBIC_IN_OUT,
-        });
-        try {
-          onLift?.(deficit);
-        } catch {
-          /* observer only */
-        }
-      }
+      if (deficit > 0) liftBy(deficit);
       // Both samples answered (from fine tiles): the surface is measured,
       // nothing left to wait for.
       if (sampled === 2 || deficit > 0) return stop();

@@ -11,7 +11,13 @@ import {
   createStructuresSource,
 } from '../layers/blocks/structures.js';
 import { createChunk } from '../layers/blocks/store.js';
-import { SUPERGROUP, createChunkSource } from '../layers/blocks/source.js';
+import {
+  SUPERGROUP,
+  createChunkSource,
+  probeBox,
+} from '../layers/blocks/source.js';
+import { blocksScene } from '../layers/blocks/floor.js';
+import { setGroundFallback } from '../cameraGroundGuard.js';
 import { blocksSun, createBlocksRenderer } from '../layers/blocks/renderer.js';
 import { createRasterValuesClient } from '../data/rasterValues.js';
 import { governorRequestRender } from '../renderGovernor.js';
@@ -41,6 +47,7 @@ export function createApplicationBlocks({
   reliefStore = null,
 }) {
   const values = createRasterValuesClient();
+  const datum = blocksDatum({ viewer, mapStackController });
   const chunks = createChunkSource({
     fetchValues: (request) => values.get(request),
     createChunk,
@@ -97,7 +104,7 @@ export function createApplicationBlocks({
       : null,
     // The real sun when it is above 15°, else the study sun.
     sun: (lon, lat) => blocksSun(Date.now(), lat, lon),
-    datum: blocksDatum({ viewer, mapStackController }),
+    datum,
     // On a drawn style the blocks are the world: the globe is hidden.
     flatStyle: () =>
       isFlatBasemap(mapStackController?.getActiveStack?.()) === true,
@@ -112,12 +119,47 @@ export function createApplicationBlocks({
     probe.renderer = renderer;
   }
   const unprovide = provideBlocksWorld(() => controller.world());
+  // Personal fork: an arrival's ground while Blocks hides the globe (the
+  // camera guard asks only when nothing rendered answers).
+  const unsetGround = setGroundFallback((lat, lon) =>
+    blocksScene().globeHidden
+      ? pointGroundM({ values, datum }, lat, lon)
+      : Number.NaN,
+  );
   const destroy = controller.destroy;
   controller.destroy = () => {
+    unsetGround();
     unprovide();
     destroy();
   };
   return controller;
+}
+
+/** The side of the point probe's box, metres, and its cells a side. */
+const POINT_PROBE_M = 64;
+const POINT_PROBE_CELLS = 4;
+
+/**
+ * The ground under a point as Blocks stands it, metres above the ellipsoid,
+ * from one values probe (the mean of its plausible heights) on the region's
+ * datum (the geoid on terrain, the ellipsoid on flat ground); NaN when the
+ * probe has none.
+ */
+export async function pointGroundM({ values, datum }, lat, lon) {
+  const { values: heights } = await values.get({
+    layer: 'ee-elevation',
+    mode: '',
+    box: probeBox(lon, lat, POINT_PROBE_M),
+    cells: POINT_PROBE_CELLS,
+  });
+  const usable = [...(heights || [])].filter(
+    (h) => Number.isFinite(h) && h > -500 && h < 9000,
+  );
+  if (!usable.length) return Number.NaN;
+  const meanM = usable.reduce((sum, h) => sum + h, 0) / usable.length;
+  if (datum.flat()) return meanM;
+  const undulation = Number(await datum.undulation(lat, lon));
+  return meanM + (Number.isFinite(undulation) ? undulation : 0);
 }
 
 /**
