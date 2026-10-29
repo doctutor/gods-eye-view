@@ -96,6 +96,16 @@ const MAX_TILE_BYTES = 2 * 1024 * 1024;
 /** computePixels: 512² cells of two float bands is 2 MB. */
 const MAX_PIXELS_BYTES = 4 * 1024 * 1024;
 const TILE_TIMEOUT_MS = 30_000;
+/**
+ * A values request (image:computePixels) waits this long: a 512-cell
+ * tile reduced to a mean at a coarse level often takes longer than a map
+ * tile's 30 s.
+ */
+export const VALUES_TIMEOUT_MS = 120_000;
+/** One more try after a values request gets no answer, this long after. */
+export const VALUES_RETRY_MS = 2_000;
+/** What a client is told to wait before asking again after no answer, s. */
+export const VALUES_RETRY_AFTER_S = 30;
 /** A token exchange is tried this many times while it may pass (no answer, 429, 5xx, a 200 without a token)… */
 export const SIGN_IN_ATTEMPTS = 4;
 /** …waiting this long before the second, doubling after. */
@@ -1514,8 +1524,9 @@ export function createRestBackend({
   project,
   auth,
   fetchImpl = (...args) => fetch(...args),
+  valuesTimeoutMs = VALUES_TIMEOUT_MS,
 }) {
-  async function authorized(url, init = {}) {
+  async function authorized(url, init = {}, timeoutMs = TILE_TIMEOUT_MS) {
     const send = async () =>
       fetchImpl(url, {
         ...init,
@@ -1523,7 +1534,7 @@ export function createRestBackend({
           ...(init.headers || {}),
           Authorization: `Bearer ${await auth.token()}`,
         },
-        signal: AbortSignal.timeout(TILE_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
         redirect: 'error',
       });
     let response = await send();
@@ -1596,14 +1607,26 @@ export function createRestBackend({
      * @returns {Promise<{status: number, body: Buffer|null, error?: string}>}
      */
     async computePixels(expression, grid) {
-      const response = await authorized(
-        `${EE_API}/projects/${encodeURIComponent(project)}/image:computePixels`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ expression, fileFormat: 'NPY', grid }),
-        },
-      );
+      let response;
+      try {
+        response = await authorized(
+          `${EE_API}/projects/${encodeURIComponent(project)}/image:computePixels`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ expression, fileFormat: 'NPY', grid }),
+          },
+          valuesTimeoutMs,
+        );
+      } catch (error) {
+        // No answer in time (or a dropped connection): a 504, which the
+        // service tries once more, not a thrown error (a route's 500).
+        return {
+          status: 504,
+          body: null,
+          error: `Earth Engine gave no answer (${String(error?.message || error).slice(0, 120)})`,
+        };
+      }
       if (!response.ok)
         return {
           status: response.status,
@@ -1742,6 +1765,7 @@ export function createEarthEngineService({
   backend = null,
   fetchImpl = (...args) => fetch(...args),
   now = () => Date.now(),
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 } = {}) {
   const byId = new Map(layers.map((layer) => [layer.id, layer]));
   const dir = path.join(sourceRoot, CACHE_DIR);
@@ -2195,8 +2219,36 @@ export function createEarthEngineService({
           status: 503,
           error: 'This Earth Engine backend has no computePixels',
         };
-      countTile(layerId);
-      const answer = await engine.computePixels(expression, grid);
+      // No answer (504, or a backend that throws): once more after
+      // VALUES_RETRY_MS, each try counted; still none, a 503 to ask again
+      // later (VALUES_RETRY_AFTER_S), never kept.
+      let answer;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt) {
+          if (usage().tiles >= current.dailyTiles)
+            return {
+              status: 429,
+              error: `The day's ${current.dailyTiles} Earth Engine tiles are used`,
+            };
+          await sleep(VALUES_RETRY_MS);
+        }
+        countTile(layerId);
+        try {
+          answer = await engine.computePixels(expression, grid);
+        } catch (error) {
+          answer = {
+            status: 504,
+            error: `Earth Engine gave no answer (${String(error?.message || error).slice(0, 120)})`,
+          };
+        }
+        if (answer.status !== 504) break;
+      }
+      if (answer.status === 504)
+        return {
+          status: 503,
+          error: `${answer.error}; ask again later`,
+          retryAfterS: VALUES_RETRY_AFTER_S,
+        };
       if (answer.status !== 200 || !answer.body)
         return {
           status: answer.status === 200 ? 502 : answer.status,

@@ -394,6 +394,9 @@ export function createRasterValuesHandler({ service }) {
     if (route !== '/') return sendJson(res, 404, { error: 'Not found' });
     try {
       const answer = await service.values(url.searchParams);
+      // Earth Engine gave no answer in time: a 503 to ask again after this.
+      if (answer.retryAfterS)
+        res.setHeader('Retry-After', String(answer.retryAfterS));
       if (answer.status !== 200)
         return sendJson(res, answer.status, { error: answer.error });
       res.statusCode = 200;
