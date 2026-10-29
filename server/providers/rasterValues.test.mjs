@@ -287,6 +287,82 @@ test("the sea in a sampled cell: Elevation's masked pixels are 0 m (water at lev
   assert.equal(calls[1].expression.values.sz, undefined);
 });
 
+test('the water plane (?water=1): JRC occurrence ≥ 50 % as 0 or 1, its mean over a reduced cell, in the same request; another version and key; Elevation only', async (t) => {
+  const root = tempRoot(t);
+  const calls = [];
+  const ee = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    layers: EARTH_ENGINE_LAYERS,
+    backend: {
+      async computePixels(expression, grid) {
+        calls.push(expression);
+        const { width, height } = grid.dimensions;
+        const n = width * height;
+        const v = new Float32Array(n).map((_, i) => 100 + i);
+        const m = new Float32Array(n).fill(1);
+        const fields = { v, m };
+        // A band w only when the expression asks for it.
+        if (expression.result === 'rw')
+          fields.w = new Float32Array(n).map((_, i) => (i % 4) / 4);
+        return { status: 200, body: npy(height, width, fields) };
+      },
+    },
+  });
+  const values = createRasterValuesService({
+    sourceRoot: root,
+    env: {},
+    earthEngine: ee,
+    cacheDir: path.join(root, 'raster-values'),
+  });
+  t.after(() => values.close());
+  const plain = decodeRasterValues((await values.values(query())).body);
+  assert.equal(plain.header.planes, undefined);
+  assert.equal(plain.water, undefined);
+  const wet = decodeRasterValues(
+    (await values.values(query({ water: '1' }))).body,
+  );
+  assert.equal(calls.length, 2, 'one Earth Engine request each');
+  assert.deepEqual(wet.header.planes, ['value', 'water']);
+  assert.deepEqual([...wet.values], [...plain.values]);
+  assert.deepEqual([...wet.water.slice(0, 4)], [0, 0.25, 0.5, 0.75]);
+  // Another version: the plain answers' cache is untouched.
+  assert.notEqual(wet.header.version, plain.header.version);
+  const text = JSON.stringify(calls[1]);
+  assert.match(text, /JRC\/GSW1_4\/GlobalSurfaceWater/);
+  assert.match(text, /"bandSelectors":\{"constantValue":\["occurrence"\]\}/);
+  assert.match(text, /"Image\.gte".{0,400}"constantValue":50\}/s);
+  // Reduced as the heights are: the mean over the cell, 256 pixels at most.
+  const addBands = calls[1].values.rw.functionInvocationValue.arguments;
+  assert.equal(addBands.dstImg.valueReference, 'rv');
+  const plane = JSON.stringify(addBands.srcImg);
+  assert.match(plane, /"Image\.reduceResolution".{0,2000}"Reducer\.mean"/s);
+  assert.match(plane, /"names":\{"constantValue":\["w"\]\}/);
+  // Kept: the second ask is the disk's, the plain one too.
+  assert.equal((await values.values(query({ water: '1' }))).cached, true);
+  assert.equal((await values.values(query())).cached, true);
+  assert.equal(calls.length, 2);
+  // A sampled window: the pixel's 0 or 1, no reduction.
+  await values.values(
+    query({
+      west: '-76.6125',
+      south: '39.29',
+      east: '-76.61',
+      north: '39.2918',
+      cells: '512',
+      water: '1',
+    }),
+  );
+  assert.doesNotMatch(JSON.stringify(calls[2]), /reduceResolution/);
+  assert.match(JSON.stringify(calls[2]), /GSW1_4/);
+  // Only Elevation has the plane; water must be 1 or absent.
+  const other = await values.values(
+    query({ layer: 'ee-terrain-slope', water: '1' }),
+  );
+  assert.equal(other.status, 404);
+  assert.equal((await values.values(query({ water: 'yes' }))).status, 400);
+});
+
 test('a reduction Earth Engine refuses: the sampled cells, said so and not kept; a 429 is not retried', async (t) => {
   const root = tempRoot(t);
   let refuse = 400;

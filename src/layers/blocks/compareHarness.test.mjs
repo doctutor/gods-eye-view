@@ -23,6 +23,7 @@ import {
   syntheticField,
   heightLabel,
   parseAltitudes,
+  parsePlace,
   parseBlocksStatus,
   scaleViews,
   blocksStyleTile,
@@ -279,6 +280,20 @@ test('--altitudes: Baltimore from each height at pitch −45 and −90, named sc
     pitch: -90,
   });
   assert.equal(shots['scale-300m-p45'].prefix, 'scale-300m-p45');
+  // --place: the same shots over another place.
+  assert.deepEqual(parsePlace('44,-84'), { lat: 44, lon: -84 });
+  assert.equal(parsePlace(null), null);
+  assert.throws(() => parsePlace('north'));
+  assert.deepEqual(
+    scaleViews([70_000], parsePlace('39.09,-120.04'))['scale-70km-p90'].view,
+    {
+      ...VIEW,
+      lat: 39.09,
+      lon: -120.04,
+      alt: 70_000,
+      pitch: -90,
+    },
+  );
 });
 
 test('the report reads the level from the Blocks status line', () => {

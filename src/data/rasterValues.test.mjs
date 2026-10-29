@@ -68,6 +68,37 @@ test('the body round-trips: uint32 LE header length, JSON, Float32 LE values wit
   assert.equal(again.values[3], 4459);
 });
 
+test('an extra plane: named in the header after the values, the same layout; a reader of the values alone stops before it', () => {
+  const values = new Float32Array([1, NaN, 3, 4]);
+  const water = new Float32Array([0, 0.5, 1, 0.25]);
+  const header = { layer: 'ee-elevation', mode: '', cols: 2, rows: 2 };
+  const body = encodeRasterValues(header, values, { water });
+  const decoded = decodeRasterValues(body);
+  assert.deepEqual(decoded.header.planes, ['value', 'water']);
+  assert.deepEqual([...decoded.water], [...water]);
+  assert.ok(Number.isNaN(decoded.values[1]));
+  const plain = encodeRasterValues(header, values);
+  assert.equal(decodeRasterValues(plain).water, undefined);
+  assert.equal(decodeRasterValues(plain).header.planes, undefined);
+  // A header naming a plane the body lacks is refused.
+  assert.throws(
+    () => decodeRasterValues(body.subarray(0, body.byteLength - 4)),
+    /fewer planes/,
+  );
+  // The request: water=1 is another key and URL; absent is as before.
+  const request = {
+    layer: 'ee-elevation',
+    box: { west: 0, south: 0, east: 1, north: 1 },
+    cells: 8,
+  };
+  assert.equal(
+    rasterValuesKey({ ...request, water: true }),
+    `${rasterValuesKey(request)}|water`,
+  );
+  assert.match(rasterValuesUrl({ ...request, water: true }), /&water=1$/);
+  assert.doesNotMatch(rasterValuesUrl(request), /water/);
+});
+
 test('a body that lies about its size or schema is refused', () => {
   const body = encodeRasterValues(header(), new Float32Array(6));
   assert.throws(

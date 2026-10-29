@@ -49,6 +49,11 @@
  * docs/BLOCKS-PLAN.md), instead of --views. report.json then also gives
  * each Blocks shot's level as its status line says it (the cell, the level
  * height, the chunks fine and coarse).
+ *
+ *   ... --altitudes 5000000 --place 44,-84   # another place than Baltimore
+ *
+ * --place shoots the --altitudes views over a latitude and longitude (the
+ * Great Lakes, Lake Tahoe) instead of Baltimore.
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -543,16 +548,26 @@ export const heightLabel = (metres) =>
 
 /**
  * The --altitudes views: Baltimore (the judgement view's place, heading
- * north) from each height at each of SCALE_PITCHES, Colour and Blocks.
+ * north), or `place` ({lat, lon}, --place), from each height at each of
+ * SCALE_PITCHES, Colour and Blocks.
  */
-export function scaleViews(altitudes) {
+export function scaleViews(altitudes, place = null) {
   const out = {};
   for (const alt of altitudes)
     for (const pitch of SCALE_PITCHES) {
       const prefix = `scale-${heightLabel(alt)}-p${Math.abs(pitch)}`;
-      out[prefix] = { view: { ...VIEW, alt, pitch }, prefix };
+      out[prefix] = { view: { ...VIEW, ...place, alt, pitch }, prefix };
     }
   return out;
+}
+
+/** --place's latitude and longitude, or null for Baltimore. */
+export function parsePlace(value) {
+  if (!value) return null;
+  const [lat, lon] = String(value).split(',').map(Number);
+  if (!(Math.abs(lat) <= 90 && Math.abs(lon) <= 180))
+    throw new Error(`--place: not a lat,lon: ${value}`);
+  return { lat, lon };
 }
 
 /** The heights --altitudes asks for, metres; [] for none. */
@@ -1602,7 +1617,9 @@ export async function main(argv = process.argv.slice(2)) {
   const field = syntheticField();
   const results = [];
   const altitudes = parseAltitudes(argValue(argv, '--altitudes'));
-  const shots = altitudes.length ? scaleViews(altitudes) : views(field);
+  const shots = altitudes.length
+    ? scaleViews(altitudes, parsePlace(argValue(argv, '--place')))
+    : views(field);
   try {
     if (live && shots.eye) shots.eye.view = await liveEyeView(live);
     const wanted = altitudes.length

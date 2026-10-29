@@ -11,8 +11,10 @@ import {
   ELEVATION_LAYER,
   CHUNK_GROUP,
   GROUP_COLUMNS,
+  LAKE_SHARE,
   LAND_SHARE,
   SUPERGROUP,
+  asksWater,
   TILE_RETRY_MS,
   CURVED_REACH_M,
   PLANE_REACH_M,
@@ -52,8 +54,18 @@ function serverGrid({ west, south, east, north }, cells, nativeM) {
   return { cols, rows, cellSizeM: widthM / cols };
 }
 
-/** A fake values endpoint: heights from heightAt(lon, lat), native cell nativeM. */
-function fakeValues({ nativeM, heightAt, source = 'USGS 3DEP 1 m', fail = 0 }) {
+/**
+ * A fake values endpoint: heights from heightAt(lon, lat), native cell
+ * nativeM; asked with water, the water plane from waterAt(lon, lat) (0 when
+ * not given).
+ */
+function fakeValues({
+  nativeM,
+  heightAt,
+  waterAt = () => 0,
+  source = 'USGS 3DEP 1 m',
+  fail = 0,
+}) {
   const calls = [];
   let failures = fail;
   const fetchValues = async (request) => {
@@ -67,13 +79,18 @@ function fakeValues({ nativeM, heightAt, source = 'USGS 3DEP 1 m', fail = 0 }) {
     const { box, cells } = request;
     const { cols, rows, cellSizeM } = serverGrid(box, cells, nativeM);
     const values = new Float32Array(cols * rows);
+    const water = request.water ? new Float32Array(cols * rows) : null;
     for (let r = 0; r < rows; r++)
       for (let c = 0; c < cols; c++) {
         const lon = box.west + ((c + 0.5) / cols) * (box.east - box.west);
         const lat = box.north - ((r + 0.5) / rows) * (box.north - box.south);
         values[r * cols + c] = heightAt(lon, lat);
+        if (water) water[r * cols + c] = waterAt(lon, lat);
       }
-    return { header: { ...box, cols, rows, cellSizeM, source }, values };
+    const header = { ...box, cols, rows, cellSizeM, source };
+    return water
+      ? { header: { ...header, planes: ['value', 'water'] }, values, water }
+      : { header, values };
   };
   return { fetchValues, calls };
 }
@@ -185,6 +202,67 @@ test('columnsFromHeights: floor levels, the sea at level 0, nodata NONE', () => 
     30,
   );
   assert.deepEqual([...coarse.top], [0, 1, 1, 2]);
+});
+
+test('columnsFromHeights with water shares: a column above 0 m at least half water is a lake at its level over a bed one below; the sea and nodata as before', () => {
+  const heights = Float32Array.from([95, 95, 95, 0, -3, NaN, 20]);
+  const shares = Float32Array.from([1, 0.5, 0.49, 1, 1, 1, 0.8]);
+  const { top, material, water } = columnsFromHeights(heights, 30, shares);
+  // 95 m on 30 m levels is level 3; a lake's water at 3 over a bed at 2.
+  assert.deepEqual([...top], [2, 2, 3, -1, -1, NONE, -1]);
+  assert.deepEqual([...water], [3, 3, NONE, 0, 0, NONE, 0]);
+  const { TERRAIN: T, AIR: A } = MATERIALS;
+  assert.deepEqual([...material], [T, T, T, T, T, A, T]);
+  // Without shares, every column above 0 m is land, as before.
+  assert.deepEqual(
+    [...columnsFromHeights(heights, 30).water],
+    [NONE, NONE, NONE, 0, 0, NONE, NONE],
+  );
+  assert.equal(LAKE_SHARE, 0.5);
+});
+
+test('the water plane: asked above the OSM levels (30 m and under keep their requests), a lake at its level in fine, group-coarse and supergroup chunks', async () => {
+  assert.equal(asksWater(30), false);
+  assert.equal(asksWater(120), true);
+  // A 30 m region: no water asked, so its tiles are the ones cached.
+  const fine = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 30 });
+  const plain = fakeValues({ nativeM: 30, heightAt: () => 50 });
+  await createChunkSource({
+    fetchValues: plain.fetchValues,
+    createChunk,
+  }).loadChunk(fine, 0, 0);
+  assert.ok(plain.calls.every((call) => !('water' in call)));
+  // A 1,920 m region on 60 m levels: a lake at 400 m over its west half.
+  const region = createRegion({
+    lon0: -95,
+    lat0: 39,
+    blockM: 1920,
+    levelM: 60,
+  });
+  const edge =
+    (region.columnCentre(31, 0).lon + region.columnCentre(32, 0).lon) / 2;
+  const { fetchValues, calls } = fakeValues({
+    nativeM: 30,
+    heightAt: () => 400,
+    waterAt: (lon) => (lon < edge ? 1 : 0),
+  });
+  const source = createChunkSource({ fetchValues, createChunk });
+  const chunk = await source.loadChunk(region, 0, 0);
+  assert.ok(calls.length && calls.every((call) => call.water === true));
+  // 400 m on 60 m levels is level 6: the lake's water there, its bed at 5.
+  assert.equal(chunk.top[columnIndex(10, 10)], 5);
+  assert.equal(chunk.water[columnIndex(10, 10)], 6);
+  assert.equal(chunk.top[columnIndex(40, 10)], 6);
+  assert.equal(chunk.water[columnIndex(40, 10)], NONE);
+  // The group's coarse chunk: each column the mean of 4 × 4 fine shares.
+  const coarse = await source.loadCoarseChunk(region, 0, 0);
+  assert.equal(coarse.water[columnIndex(2, 3)], 6);
+  assert.equal(coarse.water[columnIndex(12, 3)], NONE);
+  // A supergroup's coarse chunks read the 7,680 m tiles' plane.
+  const asked = calls.length;
+  const far = await source.loadCoarseChunk(region, 4, 0);
+  assert.ok(calls.slice(asked).every((call) => call.water === true));
+  assert.equal(far.water[columnIndex(10, 10)], NONE); // east of the edge
 });
 
 test('sampleColumns: each column reads the cell under its centre, even on a 63-cell answer', () => {

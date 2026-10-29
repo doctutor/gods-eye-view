@@ -451,6 +451,23 @@ rings past it. The 300 m view drew 1,497 buildings, the 5 km view 9,935.
   (about 47.7° N 86.9° W) is GMTED2010 storing a rectangle of the lake as
   0 m, its sea value; a lake-water mask (JRC Global Surface Water) waits
   on the user.
+- Lakes above the fine levels (option A, approved 2026-10-29): the
+  Elevation values ask `water=1` at every level over 30 m
+  (`source.js asksWater`; 30 m and under keep their requests and caches,
+  their water is OSM's), and the answer adds a water plane: JRC Global
+  Surface Water 1.4's occurrence ≥ 50 % as 0 or 1, the mean over each
+  cell (the share of it that is water), from the same computePixels call
+  as the heights (another band in the NPY, no extra tile counted). The
+  plane rides on `raster-values/1` after the values, named in the
+  header's `planes`, so a reader that does not ask never gets it and one
+  that gets it but knows only the values reads them as before; the
+  plane's requests hash to another cache version. The rule
+  (`columnsFromHeights`): at or below 0 m the sea as before; above 0 m a
+  column at least `LAKE_SHARE` (0.5) water is a lake, water at
+  floor(h / levelM) over a bed one level below; nodata stays NONE. A
+  group's coarse column takes the mean of its fine shares. The Blocks
+  style (`blocksStyleExpression`) colours a cell at least half water as
+  water at its own level, so the drape and the columns agree.
 - After a search flew the camera from the opening view (15,000 km over
   30° N 40° W) to Europe or the United States at 30,720 m, 8 to 67 chunks
   stayed "loading" for minutes and the view never settled, though every
