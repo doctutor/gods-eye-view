@@ -970,8 +970,8 @@ test('a chunk that fails is asked again after a backoff (2 s, 4 s, …), and giv
 });
 
 /** A source with the coarse ring: loadCoarseChunk(region, gi, gj). */
-function coarseSource({ hold = false, holdCoarse = false } = {}) {
-  const base = fakeSource({ hold });
+function coarseSource({ hold = false, holdCoarse = false, blockM = 1 } = {}) {
+  const base = fakeSource({ hold, blockM });
   const coarse = [];
   base.coarse = coarse;
   base.loadCoarseChunk = (region, gi, gj) => {
@@ -2720,6 +2720,232 @@ test('buildings and land cover only up to 30 m blocks: none asked of Overpass at
   controller.destroy();
 });
 
+test('the coarse ring stops at the horizon: from 300 m over 1 km blocks, no group past 1.25 × the 62 km to it; from 50 km all of them', async () => {
+  const { horizonM, HORIZON_MARGIN } = await import('./index.js');
+  assert.ok(Math.abs(horizonM(300) - 61_824) < 5);
+  // Along the ground, not the line of sight (2,573 km).
+  assert.ok(Math.abs(horizonM(500_000) - 2_445_500) < 1000);
+  const run = (height) => {
+    const source = coarseSource({ blockM: 1000 });
+    const { controller, viewer } = setup({ source, radiusBlocks: 128 });
+    setHeight(viewer, height);
+    return { source, controller, viewer };
+  };
+  const low = run(300);
+  await drain(low.controller);
+  const cut = HORIZON_MARGIN * horizonM(300);
+  const far = (gi, gj) => {
+    // The group's nearest point from the camera's column (0.5, 0.5), m.
+    const size = 4 * C * 1000;
+    const dx = Math.max(gi * size - 500, 0, 500 - (gi + 1) * size);
+    const dy = Math.max(gj * size - 500, 0, 500 - (gj + 1) * size);
+    return Math.hypot(dx, dy);
+  };
+  assert.ok(low.source.coarse.length > 0);
+  assert.ok(low.source.coarse.every(({ gi, gj }) => far(gi, gj) <= cut));
+  low.controller.destroy();
+  const high = run(50_000);
+  await drain(high.controller);
+  assert.ok(high.source.coarse.length > low.source.coarse.length);
+  high.controller.destroy();
+});
+
+test('settleMs: the first region waits until the camera has been still that long, and a level change too', async () => {
+  let time = 0;
+  const source = pyramidSource(1);
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  const view = { px: 0.3 };
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    footprint: () => view.px,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    settleMs: 2000,
+    now: () => time,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller);
+  assert.equal(source.regions.length, 0, 'not yet still 2 s');
+  time = 2100;
+  await drain(controller);
+  assert.equal(source.regions.length, 1);
+  // A zoom out that rests only a moment before moving on: no level change.
+  setHeight(viewer, 50_000);
+  view.px = 40;
+  viewer.camera.moveEnd.raise();
+  time = 2500;
+  await drain(controller);
+  assert.equal(source.regions.length, 1, 'still settling');
+  time = 4200;
+  await drain(controller);
+  assert.equal(source.regions.length, 2);
+  assert.equal(controller.getStatus().blockM, 120);
+  controller.destroy();
+});
+
+test('ringLevels: each ring the next level at least 4 × the cell before, R1 blocks in reach, to the ring that passes the horizon or the top', async () => {
+  const { ringLevels } = await import('./index.js');
+  // A 1 m region without a coarse ring, R1 64, from 300 m (77 km cut).
+  assert.deepEqual(
+    ringLevels({
+      nativeM: 1,
+      innerCellM: 1,
+      innerReachM: 64,
+      radiusBlocks: 64,
+      horizonM: 77_000,
+    }),
+    [8, 120, 480, 1920],
+  );
+  // 1 m with the coarse ring (4 m to 2 km), R1 512, 300 m up: 30 m to
+  // 15 km, 120 m to 61 km, 480 m to 246 km (past 77 km: the last).
+  assert.deepEqual(
+    ringLevels({
+      nativeM: 1,
+      innerCellM: 4,
+      innerReachM: 2048,
+      radiusBlocks: 512,
+      horizonM: 77_000,
+    }),
+    [30, 120, 480],
+  );
+  // Nothing past a horizon the coarse ring already reaches.
+  assert.deepEqual(
+    ringLevels({
+      nativeM: 1,
+      innerCellM: 7680,
+      innerReachM: 3.9e6,
+      radiusBlocks: 512,
+      horizonM: 3.2e6,
+    }),
+    [],
+  );
+  // Never past the top.
+  assert.deepEqual(
+    ringLevels({
+      nativeM: 30,
+      innerCellM: 7680,
+      innerReachM: 1e6,
+      radiusBlocks: 512,
+      horizonM: 1e9,
+    }),
+    [30_720],
+  );
+});
+
+test('K rings: each its own region at its own level through setRegions, keyed L<blockM>:ci:cj, meshed at its block and level, loaded after the fine ring; the fog from the outermost', async () => {
+  const { ringKey } = await import('./index.js');
+  const { levelMFor } = await import('./pyramid.js');
+  const source = pyramidSource(1);
+  const renderer = fakeRenderer();
+  const sets = [];
+  renderer.setRegions = (regions, options) => {
+    sets.push({ levels: regions.map((r) => r.blockM), options });
+  };
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  const meshes = [];
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh(chunk, options) {
+      meshes.push({ chunk, options });
+      return { faces: 1, chunk };
+    },
+    footprint: () => 0.3,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller, 400);
+  assert.deepEqual(sets.at(-1).levels, [1, 8, 120, 480, 1920]);
+  assert.equal(sets.at(-1).options.fogReachBlocks, 64);
+  const rings = controller._state().rings;
+  assert.deepEqual([...rings.keys()], [8, 120, 480, 1920]);
+  for (const [level, ring] of rings) {
+    assert.equal(ring.region.blockM, level);
+    assert.equal(ring.region.levelM, levelMFor(level));
+    assert.ok(ring.chunks.size > 0, `ring ${level} loaded`);
+    for (const entry of ring.chunks.values()) {
+      assert.equal(entry.key, ringKey(level, entry.ci, entry.cj));
+      assert.ok(renderer.shown.has(entry.key), entry.key);
+    }
+  }
+  // Meshed at their own block and level.
+  const ringMesh = meshes.find((m) => m.options.blockM === 480);
+  assert.equal(ringMesh.options.blockM, 480);
+  assert.equal(ringMesh.options.levelM, 30);
+  assert.equal(ringMesh.options.skirt, undefined);
+  // Loaded only after every fine chunk was in.
+  const firstRing = source.loads.findIndex((l) => l.region.blockM !== 1);
+  const lastFine = source.loads.findLastIndex((l) => l.region.blockM === 1);
+  assert.ok(firstRing > lastFine, 'the near ground first');
+  // Each ring's chunks within R1 of it, none whose centre the ring inside covers.
+  const ring120 = rings.get(120);
+  for (const entry of ring120.chunks.values()) {
+    const c = Math.hypot(
+      (entry.ci + 0.5) * C - 0.5,
+      (entry.cj + 0.5) * C - 0.5,
+    );
+    assert.ok(c > (64 * 8) / 120, 'outside ring 8');
+  }
+  // The status counts them with the coarse ring.
+  const status = controller.getStatus();
+  const ringChunks = [...rings.values()].reduce((n, r) => n + r.chunks.size, 0);
+  assert.equal(status.coarse, ringChunks);
+  assert.equal(status.state, 'ready');
+  controller.destroy();
+});
+
+test('the Elevation layer’s Blocks style: none over the native cells’ geometry; the footprint’s level over coarse blocks and where Blocks cannot build, the globe shown to drape it', async () => {
+  const { blocksScene } = await import('./floor.js');
+  const { blocksStyleLevelFor } = await import('../../data/blocksStyle.js');
+  const { viewer, view, controller } = footprintSetup();
+  await drain(controller);
+  assert.equal(controller.getStatus().blockM, 1);
+  controller.tick();
+  assert.equal(blocksScene().style, null, 'no style tiles under 1 m cubes');
+  assert.equal(viewer.scene.globe.show, false, 'hidden on a drawn style');
+  // 120 m blocks: the style under and beyond them, on a shown globe.
+  setHeight(viewer, 50_000);
+  view.px = 40;
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  controller.tick();
+  assert.equal(controller.getStatus().blockM, 120);
+  assert.equal(blocksScene().style, blocksStyleLevelFor(40));
+  assert.equal(viewer.scene.globe.show, true);
+  // Walk and Fly (no footprint): none.
+  view.px = Number.NaN;
+  controller.tick();
+  assert.equal(blocksScene().style, null);
+  controller.destroy();
+  assert.equal(blocksScene().style, null, 'gone with the controller');
+  // A source without levels held above its ceiling: the style as fallback.
+  const held = footprintSetup({ source: fakeSource({ blockM: 1 }), px: 2000 });
+  setHeight(held.viewer, 2_000_000);
+  held.viewer.camera.moveEnd.raise();
+  await drain(held.controller);
+  held.controller.tick();
+  assert.equal(held.controller.getStatus().state, 'too-high');
+  assert.equal(blocksScene().style, blocksStyleLevelFor(2000));
+  held.controller.destroy();
+});
+
 test('a moveEnd that never comes: the camera still for SETTLE_MS is settled, and the first region anchors', async () => {
   const { SETTLE_MS } = await import('./index.js');
   const source = fakeSource();
@@ -2784,4 +3010,68 @@ test('a moveEnd that never comes: the camera still for SETTLE_MS is settled, and
   assert.equal(source.regions.length, 1, 'anchored without a moveEnd');
   assert.notEqual(controller.getStatus().state, 'flying');
   controller.destroy();
+});
+
+test('continental levels: the fine ring to the horizon, not R1 (15,700 km at 30,720 m, past the antipode); every ring within it; the camera’s own ground covered', async () => {
+  const { horizonM, HORIZON_MARGIN, fineRadiusBlocks, ANTIPODE_M } =
+    await import('./index.js');
+  // The ground to the horizon: 5,245 km from 3,000 km, 8,453 km from
+  // 20,000 km, never past a quarter of the way round.
+  assert.ok(Math.abs(horizonM(3_000_000) - 5_245_000) < 2000);
+  assert.ok(Math.abs(horizonM(20_000_000) - 8_453_000) < 2000);
+  assert.ok(horizonM(1e12) < ANTIPODE_M / 2 + 1);
+  const cut = (h) => HORIZON_MARGIN * horizonM(h);
+  assert.equal(fineRadiusBlocks(512, 30_720, cut(3_000_000), 64), 213);
+  assert.equal(fineRadiusBlocks(512, 30_720, cut(20_000_000), 64), 343);
+  assert.equal(fineRadiusBlocks(512, 7680, cut(3_000_000), 64), 512);
+  assert.equal(
+    fineRadiusBlocks(512, 1, cut(300), 64),
+    512,
+    'R1 near the ground',
+  );
+  assert.equal(fineRadiusBlocks(512, 30_720, 1000, 64), 64, 'at least a chunk');
+  // The controller at 30,720 m and 7,680 m, from 3,000 km and 20,000 km.
+  for (const [height, px, level] of [
+    [3_000_000, 3464, 7680],
+    [3_000_000, 5000, 30_720],
+    [20_000_000, 23_000, 30_720],
+  ]) {
+    const source = pyramidSource(30, 'FABDEM 30 m');
+    // R1 512 as in the app.
+    const store = createRenderModeStore({ storage: memoryStorage() });
+    store.setMode('blocks');
+    const view = fakeViewer();
+    setHeight(view, height);
+    const real = createBlocksController({
+      viewer: view,
+      store,
+      layers: fakeLayers(true),
+      source,
+      renderer: fakeRenderer(),
+      grid: fakeGrid,
+      buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+      footprint: () => px,
+      flatStyle: () => true,
+      setIntervalImpl: () => 1,
+      clearIntervalImpl: () => {},
+    });
+    await drain(real, 600);
+    assert.equal(real.getStatus().blockM, level, `${height} m`);
+    const radius = fineRadiusBlocks(512, level, cut(height), 64);
+    const loaded = source.loads.filter((l) => l.region.blockM === level);
+    assert.ok(loaded.length > 0);
+    // Every fine chunk in a whole 4 × 4 group within the capped radius of
+    // the camera's column, so within the horizon.
+    const far = Math.max(
+      ...loaded.map(({ ci, cj }) => {
+        const { gi, gj } = groupOf(ci, cj);
+        return chunkDistance({ x: 0.5, y: 0.5 }, gi, gj, 4 * 64);
+      }),
+    );
+    assert.ok(far <= radius, `${far} ≤ ${radius} at ${level} m`);
+    assert.ok(far * level <= cut(height), 'within the horizon');
+    // The camera's own chunk is among them.
+    assert.ok(loaded.some(({ ci, cj }) => ci === 0 && cj === 0));
+    real.destroy();
+  }
 });

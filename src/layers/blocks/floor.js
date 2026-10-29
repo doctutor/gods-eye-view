@@ -26,7 +26,11 @@ export function blockSizeText(metres) {
 }
 
 let floorM = null;
-let scene = Object.freeze({ active: false, globeHidden: false });
+let scene = Object.freeze({
+  active: false,
+  globeHidden: false,
+  style: null,
+});
 const listeners = new Set();
 
 /** The block size drawn now (m), or null when Blocks shows nothing. */
@@ -37,13 +41,30 @@ export function setBlocksFloorM(blockM) {
   floorM = Number(blockM) > 0 ? Number(blockM) : null;
 }
 
-/** {active, globeHidden}: Blocks on with Elevation; the globe hidden by it. */
+/**
+ * {active, globeHidden, style}: Blocks on with Elevation; the globe hidden
+ * by it; the cell of the Elevation layer's Blocks style to drape (metres,
+ * src/data/blocksStyle.js), or null: the top-down picture under and beyond
+ * coarse blocks, and where they cannot build.
+ */
 export const blocksScene = () => scene;
 
 /** Set by the controller; listeners hear a change, after the globe is set. */
-export function setBlocksScene({ active = false, globeHidden = false } = {}) {
-  const next = { active: Boolean(active), globeHidden: Boolean(globeHidden) };
-  if (next.active === scene.active && next.globeHidden === scene.globeHidden)
+export function setBlocksScene({
+  active = false,
+  globeHidden = false,
+  style = null,
+} = {}) {
+  const next = {
+    active: Boolean(active),
+    globeHidden: Boolean(globeHidden),
+    style: Number(style) > 0 ? Number(style) : null,
+  };
+  if (
+    next.active === scene.active &&
+    next.globeHidden === scene.globeHidden &&
+    next.style === scene.style
+  )
     return;
   scene = Object.freeze(next);
   for (const listener of [...listeners]) {

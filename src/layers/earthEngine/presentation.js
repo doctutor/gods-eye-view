@@ -1,5 +1,6 @@
 import { msg, t, tn, translateKnown } from '../../i18n/index.js';
 import { NO_IMAGERY_HOST } from '../../maps/imageryHost.js';
+import { blockSizeText } from '../blocks/floor.js';
 import { isDefaultScale } from '../../maps/colourScale.js';
 import { scaleRowLegend } from '../../ui/colourScaleWidget.js';
 import {
@@ -403,6 +404,7 @@ export function statusText({
   failure = null,
   hostless = false,
   asBlocks = false,
+  blocksStyleM = null,
   ceilingM = null,
   slowDistricts = false,
   americasV2 = false,
@@ -442,6 +444,11 @@ export function statusText({
     );
   else if (variantLabel(variant)) parts.push(variantLabel(variant));
   else if (modeLabel(mode)) parts.push(modeLabel(mode));
+  // Render: Blocks drapes the layer as its Blocks style (src/data/blocksStyle.js).
+  if (blocksStyleM > 0)
+    parts.push(
+      t('Blocks style: {size} cells', { size: blockSizeText(blocksStyleM) }),
+    );
   // The terrain layers: the DEM drawing under the view (a proper name).
   if (demSource && !Number.isFinite(ceilingM))
     parts.push(t('Elevation: {source}', { source: demSource }));
@@ -491,6 +498,7 @@ export function rowControls({
   failure = null,
   hostless = false,
   asBlocks = false,
+  blocksStyleM = null,
   ceilingM = null,
   level = 'auto',
   onLevel = () => {},
@@ -607,6 +615,7 @@ export function rowControls({
       failure,
       hostless,
       asBlocks,
+      blocksStyleM,
       ceilingM,
       slowDistricts,
       americasV2,

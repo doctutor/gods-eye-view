@@ -713,6 +713,13 @@ function countRequest(url, log) {
     const spanM = (box.east - box.west) * M_PER_DEG * Math.cos(lat);
     const kind = `${query.cells} cells over ${Math.round(spanM)} m`;
     log.kinds[kind] = (log.kinds[kind] || 0) + 1;
+    // In order, with the box's centre: which anchors asked what, and when.
+    log.trail.push({
+      ms: Date.now() - log.started,
+      kind,
+      lat: Math.round(((box.south + box.north) / 2) * 100) / 100,
+      lon: Math.round(((box.west + box.east) / 2) * 100) / 100,
+    });
   } else if (url.pathname === '/api/overpass') log.overpass++;
   else if (url.pathname.startsWith('/api/earth-engine/tile/')) log.tiles++;
 }
@@ -822,6 +829,10 @@ async function shoot({
     live: {},
     missing: new Set(),
     errors: [],
+    // The values requests in order, and each status line as it changed.
+    started: Date.now(),
+    trail: [],
+    statusTrail: [],
   };
   page.on('pageerror', (error) =>
     log.errors.push(String(error?.message || error)),
@@ -858,6 +869,22 @@ async function shoot({
   // The fresh ring's time: from Elevation on (Blocks may start) until the
   // status line says nothing is loading any more.
   const ringStarted = Date.now();
+  // Each distinct status line, with the camera's height, as it changes.
+  const watch = setInterval(() => {
+    page
+      .evaluate(() => ({
+        text: document.querySelector('.lego-render-status')?.textContent || '',
+        heightM: Math.round(
+          window.__godsEyeView?.viewer?.camera?.positionCartographic?.height ??
+            NaN,
+        ),
+      }))
+      .then(({ text, heightM }) => {
+        if (text !== log.statusTrail.at(-1)?.text)
+          log.statusTrail.push({ ms: Date.now() - log.started, text, heightM });
+      })
+      .catch(() => {});
+  }, 250);
   if (blocks)
     await page
       .waitForFunction(
@@ -904,6 +931,7 @@ async function shoot({
   const status = await page.evaluate(
     () => document.querySelector('.lego-render-status')?.textContent || '',
   );
+  clearInterval(watch);
   const file = path.join(out, `${name}.png`);
   await page.screenshot({ path: file });
   // What the shot itself cost, before the harness's own leave-Blocks probe.
@@ -1083,6 +1111,8 @@ export async function main(argv = process.argv.slice(2)) {
       colourTilesAtShot: result.tilesAtShot ?? null,
       live: result.live,
       scene: result.scene,
+      trail: result.trail,
+      statusTrail: result.statusTrail,
       errors: result.errors,
     })),
   };

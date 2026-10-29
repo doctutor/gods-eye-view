@@ -1210,3 +1210,69 @@ test('Render: Blocks hiding the globe: the Elevation row says "Shown as blocks",
     forest.destroy();
   }
 });
+
+test('Render: Blocks over coarse blocks: the Elevation layer drapes its Blocks style, the level the controller picked, at the style’s zoom band; back to its colours when the style goes', async () => {
+  const { setBlocksScene } = await import('../blocks/floor.js');
+  const blocksStyle = await import('../../data/blocksStyle.js');
+  const fake = fakeViewer(500_000);
+  fake.viewer.scene = { globe: { show: true } };
+  fake.viewer.imageryLayers = fakeCollection();
+  const stack = fakeMapStack(fake.viewer);
+  stack.settle({ id: 'blank-black', globe: true });
+  const server = fakeServer({
+    configured: true,
+    tiles: { used: 0, budget: 20000 },
+    layers: [serverLayer('ee-elevation'), serverLayer('ee-forest-loss')],
+  });
+  const source = createEarthEngineSource({ fetchImpl: server.fetchImpl });
+  const make = (id) => {
+    const layer = createEarthEngineLayer({
+      record: record(id),
+      source,
+      storage: memoryStorage(),
+    });
+    layer.init(fake.viewer);
+    layer.attachMapStackController(stack);
+    layer.enable(fake.viewer);
+    return layer;
+  };
+  const elevation = make('ee-elevation');
+  const forest = make('ee-forest-loss');
+  await flush();
+  const providerOf = (id) =>
+    fake.viewer.imageryLayers.layers
+      .map((layer) => layer.imageryProvider)
+      .find((provider) => String(provider.url).includes(`/tile/${id}/`));
+  assert.doesNotMatch(String(providerOf('ee-elevation').url), /blocks-/);
+  try {
+    setBlocksScene({ active: true, globeHidden: false, style: 1920 });
+    const styled = providerOf('ee-elevation');
+    assert.match(
+      String(styled.url),
+      /\/tile\/ee-elevation\/blocks-1920\/[^/]+\/default\/\{z\}\/\{x\}\/\{y\}$/,
+    );
+    // 1,920 m: its own zoom 9, so zooms 7 to 14.
+    assert.deepEqual(blocksStyle.blocksStyleZoomBand(1920), {
+      min: 7,
+      max: 14,
+    });
+    assert.equal(styled.minimumLevel, 7);
+    assert.equal(styled.maximumLevel, 14);
+    assert.match(
+      elevation.getRowControls().info,
+      /Blocks style: 1\.9 km cells/,
+    );
+    // Other layers are not the style's.
+    assert.doesNotMatch(String(providerOf('ee-forest-loss').url), /blocks-/);
+    // Another level: another provider.
+    setBlocksScene({ active: true, globeHidden: false, style: 7680 });
+    assert.match(String(providerOf('ee-elevation').url), /blocks-7680/);
+    // The style gone (native cells drawn): the colours again.
+    setBlocksScene({ active: true, globeHidden: false, style: null });
+    assert.doesNotMatch(String(providerOf('ee-elevation').url), /blocks-/);
+  } finally {
+    setBlocksScene({ active: false, globeHidden: false });
+    elevation.destroy();
+    forest.destroy();
+  }
+});
