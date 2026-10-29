@@ -454,10 +454,18 @@ rings past it. The 300 m view drew 1,497 buildings, the 5 km view 9,935.
 - Lakes above the fine levels (option A, approved 2026-10-29): the
   Elevation values ask `water=1` at every level over 30 m
   (`source.js asksWater`; 30 m and under keep their requests and caches,
-  their water is OSM's), and the answer adds a water plane: JRC Global
-  Surface Water 1.4's occurrence ≥ 50 % as 0 or 1, the mean over each
-  cell (the share of it that is water), from the same computePixels call
-  as the heights (another band in the NPY, no extra tile counted). The
+  their water is OSM's), and the answer adds a water plane: MODIS
+  MOD44W's land-water mask for 2015 (250 m, 0 land, 1 water), the mean
+  over each cell (the share of it that is water), from the same
+  computePixels call as the heights (another band in the NPY, no extra
+  tile counted). The first source, JRC Global Surface Water's occurrence
+  ≥ 50 %, failed live: occurrence is masked wherever water never was, so
+  a coarse pyramid pixel is the mean of its water pixels alone, and at
+  30 km cells 584 of 3,840 cells over the US interior read as at least
+  half water (the 5,000 km view speckled blue from the Plains to the
+  Lakes). MOD44W is valid over land, so its pyramid averages the dry
+  pixels too. A plane Earth Engine refuses is answered with the heights
+  alone, not kept, so Blocks still draws. The
   plane rides on `raster-values/1` after the values, named in the
   header's `planes`, so a reader that does not ask never gets it and one
   that gets it but knows only the values reads them as before; the

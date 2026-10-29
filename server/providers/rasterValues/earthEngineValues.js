@@ -46,7 +46,7 @@ export const EE_VALUE_LAYERS = Object.freeze({
     // 0 m: water at level 0, as a reduced cell under half land.
     seaIsWater: true,
     // The water plane (?water=1): the share of each cell that is water,
-    // from JRC Global Surface Water (waterExpression), for the Blocks lakes.
+    // from MODIS MOD44W (waterExpression), for the Blocks lakes.
     planes: ['water'],
   },
   'ee-terrain-slope': { units: '°', aggregation: 'mean' },
@@ -228,8 +228,8 @@ export function meanExpression(base, nativeM) {
 }
 
 /**
- * The water plane as band `w`: earthEngine.js waterImage, 1 where JRC
- * Global Surface Water had water at least half the time, else 0;
+ * The water plane as band `w`: earthEngine.js waterImage, MODIS MOD44W's
+ * land-water mask, 1 water and 0 land;
  * `reduced`, the mean over each cell, as the heights' (meanExpression), so
  * a cell's value is the share of it that is water. Never masked.
  */
@@ -468,13 +468,15 @@ export function createEarthEngineAdapter(layer, earthEngine) {
       const reduced = spec.reduce === 'mean' && cellSizeM >= MEAN_ABOVE * ownM;
       const plane = (values, isReduced) =>
         water ? withWater(values, isReduced) : values;
-      const sampled = plane(
-        valuesExpression(spec.seaIsWater ? seaExpression(picture) : picture),
-        false,
+      // The heights alone (no water plane): a refused plane's stand-in.
+      const drySampled = valuesExpression(
+        spec.seaIsWater ? seaExpression(picture) : picture,
       );
-      const expression = reduced
-        ? plane(valuesExpression(meanExpression(picture, ownM)), true)
-        : sampled;
+      const dry = reduced
+        ? valuesExpression(meanExpression(picture, ownM))
+        : drySampled;
+      const sampled = plane(drySampled, false);
+      const expression = plane(dry, reduced);
       const units = pick(spec.units, modeKey);
       let source = pick(spec.source, modeKey);
       if (variant.stack) {
@@ -500,7 +502,7 @@ export function createEarthEngineAdapter(layer, earthEngine) {
         legendMax,
         ...(variant.stack ? { band: variant.stack } : {}),
         async run() {
-          const pixels = async (request) => {
+          const pixels = async (request, wet = water) => {
             const answer = await earthEngine.computePixels(
               layer.id,
               request,
@@ -513,7 +515,7 @@ export function createEarthEngineAdapter(layer, earthEngine) {
               c !== cols ||
               !bands.v ||
               !bands.m ||
-              (water && !bands.w)
+              (wet && !bands.w)
             )
               return {
                 status: 502,
@@ -525,22 +527,32 @@ export function createEarthEngineAdapter(layer, earthEngine) {
             return {
               status: 200,
               values,
-              ...(water ? { water: bands.w } : {}),
+              ...(wet ? { water: bands.w } : {}),
             };
           };
           const answer = await pixels(expression);
+          if (answer.status === 200 || NOT_RETRIED.has(answer.status))
+            return answer;
+          // The water plane's source refused (an asset gone, a band
+          // renamed): the heights alone this once, said so and not kept,
+          // so Blocks still draws (without lakes).
+          if (water) {
+            console.warn(
+              `[RasterValues] ${layer.id}: the water plane failed (${answer.status}: ${answer.error}); heights alone instead`,
+            );
+            const bare = await pixels(dry, false);
+            if (bare.status === 200) return { ...bare, keep: false };
+            if (!reduced || NOT_RETRIED.has(bare.status)) return bare;
+          }
           // A reduction Earth Engine refused (not the budget, not the
           // setup): the sampled cells this once, said so and not kept.
-          if (
-            !reduced ||
-            answer.status === 200 ||
-            NOT_RETRIED.has(answer.status)
-          )
-            return answer;
+          if (!reduced) return answer;
           console.warn(
             `[RasterValues] ${layer.id}: the mean failed (${answer.status}: ${answer.error}); sampled instead`,
           );
-          const fallback = await pixels(sampled);
+          const fallback = water
+            ? await pixels(drySampled, false)
+            : await pixels(sampled);
           return fallback.status === 200
             ? { ...fallback, aggregation: 'sample', keep: false }
             : fallback;

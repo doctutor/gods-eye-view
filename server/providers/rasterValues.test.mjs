@@ -287,7 +287,7 @@ test("the sea in a sampled cell: Elevation's masked pixels are 0 m (water at lev
   assert.equal(calls[1].expression.values.sz, undefined);
 });
 
-test('the water plane (?water=1): JRC occurrence ≥ 50 % as 0 or 1, its mean over a reduced cell, in the same request; another version and key; Elevation only', async (t) => {
+test('the water plane (?water=1): MOD44W land 0, water 1, its mean over a reduced cell, in the same request; another version and key; Elevation only', async (t) => {
   const root = tempRoot(t);
   const calls = [];
   const ee = createEarthEngineService({
@@ -329,15 +329,40 @@ test('the water plane (?water=1): JRC occurrence ≥ 50 % as 0 or 1, its mean ov
   // Another version: the plain answers' cache is untouched.
   assert.notEqual(wet.header.version, plain.header.version);
   const text = JSON.stringify(calls[1]);
-  assert.match(text, /JRC\/GSW1_4\/GlobalSurfaceWater/);
-  assert.match(text, /"bandSelectors":\{"constantValue":\["occurrence"\]\}/);
-  assert.match(text, /"Image\.gte".{0,400}"constantValue":50\}/s);
-  // Reduced as the heights are: the mean over the cell, 256 pixels at most.
+  // MODIS MOD44W's land-water mask, valid over land (0) and water (1),
+  // averaged as it is: no threshold of a band masked over dry land, whose
+  // coarse pyramid would be the mean of its water pixels alone (JRC's
+  // occurrence made half the US interior water at 30 km cells).
+  assert.match(text, /"MODIS\/006\/MOD44W\/2015_01_01"/);
+  assert.match(text, /"bandSelectors":\{"constantValue":\["water_mask"\]\}/);
+  assert.doesNotMatch(text, /occurrence|GSW1_4/);
   const addBands = calls[1].values.rw.functionInvocationValue.arguments;
   assert.equal(addBands.dstImg.valueReference, 'rv');
-  const plane = JSON.stringify(addBands.srcImg);
-  assert.match(plane, /"Image\.reduceResolution".{0,2000}"Reducer\.mean"/s);
-  assert.match(plane, /"names":\{"constantValue":\["w"\]\}/);
+  const [reduce] = callsOf(addBands.srcImg, 'Image.reduceResolution');
+  assert.equal(
+    reduce.reducer.functionInvocationValue.functionName,
+    'Reducer.mean',
+  );
+  const averaged =
+    reduce.image.functionInvocationValue.arguments.image
+      .functionInvocationValue;
+  // What is averaged: unmask(toFloat(select(load(MOD44W), water_mask)), 0).
+  assert.equal(averaged.functionName, 'Image.unmask');
+  assert.match(JSON.stringify(averaged.arguments.value), /"constantValue":0\}/);
+  const float = averaged.arguments.input.functionInvocationValue;
+  assert.equal(float.functionName, 'Image.toFloat');
+  const band = float.arguments.value.functionInvocationValue;
+  assert.equal(band.functionName, 'Image.select');
+  assert.equal(
+    band.arguments.input.functionInvocationValue.functionName,
+    'Image.load',
+  );
+  assert.equal(callsOf(addBands.srcImg, 'Image.gte').length, 0);
+  assert.equal(callsOf(addBands.srcImg, 'Image.mask').length, 0);
+  assert.match(
+    JSON.stringify(addBands.srcImg),
+    /"names":\{"constantValue":\["w"\]\}/,
+  );
   // Kept: the second ask is the disk's, the plain one too.
   assert.equal((await values.values(query({ water: '1' }))).cached, true);
   assert.equal((await values.values(query())).cached, true);
@@ -354,13 +379,63 @@ test('the water plane (?water=1): JRC occurrence ≥ 50 % as 0 or 1, its mean ov
     }),
   );
   assert.doesNotMatch(JSON.stringify(calls[2]), /reduceResolution/);
-  assert.match(JSON.stringify(calls[2]), /GSW1_4/);
+  assert.match(JSON.stringify(calls[2]), /MOD44W/);
   // Only Elevation has the plane; water must be 1 or absent.
   const other = await values.values(
     query({ layer: 'ee-terrain-slope', water: '1' }),
   );
   assert.equal(other.status, 404);
   assert.equal((await values.values(query({ water: 'yes' }))).status, 400);
+});
+
+test('a water plane Earth Engine refuses: the heights alone, no plane, not kept; a 429 is not retried', async (t) => {
+  const root = tempRoot(t);
+  const calls = [];
+  let budget = false;
+  const ee = createEarthEngineService({
+    sourceRoot: root,
+    env: {},
+    layers: EARTH_ENGINE_LAYERS,
+    backend: {
+      async computePixels(expression, grid) {
+        calls.push(expression);
+        if (budget) return { status: 429, error: 'budget' };
+        if (expression.result === 'rw')
+          return { status: 400, error: 'Image.load: asset not found' };
+        const { width, height } = grid.dimensions;
+        const n = width * height;
+        const v = new Float32Array(n).fill(200);
+        const m = new Float32Array(n).fill(1);
+        return { status: 200, body: npy(height, width, { v, m }) };
+      },
+    },
+  });
+  const values = createRasterValuesService({
+    sourceRoot: root,
+    env: {},
+    earthEngine: ee,
+    cacheDir: path.join(root, 'raster-values'),
+  });
+  t.after(() => values.close());
+  const warn = console.warn;
+  console.warn = () => {};
+  t.after(() => (console.warn = warn));
+  const first = await values.values(query({ water: '1' }));
+  assert.equal(first.status, 200);
+  const decoded = decodeRasterValues(first.body);
+  assert.equal(decoded.water, undefined);
+  assert.equal(decoded.values[0], 200);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].result, 'rv');
+  // Not kept: asked again next time.
+  const again = await values.values(query({ water: '1' }));
+  assert.equal(again.cached, undefined);
+  assert.equal(calls.length, 4);
+  // The day's budget is not a refusal: no second request.
+  budget = true;
+  const spent = await values.values(query({ water: '1', cells: '32' }));
+  assert.equal(spent.status, 429);
+  assert.equal(calls.length, 5);
 });
 
 test('a reduction Earth Engine refuses: the sampled cells, said so and not kept; a 429 is not retried', async (t) => {

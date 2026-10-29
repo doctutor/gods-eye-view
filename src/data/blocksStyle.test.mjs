@@ -163,33 +163,24 @@ test('the expression: every property a cell’s own: heights averaged on the cel
       /"constantValue":0\.5/.test(JSON.stringify(call.image2)),
     ),
   );
-  // Lakes: a cell at least half water in JRC Global Surface Water
-  // (occurrence ≥ 50 %, averaged on the cell grid) is coloured as water,
-  // and keeps its level: the sea's rule alone sets a level to 0.
-  assert.match(text, /JRC\/GSW1_4\/GlobalSurfaceWater/);
-  const occurrence = callsOf(body.expression, 'Image.select').find((call) =>
-    /"occurrence"/.test(JSON.stringify(call.bandSelectors)),
-  );
-  assert.ok(occurrence, 'the occurrence band');
-  assert.ok(
-    callsOf(body.expression, 'Image.gte').some(
-      (call) =>
-        /"constantValue":50\}/.test(JSON.stringify(call.image2)) &&
-        /"occurrence"/.test(JSON.stringify(call.image1)),
-    ),
-  );
+  // Lakes: a cell at least half water in MODIS MOD44W (land 0, water 1,
+  // valid over land, averaged on the cell grid) is coloured as water, and
+  // keeps its level: the sea's rule alone sets a level to 0.
+  assert.match(text, /MODIS\/006\/MOD44W\/2015_01_01/);
+  assert.doesNotMatch(text, /GSW1_4|occurrence/);
   const lake = callsOf(body.expression, 'Image.gte').find(
     (call) =>
       /"constantValue":0\.5\}/.test(JSON.stringify(call.image2)) &&
-      /GSW1_4/.test(JSON.stringify(call.image1)),
+      /MOD44W/.test(JSON.stringify(call.image1)),
   );
   assert.ok(lake, 'a lake: the water share ≥ 0.5');
   assert.ok(
     callsOf(lake.image1, 'Image.reduceResolution').length === 1,
     'the share is the mean on the cell grid',
   );
+  assert.equal(callsOf(lake.image1, 'Image.gte').length, 0);
   const [level] = callsOf(body.expression, 'Image.where');
-  assert.doesNotMatch(JSON.stringify(level), /GSW1_4/);
+  assert.doesNotMatch(JSON.stringify(level), /MOD44W/);
   // The geometry's colours, lit as a top face under the study sun.
   assert.ok(
     text.includes(
