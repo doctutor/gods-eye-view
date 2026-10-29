@@ -28,6 +28,7 @@ import {
   primitive3D,
   CENTRE_QUIET_MS,
   chunkIsCurved,
+  derivedBlockCoords,
   levelChunkKey,
   parseLevelChunkKey,
   regionFrame,
@@ -527,19 +528,17 @@ test('block edges and top dither: on by default for land, never for water, block
       primitive.geometryInstances[0].attributes.blockChunk.value,
       [3, -2],
     );
-  // The shaders: local position and normal through, lines by fwidth, the tone applied before the fog.
+  // The shaders: the block point and normal through, lines by fwidth, the tone applied before the fog.
   const vs = land.appearance.vertexShaderSource;
   assert.match(vs, /v_chunk = czm_batchTable_blockChunk\(batchId\)/);
-  assert.match(
-    vs,
-    /v_localPosition = position - czm_batchTable_blockOffset\(batchId\);/,
-  );
+  assert.match(vs, /in vec3 blockCoord;/);
+  assert.match(vs, /v_blockCoord = blockCoord;/);
   const fs = land.appearance.getFragmentShaderSource();
   assert.match(fs, /fwidth\(f\)/);
   assert.match(fs, /ditherAmount_\d+ \* ditherFade \*/);
   assert.match(
     fs,
-    /blocks_tone\(v_localPosition, v_localNormal, v_chunk, length\(v_positionEC\)\)/,
+    /blocks_tone\(v_blockCoord, v_localNormal, v_chunk, length\(v_positionEC\)\)/,
   );
   assert.match(fs, /floor\(chunk \+ 0\.5\) \* 64\.0 \+ floor\(f\.xy\)/);
   assert.deepEqual(renderer.getState().style, {
@@ -861,8 +860,10 @@ test('compactPart: byte normals and 16-bit indices, kept and counted', () => {
   const renderer = createBlocksRenderer({ viewer: fakeViewer() });
   renderer.setRegion(stubRegion());
   renderer.upsert('0:0', tinyMesh());
-  // 4 vertices: 48 bytes of positions, 12 of normals, 16 of colours, 12 of indices.
-  assert.ok(Math.abs(renderer.getState().retainedMB - 88 / 1e6) < 1e-12);
+  // 4 vertices: 48 bytes of positions, 12 of normals, 16 of colours, 48
+  // of block points (from the positions: a flat mesh without them), 12 of
+  // indices.
+  assert.ok(Math.abs(renderer.getState().retainedMB - 136 / 1e6) < 1e-12);
   renderer.destroy();
 });
 
@@ -1016,10 +1017,8 @@ test('levelM: the vertical edge lines at the level height, per ring; a level cha
   assert.equal(a.appearance.material.uniforms.blockM, 120);
   assert.equal(a.appearance.material.uniforms.levelM, 30);
   assert.equal(b.appearance.material.uniforms.levelM, 15);
-  assert.match(
-    a.appearance.getFragmentShaderSource(),
-    /localPosition \/ vec3\(blockM_\d+, blockM_\d+, levelM_\d+\)/,
-  );
+  // The lines are the block points' (levels in levelM already there).
+  assert.match(a.appearance.getFragmentShaderSource(), /vec3 f = blockCoord;/);
   // Cubes when a region has no levelM.
   renderer.setRegion(stubRegion({ blockM: 30 }));
   assert.equal(renderer.getState().region.levelM, undefined);
@@ -1114,5 +1113,63 @@ test('batches are built nearest the view centre first, and one covering the cent
   assert.deepEqual(batched().sort(), ['20:0', '40:0']);
   frame();
   assert.deepEqual(batched().sort(), ['0:0', '20:0', '40:0']);
+  renderer.destroy();
+});
+
+/** A mesh's block-coordinate attribute values, from a drawn primitive's geometry. */
+const coordsOf = (primitive) =>
+  primitive.geometryInstances[0].geometry.attributes.blockCoord.values;
+
+test('block points: carried through splitMesh and compactPart, opaque and water; a flat mesh without them derives them from its positions', () => {
+  // A mesh with block points: (i, j, level), here a quad at level 1 and a
+  // water quad beside it.
+  const mesh = tinyMesh({ water: true });
+  mesh.blockCoords = Float32Array.from([
+    0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 2, 0, 1, 2, 1, 1, 1, 1, 1,
+  ]);
+  mesh.opaqueIndexCount = 6;
+  const { opaque, water } = splitMesh(mesh);
+  assert.deepEqual([...opaque.blockCoords], [...mesh.blockCoords.slice(0, 12)]);
+  assert.deepEqual([...water.blockCoords], [...mesh.blockCoords.slice(12)]);
+  assert.equal(compactPart(water).blockCoords, water.blockCoords);
+  // A flat mesh without them: positions over (blockM, blockM, levelM).
+  const derived = derivedBlockCoords(
+    { positions: Float32Array.from([30, 60, 90]) },
+    30,
+    15,
+  );
+  assert.deepEqual([...derived], [1, 2, 6]);
+  assert.equal(derivedBlockCoords(mesh, 30), mesh.blockCoords);
+  // Drawn: the geometry's third attribute, the water part's too.
+  const renderer = createBlocksRenderer({ viewer: fakeViewer() });
+  renderer.setRegion(stubRegion({ blockM: 30 }));
+  renderer.upsert('0:0', mesh);
+  const [land, sea] = [0, 1].map((k) => renderer.getCollection().get(k));
+  assert.deepEqual([...coordsOf(land)], [...mesh.blockCoords.slice(0, 12)]);
+  assert.deepEqual([...coordsOf(sea)], [...mesh.blockCoords.slice(12)]);
+  renderer.destroy();
+});
+
+test('curved chunks with block points draw with edges and dither again; one without them stays plain', () => {
+  const renderer = createBlocksRenderer({ viewer: fakeViewer() });
+  renderer.setRegions([
+    stubRegion({ blockM: 480 }),
+    stubRegion({ blockM: 1920 }),
+  ]);
+  const withCoords = {
+    ...tinyMesh(),
+    blockCoords: Float32Array.from([0, 0, 3, 1, 0, 3, 1, 1, 3, 0, 1, 3]),
+  };
+  renderer.upsert(levelChunkKey(1920, 0, 0), withCoords);
+  renderer.upsert(levelChunkKey(1920, 1, 0), tinyMesh());
+  const [lined, plain] = [0, 1].map((k) => renderer.getCollection().get(k));
+  const u = (p) => p.appearance.material.uniforms;
+  assert.equal(u(lined).edgeStrength, EDGE_DEFAULTS.strength);
+  assert.equal(u(lined).ditherAmount, DITHER_DEFAULTS.amount);
+  assert.deepEqual([...coordsOf(lined)], [...withCoords.blockCoords]);
+  assert.equal(u(plain).edgeStrength, 0);
+  assert.equal(u(plain).ditherAmount, 0);
+  // Its attribute is there, zeros: the shader reads it.
+  assert.ok([...coordsOf(plain)].every((v) => v === 0));
   renderer.destroy();
 });

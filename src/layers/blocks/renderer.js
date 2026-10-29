@@ -141,12 +141,13 @@ const float DEPTH_BIAS = ${DEPTH_BIAS.toExponential()};
 in vec3 position;
 in vec3 normal;
 in vec4 color;
+in vec3 blockCoord;
 in float batchId;
 
 out vec3 v_positionEC;
 out vec3 v_normalEC;
 out vec4 v_color;
-out vec3 v_localPosition;
+out vec3 v_blockCoord;
 out vec3 v_localNormal;
 out vec2 v_chunk;
 
@@ -156,8 +157,9 @@ void main() {
   v_positionEC = positionEC.xyz;
   v_normalEC = czm_normal * normal;
   v_color = color;
-  // A chunk in a batch is offset to the batch's origin: its own place again.
-  v_localPosition = position - czm_batchTable_blockOffset(batchId);
+  // The vertex's block point (mesh.js blockCoords): on the lattice of
+  // blocks and levels, flat chunk or curved, wherever the batch puts it.
+  v_blockCoord = blockCoord;
   v_localNormal = normal;
   v_chunk = czm_batchTable_blockChunk(batchId);
   gl_Position = czm_projection * vec4(positionEC.xyz * (1.0 - DEPTH_BIAS), 1.0);
@@ -168,7 +170,7 @@ const FRAGMENT_SHADER = `
 in vec3 v_positionEC;
 in vec3 v_normalEC;
 in vec4 v_color;
-in vec3 v_localPosition;
+in vec3 v_blockCoord;
 in vec3 v_localNormal;
 in vec2 v_chunk;
 
@@ -177,7 +179,7 @@ void main() {
   materialInput.positionToEyeEC = -v_positionEC;
   materialInput.normalEC = normalize(v_normalEC);
   czm_material fog = czm_getMaterial(materialInput);
-  float tone = blocks_tone(v_localPosition, v_localNormal, v_chunk, length(v_positionEC));
+  float tone = blocks_tone(v_blockCoord, v_localNormal, v_chunk, length(v_positionEC));
   out_FragColor = vec4(mix(v_color.rgb * tone, fog.diffuse, fog.alpha), v_color.a);
 }
 `;
@@ -186,8 +188,9 @@ void main() {
 // uniforms are the only ones an Appearance can carry. czm_getMaterial is
 // the fog: diffuse its colour, alpha how much of it a fragment at that
 // distance takes. blocks_tone is the shade that gives every block an edge:
-// a line about 1.5 px wide where the face crosses a multiple of blockM on
-// its two in-plane axes, fading out with distance and before the blocks
+// a line about 1.5 px wide where the face's block point (mesh.js
+// blockCoords, interpolated) crosses a whole number on its two in-plane
+// axes, fading out with distance and before the blocks
 // are too small on the screen for a line (no moiré), and on top faces a
 // per-block tone from a hash of the block's column, so a flat field is
 // not one colour (faded out as a block nears a pixel).
@@ -205,9 +208,10 @@ float blocks_line(float f) {
   return line * (1.0 - smoothstep(0.15, 0.35, w));
 }
 
-float blocks_tone(vec3 localPosition, vec3 localNormal, vec2 chunk, float distanceM) {
-  // Blocks of blockM across, levels of levelM up (a cube when they match).
-  vec3 f = localPosition / vec3(blockM, blockM, levelM);
+float blocks_tone(vec3 blockCoord, vec3 localNormal, vec2 chunk, float distanceM) {
+  // The block point: whole numbers on block edges and level steps, on a
+  // flat chunk or one standing on the ellipsoid alike.
+  vec3 f = blockCoord;
   // Derivatives first, outside any branch.
   float lx = blocks_line(f.x);
   float ly = blocks_line(f.y);
@@ -287,6 +291,7 @@ export function splitMesh({
   positions,
   normals,
   colors,
+  blockCoords = null,
   indices,
   opaqueIndexCount,
 }) {
@@ -298,7 +303,7 @@ export function splitMesh({
   const part = (from, to) => {
     if (from >= to) return null;
     if (from === 0 && to === indices.length)
-      return { positions, normals, colors, indices };
+      return { positions, normals, colors, blockCoords, indices };
     remap.fill(-1);
     const out = new Uint32Array(to - from);
     let used = 0;
@@ -310,9 +315,15 @@ export function splitMesh({
     const p = new Float32Array(used * 3);
     const n = new Float32Array(used * 3);
     const c = new Uint8Array(used * 4);
+    const b = blockCoords ? new Float32Array(used * 3) : null;
     for (let v = 0; v < vertexCount; v++) {
       const at = remap[v];
       if (at < 0) continue;
+      if (b) {
+        b[at * 3] = blockCoords[v * 3];
+        b[at * 3 + 1] = blockCoords[v * 3 + 1];
+        b[at * 3 + 2] = blockCoords[v * 3 + 2];
+      }
       p[at * 3] = positions[v * 3];
       p[at * 3 + 1] = positions[v * 3 + 1];
       p[at * 3 + 2] = positions[v * 3 + 2];
@@ -324,7 +335,13 @@ export function splitMesh({
       c[at * 4 + 2] = colors[v * 4 + 2];
       c[at * 4 + 3] = colors[v * 4 + 3];
     }
-    return { positions: p, normals: n, colors: c, indices: out };
+    return {
+      positions: p,
+      normals: n,
+      colors: c,
+      blockCoords: b,
+      indices: out,
+    };
   };
   return { opaque: part(0, cut), water: part(cut, indices.length) };
 }
@@ -336,7 +353,7 @@ export function splitMesh({
  */
 export function compactPart(part) {
   if (!part) return null;
-  const { positions, normals, colors, indices } = part;
+  const { positions, normals, colors, blockCoords = null, indices } = part;
   let bytes = normals;
   if (!(normals instanceof Int8Array)) {
     bytes = new Int8Array(normals.length);
@@ -347,7 +364,7 @@ export function compactPart(part) {
     positions.length / 3 < 65536 && !(indices instanceof Uint16Array)
       ? new Uint16Array(indices)
       : indices;
-  return { positions, normals: bytes, colors, indices: short };
+  return { positions, normals: bytes, colors, blockCoords, indices: short };
 }
 
 /** A kept part's bytes. */
@@ -356,11 +373,18 @@ const partBytes = (part) =>
     ? part.positions.byteLength +
       part.normals.byteLength +
       part.colors.byteLength +
+      (part.blockCoords?.byteLength || 0) +
       part.indices.byteLength
     : 0;
 
-function meshGeometry({ positions, normals, colors, indices }, offset = null) {
+function meshGeometry(
+  { positions, normals, colors, blockCoords, indices },
+  offset = null,
+) {
   const vertexCount = positions.length / 3;
+  // Without block points (a curved chunk from an older mesher, drawn
+  // plain) the attribute is there, all zeros: the shader reads it.
+  const coords = blockCoords || new Float32Array(positions.length);
   if (offset && (offset.x || offset.y || offset.z)) {
     const moved = new Float32Array(positions.length);
     for (let k = 0; k < positions.length; k += 3) {
@@ -395,6 +419,11 @@ function meshGeometry({ positions, normals, colors, indices }, offset = null) {
         componentsPerAttribute: 4,
         normalize: true,
         values: colors,
+      }),
+      blockCoord: new Cesium.GeometryAttribute({
+        componentDatatype: Cesium.ComponentDatatype.FLOAT,
+        componentsPerAttribute: 3,
+        values: coords,
       }),
     },
     indices:
@@ -468,6 +497,24 @@ export function ringsFog(regions, reachBlocks, start = RING_FOG_START) {
 
 /** Chunks a batch side: 4 × 4 chunks (a source.js group) draw as one primitive per kind. */
 export const BATCH_CHUNKS = 4;
+/**
+ * A flat mesh's block points from its positions when the mesher gave none
+ * (mesh.js gives them; an older mesh, a test's): positions over (blockM,
+ * blockM, levelM). A curved mesh's positions are off that lattice: null.
+ */
+export function derivedBlockCoords(mesh, blockM, levelM = blockM) {
+  if (mesh?.blockCoords) return mesh.blockCoords;
+  const { positions } = mesh || {};
+  if (!positions || !(blockM > 0)) return null;
+  const out = new Float32Array(positions.length);
+  for (let k = 0; k < positions.length; k += 3) {
+    out[k] = positions[k] / blockM;
+    out[k + 1] = positions[k + 1] / blockM;
+    out[k + 2] = positions[k + 2] / (levelM > 0 ? levelM : blockM);
+  }
+  return out;
+}
+
 /**
  * Whether a chunk stands on the ellipsoid (the curved grid, CURVED_BLOCK_M
  * and up), so its local positions are off the block lattice: by its mesh's
@@ -587,10 +634,9 @@ export function createBlocksRenderer({
   const levelMOf = (entry) =>
     entry?.levelM > 0 ? entry.levelM : entry?.blockM || 1;
 
-  // Curved chunks (chunkIsCurved) draw without block edges or dither: the
-  // shader finds them from local positions on the block lattice, which a
-  // chunk on the ellipsoid's are not (a per-vertex block coordinate will
-  // bring them back).
+  // A curved chunk (chunkIsCurved) without block points (mesh.js gives
+  // them; an older mesh does not) draws without block edges or dither: its
+  // positions are off the block lattice, so nothing could find its edges.
   const curvedAppearances = {
     opaque: blocksAppearance(false),
     water: blocksAppearance(true),
@@ -703,12 +749,12 @@ export function createBlocksRenderer({
       : { frame, set: appearances };
   };
 
-  function drawn(instances, kind, origin, level = null, curved = false) {
+  function drawn(instances, kind, origin, level = null, plain = false) {
     const { frame: at, set } = levelOf(level);
     return collection.add(
       primitive3D({
         geometryInstances: instances,
-        appearance: (curved ? curvedAppearances : set)[kind],
+        appearance: (plain ? curvedAppearances : set)[kind],
         modelMatrix: chunkMatrix(at, origin),
         asynchronous: false,
         compressVertices: false,
@@ -735,7 +781,7 @@ export function createBlocksRenderer({
           kind,
           held.origin,
           held.level,
-          held.curved,
+          held.plain,
         ),
       );
   }
@@ -767,7 +813,7 @@ export function createBlocksRenderer({
     batch.primitives = ['opaque', 'water']
       .filter((kind) => instances[kind].length)
       .map((kind) =>
-        drawn(instances[kind], kind, batch.origin, batch.level, batch.curved),
+        drawn(instances[kind], kind, batch.origin, batch.level, batch.plain),
       );
     batch.built = built;
     for (const primitive of before) collection.remove(primitive);
@@ -1057,13 +1103,26 @@ export function createBlocksRenderer({
         for (const primitive of before.alone) collection.remove(primitive);
         if (before.batch !== batchKey) dropChunk(key);
       }
+      // Its block points: the mesher's, else from a flat mesh's positions;
+      // a curved one without them draws plain (no edges, no dither).
+      const scaleM =
+        leveled?.blockM ?? region.blockM * (/^c:/.test(key) ? BATCH_CHUNKS : 1);
+      const curved = chunkIsCurved(key, mesh, region.blockM);
+      const blockCoords = curved
+        ? mesh.blockCoords || null
+        : derivedBlockCoords(
+            mesh,
+            scaleM,
+            // Fine and coarse chunks are meshed on the region's levels.
+            levelMOf(ring?.region || region),
+          );
+      const plain = !blockCoords;
       let batch = batches.get(batchKey);
       if (!batch) {
-        const curved = chunkIsCurved(key, mesh, region.blockM);
         batch = {
           origin,
           level: leveled?.blockM ?? null,
-          curved,
+          plain,
           // Its blocks' size and a side in blocks: where its middle is.
           blockM:
             leveled?.blockM ??
@@ -1081,14 +1140,13 @@ export function createBlocksRenderer({
         batch: batchKey,
         origin,
         parts: Object.fromEntries(
-          Object.entries(splitMesh(mesh)).map(([kind, part]) => [
-            kind,
-            compactPart(part),
-          ]),
+          Object.entries(splitMesh({ ...mesh, blockCoords })).map(
+            ([kind, part]) => [kind, compactPart(part)],
+          ),
         ),
         chunk: [parsed?.ci ?? 0, parsed?.cj ?? 0],
         level: leveled?.blockM ?? null,
-        curved: batch.curved,
+        plain,
         alone: [],
       };
       chunks.set(key, held);

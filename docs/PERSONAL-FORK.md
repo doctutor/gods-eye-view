@@ -6519,8 +6519,10 @@ shader. Picks read that much short: a ray at 460 m hits 4.8 cm high.
 
 **Shading.** mesh.js bakes the colours; the fragment shader adds:
 
-- block edges: a line about 1.5 px wide (by `fwidth`) where a face
-  crosses a multiple of the block size on its two in-plane axes, 12 %
+- block edges: a line about 1.5 px wide (by `fwidth`) where a face's
+  block point (mesh.js `blockCoords`: columns east and north and the
+  level, whole at every corner; the geometry's `blockCoord` attribute,
+  interpolated) crosses a whole number on its two in-plane axes, 12 %
   darker, fading out from 200 to 300 blocks away and as a block nears a
   pixel, so far chunks do not moiré;
 - a tone per block on top faces, ±3 %, from a hash of the block's column
@@ -6559,12 +6561,14 @@ the GPU reads too, and 16-bit indices): 159 MB at that view
 nearest the view's centre first (the screen's centre on the ellipsoid),
 one a frame as before; a batch covering the centre waits 250 ms of quiet
 (`CENTRE_QUIET_MS`), not 1.5 s, so at 31 km cells, where a batch is
-about 7,900 km across, the one under the view comes first. Chunks on the
-curved grid (`chunkIsCurved`: a mesh's own `curved`, else 1,920 m blocks
-and up: a ring's level, the primary region's, or four times it for a
-`c:` coarse chunk) draw without block edges or dither, since their local
-positions are off the block lattice the shader reads; the fog still
-applies.
+about 7,900 km across, the one under the view comes first. The edges and
+the dither read each vertex's block point, not its position over the
+block size, so a chunk on the curved grid (1,920 m and up), whose
+positions are off that lattice, has its edges too. Its block points
+travel with the mesh (`splitMesh`, `compactPart`, the opaque and the
+water part); a flat mesh without them (an older mesher's, a test's) has
+them derived from its positions (`derivedBlockCoords`), and a curved one
+without them (`chunkIsCurved`) draws plain, no edges or dither.
 
 **K rings** (milestone 5). `setRegions(regions, {datumOffsetM,
 fogReachBlocks})` takes a region a level (an array or a Map by block
