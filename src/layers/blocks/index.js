@@ -1547,8 +1547,16 @@ export function createBlocksController({
       held === 'too-high' ||
       _status.state === 'failed' ||
       _status.state === 'unavailable';
-    const coarse = Boolean(_region) && _region.blockM > STRUCTURES_MAX_BLOCK_M;
-    if (!cannotBuild && !coarse) return null;
+    // Over coarse blocks only while they build (the first picture): once
+    // they are drawn the rings reach the horizon and hide the drape, whose
+    // tiles were then asked for nothing (QA, 2026-10-29: 138 to 245 a step
+    // at continental scale).
+    const coarse = _region
+      ? _region.blockM > STRUCTURES_MAX_BLOCK_M
+      : wantedCellM() > STRUCTURES_MAX_BLOCK_M;
+    const building =
+      !_region || _status.state === 'anchoring' || _status.state === 'loading';
+    if (!cannotBuild && !(coarse && building)) return null;
     let px = Number.NaN;
     try {
       px = Number(footprint());

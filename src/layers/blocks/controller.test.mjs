@@ -2948,7 +2948,7 @@ test('K rings: each its own region at its own level through setRegions, keyed L<
   controller.destroy();
 });
 
-test('the Elevation layer’s Blocks style: none over the native cells’ geometry; the footprint’s level over coarse blocks and where Blocks cannot build, the globe shown to drape it', async () => {
+test('the Elevation layer’s Blocks style: none over the native cells’ geometry; the footprint’s level over coarse blocks while they build, and where Blocks cannot build, the globe shown to drape it; gone once the blocks are drawn', async () => {
   const { blocksScene } = await import('./floor.js');
   const { blocksStyleLevelFor } = await import('../../data/blocksStyle.js');
   const { viewer, view, controller } = footprintSetup();
@@ -2957,15 +2957,22 @@ test('the Elevation layer’s Blocks style: none over the native cells’ geomet
   controller.tick();
   assert.equal(blocksScene().style, null, 'no style tiles under 1 m cubes');
   assert.equal(viewer.scene.globe.show, false, 'hidden on a drawn style');
-  // 120 m blocks: the style under and beyond them, on a shown globe.
+  // Out to 50 km: 120 m blocks. While the new region builds, the style is
+  // the first picture, on a shown globe.
   setHeight(viewer, 50_000);
   view.px = 40;
   viewer.camera.moveEnd.raise();
-  await drain(controller);
   controller.tick();
-  assert.equal(controller.getStatus().blockM, 120);
+  assert.match(controller.getStatus().state, /anchoring|loading/);
   assert.equal(blocksScene().style, blocksStyleLevelFor(40));
   assert.equal(viewer.scene.globe.show, true);
+  // Drawn: the rings reach the horizon, the drape is gone, its tiles too.
+  await drain(controller);
+  controller.tick();
+  assert.equal(controller.getStatus().state, 'ready');
+  assert.equal(controller.getStatus().blockM, 120);
+  assert.equal(blocksScene().style, null, 'no drape under drawn blocks');
+  assert.equal(viewer.scene.globe.show, false);
   // Walk and Fly (no footprint): none.
   view.px = Number.NaN;
   controller.tick();
