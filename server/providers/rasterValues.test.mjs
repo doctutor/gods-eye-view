@@ -343,6 +343,9 @@ test('the water plane (?water=1): MOD44W land 0, water 1, its mean over a reduce
     reduce.reducer.functionInvocationValue.functionName,
     'Reducer.mean',
   );
+  // 4 × 4 samples a cell: the heights' 256 made a fresh tile 2.5 × slower.
+  assert.equal(reduce.maxPixels.constantValue, 16);
+  assert.equal(reduce.bestEffort.constantValue, true);
   const averaged =
     reduce.image.functionInvocationValue.arguments.image
       .functionInvocationValue;
