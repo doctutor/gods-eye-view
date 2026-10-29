@@ -176,3 +176,40 @@ test('a region’s level height: blockM unless given; a 120 m block on 30 m leve
     RangeError,
   );
 });
+
+test('a curved region (1,920 m and up): ground distance and bearing both ways, past the limb, the drop below the plane', async () => {
+  const { CURVED_BLOCK_M } = await import('./grid.js');
+  assert.equal(CURVED_BLOCK_M, 1920);
+  const region = createRegion({
+    lon0: -76.6,
+    lat0: 39.3,
+    blockM: 30720,
+    levelM: 960,
+  });
+  assert.equal(region.curved, true);
+  for (const [x, y] of [
+    [0, 0],
+    [1e6, 0],
+    [0, 2e6],
+    [-3e6, 1.5e6],
+    [9e6, 0],
+  ]) {
+    const at = region.toLonLat(x, y);
+    const back = region.toLocal(at.lon, at.lat);
+    assert.ok(
+      Math.abs(back.x - x) < 0.01 && Math.abs(back.y - y) < 0.01,
+      `${x},${y}`,
+    );
+  }
+  // 9,000 km east is past the limb of any tangent plane: still a place.
+  const far = region.toLonLat(9e6, 0);
+  assert.ok(Number.isFinite(far.lon) && Number.isFinite(far.lat));
+  // The next chunk east (1,966 km along the ground) lies ~300 km under the plane.
+  const drop = region.chunkOrigin(1, 0).z;
+  assert.ok(drop < -290_000 && drop > -320_000, `${drop}`);
+  // A 480 m region keeps the flat frame.
+  assert.equal(
+    createRegion({ lon0: -76.6, lat0: 39.3, blockM: 480 }).curved,
+    false,
+  );
+});
