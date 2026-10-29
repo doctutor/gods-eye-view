@@ -22,6 +22,16 @@ export const CHUNK_COLUMNS = 64;
  * the tangent plane's horizontal error at 20 km is a few centimetres.
  */
 export const REGION_RADIUS_M = 20_000;
+/**
+ * From this block size up a region is curved (docs/BLOCKS-PLAN.md
+ * milestone 5, decision 5): one tangent plane is wrong at continental
+ * reach (the Earth falls 300 km under it 2,000 km out, and an orthographic
+ * plane has no ground past the limb), so its columns are laid out by an
+ * azimuthal equidistant map from the origin (x, y: metres along the
+ * ground, east and north), and the mesher stands each column on the
+ * ellipsoid. Below it the flat frame stays (0.2 m off at 50 km).
+ */
+export const CURVED_BLOCK_M = 1920;
 
 const WGS84_A = 6_378_137;
 const WGS84_F = 1 / 298.257223563;
@@ -113,6 +123,56 @@ export function createRegion({ lon0, lat0, blockM, levelM = blockM }) {
   ];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const chunkM = CHUNK_COLUMNS * blockM;
+  const curved = blockM >= CURVED_BLOCK_M;
+  // The curved regions' map is drawn on the sphere of the Gaussian mean
+  // radius at the origin (its places then stood on the ellipsoid).
+  const sinLat0 = Math.sin(lat);
+  const w0 = 1 - WGS84_E2 * sinLat0 * sinLat0;
+  const sphereR = Math.sqrt(
+    ((WGS84_A * (1 - WGS84_E2)) / w0 ** 1.5) * (WGS84_A / Math.sqrt(w0)),
+  );
+  const wrapLon = (deg) => ((((deg + 180) % 360) + 360) % 360) - 180;
+  /** The place `x` east and `y` north of the origin along the ground. */
+  const aeqdToLonLat = (x, y) => {
+    const d = Math.hypot(x, y);
+    if (!(d > 0)) return { lon: snapped.lon0, lat: snapped.lat0 };
+    const delta = Math.min(Math.PI, d / sphereR);
+    const az = Math.atan2(x, y);
+    const lat2 = Math.asin(
+      Math.max(
+        -1,
+        Math.min(
+          1,
+          sinLat0 * Math.cos(delta) +
+            Math.cos(lat) * Math.sin(delta) * Math.cos(az),
+        ),
+      ),
+    );
+    const lon2 =
+      lon +
+      Math.atan2(
+        Math.sin(az) * Math.sin(delta) * Math.cos(lat),
+        Math.cos(delta) - sinLat0 * Math.sin(lat2),
+      );
+    return { lon: wrapLon(lon2 / RAD), lat: lat2 / RAD };
+  };
+  /** A place's metres east and north of the origin along the ground. */
+  const aeqdToLocal = (lonDeg, latDeg) => {
+    const p2 = latDeg * RAD;
+    const dLat = p2 - lat;
+    const dLon = lonDeg * RAD - lon;
+    // Haversine: exact near the origin, where acos is not.
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
+    const delta = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
+    const az = Math.atan2(
+      Math.sin(dLon) * Math.cos(p2),
+      Math.cos(lat) * Math.sin(p2) - sinLat0 * Math.cos(p2) * Math.cos(dLon),
+    );
+    const d = delta * sphereR;
+    return { x: d * Math.sin(az), y: d * Math.cos(az) };
+  };
 
   /** East, north (and up) metres of a place on the ellipsoid. */
   const enu = (lonDeg, latDeg) => {
@@ -144,15 +204,19 @@ export function createRegion({ lon0, lat0, blockM, levelM = blockM }) {
     lat0: snapped.lat0,
     blockM,
     levelM,
+    /** Whether the columns stand on the ellipsoid (CURVED_BLOCK_M and up). */
+    curved,
     /** The level a height above mean sea level lies in. */
     levelOf: (heightMslM) => Math.floor(heightMslM / levelM),
     /** East and north metres from the origin of a place. */
     toLocal(lonDeg, latDeg) {
+      if (curved) return aeqdToLocal(lonDeg, latDeg);
       const { x, y } = enu(lonDeg, latDeg);
       return { x, y };
     },
     /** The place (degrees) at east and north metres from the origin. */
     toLonLat(x, y) {
+      if (curved) return aeqdToLonLat(x, y);
       const { point } = ellipsoidUnder(x, y);
       const p = Math.hypot(point[0], point[1]);
       return {
@@ -187,7 +251,40 @@ export function createRegion({ lon0, lat0, blockM, levelM = blockM }) {
     chunkOrigin(ci, cj) {
       const x = ci * chunkM;
       const y = cj * chunkM;
+      if (curved) {
+        // How far the ground at the corner lies below the tangent plane.
+        const at = aeqdToLonLat(x, y);
+        return { x, y, z: region.localPoint(at.lon, at.lat, 0).z };
+      }
       return { x, y, z: ellipsoidUnder(x, y).t };
+    },
+    /**
+     * A place at an ellipsoidal height in the region's frame: metres along
+     * its east, north and up axes from the origin on the ellipsoid (the
+     * renderer's frame, before its datum offset).
+     */
+    localPoint(lonDeg, latDeg, heightM = 0) {
+      const p = ecef(lonDeg, latDeg, heightM);
+      const d = [p[0] - origin[0], p[1] - origin[1], p[2] - origin[2]];
+      return { x: dot(d, east), y: dot(d, north), z: dot(d, up) };
+    },
+    /** A place's own east, north and up, in the region's axes. */
+    basisAt(lonDeg, latDeg) {
+      const lo = lonDeg * RAD;
+      const la = latDeg * RAD;
+      const e = [-Math.sin(lo), Math.cos(lo), 0];
+      const n = [
+        -Math.sin(la) * Math.cos(lo),
+        -Math.sin(la) * Math.sin(lo),
+        Math.cos(la),
+      ];
+      const u = [
+        Math.cos(la) * Math.cos(lo),
+        Math.cos(la) * Math.sin(lo),
+        Math.sin(la),
+      ];
+      const axes = (v) => [dot(v, east), dot(v, north), dot(v, up)];
+      return { east: axes(e), north: axes(n), up: axes(u) };
     },
     /** A chunk's extent in degrees: the box around its four corners. */
     chunkBounds(ci, cj) {
@@ -210,7 +307,7 @@ export function createRegion({ lon0, lat0, blockM, levelM = blockM }) {
     },
     /** Whether a place is near enough the origin for this region. */
     within(lonDeg, latDeg, radiusM = REGION_RADIUS_M) {
-      const { x, y } = enu(lonDeg, latDeg);
+      const { x, y } = region.toLocal(lonDeg, latDeg);
       return Math.hypot(x, y) <= radiusM;
     },
   };

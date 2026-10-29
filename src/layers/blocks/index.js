@@ -998,20 +998,45 @@ export function createBlocksController({
   }
 
   /** What buildChunkMesh (or meshAsync) is given: plain data but the chunks. */
-  const meshOptions = (entry, { neighbours, skirt }) => ({
-    neighbours,
+  const meshOptions = (entry, { neighbours, skirt }) => {
     // A coarse chunk's blocks are four wide, on the region's levels.
-    blockM: _region.blockM * (entry.coarse ? GROUP_CHUNKS : 1),
-    // The level height drawn: the region's, times the relief.
-    levelM: _region.levelM * _region.relief.factor,
-    sunDir: _region.sun.dir,
-    ...(skirt ? { skirt } : {}),
-  });
+    const blockM = _region.blockM * (entry.coarse ? GROUP_CHUNKS : 1);
+    return {
+      neighbours,
+      blockM,
+      // The level height drawn: the region's, times the relief.
+      levelM: _region.levelM * _region.relief.factor,
+      sunDir: _region.sun.dir,
+      ...(skirt ? { skirt } : {}),
+      // Cells of CURVED_BLOCK_M and up stand on the ellipsoid (mesh.js
+      // curvedPlacement): the region, the mesh's south-west corner in its
+      // metres, and the drawn datum the renderer's frame sits at.
+      ...(blockM >= grid.CURVED_BLOCK_M
+        ? { curved: curvedOptions(entry) }
+        : {}),
+    };
+  };
+
+  /** What the mesher needs to stand a chunk's columns on the ellipsoid. */
+  function curvedOptions(entry) {
+    const { region } = _region;
+    const corner = entry.coarse
+      ? region.chunkOrigin(entry.gi * GROUP_CHUNKS, entry.gj * GROUP_CHUNKS)
+      : region.chunkOrigin(entry.ci, entry.cj);
+    return {
+      lon0: region.lon0,
+      lat0: region.lat0,
+      regionBlockM: region.blockM,
+      cornerM: { x: corner.x, y: corner.y },
+      datumM: drawnHeightM(_region.datumOffsetM || 0, _region.relief),
+    };
+  }
 
   /** A mesh drawn for its entry, as meshed from `signature`. */
   function place(entry, built, signature) {
-    if (entry.coarse) {
-      // The renderer cannot read a 'c:' key: the group's south-west corner.
+    if (entry.coarse && !built.origin) {
+      // The renderer cannot read a 'c:' key: the group's south-west corner
+      // (a curved mesh carries its own origin).
       built.origin = _region.region.chunkOrigin(
         entry.gi * GROUP_CHUNKS,
         entry.gj * GROUP_CHUNKS,

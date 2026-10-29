@@ -20,7 +20,7 @@
  * then the edge columns' sides run down from their tops to a floor, so a
  * fine ring's edge meets a coarser ring behind it without a seam.
  */
-import { CHUNK_COLUMNS, columnIndex } from './grid.js';
+import { CHUNK_COLUMNS, columnIndex, createRegion } from './grid.js';
 import { MATERIALS, NONE, isSolid } from './store.js';
 import {
   AO,
@@ -207,6 +207,93 @@ const SKIRT_BORDERS = Object.freeze([
 /** The deepest a skirt hangs below an edge column's top, in levels. */
 const MAX_SKIRT_LEVELS = 4096;
 
+/** The Earth's mean radius, for the curved greedy cap. */
+const EARTH_RADIUS_M = 6_371_000;
+/** A curved level's intended footprint: a cell this many pixels wide. */
+export const CURVED_CELL_PX = 8;
+
+/**
+ * The most cells a merged face runs along the ground on a curved level:
+ * a run of n cells is a chord of L = n·cell that sags L²/8R under the
+ * ground it spans, kept under one pixel at the level's footprint (a cell
+ * CURVED_CELL_PX pixels wide, so a pixel is cell / CURVED_CELL_PX):
+ * n ≤ √(8R / (CURVED_CELL_PX · cell)). 57 at 1,920 m, 28 at 7,680 m, 14 at
+ * 30,720 m.
+ */
+export const curvedRunCap = (cellM) =>
+  Math.max(
+    1,
+    Math.floor(
+      Math.sqrt((8 * EARTH_RADIUS_M) / (CURVED_CELL_PX * Math.max(1, cellM))),
+    ),
+  );
+
+/** The regions the curved placement has built, by origin and block size. */
+const curvedRegions = new Map();
+function curvedRegion({ lon0, lat0, regionBlockM }) {
+  const key = `${lon0},${lat0},${regionBlockM}`;
+  let region = curvedRegions.get(key);
+  if (!region) {
+    if (curvedRegions.size > 32) curvedRegions.clear();
+    region = createRegion({ lon0, lat0, blockM: regionBlockM });
+    curvedRegions.set(key, region);
+  }
+  return region;
+}
+
+/**
+ * The curved placement (docs/BLOCKS-PLAN.md milestone 5, decision 5): a
+ * chunk-local block point (columns east and north, levels up) stood on
+ * the ellipsoid. Its column corner goes through the region to lon/lat
+ * (`cornerM`: the chunk's south-west corner in region metres), its height
+ * is the datum plus its levels; the point is then written in the
+ * renderer's frame (the region's east-north-up at the datum), less the
+ * chunk's own origin, which the mesh carries as `origin`. A face's normal
+ * turns to its corner's own east, north or up.
+ */
+function curvedPlacement(curved, scale) {
+  const region = curvedRegion(curved);
+  const datumM = Number(curved.datumM) || 0;
+  const cornerX = Number(curved.cornerM?.x) || 0;
+  const cornerY = Number(curved.cornerM?.y) || 0;
+  const columns = new Map();
+  const column = (bx, by) => {
+    const key = `${bx},${by}`;
+    let held = columns.get(key);
+    if (!held) {
+      const place = region.toLonLat(
+        cornerX + bx * scale[0],
+        cornerY + by * scale[1],
+      );
+      held = { place, basis: region.basisAt(place.lon, place.lat) };
+      columns.set(key, held);
+    }
+    return held;
+  };
+  const frameAt = (bx, by, bz) => {
+    const { place } = column(bx, by);
+    const p = region.localPoint(place.lon, place.lat, datumM + bz * scale[2]);
+    return [p.x, p.y, p.z - datumM];
+  };
+  const origin = frameAt(0, 0, 0);
+  return {
+    origin: { x: origin[0], y: origin[1], z: origin[2] },
+    /** A block point's position, relative to the chunk's origin. */
+    position(bx, by, bz) {
+      const p = frameAt(bx, by, bz);
+      return [p[0] - origin[0], p[1] - origin[1], p[2] - origin[2]];
+    },
+    /** A direction's normal at a column corner. */
+    normal(d, bx, by) {
+      const { basis } = column(bx, by);
+      const [a, b, c] = d.normal;
+      return [0, 1, 2].map(
+        (k) => a * basis.east[k] + b * basis.north[k] + c * basis.up[k],
+      );
+    },
+  };
+}
+
 /**
  * Mesh a chunk. `blockM` scales columns to metres east and north,
  * `levelM` (`blockM` unless given) levels to metres up; `sunDir` is the
@@ -233,13 +320,14 @@ export function buildChunkMesh(
     sunDir = STUDY_SUN_DIR,
     greedy = true,
     skirt = null,
+    curved = null,
   } = {},
 ) {
   const counts = new Float64Array(8);
   const volume = occupancyVolume(chunk, neighbours);
   // Metres per block unit along east, north and up.
   const scale = [blockM, blockM, levelM];
-  if (!volume) return writeQuads([], [], { scale, sunDir, counts });
+  if (!volume) return writeQuads([], [], { scale, sunDir, counts, curved });
   const { cells, yMin, levels, low, up } = volume;
   // Index strides along east, north and up in the volume.
   const strides = [levels, SPAN * levels, 1];
@@ -339,20 +427,28 @@ export function buildChunkMesh(
     }
   }
 
-  // Merge each plane's faces into rectangles (or keep them one by one).
+  // Merge each plane's faces into rectangles (or keep them one by one). On
+  // a curved level a face runs at most curvedRunCap cells along the ground
+  // (levels up a side stay straight, along the local up).
   const opaque = [];
   const water = [];
+  const runCap = curved ? curvedRunCap(blockM) : Infinity;
   planes.forEach((byPlane, dirIndex) =>
     byPlane.forEach((cellsOfPlane, slot) => {
       const slice = slot - planeOffset[dirIndex];
-      for (const rect of mergeCells(cellsOfPlane, greedy)) {
+      const d = DIRECTIONS[dirIndex];
+      const caps = {
+        u: d.u === 2 ? Infinity : runCap,
+        v: d.v === 2 ? Infinity : runCap,
+      };
+      for (const rect of mergeCells(cellsOfPlane, greedy, caps)) {
         rect.dirIndex = dirIndex;
         rect.slice = slice;
         (rect.key >> 8 === MATERIALS.WATER ? water : opaque).push(rect);
       }
     }),
   );
-  return writeQuads(opaque, water, { scale, sunDir, counts });
+  return writeQuads(opaque, water, { scale, sunDir, counts, curved });
 }
 
 /** Whether a quad's four corners are shaded alike (its AO counts in `key`). */
@@ -370,8 +466,9 @@ const evenlyShaded = (key) => {
  * across half the face (at 10 m blocks, a dark fin standing at each step
  * of a staircase, 2026-10-27).
  */
-function writeQuads(opaque, water, { scale, sunDir, counts }) {
+function writeQuads(opaque, water, { scale, sunDir, counts, curved = null }) {
   const quads = opaque.concat(water);
+  const bend = curved ? curvedPlacement(curved, scale) : null;
   const fanned = quads.filter((rect) => !evenlyShaded(rect.key)).length;
   const vertices = quads.length * 4 + fanned;
   const positions = new Float32Array(vertices * 3);
@@ -393,10 +490,10 @@ function writeQuads(opaque, water, { scale, sunDir, counts }) {
     }
     return color;
   };
-  const writeVertex = (vertex, d, color) => {
-    normals[vertex * 3] = d.normal[0];
-    normals[vertex * 3 + 1] = d.normal[1];
-    normals[vertex * 3 + 2] = d.normal[2];
+  const writeVertex = (vertex, d, color, normal = d.normal) => {
+    normals[vertex * 3] = normal[0];
+    normals[vertex * 3 + 1] = normal[1];
+    normals[vertex * 3 + 2] = normal[2];
     colors[vertex * 4] = color[0];
     colors[vertex * 4 + 1] = color[1];
     colors[vertex * 4 + 2] = color[2];
@@ -405,11 +502,64 @@ function writeQuads(opaque, water, { scale, sunDir, counts }) {
   let centre = quads.length * 4;
   let index = 0;
   let opaqueIndexCount = 0;
+  // A block point (corner c of a face, or its centre) in block units.
+  const blockPoint = (d, planeB, uB, vB) => {
+    const b = [0, 0, 0];
+    b[d.axis] = planeB;
+    b[d.u] = uB;
+    b[d.v] = vB;
+    return b;
+  };
   for (let n = 0; n < quads.length; n += 1) {
     if (n === opaque.length) opaqueIndexCount = index;
     const rect = quads[n];
     const d = DIRECTIONS[rect.dirIndex];
     const material = rect.key >> 8;
+    if (bend) {
+      // Curved: each corner stood on the ellipsoid (curvedPlacement).
+      const planeB = rect.slice + (d.normal[d.axis] > 0 ? 1 : 0);
+      const uB = [rect.u, rect.u + rect.w];
+      const vB = [rect.v, rect.v + rect.h];
+      let light = 0;
+      for (let c = 0; c < 4; c += 1) {
+        const vertex = n * 4 + c;
+        const b = blockPoint(
+          d,
+          planeB,
+          uB[c === 1 || c === 2 ? 1 : 0],
+          vB[c >= 2 ? 1 : 0],
+        );
+        positions.set(bend.position(b[0], b[1], b[2]), vertex * 3);
+        const occlusion = AO[(rect.key >> (6 - 2 * c)) & 3];
+        light += occlusion;
+        writeVertex(
+          vertex,
+          d,
+          colorOf(material, rect.dirIndex, occlusion),
+          bend.normal(d, b[0], b[1]),
+        );
+      }
+      const base = n * 4;
+      if (evenlyShaded(rect.key)) {
+        for (let k = 0; k < 6; k += 1) indices[index++] = base + TRIANGLES[k];
+        continue;
+      }
+      const b = blockPoint(d, planeB, (uB[0] + uB[1]) / 2, (vB[0] + vB[1]) / 2);
+      positions.set(bend.position(b[0], b[1], b[2]), centre * 3);
+      writeVertex(
+        centre,
+        d,
+        colorOf(material, rect.dirIndex, light / 4),
+        bend.normal(d, b[0], b[1]),
+      );
+      for (let c = 0; c < 4; c += 1) {
+        indices[index++] = base + c;
+        indices[index++] = base + ((c + 1) % 4);
+        indices[index++] = centre;
+      }
+      centre += 1;
+      continue;
+    }
     // The plane along the face's axis, u and v across it, each axis at its
     // own scale (levels up, columns east and north).
     const plane = (rect.slice + (d.normal[d.axis] > 0 ? 1 : 0)) * scale[d.axis];
@@ -458,6 +608,9 @@ function writeQuads(opaque, water, { scale, sunDir, counts }) {
     faces: quads.length,
     opaqueIndexCount,
     stats,
+    // A curved chunk's own origin in the renderer's frame (its positions
+    // are relative to it); the flat ones use the region's chunkOrigin.
+    ...(bend ? { origin: bend.origin } : {}),
   };
 }
 
@@ -468,7 +621,9 @@ const TRIANGLES = [0, 1, 2, 0, 2, 3];
  * dense grid of the plane's extent: row by row, each free cell grows along
  * u while the key holds, then along v while every cell of the next row does.
  */
-function mergeCells(cells, greedy) {
+function mergeCells(cells, greedy, caps = null) {
+  const capU = caps?.u ?? Infinity;
+  const capV = caps?.v ?? Infinity;
   const count = cells.length / 3;
   const rects = [];
   if (!greedy) {
@@ -504,9 +659,10 @@ function mergeCells(cells, greedy) {
       const key = grid[v * width + u];
       if (key < 0) continue;
       let w = 1;
-      while (u + w < width && grid[v * width + u + w] === key) w += 1;
+      while (u + w < width && w < capU && grid[v * width + u + w] === key)
+        w += 1;
       let h = 1;
-      for (; v + h < height; h += 1) {
+      for (; v + h < height && h < capV; h += 1) {
         let row = true;
         for (let k = 0; k < w && row; k += 1)
           row = grid[(v + h) * width + u + k] === key;

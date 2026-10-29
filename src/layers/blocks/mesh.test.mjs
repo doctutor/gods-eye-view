@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
 import { MATERIALS, NONE, createChunk } from './store.js';
-import { buildChunkMesh } from './mesh.js';
+import { CURVED_CELL_PX, buildChunkMesh, curvedRunCap } from './mesh.js';
 import {
   AO,
   FACE_SHADE,
@@ -820,4 +820,225 @@ test('30 m levels: a skirt hangs in levels of 30 m, and a water surface sits on 
   );
   assert.ok(waterTop, 'a water surface');
   for (const c of waterTop.corners) assert.equal(c.p[2], 120);
+});
+
+// ── Curved levels (milestone 5, decision 5) ───────────────────────────
+
+/** A mesh's vertices on the globe: the renderer's frame and chunk matrix. */
+async function worldHeights(mesh, region, datumM, origin) {
+  const Cesium = await import('cesium');
+  const { chunkMatrix, regionFrame } = await import('./renderer.js');
+  const matrix = chunkMatrix(regionFrame(region, datumM), origin);
+  const out = [];
+  for (let k = 0; k < mesh.positions.length; k += 3) {
+    const world = Cesium.Matrix4.multiplyByPoint(
+      matrix,
+      new Cesium.Cartesian3(
+        mesh.positions[k],
+        mesh.positions[k + 1],
+        mesh.positions[k + 2],
+      ),
+      new Cesium.Cartesian3(),
+    );
+    out.push(Cesium.Cartographic.fromCartesian(world));
+  }
+  return out;
+}
+
+test('a 1,920 m level stands on the ellipsoid: the far corner within 1 m, where the flat frame is metres off', async () => {
+  const { createRegion } = await import('./grid.js');
+  const region = createRegion({
+    lon0: -76.6,
+    lat0: 39.3,
+    blockM: 1920,
+    levelM: 60,
+  });
+  assert.equal(region.curved, true);
+  const [ci, cj] = [3, 2];
+  const corner = region.chunkOrigin(ci, cj);
+  const datumM = -33;
+  const chunk = chunkAt(10, { ci, cj }); // tops at 11 × 60 = 660 m
+  const curved = buildChunkMesh(chunk, {
+    neighbours: flatAround(10),
+    blockM: 1920,
+    levelM: 60,
+    greedy: false,
+    curved: {
+      lon0: region.lon0,
+      lat0: region.lat0,
+      regionBlockM: 1920,
+      cornerM: corner,
+      datumM,
+    },
+  });
+  assert.ok(curved.origin, 'the mesh carries its own origin');
+  const heights = (
+    await worldHeights(curved, region, datumM, curved.origin)
+  ).map((c) => c.height);
+  for (const h of heights)
+    assert.ok(Math.abs(h - (datumM + 660)) < 1, `on the ellipsoid: ${h}`);
+  // The same chunk flat (the region's frame and its chunk drop): its far
+  // corner (64 columns on, 123 km further out) is metres off the ground.
+  const flat = buildChunkMesh(chunk, {
+    neighbours: flatAround(10),
+    blockM: 1920,
+    levelM: 60,
+    greedy: false,
+  });
+  const flatHeights = (await worldHeights(flat, region, datumM, corner)).map(
+    (c) => c.height,
+  );
+  const worst = Math.max(
+    ...flatHeights.map((h) => Math.abs(h - (datumM + 660))),
+  );
+  assert.ok(worst > 5, `the flat frame is off by ${worst} m`);
+  // Sides stay vertical to the local up: a side's two corners at one place.
+  const quads = quadsOf(curved);
+  const side = quads.find(
+    (q) => Math.abs(q.normal[2]) < 0.9 && q.corners.length === 4,
+  );
+  assert.equal(
+    side,
+    undefined,
+    'a flat chunk among flat neighbours: tops only',
+  );
+});
+
+test('a 30,720 m level: the next chunk out is ~300 km nearer the Earth’s centre than the plane, and stands on the ground', async () => {
+  const { createRegion } = await import('./grid.js');
+  const region = createRegion({
+    lon0: -76.6,
+    lat0: 39.3,
+    blockM: 30720,
+    levelM: 960,
+  });
+  const corner = region.chunkOrigin(1, 0); // 1,966 km east along the ground
+  assert.ok(corner.z < -290_000 && corner.z > -320_000, `drop ${corner.z}`);
+  const mesh = buildChunkMesh(chunkAt(0, { ci: 1, cj: 0 }), {
+    neighbours: flatAround(0),
+    blockM: 30720,
+    levelM: 960,
+    curved: {
+      lon0: region.lon0,
+      lat0: region.lat0,
+      regionBlockM: 30720,
+      cornerM: corner,
+      datumM: 0,
+    },
+  });
+  assert.ok(
+    Math.abs(mesh.origin.z - corner.z) < 1,
+    'its origin on the ground below the plane',
+  );
+  const places = await worldHeights(mesh, region, 0, mesh.origin);
+  for (const c of places)
+    assert.ok(Math.abs(c.height - 960) < 1, `${c.height}`);
+});
+
+test('the curved greedy cap: a face runs at most √(8R / (8·cell)) cells along the ground', () => {
+  assert.equal(CURVED_CELL_PX, 8);
+  assert.equal(curvedRunCap(1920), 57);
+  assert.equal(curvedRunCap(7680), 28);
+  assert.equal(curvedRunCap(30720), 14);
+  const options = { neighbours: flatAround(0), blockM: 30720, levelM: 960 };
+  assert.equal(
+    quadsOf(buildChunkMesh(chunkAt(0), options)).length,
+    1,
+    'flat: one top',
+  );
+  const mesh = buildChunkMesh(chunkAt(0), {
+    ...options,
+    curved: {
+      lon0: -76.6,
+      lat0: 39.3,
+      regionBlockM: 30720,
+      cornerM: { x: 0, y: 0 },
+      datumM: 0,
+    },
+  });
+  // 64 columns in runs of at most 14: 5 a side, 25 quads.
+  assert.equal(quadsOf(mesh).length, 25);
+});
+
+test('below 1,920 m nothing changes: the same bytes with or without the curved code', async () => {
+  const { createRegion } = await import('./grid.js');
+  assert.equal(
+    createRegion({ lon0: -76.6, lat0: 39.3, blockM: 480 }).curved,
+    false,
+  );
+  const chunk = chunkAt(3, { tops: [[5, 5, 6]], waters: [[9, 9, 4]] });
+  const base = { neighbours: flatAround(3), blockM: 480, levelM: 30 };
+  const a = buildChunkMesh(chunk, base);
+  const b = buildChunkMesh(chunk, { ...base, curved: null });
+  for (const key of ['positions', 'normals', 'colors', 'indices'])
+    assert.deepEqual(
+      Buffer.from(a[key].buffer),
+      Buffer.from(b[key].buffer),
+      key,
+    );
+  assert.equal(a.origin, undefined, 'flat meshes use the region’s chunkOrigin');
+});
+
+test('on a curved level water and skirts stand on the ellipsoid too', async () => {
+  const { createRegion } = await import('./grid.js');
+  const region = createRegion({
+    lon0: -76.6,
+    lat0: 39.3,
+    blockM: 7680,
+    levelM: 240,
+  });
+  const corner = region.chunkOrigin(2, -1);
+  // A pond (bed level 1, water to 3: its surface at 4 × 240 = 960 m) in
+  // ground at level 5, and no east neighbour, skirted down to level 2.
+  const chunk = chunkAt(5, {
+    tops: [[10, 10, 1]],
+    waters: [[10, 10, 3]],
+    ci: 2,
+    cj: -1,
+  });
+  const neighbours = { ...flatAround(5) };
+  for (const k of ['e', 'ne', 'se']) delete neighbours[k];
+  const mesh = buildChunkMesh(chunk, {
+    neighbours,
+    blockM: 7680,
+    levelM: 240,
+    skirt: { e: 2 },
+    curved: {
+      lon0: region.lon0,
+      lat0: region.lat0,
+      regionBlockM: 7680,
+      cornerM: corner,
+      datumM: 0,
+    },
+  });
+  // Quad corners only (a shaded quad's centre vertex sits mid-face).
+  const places = (await worldHeights(mesh, region, 0, mesh.origin)).slice(
+    0,
+    mesh.faces * 4,
+  );
+  const quads = quadsOf(mesh);
+  // Every corner at a level boundary: a whole number of 240 m levels up.
+  for (const c of places) {
+    const levels = c.height / 240;
+    assert.ok(Math.abs(levels - Math.round(levels)) < 1 / 240, `${c.height}`);
+  }
+  // The water's surface quad: translucent, at 960 m.
+  const waterAt = quads.findIndex((q) => q.corners[0].color[3] < 255);
+  assert.ok(waterAt >= 0, 'water');
+  for (let c = 0; c < 4; c += 1)
+    assert.ok(Math.abs(places[waterAt * 4 + c].height - 960) < 1);
+  // The skirt hangs from the top (1,440 m) to level 2's base (480 m).
+  const heights = places.map((c) => c.height);
+  assert.ok(
+    Math.abs(Math.min(...heights) - 480) < 1,
+    'nothing below the skirt’s floor and the pond bed, 480 m',
+  );
+  assert.ok(
+    heights.some((h) => Math.abs(h - 480) < 1),
+    'the skirt’s floor, 480 m',
+  );
+  assert.ok(
+    heights.some((h) => Math.abs(h - 1440) < 1),
+    'the ground’s top, 1,440 m',
+  );
 });
