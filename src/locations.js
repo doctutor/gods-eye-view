@@ -669,10 +669,13 @@ function wrapLongitude(lng) {
 export const PLACE_VIEWPORT_MAX_SPAN_KM = 300;
 /**
  * A viewport wider than this east to west (degrees) is framed about its
- * geocoded location instead (placeFramingViewport), at most these half-extents:
- * the lower 48 of the United States, whose box runs from −180 to 180.
+ * geocoded location instead (placeFramingViewport), at most these
+ * half-extents: the lower 48 of the United States, whose box takes in Alaska
+ * and Hawaii (Google's: 173.3° W to 66.3° W, 107°; the server's /api/geocode:
+ * −180 to 180) and whose fit landed off Oregon. Canada's box (about 89°)
+ * stays whole.
  */
-export const WIDE_VIEWPORT_LON_DEG = 180;
+export const WIDE_VIEWPORT_LON_DEG = 100;
 export const WIDE_FRAME_HALF_LAT_DEG = 20;
 export const WIDE_FRAME_HALF_LON_DEG = 32;
 
@@ -751,10 +754,10 @@ export function placeFramingViewport(
   types = [],
 ) {
   const metrics = viewportMetrics(viewport);
-  // A box wider than half the globe east to west (a country with territories
-  // across the antimeridian, ±180°) has no centre worth flying to: frame its
-  // own geocoded location instead, countries included (the United States
-  // lands over the lower 48).
+  // A box wider than WIDE_VIEWPORT_LON_DEG east to west (a country with
+  // territories far off, or across the antimeridian) has no centre worth
+  // flying to: frame its own geocoded location instead, countries included
+  // (the United States lands over the lower 48).
   if (
     metrics &&
     metrics.lonSpanDeg > WIDE_VIEWPORT_LON_DEG &&

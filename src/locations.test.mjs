@@ -818,3 +818,32 @@ test('"Lake Tahoe, California" as Google answers it (South Lake Tahoe, a localit
   const flown = flownRectangleDegrees(viewer);
   assert.ok(flown.west < -120.02 && flown.east > -119.93, JSON.stringify(flown));
 });
+
+test('Google’s United States (173.3° W to 66.3° W with Alaska and Hawaii, 107°) frames the lower 48, not the Pacific Northwest coast; Canada keeps its box', async () => {
+  const usGoogle = {
+    formatted_address: 'United States',
+    types: ['country', 'political'],
+    geometry: {
+      location: { lat: 38.7945952, lng: -106.5348379 },
+      viewport: {
+        southwest: { lat: 15.7760139, lng: -173.2992296 },
+        northeast: { lat: 72.7087158, lng: -66.3193754 },
+      },
+    },
+  };
+  const viewer = stubViewer();
+  await runSearch(viewer, {}, { result: usGoogle, query: 'United States' });
+  const flown = flownRectangleDegrees(viewer);
+  const centreLon = flown.crossesAntimeridian
+    ? (flown.west + flown.east + 360) / 2 - 360
+    : (flown.west + flown.east) / 2;
+  assert.ok(Math.abs(centreLon - -106.53) < 0.5, `centre ${centreLon}`);
+  assert.ok(Math.abs((flown.south + flown.north) / 2 - 38.79) < 0.5);
+  assert.ok(flown.west > -150 && flown.east < -60, JSON.stringify(flown));
+  // Canada (about 89° wide): framed as geocoded.
+  const canada = {
+    southwest: { lat: 41.6765559, lng: -141.00187 },
+    northeast: { lat: 83.3362128, lng: -52.3237664 },
+  };
+  assert.equal(placeFramingViewport(canada, 56.130366, -106.346771, ['country', 'political']), canada);
+});
