@@ -514,10 +514,20 @@ Findings, by what a user would notice:
    - The arrival guard takes a ground fallback, asked once when nothing
      rendered answers under a hidden globe. `src/app/blocks.js` gives it one
      point values probe.
+   - Google's own answers differ from the harness's. The harness builds
+     without a Google key (it lives in `.env`, which the worktree does not
+     have), so its searches fell through to the server's `/api/geocode`. The
+     app's Google geocoder answers "Europe" as `continent`, `establishment`,
+     `natural_feature`, which flew a capped swath over the Baltic. A
+     `continent`, or any viewport over 4,000 km, is now a region framed
+     whole. The Rocky Mountains, at about 2,700 km, stay a swath.
 2. "United States" framed the mid-Pacific. Its viewport runs from −180 to
    180, which `viewportMetrics` read as 0° wide at 180°. Fixed: a full wrap
    reads 360° wide, and `placeFramingViewport` frames a box wider than half
-   the globe about its geocoded location (the lower 48).
+   the globe about its geocoded location (the lower 48). Google's own box for the
+   United States is 107° wide (173.3° W to 66.3° W, with Alaska and
+   Hawaii), and its fit landed off Oregon. Boxes wider than 100° are now
+   framed about their location too.
 3. Near the ground, settling takes 35 to 58 s, with 30 to 53 main-thread long
    tasks a step (up to 0.56 s) and 35 fps at 120 m blocks under the drape.
    Open: performance work for the user to decide.

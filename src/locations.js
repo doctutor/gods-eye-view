@@ -506,6 +506,9 @@ function placesViewportToBounds(vp) {
  */
 export function geocodeNavigationMode(types) {
   const values = new Set(types);
+  // A continent is a region, whatever else it is typed (Google answers
+  // "Europe" as continent, establishment, natural_feature).
+  if (values.has('continent')) return 'region-overview';
   if (
     values.has('country') ||
     values.has('administrative_area_level_1') ||
@@ -553,6 +556,13 @@ const GENERIC_PLACE_TYPES = new Set(['point_of_interest', 'establishment']);
  */
 export const GENERIC_REGION_SPAN_KM = 1000;
 /**
+ * Whatever its types, a viewport over this diagonal (km) is a region framed
+ * whole, never a swath: Google's "Europe" (34–65° N, 11° W–55° E) is about
+ * 5,900 km. Above the Rocky Mountains' ~2,700 km, which stay a capped swath
+ * (regionFramingPlan, the owner's field test of 2026-07-23).
+ */
+export const CONTINENTAL_SPAN_KM = 4000;
+/**
  * Over this diagonal (km), as an area. "Lake Tahoe, California" answers typed
  * point_of_interest with a viewport of about 36 × 20 km (41 km across).
  */
@@ -560,17 +570,21 @@ export const GENERIC_AREA_SPAN_KM = 2;
 
 /**
  * The navigation mode for a result's types and viewport: the types' mode
- * (geocodeNavigationMode), except for a result with only generic types,
- * which is framed by its viewport's size: a region over
- * GENERIC_REGION_SPAN_KM, an area over GENERIC_AREA_SPAN_KM, else a place.
+ * (geocodeNavigationMode), except that a viewport over CONTINENTAL_SPAN_KM
+ * is a region whatever the types, and a result with only generic types is
+ * framed by its viewport's size: a region over GENERIC_REGION_SPAN_KM, an
+ * area over GENERIC_AREA_SPAN_KM, else a place.
  */
 export function viewportNavigationMode(types, viewport) {
   const mode = geocodeNavigationMode(types);
+  if (mode === 'region-overview') return mode;
+  const metrics = viewportMetrics(viewport);
+  // Continental: a region, whatever the types (a 5,000 km natural feature).
+  if (metrics && metrics.spanKm > CONTINENTAL_SPAN_KM) return 'region-overview';
   if (mode !== 'precise-place') return mode;
   const list = Array.isArray(types) ? types : [];
   if (!list.length || !list.every((type) => GENERIC_PLACE_TYPES.has(type)))
     return mode;
-  const metrics = viewportMetrics(viewport);
   if (!metrics) return mode;
   if (metrics.spanKm > GENERIC_REGION_SPAN_KM) return 'region-overview';
   if (metrics.spanKm > GENERIC_AREA_SPAN_KM) return 'area-overview';
@@ -655,10 +669,13 @@ function wrapLongitude(lng) {
 export const PLACE_VIEWPORT_MAX_SPAN_KM = 300;
 /**
  * A viewport wider than this east to west (degrees) is framed about its
- * geocoded location instead (placeFramingViewport), at most these half-extents:
- * the lower 48 of the United States, whose box runs from −180 to 180.
+ * geocoded location instead (placeFramingViewport), at most these
+ * half-extents: the lower 48 of the United States, whose box takes in Alaska
+ * and Hawaii (Google's: 173.3° W to 66.3° W, 107°; the server's /api/geocode:
+ * −180 to 180) and whose fit landed off Oregon. Canada's box (about 89°)
+ * stays whole.
  */
-export const WIDE_VIEWPORT_LON_DEG = 180;
+export const WIDE_VIEWPORT_LON_DEG = 100;
 export const WIDE_FRAME_HALF_LAT_DEG = 20;
 export const WIDE_FRAME_HALF_LON_DEG = 32;
 
@@ -737,10 +754,10 @@ export function placeFramingViewport(
   types = [],
 ) {
   const metrics = viewportMetrics(viewport);
-  // A box wider than half the globe east to west (a country with territories
-  // across the antimeridian, ±180°) has no centre worth flying to: frame its
-  // own geocoded location instead, countries included (the United States
-  // lands over the lower 48).
+  // A box wider than WIDE_VIEWPORT_LON_DEG east to west (a country with
+  // territories far off, or across the antimeridian) has no centre worth
+  // flying to: frame its own geocoded location instead, countries included
+  // (the United States lands over the lower 48).
   if (
     metrics &&
     metrics.lonSpanDeg > WIDE_VIEWPORT_LON_DEG &&
@@ -753,7 +770,13 @@ export function placeFramingViewport(
       Math.min(Math.abs(metrics.latSpanDeg) / 2, WIDE_FRAME_HALF_LAT_DEG),
       WIDE_FRAME_HALF_LON_DEG,
     );
-  if (Array.isArray(types) && types.includes('country')) return viewport;
+  // Countries and continents keep their whole box (a continent's geocoded
+  // point need not be near its box's centre: Europe's is 725 km off it).
+  if (
+    Array.isArray(types) &&
+    (types.includes('country') || types.includes('continent'))
+  )
+    return viewport;
   if (!metrics || metrics.spanKm <= PLACE_VIEWPORT_MAX_SPAN_KM) return viewport;
   if (!Number.isFinite(anchorLat) || !Number.isFinite(anchorLng))
     return viewport;
