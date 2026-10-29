@@ -307,3 +307,71 @@ test('where the walker stands on a 120 m block of 30 m levels: the level underfo
   assert.equal(place.levelM, 30);
   assert.equal(place.groundM, 120);
 });
+
+test('Relief ×3: the Blocks frame draws on the exaggerated blocks, the camera 1.62 m over the drawn feet, the readouts true', async () => {
+  const Cesium = await import('cesium');
+  const { blocksFrameFor } = await import('./binding.js');
+  const { createRegion } = await import('../layers/blocks/grid.js');
+  const { createChunk, NONE } = await import('../layers/blocks/store.js');
+  const { CHUNK_COLUMNS } = await import('../layers/blocks/grid.js');
+  const N = CHUNK_COLUMNS;
+  const region = createRegion({ lon0: -76.6122, lat0: 39.2904, blockM: 1 });
+  const chunk = createChunk({
+    ci: 0,
+    cj: 0,
+    top: new Int32Array(N * N).fill(29), // the top at 30 m
+    water: new Int32Array(N * N).fill(NONE),
+  });
+  const relief = { factor: 3, relativeM: 0 };
+  const source = { region, geoidM: -33, chunkAt: () => chunk, relief };
+  const frame = blocksFrameFor(source);
+  const flat = blocksFrameFor({ ...source, relief: null });
+  const heightOf = (p) => Cesium.Cartographic.fromCartesian(p).height;
+  // True metres: the place, AGL and ALT read these, the same with or without.
+  const eyeZ = 30 + 1.62;
+  assert.ok(
+    Math.abs(
+      frame.toCartographic(5, 5, eyeZ).heightM -
+        flat.toCartographic(5, 5, eyeZ).heightM,
+    ) < 1e-6,
+  );
+  // Drawn: the block top (30 m over the −33 m geoid: −3 m ellipsoidal) ×3.
+  const drawnTop = heightOf(frame.toWorld(5, 5, 30));
+  const trueTop = heightOf(flat.toWorld(5, 5, 30));
+  assert.ok(
+    Math.abs(drawnTop - trueTop * 3) < 0.01,
+    `${drawnTop} vs ${trueTop}`,
+  );
+  // The camera: 1.62 m over the drawn feet, not the eye drawn ×3.
+  const cam = frame.cameraCartographic(5, 5, eyeZ, 1.62).heightM;
+  assert.ok(Math.abs(cam - (drawnTop + 1.62)) < 0.01, `camera ${cam}`);
+  // And back: the camera's true metres.
+  const back = frame.cameraToLocal(
+    Cesium.Cartographic.fromDegrees(
+      ...[
+        frame.cameraCartographic(5, 5, eyeZ, 1.62).lon,
+        frame.cameraCartographic(5, 5, eyeZ, 1.62).lat,
+        cam,
+      ],
+    ),
+    1.62,
+  );
+  assert.ok(Math.abs(back.z - eyeZ) < 0.01, `true eye ${back.z}`);
+  assert.ok(Math.abs(back.x - 5) < 0.01 && Math.abs(back.y - 5) < 0.01);
+  // The walker's place keeps true metres (the HUD's AGL is 1.62 m).
+  const place = walkerPlace(frame, { x: 5, y: 5, z: eyeZ, yaw: 0 });
+  assert.ok(Math.abs(place.heightM - place.groundM - 1.62) < 1e-6);
+  // A third-person camera 3 m over the feet stands 3 m over the drawn feet.
+  assert.ok(
+    Math.abs(
+      frame.cameraCartographic(5, 5, 30 + 3, 3).heightM - (drawnTop + 3),
+    ) < 0.01,
+  );
+  // Without relief the camera is the eye, as before.
+  assert.ok(
+    Math.abs(
+      flat.cameraCartographic(5, 5, eyeZ, 1.62).heightM -
+        flat.toCartographic(5, 5, eyeZ).heightM,
+    ) < 1e-6,
+  );
+});

@@ -651,6 +651,27 @@ export class IntelHUD {
    * function giving the ellipsoidal height of the ground under the walker
    * (src/navigation/binding.js `place.groundM`), null or NaN otherwise.
    */
+  /**
+   * Personal fork: the camera's true height while Walk or Fly is on (the
+   * binding's cameraTrueHeightM): under the Relief the camera stands over
+   * the drawn, exaggerated blocks, and ALT and AGL keep the true metres.
+   */
+  setCameraHeightSource(source) {
+    this._cameraHeightSource = typeof source === 'function' ? source : null;
+  }
+
+  _trueCameraHeight() {
+    try {
+      // null (Spectator) is no height, not 0 m.
+      const given = this._cameraHeightSource?.();
+      return typeof given === 'number' && Number.isFinite(given)
+        ? given
+        : Number.NaN;
+    } catch {
+      return Number.NaN;
+    }
+  }
+
   setGroundSource(source) {
     this._groundSource = typeof source === 'function' ? source : null;
   }
@@ -883,7 +904,10 @@ export class IntelHUD {
 
     const lonDeg = view.lon;
     const latDeg = view.lat;
-    const altM = view.heightM;
+    // Personal fork: the camera's true height in Walk and Fly (the Relief
+    // draws it over exaggerated blocks), else the camera's own.
+    const trueM = this._trueCameraHeight();
+    const altM = Number.isFinite(trueM) ? trueM : view.heightM;
 
     // Altitude — reported as height above MEAN SEA LEVEL. `altM` is the raw
     // ellipsoidal camera height, which reads far below zero wherever the geoid

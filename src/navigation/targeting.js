@@ -9,6 +9,7 @@
  * place, snapped to the block it lies on. `onTarget` hears the facts when
  * the block changes, and null when nothing is targeted.
  */
+import { reliefOf, trueHeightM } from '../layers/blocks/relief.js';
 import * as Cesium from 'cesium';
 import { CHUNK_COLUMNS } from '../layers/blocks/grid.js';
 import { blocksWorldNow } from './blocksSource.js';
@@ -23,11 +24,15 @@ export const targetReachM = (blockM) => Math.min(20_000, 2048 * blockM);
 /**
  * The Blocks region's frame, as the renderer places it: east-north-up at
  * the region's origin lifted by `geoidM`, each chunk lowered by its drop
- * below the tangent plane (grid.js chunkOrigin).
+ * below the tangent plane (grid.js chunkOrigin). Under the Relief
+ * (`world.relief`, relief.js) the blocks are drawn exaggerated: a world
+ * point's height is taken back to the true one, and a direction's up part
+ * shrinks by the factor (the mapping is affine in height).
  */
 export function regionFrame(world, cesium = Cesium) {
   const { region } = world;
   const geoidM = Number(world.geoidM) || 0;
+  const relief = reliefOf(world.relief);
   const frame = cesium.Transforms.eastNorthUpToFixedFrame(
     cesium.Cartesian3.fromDegrees(region.lon0, region.lat0, 0),
   );
@@ -46,7 +51,12 @@ export function regionFrame(world, cesium = Cesium) {
         position,
         new cesium.Cartesian3(),
       );
-      return { x: p.x, y: p.y, z: p.z - geoidM - dropAt(p.x, p.y) };
+      const drop = dropAt(p.x, p.y);
+      return {
+        x: p.x,
+        y: p.y,
+        z: trueHeightM(p.z - drop, relief) - geoidM,
+      };
     },
     /** A world direction in the region's axes. */
     toLocalDirection(direction) {
@@ -55,7 +65,7 @@ export function regionFrame(world, cesium = Cesium) {
         direction,
         new cesium.Cartesian3(),
       );
-      return { x: d.x, y: d.y, z: d.z };
+      return { x: d.x, y: d.y, z: d.z / relief.factor };
     },
   };
 }

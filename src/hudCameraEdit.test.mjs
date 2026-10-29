@@ -415,3 +415,30 @@ test('in Walk and Fly AGL is over the walker’s ground: the eye’s 1.62 m at o
     s.hud.destroy();
   }
 });
+
+test('Relief: in Walk and Fly ALT and AGL read the camera’s true height, not the drawn one', () => {
+  surfaceAnswer = () => 12.4;
+  const s = setup();
+  try {
+    // The camera stands at 500 m, drawn over exaggerated blocks; its true
+    // height is 160 m and the walker's ground 158.38 m.
+    s.hud.setGroundSource(() => 158.38);
+    s.hud.setCameraHeightSource(() => 160);
+    s.hud._updateCameraData();
+    assert.ok(
+      Math.abs(s.hud._latestMetrics.aglM - 1.62) < 1e-6,
+      `walk ${s.hud._latestMetrics.aglM}`,
+    );
+    // Spectator: no true height given, the camera's own.
+    s.hud.setGroundSource(() => null);
+    s.hud.setCameraHeightSource(() => null);
+    s.hud.forgetSurface();
+    s.hud._updateCameraData();
+    assert.ok(
+      Math.abs(s.hud._latestMetrics.aglM - (500 - 12.4)) < 1e-6,
+      `spectator ${s.hud._latestMetrics.aglM}`,
+    );
+  } finally {
+    s.hud.destroy();
+  }
+});
