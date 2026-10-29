@@ -426,9 +426,10 @@ rings past it. The 300 m view drew 1,497 buildings, the 5 km view 9,935.
   own to 14). The server answers coarser tiles blank, so a view whose
   tiles fall below the band shows no drape for that level.
 - 5 km −45: east of a north-south line through the camera, the 8 m ground
-  and its coarse ring come back flat, one level with the buildings
-  standing on it. It was already there in the 2026-10-28 run, and it looks
-  like the 8 m values east of a lattice seam.
+  and its coarse ring came back flat, one level with the buildings
+  standing on it (already there in the 2026-10-28 run). It was the 480 m
+  ring drawn over the 8 m disc: the ring filter kept a chunk by its centre.
+  Fixed in 30cbcefe by farthestDistance and renderer.setRingHoles.
 - 3,000 km −90: the −74.04° gap is gone, but thin streaks remain along the
   coast (New Jersey, Long Island) and in the water near it.
 - 3,000 km −45 took 63 s to settle, the slowest view.
