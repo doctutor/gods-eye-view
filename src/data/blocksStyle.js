@@ -43,6 +43,37 @@ export const blocksLevelM = (cellM) =>
  */
 export const BLOCKS_STYLE_MIN_PX = 8;
 
+/** The deepest tile zoom the style is drawn at: the Elevation layer's. */
+export const BLOCKS_STYLE_MAX_ZOOM = 14;
+/** A web-mercator tile pixel at zoom 0 on the equator, metres. */
+const TILE0_PIXEL_M = 156_543.03392804097;
+/** Zooms below a level's own that still draw it; coarser ones are blank. */
+export const BLOCKS_STYLE_ZOOMS_BELOW = 2;
+
+/**
+ * A level's own tile zoom: the deepest at which a cell is at most
+ * BLOCKS_STYLE_MIN_PX pixels on the equator (more than half that: about
+ * 6.3 px; 120 m: 13, 480 m: 11, 1,920 m: 9, 7,680 m: 7, 30,720 m: 5).
+ */
+export const blocksStyleZoom = (cellM) =>
+  Math.floor(Math.log2((TILE0_PIXEL_M * BLOCKS_STYLE_MIN_PX) / cellM));
+
+/**
+ * The tile zooms a level is drawn at, {min, max}: from
+ * BLOCKS_STYLE_ZOOMS_BELOW under its own zoom (a cell of about 1.6 px on
+ * the equator) to the layer's deepest. A coarser tile is answered blank by the server, with
+ * no Earth Engine request: Cesium asks for ancestor tiles whatever the
+ * view, and a level's mean over a whole continent at a quarter pixel a
+ * cell is more than a map tile may take. The client sets its imagery
+ * provider's minimumLevel and maximumLevel to these.
+ */
+export function blocksStyleZoomBand(cellM) {
+  return {
+    min: Math.max(0, blocksStyleZoom(cellM) - BLOCKS_STYLE_ZOOMS_BELOW),
+    max: BLOCKS_STYLE_MAX_ZOOM,
+  };
+}
+
 /**
  * The level to show for a pixel footprint (metres a screen pixel): the
  * smallest whose cell is at least BLOCKS_STYLE_MIN_PX pixels, else the

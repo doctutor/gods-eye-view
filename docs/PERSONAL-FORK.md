@@ -6315,7 +6315,7 @@ finer than about two screen pixels.
   their edges; 7,680 m blocks from 3,000 km asked 17. The server's cache
   answers any view of a tile seen
   before, and a warm-up (`npm run blocks:pyramid -- --bbox w,s,e,n
-  --levels 1920,7680,30720`) fills it with exactly what later views ask
+--levels 1920,7680,30720`) fills it with exactly what later views ask
   for. A level change is a fresh view. From orbit that is one view of
   30,720 m blocks, not the thousands of 30 m chunks a fixed block size
   would need. The 20,000-tile Earth Engine day is unchanged.
@@ -6448,6 +6448,16 @@ Elevation map tiles are drawn as before (the mask is the Blocks values'
 and style's only), and the chunk source reads any value outside that
 range as nodata too.
 
+**The sea is water.** Every source masks the sea (GMTED's and FABDEM's
+0, ArcticDEM's and REMA's masks); there is no bathymetry. So a reduced
+cell less than half of whose pixels have heights, or whose mean is at or
+below 0 m, is 0 m, not nodata: water at level 0 over a bed at −1, one
+flat surface, the Blocks style's rule (`LAND_SHARE`). A coastal cell more
+than half land stands at the mean of its land. A coarse chunk built from
+its fine group follows the same rule (`coarseHeights` with `landShare`).
+At a native level (a cell under 1.5 × the source's) the sea is still
+nodata.
+
 **Warming the cache.** `npm run blocks:pyramid -- --bbox w,s,e,n
 --levels 1920,7680,30720 [--pace ms] [--dry-run]` asks every lattice
 tile over the box at each level through the values service, as the app's
@@ -6570,7 +6580,18 @@ counted and refused past the day's budget (429) as the layer's own:
     GET /api/earth-engine/tile/ee-elevation/blocks-<cellM>/<variant>/default/<z>/<x>/<y>
 
 `<variant>` is the Elevation layer's (`zoom` lets the server pick the
-band for z). Another cell is a 404, a colour scale (`?s=`) a 400. For
+band for z). Another cell is a 404, a colour scale (`?s=`) a 400.
+
+**Zoom band.** Each level is drawn from two zooms under its own
+(`blocksStyleZoom`: the deepest at which a cell is at most 8 px on the
+equator, about 6.3: 13, 11, 9, 7 and 5 for 120, 480, 1,920, 7,680 and
+30,720 m) to the layer's deepest, 14 (`blocksStyleZoomBand(cellM)` →
+`{min, max}`: 11, 9, 7, 5 and 3 to 14). A coarser tile is answered here
+with the transparent 256 × 256 PNG, 200, no map made, no Earth Engine
+request, nothing counted: Cesium asks for ancestor tiles whatever the
+view, and the 1,920 m level's z 4 tile (a quarter pixel a cell) timed
+out in Earth Engine. The client sets the imagery provider's
+`minimumLevel` and `maximumLevel` from the band. For
 the client (worker3): `blocksStyleTemplate(cellM)` gives the template,
 `blocksStyleLevelFor(pixelM)` the level for a pixel footprint (the
 smallest cell of at least 8 px, else the coarsest), `BLOCKS_STYLE_LEVELS_M`

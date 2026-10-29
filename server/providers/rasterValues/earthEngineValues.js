@@ -133,25 +133,64 @@ export function valuesExpression(base) {
   };
 }
 
+/** A reduced cell is water when less than this share of it has heights. */
+export const LAND_SHARE = 0.5;
+
 /**
  * The mean over each cell of the request's grid: the image given its
  * source's cell as a default projection (a mosaic's is 1°), then
  * reduceResolution with a mean, in the projection the request asks for
- * (computePixels' grid).
+ * (computePixels' grid). The sea is masked in every source, so a cell
+ * less than LAND_SHARE of whose pixels have heights, or whose mean is at
+ * or below 0 m, is water: 0 m, never nodata (the Blocks style's rule), so
+ * the Blocks sea is one water surface at level 0.
  */
 export function meanExpression(base, nativeM) {
+  const reduced = (image) =>
+    invoke('Image.reduceResolution', {
+      image: invoke('Image.setDefaultProjection', {
+        image,
+        crs: invoke('Projection', { crs: constant('EPSG:4326') }),
+        scale: constant(nativeM),
+      }),
+      reducer: invoke('Reducer.mean', {}),
+      bestEffort: constant(true),
+      maxPixels: constant(MEAN_MAX_PIXELS),
+    });
+  const zero = invoke('Image.constant', { value: constant(0) });
+  const mean = { valueReference: 'mh' };
+  // 1 where a cell is water: mostly without heights, or a mean ≤ 0 m.
+  const water = invoke('Image.max', {
+    image1: invoke('Image.lt', {
+      image1: reduced(
+        invoke('Image.unmask', {
+          input: invoke('Image.mask', {
+            image: { valueReference: base.result },
+          }),
+          value: zero,
+          sameFootprint: constant(false),
+        }),
+      ),
+      image2: invoke('Image.constant', { value: constant(LAND_SHARE) }),
+    }),
+    image2: invoke('Image.unmask', {
+      input: invoke('Image.lte', { image1: mean, image2: zero }),
+      value: invoke('Image.constant', { value: constant(1) }),
+      sameFootprint: constant(false),
+    }),
+  });
   return {
     values: {
       ...base.values,
-      mn: invoke('Image.reduceResolution', {
-        image: invoke('Image.setDefaultProjection', {
-          image: { valueReference: base.result },
-          crs: invoke('Projection', { crs: constant('EPSG:4326') }),
-          scale: constant(nativeM),
+      mh: reduced({ valueReference: base.result }),
+      mn: invoke('Image.where', {
+        input: invoke('Image.unmask', {
+          input: mean,
+          value: zero,
+          sameFootprint: constant(false),
         }),
-        reducer: invoke('Reducer.mean', {}),
-        bestEffort: constant(true),
-        maxPixels: constant(MEAN_MAX_PIXELS),
+        test: water,
+        value: zero,
       }),
     },
     result: 'mn',
