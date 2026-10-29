@@ -11,6 +11,9 @@ import path from 'node:path';
 import {
   BLOCKS_STYLE_LAYER,
   BLOCKS_STYLE_LEVELS_M,
+  BLOCKS_STYLE_MAX_ZOOM,
+  blocksStyleZoom,
+  blocksStyleZoomBand,
   blocksLevelM,
   blocksStyleCell,
   blocksStyleLevelFor,
@@ -21,6 +24,7 @@ import { EARTH_ENGINE_LAYERS, layerVariants } from './earthEngineLayers.js';
 import {
   BLOCKS_EDGE_PARTS,
   BLOCKS_MEAN_SUB,
+  TRANSPARENT_TILE,
   ZOOM_VARIANT,
   blocksStyleGrid,
   createEarthEngineService,
@@ -221,20 +225,24 @@ test('the tile route: blocks-<cellM> modes on Elevation, made when asked, kept, 
     env: { EARTH_ENGINE_DAILY_TILES: '2' },
     backend,
   });
+  // Each level at a zoom in its band (the Chesapeake's tile).
+  const at = {
+    'blocks-480': [11, 590, 786],
+    'blocks-1920': [9, 147, 196],
+    'blocks-7680': [7, 36, 49],
+  };
   const ask = (mode, scale) =>
     service.tile(
       'ee-elevation',
       ZOOM_VARIANT,
       'default',
-      4,
-      4,
-      6,
+      ...(at[mode] || [9, 147, 196]),
       mode,
       ...(scale ? [scale] : []),
     );
   const first = await ask('blocks-1920');
   assert.equal(first.status, 200);
-  assert.equal(first.body.toString(), '4/4/6');
+  assert.equal(first.body.toString(), '9/147/196');
   assert.equal(backend.made.length, 1);
   assert.match(backend.made[0], /^ee-elevation\/.+\/default\/blocks-1920$/);
   // Kept on disk: the second ask costs nothing.
@@ -267,4 +275,58 @@ test('the tile route: blocks-<cellM> modes on Elevation, made when asked, kept, 
   assert.ok(!backend.made.slice(before).some((entry) => /blocks-/.test(entry)));
   const row = catalog.layers.find((entry) => entry.id === 'ee-elevation');
   assert.ok(row);
+});
+
+test('blocksStyleZoomBand: from two zooms under a level’s own (a cell of up to 8 px) to the layer’s deepest', () => {
+  assert.equal(BLOCKS_STYLE_MAX_ZOOM, elevation.maxZoom);
+  const own = Object.fromEntries(
+    BLOCKS_STYLE_LEVELS_M.map((cellM) => [cellM, blocksStyleZoom(cellM)]),
+  );
+  assert.deepEqual(own, { 120: 13, 480: 11, 1920: 9, 7680: 7, 30720: 5 });
+  assert.deepEqual(blocksStyleZoomBand(1920), { min: 7, max: 14 });
+  assert.deepEqual(blocksStyleZoomBand(7680), { min: 5, max: 14 });
+  assert.deepEqual(blocksStyleZoomBand(30720), { min: 3, max: 14 });
+  assert.deepEqual(blocksStyleZoomBand(120), { min: 11, max: 14 });
+  // A cell at its own zoom is at most 8 px on the equator, over 4.
+  for (const cellM of BLOCKS_STYLE_LEVELS_M) {
+    const px = cellM / (156_543.03392804097 / 2 ** blocksStyleZoom(cellM));
+    assert.ok(px > 4 && px <= 8, `${cellM}: ${px}`);
+  }
+});
+
+test('under its band a level’s tile is blank: 200, the transparent PNG, no map, no Earth Engine, nothing counted', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-blocks-band-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const backend = fakeBackend();
+  const service = createEarthEngineService({
+    sourceRoot: root,
+    env: { EARTH_ENGINE_DAILY_TILES: '1' },
+    backend,
+  });
+  const tile = (mode, z, x, y) =>
+    service.tile('ee-elevation', ZOOM_VARIANT, 'default', z, x, y, mode);
+  // The tile that timed out live: 1,920 m at z 4 (its band starts at 7).
+  for (const [mode, z, x, y] of [
+    ['blocks-1920', 4, 4, 5],
+    ['blocks-1920', 6, 18, 24],
+    ['blocks-7680', 4, 4, 5],
+    ['blocks-30720', 2, 1, 1],
+    ['blocks-120', 10, 294, 393],
+  ]) {
+    const blank = await tile(mode, z, x, y);
+    assert.equal(blank.status, 200, `${mode} z${z}`);
+    assert.equal(blank.blank, true);
+    assert.equal(blank.contentType, 'image/png');
+    assert.equal(blank.body, TRANSPARENT_TILE);
+  }
+  assert.equal(backend.made.length, 0);
+  assert.equal(backend.tiles.length, 0);
+  assert.equal((await service.budget()).total, 0);
+  // At the band's first zoom it is Earth Engine's (the day's one tile).
+  const drawn = await tile('blocks-1920', 7, 36, 49);
+  assert.equal(drawn.status, 200);
+  assert.notEqual(drawn.blank, true);
+  assert.equal(backend.made.length, 1);
+  // Out of range is still out of range.
+  assert.equal((await tile('blocks-1920', 4, 16, 0)).status, 400);
 });
