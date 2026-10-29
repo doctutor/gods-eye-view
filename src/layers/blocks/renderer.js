@@ -21,7 +21,7 @@
 
 import * as Cesium from 'cesium';
 import { solarParameters, sunPosition } from '../../data/solarDaylight.js';
-import { CHUNK_COLUMNS, parseChunkKey } from './grid.js';
+import { CHUNK_COLUMNS, CURVED_BLOCK_M, parseChunkKey } from './grid.js';
 import { STUDY_SUN, STUDY_SUN_DIR, sunDirection } from './lighting.js';
 
 /** The real sun lights the blocks above this elevation, else the study sun. */
@@ -468,6 +468,26 @@ export function ringsFog(regions, reachBlocks, start = RING_FOG_START) {
 
 /** Chunks a batch side: 4 × 4 chunks (a source.js group) draw as one primitive per kind. */
 export const BATCH_CHUNKS = 4;
+/**
+ * Whether a chunk stands on the ellipsoid (the curved grid, CURVED_BLOCK_M
+ * and up), so its local positions are off the block lattice: by its mesh's
+ * own `curved`, else by its block size (a ring's level, the primary
+ * region's, or four times that for a 'c:' coarse chunk).
+ */
+export function chunkIsCurved(key, mesh, primaryBlockM) {
+  if (typeof mesh?.curved === 'boolean') return mesh.curved;
+  const level = parseLevelChunkKey(key);
+  if (level) return level.blockM >= CURVED_BLOCK_M;
+  const coarse = /^c:/.test(String(key));
+  return (primaryBlockM || 0) * (coarse ? BATCH_CHUNKS : 1) >= CURVED_BLOCK_M;
+}
+
+/**
+ * A batch covering the view's centre is rebuilt after this much quiet, not
+ * BATCH_QUIET_MS: soon, but not every frame while its chunks stream in.
+ */
+export const CENTRE_QUIET_MS = 250;
+
 /** How long a batch's chunks are left alone before it is rebuilt with them, ms. */
 export const BATCH_QUIET_MS = 1500;
 
@@ -516,6 +536,7 @@ export function createBlocksRenderer({
     return handle;
   },
   clearTimeoutImpl = (handle) => clearTimeout(handle),
+  viewCentre = null,
 } = {}) {
   const scene = viewer.scene;
   const collection = scene.primitives.add(
@@ -566,6 +587,15 @@ export function createBlocksRenderer({
   const levelMOf = (entry) =>
     entry?.levelM > 0 ? entry.levelM : entry?.blockM || 1;
 
+  // Curved chunks (chunkIsCurved) draw without block edges or dither: the
+  // shader finds them from local positions on the block lattice, which a
+  // chunk on the ellipsoid's are not (a per-vertex block coordinate will
+  // bring them back).
+  const curvedAppearances = {
+    opaque: blocksAppearance(false),
+    water: blocksAppearance(true),
+  };
+
   /** Every appearance set, with the block size and level its edges are drawn at. */
   const appearanceSets = () => [
     { blockM: region?.blockM || 1, levelM: levelMOf(region), set: appearances },
@@ -574,19 +604,20 @@ export function createBlocksRenderer({
       levelM: levelMOf(ring.region),
       set: ring.appearances,
     })),
+    { blockM: 1, levelM: 1, set: curvedAppearances, plain: true },
   ];
 
   /** The block size and the land's edge and dither uniforms. */
   function applyStyle() {
-    for (const { blockM, levelM, set } of appearanceSets())
-      styleAppearances(set, blockM, levelM);
+    for (const { blockM, levelM, set, plain } of appearanceSets())
+      styleAppearances(set, blockM, levelM, { plain });
   }
 
-  function styleAppearances(set, blockM, levelM = blockM) {
+  function styleAppearances(set, blockM, levelM = blockM, { plain } = {}) {
     for (const [kind, appearance] of Object.entries(set)) {
       const uniforms = appearance.material.uniforms;
       uniforms.levelM = levelM;
-      const land = kind === 'opaque';
+      const land = kind === 'opaque' && !plain;
       uniforms.blockM = blockM;
       uniforms.edgeStrength = land && style.edges ? style.edges.strength : 0;
       uniforms.edgeFadeStart =
@@ -672,12 +703,12 @@ export function createBlocksRenderer({
       : { frame, set: appearances };
   };
 
-  function drawn(instances, kind, origin, level = null) {
+  function drawn(instances, kind, origin, level = null, curved = false) {
     const { frame: at, set } = levelOf(level);
     return collection.add(
       primitive3D({
         geometryInstances: instances,
-        appearance: set[kind],
+        appearance: (curved ? curvedAppearances : set)[kind],
         modelMatrix: chunkMatrix(at, origin),
         asynchronous: false,
         compressVertices: false,
@@ -704,6 +735,7 @@ export function createBlocksRenderer({
           kind,
           held.origin,
           held.level,
+          held.curved,
         ),
       );
   }
@@ -734,7 +766,9 @@ export function createBlocksRenderer({
     const before = batch.primitives;
     batch.primitives = ['opaque', 'water']
       .filter((kind) => instances[kind].length)
-      .map((kind) => drawn(instances[kind], kind, batch.origin, batch.level));
+      .map((kind) =>
+        drawn(instances[kind], kind, batch.origin, batch.level, batch.curved),
+      );
     batch.built = built;
     for (const primitive of before) collection.remove(primitive);
     for (const key of batch.members) {
@@ -783,22 +817,79 @@ export function createBlocksRenderer({
     requestRender();
   }
 
+  /** The point on the ground the view looks at: the screen's centre on the ellipsoid, else under the camera. */
+  function centreNow() {
+    if (viewCentre) return viewCentre();
+    const camera = scene.camera;
+    const canvas = scene.canvas;
+    try {
+      const picked =
+        canvas &&
+        camera?.pickEllipsoid?.(
+          new Cesium.Cartesian2(
+            (canvas.clientWidth || canvas.width || 0) / 2,
+            (canvas.clientHeight || canvas.height || 0) / 2,
+          ),
+        );
+      if (picked) return picked;
+      return camera?.positionWC
+        ? Cesium.Ellipsoid.WGS84.scaleToGeodeticSurface(camera.positionWC)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** A batch's middle in world coordinates, and the radius it covers, m. */
+  function batchPlace(batch) {
+    const side = BATCH_CHUNKS * CHUNK_COLUMNS * (batch.blockM || 1);
+    const matrix = chunkMatrix(levelOf(batch.level).frame, batch.origin);
+    const middle = Cesium.Matrix4.multiplyByPoint(
+      matrix,
+      new Cesium.Cartesian3(side / 2, side / 2, 0),
+      new Cesium.Cartesian3(),
+    );
+    return { middle, radius: (side / 2) * Math.SQRT2 };
+  }
+
+  /**
+   * Pending batches, nearest the view's centre first (with no centre, as
+   * they came), each with whether it covers the centre.
+   */
+  function pendingByCentre() {
+    const keys = [...pending];
+    const centre = frame ? centreNow() : null;
+    if (!centre) return keys.map((batchKey) => ({ batchKey, covers: false }));
+    return keys
+      .map((batchKey) => {
+        const batch = batches.get(batchKey);
+        if (!batch) return { batchKey, distance: -1, covers: false };
+        const { middle, radius } = batchPlace(batch);
+        const distance = Cesium.Cartesian3.distance(middle, centre);
+        return { batchKey, distance, covers: distance <= radius };
+      })
+      .sort((a, b) => a.distance - b.distance);
+  }
+
   /**
    * Rebuild pending batches that have been quiet for `quietMs`: one a frame
-   * (each frame calls it), or every pending one with `{all: true}`.
+   * (each frame calls it), nearest the view's centre first, a batch that
+   * covers the centre after only CENTRE_QUIET_MS; or every pending one
+   * with `{all: true}`.
    * @returns {number} batches rebuilt
    */
   function flush({ all = false } = {}) {
     if (!pending.size || !frame) return 0;
     const time = now();
     let rebuilt = 0;
-    for (const batchKey of [...pending]) {
+    for (const { batchKey, covers } of pendingByCentre()) {
       const batch = batches.get(batchKey);
       if (
         !all &&
         batch &&
         !batch.rebuildNow &&
-        time - batch.changedAt < quietMs
+        time - batch.changedAt <
+          (covers ? Math.min(quietMs, CENTRE_QUIET_MS) : quietMs)
       )
         continue;
       rebuild(batchKey);
@@ -968,9 +1059,15 @@ export function createBlocksRenderer({
       }
       let batch = batches.get(batchKey);
       if (!batch) {
+        const curved = chunkIsCurved(key, mesh, region.blockM);
         batch = {
           origin,
           level: leveled?.blockM ?? null,
+          curved,
+          // Its blocks' size and a side in blocks: where its middle is.
+          blockM:
+            leveled?.blockM ??
+            region.blockM * (/^c:/.test(key) ? BATCH_CHUNKS : 1),
           members: new Set(),
           built: new Map(),
           primitives: [],
@@ -991,6 +1088,7 @@ export function createBlocksRenderer({
         ),
         chunk: [parsed?.ci ?? 0, parsed?.cj ?? 0],
         level: leveled?.blockM ?? null,
+        curved: batch.curved,
         alone: [],
       };
       chunks.set(key, held);

@@ -26,6 +26,8 @@ import {
   chunkMatrix,
   createBlocksRenderer,
   primitive3D,
+  CENTRE_QUIET_MS,
+  chunkIsCurved,
   levelChunkKey,
   parseLevelChunkKey,
   regionFrame,
@@ -1006,14 +1008,14 @@ test("a ring's chunks batch apart from the primary's and keep their frame", () =
 test('levelM: the vertical edge lines at the level height, per ring; a level change is another region', () => {
   const renderer = createBlocksRenderer({ viewer: fakeViewer() });
   const fine = { ...stubRegion({ blockM: 120 }), levelM: 30 };
-  const far = { ...stubRegion({ blockM: 1920 }), levelM: 60 };
+  const far = { ...stubRegion({ blockM: 480 }), levelM: 15 };
   renderer.setRegions([fine, far]);
   renderer.upsert('0:0', tinyMesh());
-  renderer.upsert(levelChunkKey(1920, 0, 0), tinyMesh());
+  renderer.upsert(levelChunkKey(480, 0, 0), tinyMesh());
   const [a, b] = [0, 1].map((k) => renderer.getCollection().get(k));
   assert.equal(a.appearance.material.uniforms.blockM, 120);
   assert.equal(a.appearance.material.uniforms.levelM, 30);
-  assert.equal(b.appearance.material.uniforms.levelM, 60);
+  assert.equal(b.appearance.material.uniforms.levelM, 15);
   assert.match(
     a.appearance.getFragmentShaderSource(),
     /localPosition \/ vec3\(blockM_\d+, blockM_\d+, levelM_\d+\)/,
@@ -1029,5 +1031,88 @@ test('levelM: the vertical edge lines at the level height, per ring; a level cha
   // The same anchor and block on other levels: its chunks go.
   renderer.setRegion({ ...stubRegion({ blockM: 30 }), levelM: 15 });
   assert.deepEqual(renderer.keys(), []);
+  renderer.destroy();
+});
+
+test('curved chunks (1,920 m and up) draw without block edges or dither; flat ones keep them', () => {
+  assert.equal(chunkIsCurved('0:0', null, 480), false);
+  assert.equal(chunkIsCurved('c:0:0', null, 480), true); // 4 × 480 m
+  assert.equal(chunkIsCurved('0:0', null, 1920), true);
+  assert.equal(chunkIsCurved('L7680:0:0', null, 30), true);
+  assert.equal(chunkIsCurved('L480:0:0', null, 30), false);
+  assert.equal(chunkIsCurved('0:0', { curved: false }, 1920), false);
+  const renderer = createBlocksRenderer({ viewer: fakeViewer() });
+  renderer.setRegions([
+    stubRegion({ blockM: 480 }),
+    stubRegion({ blockM: 1920 }),
+  ]);
+  renderer.upsert('0:0', tinyMesh());
+  // A coarse chunk carries its origin (the controller sets it).
+  renderer.upsert('c:0:0', { ...tinyMesh(), origin: { x: 0, y: 0, z: 0 } });
+  renderer.upsert(levelChunkKey(1920, 0, 0), tinyMesh());
+  const [flat, coarse, ring] = [0, 1, 2].map((k) =>
+    renderer.getCollection().get(k),
+  );
+  const u = (p) => p.appearance.material.uniforms;
+  assert.equal(u(flat).edgeStrength, EDGE_DEFAULTS.strength);
+  assert.equal(u(flat).ditherAmount, DITHER_DEFAULTS.amount);
+  for (const curved of [coarse, ring]) {
+    assert.equal(u(curved).edgeStrength, 0);
+    assert.equal(u(curved).ditherAmount, 0);
+  }
+  // The fog still reaches them.
+  renderer.setFog({ startM: 10, endM: 20 });
+  assert.equal(u(ring).fogEndM, 20);
+  // setStyle never turns them back on.
+  renderer.setStyle({ edges: true, dither: true });
+  assert.equal(u(coarse).edgeStrength, 0);
+  renderer.destroy();
+});
+
+test('batches are built nearest the view centre first, and one covering the centre after 250 ms, not 1.5 s', () => {
+  const viewer = fakeViewer();
+  viewer.scene.preRender = new Cesium.Event();
+  let clock = 1_000_000;
+  let centre = null;
+  const renderer = createBlocksRenderer({
+    viewer,
+    now: () => clock,
+    quietMs: 1500,
+    setTimeoutImpl: () => 1,
+    clearTimeoutImpl() {},
+    viewCentre: () => centre,
+  });
+  const region = stubRegion({ lon0: 0, lat0: 0, blockM: 30 });
+  renderer.setRegion(region);
+  // Three batches 4 × 4 chunks of 1,920 m: groups (0, 0), (5, 0), (10, 0).
+  for (const gi of [0, 5, 10])
+    for (let a = 0; a < 4; a++)
+      for (let b = 0; b < 4; b++)
+        renderer.upsert(`${gi * 4 + a}:${b}`, tinyMesh());
+  const frame = () => viewer.scene.preRender.raiseEvent(viewer.scene);
+  const batched = () =>
+    [...renderer.getCollection()._primitives]
+      .filter((p) => p.geometryInstances.length === 16)
+      .map((p) => p.geometryInstances[0].id.key);
+  // The centre over group (10, 0): the frame after quiet builds it first.
+  const world = (x, y) =>
+    Cesium.Matrix4.multiplyByPoint(
+      regionFrame(region),
+      new Cesium.Cartesian3(x, y, 0),
+      new Cesium.Cartesian3(),
+    );
+  centre = world(10 * 4 * 64 * 30 + 3840, 3840);
+  // Covering it, 250 ms is enough; the others still wait.
+  clock += CENTRE_QUIET_MS;
+  frame();
+  assert.deepEqual(batched(), ['40:0']);
+  frame();
+  assert.deepEqual(batched(), ['40:0']);
+  // Quiet: the nearer of the rest next (group 5, then 0).
+  clock += 1500;
+  frame();
+  assert.deepEqual(batched().sort(), ['20:0', '40:0']);
+  frame();
+  assert.deepEqual(batched().sort(), ['0:0', '20:0', '40:0']);
   renderer.destroy();
 });
