@@ -8231,6 +8231,26 @@ from before Walk and Fly does.
   builds its own server, now without a watcher or a scan: 123 s to 0.9 s
   in the main checkout. Upstream has none of these folders, so the ignores
   are harmless there.
+- **Build stamp: a stale tab reloads itself** (`build/buildStamp.js`,
+  `src/buildStamp.js`). A tab Chrome restored from its cache ran Blocks
+  modules days older than the ones the server was serving (2026-10-29: a
+  morning of views drawn by a build from before the curved frame, flat
+  slabs stepping down the sphere; the tab had loaded eight hours after the
+  server's last restart). Vite's modules say `no-cache`, which a normal
+  load revalidates and a session restore does not; and a tab left open
+  across a restart the socket of which never reconnects is the same case.
+  Vite's own client reloads a page when its socket reconnects; this is
+  the check for the documents that one misses. The server bakes a stamp into every document
+  (`<meta name="gev-build-stamp">`) and answers its current one at
+  `/build-stamp.json` (`Cache-Control: no-store`; a build writes the file
+  into `dist/`). The dev stamp is new at every start and at every change
+  to a module of the page or a document (a stylesheet swaps in place and
+  keeps it). The page asks every minute and when it comes back into view
+  or gains focus; a different answer reloads it at once while hidden,
+  otherwise once the user has been idle 15 s (pointer, key, wheel), so no
+  gesture is lost; the view lives in the hash and survives. A missing or
+  malformed answer never reloads anything, and a reload that does not
+  bring the newer stamp (a cache) is not repeated (session storage).
 - **Frame cache.** Camera stills are kept for their Cache-Control lifetime (at
   most an hour, 500 frames or 64 MB), so an open panel asks OpenCCTV at most
   every 10 minutes and Windy every 2.5 minutes

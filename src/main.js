@@ -1,6 +1,7 @@
 import { createStandaloneApplication } from './standalone/application.js';
 import { describeError } from './standalone/errors.js';
 import { t } from './i18n/index.js';
+import { startBuildStampWatcher } from './buildStamp.js';
 
 const application = createStandaloneApplication({
   googleApiKey: import.meta.env.GOOGLE_MAPS_API_KEY,
@@ -16,5 +17,9 @@ application.start().catch((error) => {
   });
   loaderStatus.style.color = '#ff4444';
 });
+
+// Personal fork: a page whose code the server no longer serves reloads
+// itself once it is hidden or its user has been idle a while.
+startBuildStampWatcher();
 
 export { application };

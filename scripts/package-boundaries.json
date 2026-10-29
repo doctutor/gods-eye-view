@@ -37,7 +37,8 @@
       "build/application-html.js",
       "build/allowedHosts.js",
       "build/embed-framing.js",
-      "build/panel.js"
+      "build/panel.js",
+      "build/buildStamp.js"
     ],
     "external": ["vite-plugin-cesium"]
   },

@@ -3,6 +3,7 @@ import cesium from 'vite-plugin-cesium';
 import { DEFAULT_ALLOWED_HOSTS, hostCheckPlugin } from './allowedHosts.js';
 import { embedFramingPlugin } from './embed-framing.js';
 import { panelBuildPlugin } from './panel.js';
+import { buildStampPlugin } from './buildStamp.js';
 
 /**
  * Content-Security-Policy for every document the dev/preview server serves.
@@ -96,6 +97,9 @@ export function createBrowserViteConfig({
       ...plugins,
       embedFramingPlugin(),
       panelBuildPlugin(),
+      // Personal fork: the build stamp, so a page left open across a server
+      // restart or a merge reloads itself for the code the server now serves.
+      buildStampPlugin(),
     ],
     ...(publicDir === undefined ? {} : { publicDir }),
     // A production build must not clean the dependency cache a running dev
