@@ -14,6 +14,7 @@
 // in (src/app/blocks.js wires the real ones), so this file stays pure enough
 // to test on fakes. Not part of upstream God's Eye View.
 
+import { NO_RELIEF, drawnHeightM } from './relief.js';
 import { ELEVATION_LAYER_ID } from '../lego/layerSpecs.js';
 import { setBlocksFloorM, setBlocksScene } from './floor.js';
 import { BLOCK_PYRAMID_M, levelMFor, pyramidLevelM } from './pyramid.js';
@@ -84,15 +85,11 @@ export function ceilingM(blockM, radiusBlocks) {
   );
 }
 
-/**
- * A height drawn under the Relief control, as Cesium draws the globe's
- * (scene.verticalExaggeration about its relative height; photoreal.js
- * exaggerate), so the blocks stay on the exaggerated ground.
- */
-export const drawnHeightM = (heightM, { factor = 1, relativeM = 0 } = {}) =>
-  factor > 1 ? (heightM - relativeM) * factor + relativeM : heightM;
-/** No relief: true heights. */
-const NO_RELIEF = Object.freeze({ factor: 1, relativeM: 0 });
+// A height drawn under the Relief control, as Cesium draws the globe's
+// (scene.verticalExaggeration about its relative height): src/layers/
+// blocks/relief.js, shared with navigation (the walker, its eye, targeting
+// and the outline follow the drawn blocks).
+export { drawnHeightM };
 
 /**
  * Whether the camera is in flight (Cesium's flyTo in progress) or an
@@ -152,6 +149,20 @@ export const NEIGHBOURS = Object.freeze([
 ]);
 /** The tick while the camera moves, or while chunks are still coming. */
 export const TICK_MS = 500;
+/**
+ * How long the camera must hold still for Blocks to take it as settled
+ * without a moveEnd (a little over Cesium's cameraEventWaitTime, 500 ms):
+ * after some flights the camera's up vector changes by ~1e-16 every frame,
+ * moveStart fires again ~15 ms after each moveEnd, or no moveEnd comes at
+ * all, and the first region (anchored where the camera settles) waited on
+ * "waiting for the camera to land" for minutes (3,000 km at −45°,
+ * 2026-10-28).
+ */
+export const SETTLE_MS = 600;
+/** Still: within this of where it was (m), and turned less than SETTLE_COS. */
+const SETTLE_M = 0.01;
+/** cos(0.001°): the camera's direction and up turned less than this. */
+const SETTLE_COS = Math.cos((0.001 * Math.PI) / 180);
 /**
  * How often the sun is read again at the camera, ms: a view left open
  * follows the day (the study sun's switch at 15°, the light's direction).
@@ -1346,6 +1357,10 @@ export function createBlocksController({
   }
 
   function tick() {
+    // Cesium says the camera moves, but it has held still SETTLE_MS (a
+    // moveEnd late, or never: its up vector churning by ~1e-16 a frame):
+    // settled all the same.
+    if (_moving && cameraStill()) _moving = false;
     const camera = active() ? cameraLonLat() : null;
     const held = holdFor(camera);
     applyGlobe(held);
@@ -1608,6 +1623,43 @@ export function createBlocksController({
   const statusOff = () =>
     !_destroyed && store.getMode() === 'blocks' ? 'no-elevation' : 'off';
 
+  /**
+   * Whether the camera has held still SETTLE_MS (its position, direction
+   * and up within SETTLE_M and SETTLE_COS of the last time it moved).
+   * Asked each tick while Cesium says it moves.
+   */
+  let _still = null;
+  function cameraStill() {
+    const camera = _viewer?.camera;
+    const p = camera?.positionWC;
+    const d = camera?.direction;
+    const u = camera?.up;
+    if (!p || !d || !u) return false;
+    const pose = [p.x, p.y, p.z, d.x, d.y, d.z, u.x, u.y, u.z];
+    const t = now();
+    const held = _still;
+    const same =
+      held &&
+      Math.hypot(
+        pose[0] - held.pose[0],
+        pose[1] - held.pose[1],
+        pose[2] - held.pose[2],
+      ) <= SETTLE_M &&
+      pose[3] * held.pose[3] +
+        pose[4] * held.pose[4] +
+        pose[5] * held.pose[5] >=
+        SETTLE_COS &&
+      pose[6] * held.pose[6] +
+        pose[7] * held.pose[7] +
+        pose[8] * held.pose[8] >=
+        SETTLE_COS;
+    if (!same) {
+      _still = { pose, since: t };
+      return false;
+    }
+    return t - held.since >= SETTLE_MS;
+  }
+
   function attach(viewerNow) {
     _viewer = viewerNow || _viewer;
     const camera = _viewer?.camera;
@@ -1615,6 +1667,8 @@ export function createBlocksController({
     if (camera.moveStart)
       _removers.push(
         camera.moveStart.addEventListener(() => {
+          // A fresh move: the camera is still only from here on.
+          if (!_moving) _still = null;
           _moving = true;
           if (active()) startTicking();
         }),
@@ -1680,6 +1734,8 @@ export function createBlocksController({
         chunkAt: (ci, cj) => _chunks.get(grid.chunkKey(ci, cj))?.chunk || null,
         // The elevation source's name, for the HUD's BLOCK line.
         sourceName: _region.sourceName || '',
+        // The Relief the blocks are drawn under (relief.js), for the walker.
+        relief: _region.relief,
       };
     },
     subscribe(listener) {

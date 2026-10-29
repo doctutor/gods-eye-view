@@ -430,6 +430,11 @@ export class StyleManager extends ShellFacade {
     // Fly; its surface sample forgotten when the camera is put somewhere
     // else (an entry, Home, a waypoint, a mode change).
     this.hud?.setGroundSource?.(() => this._embodied?.place?.groundM ?? null);
+    // Under the Relief the camera stands over the drawn blocks: ALT and AGL
+    // read its true height.
+    this.hud?.setCameraHeightSource?.(
+      () => this._embodied?.cameraTrueHeightM ?? null,
+    );
     this._offSurfaceEntry = navigationStore().onEntry(() =>
       this.hud?.forgetSurface?.(),
     );

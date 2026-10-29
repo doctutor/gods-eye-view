@@ -46,6 +46,11 @@ import { blocksWorldNow } from './blocksSource.js';
 import { thirdPersonPose } from './view.js';
 import { createPlayerMarker } from './playerMarker.js';
 import { createRegion } from '../layers/blocks/grid.js';
+import {
+  drawnHeightM,
+  reliefOf,
+  trueHeightM,
+} from '../layers/blocks/relief.js';
 import { CHUNK_COLUMNS } from '../layers/blocks/grid.js';
 import { surfaceAt } from '../surfaceTrust.js';
 import { applySpectatorPad } from './gamepad.js';
@@ -139,6 +144,110 @@ export function walkerPlace(frame, state) {
 }
 
 /**
+ * The Blocks world in its region's frame: a block's top at level y is
+ * (y + 1)·levelM above mean sea level, drawn at that plus the geoid and
+ * its chunk's drop below the tangent plane (src/layers/blocks/grid.js
+ * chunkOrigin), as the renderer places it. Under the Relief
+ * (`source.relief`, src/layers/blocks/relief.js) the blocks are drawn
+ * exaggerated: the walker's metres stay true (`toLocal`,
+ * `toCartographic`: the place, AGL, ALT, waypoints), while what is drawn
+ * follows the drawn blocks (`toWorld`: the outline, the marker) and the
+ * camera stands at the eye's height over the drawn feet
+ * (`cameraCartographic`, back with `cameraToLocal`).
+ */
+export function blocksFrameFor(first) {
+  let source = first;
+  const { region } = source;
+  const geoidM = Number(source.geoidM) || 0;
+  const relief = () => reliefOf(source.relief);
+  const frame = Cesium.Transforms.eastNorthUpToFixedFrame(
+    Cesium.Cartesian3.fromDegrees(region.lon0, region.lat0, 0),
+  );
+  const inverse = Cesium.Matrix4.inverseTransformation(
+    frame,
+    new Cesium.Matrix4(),
+  );
+  const chunkM = CHUNK_COLUMNS * region.blockM;
+  const dropAt = (x, y) =>
+    region.chunkOrigin(Math.floor(x / chunkM), Math.floor(y / chunkM)).z;
+  const world = createBlockWorld({
+    region,
+    chunkAt: (ci, cj) => source.chunkAt(ci, cj),
+  });
+  /** A point `aboveM` metres over a true height z, as drawn (world). */
+  const drawnPoint = (x, y, z, aboveM = 0) =>
+    Cesium.Matrix4.multiplyByPoint(
+      frame,
+      new Cesium.Cartesian3(
+        x,
+        y,
+        drawnHeightM(z - aboveM + geoidM, relief()) + aboveM + dropAt(x, y),
+      ),
+      new Cesium.Cartesian3(),
+    );
+  const truePoint = (x, y, z) =>
+    Cesium.Matrix4.multiplyByPoint(
+      frame,
+      new Cesium.Cartesian3(x, y, z + geoidM + dropAt(x, y)),
+      new Cesium.Cartesian3(),
+    );
+  const cartographicOf = (point) => {
+    const carto = Cesium.Cartographic.fromCartesian(point);
+    return {
+      lon: Cesium.Math.toDegrees(carto.longitude),
+      lat: Cesium.Math.toDegrees(carto.latitude),
+      heightM: carto.height,
+    };
+  };
+  /** Region metres of a world place, z the frame's up (drop included). */
+  const localOf = (cartographic) =>
+    Cesium.Matrix4.multiplyByPoint(
+      inverse,
+      Cesium.Cartographic.toCartesian(cartographic),
+      new Cesium.Cartesian3(),
+    );
+  return {
+    kind: 'blocks',
+    region,
+    world,
+    /** A true point as drawn: on the drawn blocks (the outline, the marker). */
+    toWorld: (x, y, z) => drawnPoint(x, y, z),
+    /** The provider's latest answer for the same region. */
+    update(next) {
+      source = next;
+    },
+    /** A true place in region metres (z above mean sea level). */
+    toLocal(cartographic) {
+      const local = localOf(cartographic);
+      return {
+        x: local.x,
+        y: local.y,
+        z: local.z - geoidM - dropAt(local.x, local.y),
+      };
+    },
+    /** Region metres as a true place (the readouts' heights). */
+    toCartographic: (x, y, z) => cartographicOf(truePoint(x, y, z)),
+    /**
+     * Where the camera stands for a point `aboveM` over the walker's
+     * feet (the eye, or a third-person camera): that far over the drawn
+     * feet, so the eye stays 1.62 m over the drawn ground.
+     */
+    cameraCartographic: (x, y, z, aboveM = 0) =>
+      cartographicOf(drawnPoint(x, y, z, aboveM)),
+    /** The true region metres of a camera standing `aboveM` over the feet. */
+    cameraToLocal(cartographic, aboveM = 0) {
+      const local = localOf(cartographic);
+      const drop = dropAt(local.x, local.y);
+      return {
+        x: local.x,
+        y: local.y,
+        z: trueHeightM(local.z - drop - aboveM, relief()) - geoidM + aboveM,
+      };
+    },
+  };
+}
+
+/**
  * Bind the store's mode to a viewer. `holdRender`/`releaseRender` keep the
  * scene drawing while a mode is on (src/renderGovernor.js); `onStatus`
  * hears {mode, surface: 'blocks'|'surface'|'none', blockM, locked}.
@@ -223,67 +332,18 @@ export function createNavigationBinding({
     };
   };
 
-  /**
-   * The Blocks world in its region's frame: a block's top at level y is
-   * (y + 1)·levelM above mean sea level, drawn at that plus the geoid and
-   * its chunk's drop below the tangent plane (src/layers/blocks/grid.js
-   * chunkOrigin), as the renderer places it.
-   */
-  const blocksFrame = (first) => {
-    let source = first;
-    const { region } = source;
-    const geoidM = Number(source.geoidM) || 0;
-    const frame = Cesium.Transforms.eastNorthUpToFixedFrame(
-      Cesium.Cartesian3.fromDegrees(region.lon0, region.lat0, 0),
-    );
-    const inverse = Cesium.Matrix4.inverseTransformation(
-      frame,
-      new Cesium.Matrix4(),
-    );
-    const chunkM = CHUNK_COLUMNS * region.blockM;
-    const dropAt = (x, y) =>
-      region.chunkOrigin(Math.floor(x / chunkM), Math.floor(y / chunkM)).z;
-    const world = createBlockWorld({
-      region,
-      chunkAt: (ci, cj) => source.chunkAt(ci, cj),
-    });
-    const toWorld = (x, y, z) =>
-      Cesium.Matrix4.multiplyByPoint(
-        frame,
-        new Cesium.Cartesian3(x, y, z + geoidM + dropAt(x, y)),
-        new Cesium.Cartesian3(),
-      );
-    return {
-      kind: 'blocks',
-      region,
-      world,
-      toWorld,
-      /** The provider's latest answer for the same region. */
-      update(next) {
-        source = next;
-      },
-      toLocal(cartographic) {
-        const local = Cesium.Matrix4.multiplyByPoint(
-          inverse,
-          Cesium.Cartographic.toCartesian(cartographic),
-          new Cesium.Cartesian3(),
-        );
-        return {
-          x: local.x,
-          y: local.y,
-          z: local.z - geoidM - dropAt(local.x, local.y),
-        };
-      },
-      toCartographic(x, y, z) {
-        const carto = Cesium.Cartographic.fromCartesian(toWorld(x, y, z));
-        return {
-          lon: Cesium.Math.toDegrees(carto.longitude),
-          lat: Cesium.Math.toDegrees(carto.latitude),
-          heightM: carto.height,
-        };
-      },
-    };
-  };
+  const blocksFrame = blocksFrameFor;
+
+  /** The camera's place for a point `aboveM` over the feet (true metres). */
+  const cameraPlace = (frame, x, y, z, aboveM) =>
+    frame.cameraCartographic
+      ? frame.cameraCartographic(x, y, z, aboveM)
+      : frame.toCartographic(x, y, z);
+  /** The walker's true metres from a camera standing `aboveM` over its feet. */
+  const cameraLocal = (frame, cartographic, aboveM) =>
+    frame.cameraToLocal
+      ? frame.cameraToLocal(cartographic, aboveM)
+      : frame.toLocal(cartographic);
 
   /** The frame for now: the Blocks world when drawn, else the surface. */
   const frameFor = (view, current) => {
@@ -305,7 +365,7 @@ export function createNavigationBinding({
   /** The model's state from the camera as it is. */
   const stateFromCamera = (frame) => {
     const carto = camera.positionCartographic;
-    const local = frame.toLocal(carto);
+    const local = cameraLocal(frame, carto, EYE_HEIGHT_M);
     const state = createNavState({
       x: local.x,
       y: local.y,
@@ -615,7 +675,9 @@ export function createNavigationBinding({
     // stands behind or in front, pulled in short of what is between.
     const viewMode = viewChoice?.get?.() ?? 'first';
     const pose = thirdPersonPose(state, viewMode, { world: frame.world });
-    const place = frame.toCartographic(pose.x, pose.y, pose.z);
+    // Over the drawn feet by the eye's (or the third-person camera's) height.
+    const feet = state.z - (state.eyeM ?? EYE_HEIGHT_M);
+    const place = cameraPlace(frame, pose.x, pose.y, pose.z, pose.z - feet);
     if (viewMode === 'first') marker?.hide();
     else
       try {
@@ -640,6 +702,9 @@ export function createNavigationBinding({
       ),
     });
     active.placed = Cesium.Cartesian3.clone(camera.positionWC);
+    // The camera's true height (under the Relief it is drawn higher): the
+    // HUD's ALT and AGL read this one.
+    active.cameraTrueM = frame.toCartographic(pose.x, pose.y, pose.z).heightM;
   };
 
   const onFrame = () => {
@@ -834,7 +899,13 @@ export function createNavigationBinding({
   const liftFrom = (frame, state) => {
     if (!frame || !state) return;
     try {
-      const place = frame.toCartographic(state.x, state.y, state.z);
+      const place = cameraPlace(
+        frame,
+        state.x,
+        state.y,
+        state.z,
+        state.eyeM ?? EYE_HEIGHT_M,
+      );
       const eye = Cesium.Cartesian3.fromDegrees(
         place.lon,
         place.lat,
@@ -903,7 +974,7 @@ export function createNavigationBinding({
           headingRad: camera.heading,
           pitchRad: camera.pitch,
         });
-        place = frame.toCartographic(pose.x, pose.y, pose.z);
+        place = cameraPlace(frame, pose.x, pose.y, pose.z, EYE_HEIGHT_M);
         place.pitchDeg = Cesium.Math.toDegrees(pose.pitch);
       } catch {
         place = null;
@@ -1077,6 +1148,16 @@ export function createNavigationBinding({
     /** Where the walker stands (walkerPlace); null in Spectator. */
     get place() {
       return active?.state ? walkerPlace(active.frame, active.state) : null;
+    },
+    /**
+     * The camera's true ellipsoidal height while a mode is on (the same
+     * as the camera's but under the Relief, where it stands over the
+     * drawn blocks); null in Spectator.
+     */
+    get cameraTrueHeightM() {
+      return active && Number.isFinite(active.cameraTrueM)
+        ? active.cameraTrueM
+        : null;
     },
     destroy() {
       unsubscribe();
