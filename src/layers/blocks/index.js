@@ -524,9 +524,27 @@ export function chunkDistance({ x, y }, ci, cj, size) {
   return Math.hypot(dx, dy);
 }
 
-/** How far from its origin a region of `blockM` serves (m). */
-export const reanchorRadiusM = (blockM, radiusBlocks) =>
-  Math.max(REANCHOR_M, 2 * radiusBlocks * blockM);
+/** The block size from which a region stands on the sphere (grid.js CURVED_BLOCK_M). */
+export const CURVED_FROM_M = 1920;
+/**
+ * The farthest a curved region (CURVED_FROM_M and up) serves from its
+ * anchor, metres. It is anchored at the camera's ground point (anchorFor),
+ * and its azimuthal mapping stretches across the bearing by (d / R) /
+ * sin(d / R): 1.7 % at 2,000 km, 17 % at 6,000 km, 57 % at 10,000 km.
+ * Without it, 2 × R1 blocks was 7,864 km at 7,680 m and 31,457 km at
+ * 30,720 m (past half the planet: never re-anchored), so a search that
+ * flew the camera to another continent kept the old region.
+ */
+export const CURVED_REANCHOR_M = 2_000_000;
+
+/**
+ * How far from its origin a region of `blockM` serves (m): 2 × R1 blocks
+ * (at least REANCHOR_M), and at most CURVED_REANCHOR_M for a curved one.
+ */
+export const reanchorRadiusM = (blockM, radiusBlocks) => {
+  const radius = Math.max(REANCHOR_M, 2 * radiusBlocks * blockM);
+  return blockM >= CURVED_FROM_M ? Math.min(radius, CURVED_REANCHOR_M) : radius;
+};
 
 /**
  * Whether the camera at local {x, y} m has left a region of `blockM` (for
@@ -1726,6 +1744,15 @@ export function createBlocksController({
             distance * _region.blockM <= horizonCut,
         )
       : [];
+    // A chunk held but no longer wanted (the camera moved on, the ring
+    // shrank with the horizon) that is not drawn and not on its way goes:
+    // nothing would mesh it, and it would count as loading for ever.
+    const wantedFine = new Set(ring.map(({ ci, cj }) => grid.chunkKey(ci, cj)));
+    dropUnwanted(_chunks, wantedFine);
+    // Coarse chunks drawn or kept with their data (hidden under a drawn
+    // fine group) stay; one without data that is no longer wanted goes.
+    const wantedCoarse = new Set(groups.map(({ gi, gj }) => coarseKey(gi, gj)));
+    dropUnwanted(_coarse, wantedCoarse, (entry) => !entry.chunk);
     // With the pool meshing, the pool is the bound, not the tick.
     const perTick = meshAsync
       ? Math.max(ASYNC_BUDGET, tickBudget(budget, _region.blockM))
@@ -1773,6 +1800,11 @@ export function createBlocksController({
     // The rings past the coarse one: loaded once the fine ring is in, so
     // the near ground comes first.
     const rings = syncRings(camera, horizonCut);
+    for (const { ring: outer, list } of rings)
+      dropUnwanted(
+        outer.chunks,
+        new Set(list.map(({ ci, cj }) => ringKey(outer.level, ci, cj))),
+      );
     const fineIn = ring.every(({ ci, cj }) => {
       const entry = _chunks.get(grid.chunkKey(ci, cj));
       return Boolean(entry && !entry.loading && (entry.chunk || entry.failed));
@@ -1871,6 +1903,22 @@ export function createBlocksController({
     // level), or while work remains; stop when settled.
     if (_moving || !settled || hasWork(ring, groups, rings)) startTicking();
     else stopTicking();
+  }
+
+  /**
+   * Drop the entries of `held` not in `wanted` that are neither drawn nor
+   * loading nor meshing (and pass `also`): a chunk left behind by the ring.
+   */
+  function dropUnwanted(held, wanted, also = () => true) {
+    for (const [key, entry] of [...held])
+      if (
+        !wanted.has(key) &&
+        !entry.shown &&
+        !entry.loading &&
+        !entry.meshing &&
+        also(entry)
+      )
+        held.delete(key);
   }
 
   /**

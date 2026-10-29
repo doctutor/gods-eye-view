@@ -451,6 +451,20 @@ rings past it. The 300 m view drew 1,497 buildings, the 5 km view 9,935.
   (about 47.7° N 86.9° W) is GMTED2010 storing a rectangle of the lake as
   0 m, its sea value; a lake-water mask (JRC Global Surface Water) waits
   on the user.
+- After a search flew the camera from the opening view (15,000 km over
+  30° N 40° W) to Europe or the United States at 30,720 m, 8 to 67 chunks
+  stayed "loading" for minutes and the view never settled, though every
+  values request was answered. Two causes in the controller (index.js):
+  the 30,720 m region never re-anchored (`reanchorRadiusM` was 2 × R1
+  blocks, 31,457 km: past half the planet), and a chunk held but no longer
+  in the ring (the camera moved on, or the ring shrank with the horizon)
+  was neither meshed nor dropped while its group stayed within 1.25 × R1,
+  so it counted as loading for ever and the tick stopped. Now a held chunk
+  no longer wanted, not drawn and not on its way is dropped each tick
+  (`dropUnwanted`: fine, coarse without data, rings), and a curved region
+  (1,920 m and up, anchored at the ground point) re-anchors past
+  `CURVED_REANCHOR_M`, 2,000 km, where its azimuthal mapping stretches
+  1.7 % (1,920 m keeps 1,966 km; the flat levels are unchanged).
 
 **The harness** (`scripts/qa-blocks-compare.mjs`, the PNGs beside
 `report.json`, with each shot's status lines and values requests in order):

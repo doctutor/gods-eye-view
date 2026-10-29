@@ -377,6 +377,12 @@ test('the budget doubles for 30 m blocks; the region says when it is left (grid.
   assert.equal(tickBudget(8, 30), 16);
   assert.equal(reanchorRadiusM(1, 512), 20_000);
   assert.equal(reanchorRadiusM(30, 512), 30_720);
+  // The flat levels as before; the curved ones (1,920 m and up, anchored
+  // at the ground point) at most 2,000 km.
+  assert.equal(reanchorRadiusM(480, 512), 491_520);
+  assert.equal(reanchorRadiusM(1920, 512), 1_966_080);
+  assert.equal(reanchorRadiusM(7680, 512), 2_000_000);
+  assert.equal(reanchorRadiusM(30720, 512), 2_000_000);
   // 30 m blocks: 16 loads in flight on the first tick.
   const coarse = fakeSource({ blockM: 30, hold: true });
   const run = setup({ source: coarse });
@@ -3242,5 +3248,96 @@ test('a cached view at a fine altitude after a coarse one changes level within t
   await runTicks(time + 3000);
   assert.equal(controller.getStatus().blockM, 1, 'not stuck at 120 m');
   assert.equal(source.regions.length, 2);
+  controller.destroy();
+});
+
+test('chunks that land outside the ring after the camera moves on are dropped, not left loading: the status clears and the tick stops', async () => {
+  const source = fakeSource({ hold: true });
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const renderer = fakeRenderer();
+  const viewer = fakeViewer();
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    radiusBlocks: 128,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  // Anchored at the camera; the first loads asked and held.
+  for (let n = 0; n < 6; n++) {
+    await settle();
+    controller.tick();
+  }
+  const asked = source.loads.length;
+  assert.ok(asked > 0, 'loads asked');
+  // The camera moves 396 columns east within the region (1 m blocks): the
+  // chunks asked west of it are no longer in the ring, but within the
+  // removal distance (1.25 × R1) they are kept.
+  viewer.moveTo(LON0 + 396 / (M_PER_DEG * Math.cos(LAT0 * RAD)));
+  controller.tick();
+  // Now every held load answers.
+  for (const load of source.loads.splice(0)) load.resolve?.();
+  // Release the rest as they come, and run until the controller rests.
+  for (let n = 0; n < 200; n++) {
+    await settle();
+    for (const load of source.loads.splice(0)) load.resolve?.();
+    controller.tick();
+    if (!controller._state().ticking) break;
+  }
+  await settle();
+  controller.tick();
+  const status = controller.getStatus();
+  assert.equal(status.pending, 0, `pending ${status.pending}`);
+  assert.equal(status.state, 'ready');
+  // Every chunk held is drawn: none sits unshown, waiting on nothing.
+  const { chunks } = controller._state();
+  const unshown = [...chunks.values()].filter((e) => !e.shown && !e.loading);
+  assert.deepEqual(
+    unshown.map((e) => e.key),
+    [],
+  );
+  controller.destroy();
+});
+
+test('a 30,720 m region re-anchors when the camera flies to another continent (2,000 km, not 31,457), and settles with nothing loading', async () => {
+  const source = fakeSource({ blockM: 30720, name: 'GMTED2010 230 m' });
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const renderer = fakeRenderer();
+  // The opening view: over 30° N 40° W.
+  const viewer = fakeViewer(-40, 30);
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    // R1 = 512: the old radius was 2 × 512 × 30,720 m = 31,457 km.
+    radiusBlocks: 512,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller);
+  const regions = () => renderer.calls.filter(([kind]) => kind === 'region');
+  assert.equal(regions().length, 1);
+  assert.equal(controller.getStatus().state, 'ready');
+  // A search flies the camera to Europe (51° N 10° E), about 4,500 km off.
+  viewer.moveTo(10, 51);
+  await drain(controller);
+  assert.equal(regions().length, 2, 'anchored again');
+  const region = regions().at(-1)[1];
+  assert.ok(Math.abs(region.lon0 - 10) < 1 && Math.abs(region.lat0 - 51) < 1);
+  const status = controller.getStatus();
+  assert.equal(status.state, 'ready');
+  assert.equal(status.pending, 0);
+  assert.equal(controller._state().ticking, false);
   controller.destroy();
 });
