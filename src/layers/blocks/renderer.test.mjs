@@ -35,6 +35,7 @@ import {
   ringsFog,
   splitMesh,
   partSphere,
+  BATCH_QUIET_MS,
 } from './renderer.js';
 
 // Cesium's Material asks whether a uniform is a canvas or an image.
@@ -706,7 +707,7 @@ test('batchKeyOf: fine chunks by 4 × 4 group, coarse chunks by 4 × 4 coarse ch
 });
 
 /** A renderer on a fake scene with frames (preRender), a clock and a captured wake timer. */
-function batchSetup() {
+function batchSetup({ quietMs = 1500 } = {}) {
   const viewer = fakeViewer();
   viewer.scene.preRender = new Cesium.Event();
   let clock = 1_000_000;
@@ -714,7 +715,8 @@ function batchSetup() {
   const renderer = createBlocksRenderer({
     viewer,
     now: () => clock,
-    quietMs: 1500,
+    // null: the renderer's own BATCH_QUIET_MS.
+    ...(quietMs === null ? {} : { quietMs }),
     setTimeoutImpl(callback, ms) {
       wakes.push({ callback, ms });
       return wakes.length;
@@ -1264,4 +1266,30 @@ test('each part’s bounding sphere is computed once, when its chunk arrives: no
   } finally {
     Cesium.BoundingSphere.fromVertices = fromVertices;
   }
+});
+
+test('a batch whose chunks stream in two seconds apart is rebuilt once at the default quiet, not after every chunk (each rebuild passes all its chunks through Cesium again)', () => {
+  assert.equal(BATCH_QUIET_MS, 3000);
+  const stream = (quietMs) => {
+    const { renderer, advance, frame } = batchSetup({ quietMs });
+    for (let ci = 4; ci < 8; ci++)
+      for (let cj = 0; cj < 4; cj++) {
+        renderer.upsert(`${ci}:${cj}`, tinyMesh());
+        advance(2000);
+        frame();
+      }
+    advance(3000);
+    frame();
+    const { stats, batches } = renderer.getState();
+    assert.equal(batches, 1);
+    return stats;
+  };
+  const now = stream(null);
+  assert.equal(now.rebuilds, 1, 'once, when the group is quiet');
+  assert.equal(now.rebuiltChunks, 16);
+  assert.equal(now.alone, 16, 'each drawn alone meanwhile (a draw call each)');
+  // At the old 1.5 s, a rebuild after every chunk.
+  const before = stream(1500);
+  assert.equal(before.rebuilds, 16);
+  assert.equal(before.rebuiltChunks, 136);
 });

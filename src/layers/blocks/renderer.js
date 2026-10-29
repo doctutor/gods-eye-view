@@ -594,8 +594,14 @@ export function chunkIsCurved(key, mesh, primaryBlockM) {
  */
 export const CENTRE_QUIET_MS = 250;
 
-/** How long a batch's chunks are left alone before it is rebuilt with them, ms. */
-export const BATCH_QUIET_MS = 1500;
+/**
+ * How long a batch's chunks are left alone before it is rebuilt with them,
+ * ms. Each rebuild sends all 16 chunks through Cesium's synchronous geometry
+ * pipeline again; at 1.5 s a batch rebuilt about 2.3 times as its chunks
+ * streamed in (each chunk about 2.65 passes, alone and in rebuilds: QA,
+ * 2026-10-29). Meanwhile its new chunks draw alone, a draw call each.
+ */
+export const BATCH_QUIET_MS = 3000;
 
 /**
  * The batch a chunk key draws in: fine chunks 'ci:cj' by their 4 × 4
