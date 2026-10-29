@@ -738,10 +738,15 @@ test('a generic-typed result is framed by its viewport: Europe as a region, Lake
   };
   assert.equal(viewportNavigationMode(generic, shop), 'precise-place');
   assert.equal(viewportNavigationMode(generic, null), 'precise-place');
-  // Classed types keep their own mode whatever the viewport.
+  // Classed types keep their own mode below a continent's size...
+  assert.equal(
+    viewportNavigationMode(['restaurant', 'food', 'point_of_interest'], TAHOE_VIEWPORT),
+    'precise-place',
+  );
+  // ...and over one (CONTINENTAL_SPAN_KM) any result is a region.
   assert.equal(
     viewportNavigationMode(['restaurant', 'food', 'point_of_interest'], EUROPE_RESULT.geometry.viewport),
-    'precise-place',
+    'region-overview',
   );
   assert.equal(viewportNavigationMode(['locality', 'political'], TAHOE_VIEWPORT), 'city-overview');
 });
@@ -753,4 +758,63 @@ test('searching "Europe" frames the continent from above, not a street sector at
   const flown = flownRectangleDegrees(viewer);
   assert.ok(flown.west < -15 && flown.east > 35, JSON.stringify(flown));
   assert.ok(flown.south < 26 && flown.north > 76);
+});
+
+// The live Google answers of 2026-10-29 (the manager's pane, /api/google/geocode).
+const EUROPE_LIVE = {
+  formatted_address: 'Europe',
+  types: ['continent', 'establishment', 'natural_feature'],
+  geometry: {
+    location: { lat: 54.5259614, lng: 15.2551187 },
+    viewport: {
+      southwest: { lat: 34, lng: -11 },
+      northeast: { lat: 65, lng: 55 },
+    },
+  },
+};
+const SOUTH_LAKE_TAHOE_LIVE = {
+  formatted_address: 'South Lake Tahoe, CA 96150, USA',
+  types: ['locality', 'political'],
+  geometry: {
+    location: { lat: 38.9332, lng: -119.9844 },
+    viewport: {
+      southwest: { lat: 38.88, lng: -120.02 },
+      northeast: { lat: 38.96, lng: -119.93 },
+    },
+  },
+};
+
+test('continents are regions: Google’s "Europe" (continent, natural_feature) frames its whole box, not a Baltic swath; a 5,000 km natural feature too; the Rockies stay a swath', async () => {
+  assert.equal(geocodeNavigationMode(EUROPE_LIVE.types), 'region-overview');
+  const viewer = stubViewer();
+  const outcome = await runSearch(viewer, {}, { result: EUROPE_LIVE, query: 'Europe' });
+  assert.equal(outcome.navigationMode, 'region-overview');
+  const flown = flownRectangleDegrees(viewer);
+  assert.ok(flown.west < -11 && flown.east > 55, JSON.stringify(flown));
+  assert.ok(flown.south < 34 && flown.north > 65);
+  // A natural feature the size of a continent, without the continent type.
+  assert.equal(
+    viewportNavigationMode(['natural_feature', 'establishment'], EUROPE_LIVE.geometry.viewport),
+    'region-overview',
+  );
+  // The Rocky Mountains (~2,700 km): still the capped swath's area-overview.
+  assert.equal(
+    viewportNavigationMode(['natural_feature', 'establishment'], {
+      southwest: { lat: 35.0, lng: -119.0 },
+      northeast: { lat: 60.0, lng: -105.0 },
+    }),
+    'area-overview',
+  );
+});
+
+test('"Lake Tahoe, California" as Google answers it (South Lake Tahoe, a locality) frames the town’s viewport', async () => {
+  assert.equal(
+    viewportNavigationMode(SOUTH_LAKE_TAHOE_LIVE.types, SOUTH_LAKE_TAHOE_LIVE.geometry.viewport),
+    'city-overview',
+  );
+  const viewer = stubViewer();
+  const outcome = await runSearch(viewer, {}, { result: SOUTH_LAKE_TAHOE_LIVE, query: 'Lake Tahoe, California' });
+  assert.equal(outcome.navigationMode, 'city-overview');
+  const flown = flownRectangleDegrees(viewer);
+  assert.ok(flown.west < -120.02 && flown.east > -119.93, JSON.stringify(flown));
 });
