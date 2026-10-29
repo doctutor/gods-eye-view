@@ -700,6 +700,23 @@ test("the sea's rule in a coarse chunk: a cell of all-masked sea is water at lev
   assert.equal(coarse.water[columnIndex(40, 5)], NONE);
 });
 
+test('a sampled sea column (0 m, as the server answers the masked sea) is water at level 0 over a bed; a sampled land column stands at its level', async () => {
+  const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 30 });
+  // West of 960 m the sea, which the server now answers as 0 m; east, 50 m.
+  const heightAt = (lon, lat) => (region.toLocal(lon, lat).x < 960 ? 0 : 50);
+  const { fetchValues } = fakeValues({ nativeM: 30, heightAt });
+  const source = createChunkSource({ fetchValues, createChunk });
+  const chunk = await source.loadChunk(region, 0, 0);
+  const sea = columnIndex(5, 10); // 165 m east
+  const land = columnIndex(40, 10); // 1,215 m east
+  assert.equal(chunk.top[sea], -1);
+  assert.equal(chunk.water[sea], 0);
+  assert.equal(chunk.top[land], 1); // 50 m on 30 m levels
+  assert.equal(chunk.water[land], NONE);
+  // Every column has a top: the sea is never a hole.
+  assert.ok([...chunk.top].every((top) => top !== NONE));
+});
+
 test('createChunkSource builds store chunks unless given createChunk', async () => {
   const region = createRegion({ lon0: 0.5, lat0: 51.5, blockM: 30 });
   const { fetchValues } = fakeValues({ nativeM: 30, heightAt: () => 12 });

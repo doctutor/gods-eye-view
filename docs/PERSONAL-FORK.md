@@ -6423,8 +6423,10 @@ below 0 m, is 0 m, not nodata: water at level 0 over a bed at −1, one
 flat surface, the Blocks style's rule (`LAND_SHARE`). A coastal cell more
 than half land stands at the mean of its land. A coarse chunk built from
 its fine group follows the same rule (`coarseHeights` with `landShare`).
-At a native level (a cell under 1.5 × the source's) the sea is still
-nodata.
+At a native level (a cell under 1.5 × the source's) the values are
+samples, and a sample without heights is 0 m too (`seaExpression`: the
+heights unmasked to 0), so a fine disc's sea is water at level 0 and
+meets its coarse ring's water.
 
 **Warming the cache.** `npm run blocks:pyramid -- --bbox w,s,e,n
 --levels 1920,7680,30720 [--pace ms] [--dry-run]` asks every lattice

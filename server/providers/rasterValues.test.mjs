@@ -258,6 +258,31 @@ test('the sea in a reduced cell: under half its pixels with heights, or a mean â
   assert.ok(first.version);
 });
 
+test("the sea in a sampled cell: Elevation's masked pixels are 0 m (water at level 0), never nodata; other layers' stay nodata", async (t) => {
+  const { service: values, calls } = service(t);
+  // A 1 m window over 3DEP: sampled, not reduced.
+  await values.values(
+    query({
+      west: '-76.6125',
+      south: '39.29',
+      east: '-76.61',
+      north: '39.2918',
+      cells: '512',
+    }),
+  );
+  const { expression } = calls[0];
+  assert.doesNotMatch(JSON.stringify(expression), /reduceResolution/);
+  const unmasked = expression.values.sz.functionInvocationValue;
+  assert.equal(unmasked.functionName, 'Image.unmask');
+  assert.match(JSON.stringify(unmasked.arguments.value), /"constantValue":0\}/);
+  assert.equal(unmasked.arguments.sameFootprint.constantValue, false);
+  // The value and mask bands read the unmasked heights: no nodata left.
+  assert.match(JSON.stringify(expression.values.rv), /"valueReference":"sz"/);
+  // Slope keeps its nodata.
+  await values.values(query({ layer: 'ee-terrain-slope' }));
+  assert.equal(calls[1].expression.values.sz, undefined);
+});
+
 test('a reduction Earth Engine refuses: the sampled cells, said so and not kept; a 429 is not retried', async (t) => {
   const root = tempRoot(t);
   let refuse = 400;

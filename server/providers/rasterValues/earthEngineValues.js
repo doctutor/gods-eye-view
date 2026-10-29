@@ -37,6 +37,9 @@ export const EE_VALUE_LAYERS = Object.freeze({
     aggregation: 'mean',
     reduce: 'mean',
     validRange: VALID_HEIGHT_M,
+    // A sampled cell without heights (the sea, masked in every source) is
+    // 0 m: water at level 0, as a reduced cell under half land.
+    seaIsWater: true,
   },
   'ee-terrain-slope': { units: '°', aggregation: 'mean' },
   // Computed per cell from the heights at the cell's scale: a mean of
@@ -130,6 +133,25 @@ export function valuesExpression(base) {
       }),
     },
     result: 'rv',
+  };
+}
+
+/**
+ * A sampled cell's heights with every masked pixel 0 m (the sea is masked
+ * in every source, so it reads as water at level 0, never nodata): the
+ * sampled path's rule, as meanExpression's is the reduced path's.
+ */
+export function seaExpression(base) {
+  return {
+    values: {
+      ...base.values,
+      sz: invoke('Image.unmask', {
+        input: { valueReference: base.result },
+        value: invoke('Image.constant', { value: constant(0) }),
+        sameFootprint: constant(false),
+      }),
+    },
+    result: 'sz',
   };
 }
 
@@ -388,7 +410,9 @@ export function createEarthEngineAdapter(layer, earthEngine) {
       const picture = expressionFor(plain, variant, undefined, modeKey);
       const ownM = nativeM || DEFAULT_NATIVE_M;
       const reduced = spec.reduce === 'mean' && cellSizeM >= MEAN_ABOVE * ownM;
-      const sampled = valuesExpression(picture);
+      const sampled = valuesExpression(
+        spec.seaIsWater ? seaExpression(picture) : picture,
+      );
       const expression = reduced
         ? valuesExpression(meanExpression(picture, ownM))
         : sampled;
