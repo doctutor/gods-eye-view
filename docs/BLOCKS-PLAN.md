@@ -463,3 +463,48 @@ node scripts/qa-blocks-compare.mjs --dist <an existing build> --out <dir> --live
 
 This record's frames are `.claude/blocks-compare/final-scale-*.png` in the
 main checkout, with `final-scale-report.json`.
+
+### Refresh across location changes (QA, 2026-10-29)
+
+One live pass in one page, Blocks and Elevation on (`bk=1`, `lo=f.e.1`,
+`map=blank-black`, `hv=1`, `hud=tactical`). Each step goes through the app's
+location search (`qa-blocks-compare.mjs --sequence --live`). "First blocks"
+runs from the flight's end to the first chunk drawn, 2 s of it the anchor's
+deliberate wait. "Settled" runs to the last chunk upsert, with nothing loading
+after it for 2 s. The Earth Engine budget went from 3,449 to 3,607 tiles.
+
+| Step                   | Where the search put the camera  | Blocks at settle           | First blocks | Settled | Upserts | Values / drape tiles / Overpass | EE tiles | Long tasks (total, max) | fps  | Heap max |
+| ---------------------- | -------------------------------- | -------------------------- | ------------ | ------- | ------- | ------------------------------- | -------- | ----------------------- | ---- | -------- |
+| Europe                 | 51° N 10° E at 136 m, AGL −260 m | 30 m cubes                 | 4.3 s        | 57.9 s  | 1,731   | 34 / 50 / 21                    | 52       | 53 (6.5 s, 468 ms)      | 48.5 | 732 MB   |
+| United States          | 28.6° N 180° at 13,180 km        | 31 km cells                | 3.4 s        | 6.5 s   | 160     | 2 / 76 / 0                      | 2        | 6 (1.0 s, 229 ms)       | 47.7 | 702 MB   |
+| Lake Tahoe, California | at 136 m, AGL −1,785 m           | 1 m cubes                  | 5.1 s        | 49.2 s  | 1,113   | 53 / 67 / 4                     | 55       | 33 (4.8 s, 404 ms)      | 49.9 | 762 MB   |
+| Baltimore, Maryland    | 47 km                            | 120 m cells, 30 m levels   | 2.0 s        | 15.6 s  | 772     | 35 / 112 / 0                    | 5        | 37 (4.5 s, 501 ms)      | 35.0 | 1,071 MB |
+| a Baltimore street     | 320 m                            | 1 m cubes, 1,513 buildings | 0.5 s        | 35.5 s  | 1,211   | 62 / 28 / 4                     | 30       | 30 (4.3 s, 561 ms)      | 46.0 | 1,025 MB |
+
+Every step changed level once and anchored once, with no hysteresis thrash.
+The HUD's readouts matched the camera at every settle.
+
+Findings, by what a user would notice:
+
+1. "Europe" and "Lake Tahoe" leave the screen black: the camera is
+   underground. The geocoder types both as `point_of_interest`, so
+   `geocodeNavigationMode` frames them at street range (`searchAndFlyTo`'s
+   point branch, `src/locations.js`). With the globe hidden by Blocks, neither
+   the arrival guard (`src/cameraGroundGuard.js`) nor the search's ground
+   floor finds a surface to lift it to. Blocks then builds the unseen ground
+   (107 of the pass's Earth Engine tiles). Open: scoped, not fixed.
+2. "United States" framed the mid-Pacific. Its viewport runs from −180 to
+   180, which `viewportMetrics` read as 0° wide at 180°. Fixed: a full wrap
+   reads 360° wide, and `placeFramingViewport` frames a box wider than half
+   the globe about its geocoded location (the lower 48).
+3. Near the ground, settling takes 35 to 58 s, with 30 to 53 main-thread long
+   tasks a step (up to 0.56 s) and 35 fps at 120 m blocks under the drape.
+   Open: performance work for the user to decide.
+4. The JS heap reached 1.07 GB and did not come back down below 700 MB.
+   Open: performance work.
+5. A quick cached view kept the previous level: the ticker stopped before
+   the 2 s settle's level check. It showed in `--build`, not live. Fixed in
+   `tick()`, with a test.
+6. Values requests per fresh view ran 34 to 62 with the rings, and the drape
+   took 28 to 112 tiles a step. Open: performance work.
+7. `setRingHoles` was called on every tick. Fixed: now only on change.
