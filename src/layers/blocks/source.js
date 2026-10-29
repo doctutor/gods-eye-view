@@ -83,14 +83,29 @@ export const NATIVE_CELLS_M = Object.freeze(
 /**
  * How far from a region's anchor its tangent plane still stands over the
  * ground, metres (the polar radius, less 1%): grid.js puts a place
- * further out on the limb, so a column there is nodata until the curved
- * frame (milestone 5, decision 5).
+ * further out on the limb, so a column there is nodata.
  */
 export const PLANE_REACH_M = 6_356_752 * 0.99;
 
-/** A region's place at east and north metres, or null past PLANE_REACH_M. */
+/**
+ * How far a curved region (1,920 m and up, grid.js: ground distance along
+ * the sphere from its anchor) reaches, metres: short of the antipode
+ * (π × the polar radius, less 1%), where its mapping folds.
+ */
+export const CURVED_REACH_M = Math.PI * 6_356_752 * 0.99;
+
+/**
+ * A region's place at east and north metres, or null past its reach: a
+ * flat region's tangent plane (PLANE_REACH_M), a curved one's sphere
+ * (CURVED_REACH_M). The controller anchors a region half a supergroup
+ * south-west of the camera, so at 7,680 m its fine disc runs to about
+ * 7,900 km from the anchor: past the plane's reach, well inside the
+ * sphere's.
+ */
 export const placeAt = (region, x, y) =>
-  Math.hypot(x, y) < PLANE_REACH_M ? region.toLonLat(x, y) : null;
+  Math.hypot(x, y) < (region.curved ? CURVED_REACH_M : PLANE_REACH_M)
+    ? region.toLonLat(x, y)
+    : null;
 
 /**
  * The native cell a measured cell width stands for: the stack's size
