@@ -202,6 +202,31 @@ test('a cell coarser than the source is the mean over it (reduceResolution), a n
   assert.doesNotMatch(JSON.stringify(calls[1].expression), /reduceResolution/);
 });
 
+test("a reduced cell's mean declares the read band's own cell, not the stack's finest: 120 m over 3DEP reads FABDEM at 30 m, not 7.5 m", async (t) => {
+  const { service: values, calls } = service(t);
+  // 120 m cells over Ohio (3DEP 1 m is the stack's finest there): the
+  // base band, FABDEM 30 m.
+  const answer = await values.values(
+    query({
+      west: '-82.94',
+      south: '40.06',
+      east: '-82.86',
+      north: '40.12',
+      cells: '64',
+    }),
+  );
+  const { header } = decodeRasterValues(answer.body);
+  assert.equal(header.band, 'base');
+  assert.equal(header.aggregation, 'mean');
+  const reduced = callsOf(calls[0].expression, 'Image.reduceResolution');
+  assert.equal(reduced.length, 2); // the heights and the share with heights
+  for (const { image } of reduced)
+    assert.equal(
+      image.functionInvocationValue.arguments.scale.constantValue,
+      30,
+    );
+});
+
 /** Every node of an expression graph calling `name`. */
 function callsOf(node, name, out = []) {
   if (Array.isArray(node)) for (const item of node) callsOf(item, name, out);
@@ -410,17 +435,18 @@ test('the values experiments: inert without GEV_VALUES_EXPERIMENTS; with it, max
   // Without the flag: ignored, today's mean, kept.
   const off = service(t);
   const plain = await off.service.values(
-    query({ ...kansas, maxPixels: '16', scale: 'band' }),
+    query({ ...kansas, maxPixels: '16', scale: 'stack' }),
   );
   assert.equal(plain.status, 200);
   assert.equal(decodeRasterValues(plain.body).header.experiment, undefined);
+  // Today's mean: 256 pixels a cell, at the read band's own cell (the far
+  // band's GMTED, about 231 m), never 3DEP's 1 m, the stack's finest.
   const today = callsOf(off.calls[0].expression, 'Image.reduceResolution');
   assert.ok(today.length >= 1);
   for (const { maxPixels, image } of today) {
     assert.equal(maxPixels.constantValue, 256);
-    assert.equal(
-      image.functionInvocationValue.arguments.scale.constantValue,
-      1,
+    assert.ok(
+      image.functionInvocationValue.arguments.scale.constantValue > 200,
     );
   }
   // A bad value is not even read without the flag.
@@ -460,12 +486,18 @@ test('the values experiments: inert without GEV_VALUES_EXPERIMENTS; with it, max
   await on.service.values(query(kansas));
   assert.equal(binsUnder(cacheDir).length, 1);
   assert.equal((await on.service.values(query(kansas))).cached, true);
-  // maxPixels alone keeps the stack's scale.
+  // maxPixels alone keeps the band's scale; scale=stack is the old reading.
   await on.service.values(query({ ...kansas, maxPixels: '64' }));
   const [only] = callsOf(on.calls.at(-1).expression, 'Image.reduceResolution');
   assert.equal(only.maxPixels.constantValue, 64);
+  assert.ok(
+    only.image.functionInvocationValue.arguments.scale.constantValue > 200,
+  );
+  await on.service.values(query({ ...kansas, scale: 'stack' }));
+  const [stack] = callsOf(on.calls.at(-1).expression, 'Image.reduceResolution');
+  assert.equal(stack.maxPixels.constantValue, 256);
   assert.equal(
-    only.image.functionInvocationValue.arguments.scale.constantValue,
+    stack.image.functionInvocationValue.arguments.scale.constantValue,
     1,
   );
   // Bad values, and other layers, are 400s.

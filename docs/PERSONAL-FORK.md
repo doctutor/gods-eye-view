@@ -6471,8 +6471,12 @@ the controller's retry asks again (only the tile that failed). The
 server keeps the answers 30 days on disk.
 
 **Coarse cells are means.** The server makes an Elevation cell coarser
-than 1.5 × the source's own the mean over it: the DEM stack given its
-cells as a default projection, then `Image.reduceResolution` with a
+than 1.5 × the source's own the mean over it: the band read (FABDEM 30 m
+in the base band, GMTED 231 m in the far one) given its own cells as a
+default projection, not the stack's finest in the window (3DEP's 1 m had
+a 120 m cell over the US read FABDEM at 7.5 m: 16 × the pixels for the
+same mean, 18–20 s a fresh tile against 4 s), then
+`Image.reduceResolution` with a
 mean (`bestEffort`, at most 256 pixels a cell, so a 30 km cell is the
 mean of 16 × 16 pixels of a 1.9 km pyramid level), and says `mean` in
 the header's `aggregation`. A reduction Earth Engine refuses (not a 429
