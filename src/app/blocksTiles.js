@@ -245,8 +245,8 @@ export function createBlocksTilesLayer({
       inside = null;
     }
     if (
-      !scene.sampleHeightSupported ||
-      typeof scene.sampleHeight !== 'function'
+      !scene?.sampleHeightSupported ||
+      typeof scene?.sampleHeight !== 'function'
     )
       return null;
     let top;
@@ -493,7 +493,7 @@ export function createBlocksTilesLayer({
     );
     planes.enabled = true;
   }
-  const removePreRender = scene.preRender?.addEventListener(frame);
+  const removePreRender = scene?.preRender?.addEventListener(frame);
 
   const api = {
     /** The index read (or failed): a promise. */
