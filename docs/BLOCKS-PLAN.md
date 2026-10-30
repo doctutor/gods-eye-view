@@ -1137,6 +1137,37 @@ walker; the two never draw the same ground.
   2026-10-30). Two stay free. A tree with more tiles a view (the 120 m
   tree) leans on this harder: keep the cap, or serve the tiles over HTTP/2
   or from a second origin, before raising it.
+- **Programs.** Cesium links a Model's shader programs the first frame it
+  draws, and checks each link at once (`getProgramParameter`), so the main
+  thread waits for the GPU process to compile it: 1.1 s at Lake Tahoe,
+  2026-10-30, while the live chunks loaded. The link itself is free; the
+  wait is the cost. Three things keep links out of flights:
+  - **No style drape under the tiles.** In 'hybrid' the tiles draw the
+    whole frame (every screen sample is in the box), so the Elevation
+    layer's Blocks style is not draped while the live region builds:
+    showing the globe for it linked the globe's surface programs (8 at
+    Lake Tahoe) and asked the style's tiles.
+  - **The same clipping planes on every Blocks Model.** Cesium compiles a
+    Model's programs with its clipping planes' count and state as defines,
+    so the tiles' planes switching on when the live hole opened linked a
+    new set mid-flight. Every Blocks Model, live and tile, now carries
+    eight planes (`blocksClippingPlanes`, `CLIPPING_SIDES`), always on,
+    parked where they clip nothing (`parkedPlanes`: facing up, 10⁷ km out)
+    until the tiles' hole moves them. Cesium still gives a tile the
+    tileset's planes only where they cut it, so in 'hybrid' the tiles use
+    a set with planes and one without: eight programs in all (opaque,
+    translucent and two depth variants, each way), the fewest the look
+    allows.
+  - **A pre-warm at the first Blocks status** (`prewarmPrograms`): three
+    Models a millimetre across (a live batch's feature table with the
+    parked planes, a tile's with them and without; `prewarmBlocksGlb`)
+    drawn 10 m in front of the eye, under a tenth of a pixel, and removed
+    two frames after they are ready. Under the ground the globe occluded
+    them and Cesium culled the draw, so nothing was linked.
+    Lake Tahoe now links none (26 before); the app's start 19 (37). The city
+    still links three or four programs whose text matches one linked at the
+    start (some other input of Cesium's shader cache differs): about 0.1 s,
+    left.
 - **Look.** The live chunks and the tiles mesh alike: faces at 120 m and up
   are two triangles split by their corners' shading (`FAN_BELOW_M`), live
   480 m regions are curved as the tiles' 480 m level is
