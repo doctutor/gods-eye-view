@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 
 import {
-  TILES_CACHE_BYTES,
+  FAR_SCREEN_ERROR,
   TILES_SCREEN_ERROR,
   GUARD_STEP,
   HOLE_SIDES,
@@ -15,6 +15,7 @@ import {
   createBlocksTilesLayer,
   createCacheGuard,
   holePlanes,
+  screenErrorFor,
 } from './blocksTiles.js';
 
 // Cesium's CustomShader asks whether a uniform is a canvas or an image.
@@ -136,7 +137,8 @@ test('the box the controller names: its tileset made once with the Blocks shader
   assert.equal(tileset.options.maximumScreenSpaceError, TILES_SCREEN_ERROR);
   assert.equal(TILES_SCREEN_ERROR, 4);
   assert.equal(tileset.options.dynamicScreenSpaceError, false);
-  assert.equal(tileset.options.cacheBytes, TILES_CACHE_BYTES);
+  // Cesium's own cache: no cacheBytes of ours.
+  assert.equal(tileset.options.cacheBytes, undefined);
   assert.equal(tileset.options.shadows, Cesium.ShadowMode.DISABLED);
   assert.equal(tileset.options.environmentMapOptions.enabled, false);
   assert.equal(tileset.options.imageBasedLighting.enabled, false);
@@ -467,4 +469,25 @@ test('a camera inside a tile (under its top, before the live chunks’ hole open
   assert.equal(samples, before);
   assert.equal(u('u_holeRadiusM'), 0);
   layer.destroy();
+});
+
+test('a tileset whose finest level is 480 m or coarser refines to 8 px, a finer one to 4; its guard steps from its own error', () => {
+  assert.equal(FAR_SCREEN_ERROR, 8);
+  assert.equal(screenErrorFor({ finestM: 30 }), TILES_SCREEN_ERROR);
+  assert.equal(screenErrorFor({ finestM: 120 }), TILES_SCREEN_ERROR);
+  assert.equal(screenErrorFor({ finestM: 480 }), FAR_SCREEN_ERROR);
+  assert.equal(screenErrorFor({ finestM: 1920 }), FAR_SCREEN_ERROR);
+  assert.equal(screenErrorFor(null), TILES_SCREEN_ERROR);
+  const guard = createCacheGuard(FAR_SCREEN_ERROR);
+  const tileset = cesiumErrorTileset(FAR_SCREEN_ERROR);
+  guard.update(tileset);
+  for (let n = 0; n < 10; n++) {
+    tileset.raise();
+    guard.update(tileset);
+  }
+  tileset.lower();
+  guard.update(tileset);
+  assert.equal(tileset.maximumScreenSpaceError, FAR_SCREEN_ERROR * GUARD_STEP);
+  guard.release([tileset]);
+  assert.equal(tileset.maximumScreenSpaceError, FAR_SCREEN_ERROR);
 });

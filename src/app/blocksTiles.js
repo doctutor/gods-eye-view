@@ -31,8 +31,18 @@ import {
  * lower-48 tileset, docs/BLOCKS-PLAN.md).
  */
 export const TILES_SCREEN_ERROR = 4;
-/** The tiles kept in memory at most (Cesium's cache; its default is 512 MB). */
-export const TILES_CACHE_BYTES = 256 * 1024 * 1024;
+/**
+ * The error a tileset whose finest level is FAR_LEVEL_M or coarser refines
+ * to (Cesium has one error a tileset, not one a level): at 4 px the lower
+ * 48's 480 m tiles under Lake Tahoe from 70 km wanted over a gigabyte
+ * (2026-10-30); a view that needs that much is the wrong view.
+ */
+export const FAR_SCREEN_ERROR = 8;
+/** From this finest level up, a tileset refines to FAR_SCREEN_ERROR. */
+export const FAR_LEVEL_M = 480;
+/** The error a box's tileset refines to. */
+export const screenErrorFor = (box) =>
+  Number(box?.finestM) >= FAR_LEVEL_M ? FAR_SCREEN_ERROR : TILES_SCREEN_ERROR;
 
 /** The cache guard's step: the error's floor rises by this much at a time. */
 export const GUARD_STEP = 1.25;
@@ -190,8 +200,6 @@ export function createBlocksTilesLayer({
   let tileLoads = 0;
   let tileUnloads = 0;
   const unloadTrail = [];
-  /** The cache guard on the shown tileset (createCacheGuard). */
-  const guard = createCacheGuard();
   /** The hole the clipping planes were last set for, as JSON. */
   let clippedKey = null;
   /**
@@ -248,30 +256,34 @@ export function createBlocksTilesLayer({
 
   const requestRender = () => scene.requestRender?.();
 
-  /** The guard lets go: every tileset refines to TILES_SCREEN_ERROR again. */
+  /** The guards let go: every tileset refines to its own error again. */
   function releaseGuard() {
-    if (guard.release([...loaded.values()].map((entry) => entry.tileset)))
-      requestRender();
+    let released = false;
+    for (const entry of loaded.values())
+      if (entry.guard.release([entry.tileset])) released = true;
+    if (released) requestRender();
   }
   const removeMoveStart =
     scene.camera?.moveStart?.addEventListener(releaseGuard);
   const removeMoveEnd = scene.camera?.moveEnd?.addEventListener(releaseGuard);
 
-  function tilesetFor(url) {
+  function tilesetFor(url, box) {
     let entry = loaded.get(url);
     if (entry) return entry;
-    entry = { tileset: null };
+    const screenError = screenErrorFor(box);
+    // Its cache guard (createCacheGuard), from its own error.
+    entry = { tileset: null, guard: createCacheGuard(screenError) };
     loaded.set(url, entry);
     Promise.resolve()
       .then(() =>
         createTileset(url, {
           customShader: shader,
-          maximumScreenSpaceError: TILES_SCREEN_ERROR,
+          maximumScreenSpaceError: screenError,
           // Cesium's fog term takes up to 24 px off far tiles' error: from
           // 5,000 km the lower 48's roots then never refined, at any
           // maximumScreenSpaceError (worker1, docs/BLOCKS-PLAN.md).
           dynamicScreenSpaceError: false,
-          cacheBytes: TILES_CACHE_BYTES,
+          // Cesium's own cache (512 MB, and 512 MB over it for a view).
           shadows: Cesium.ShadowMode.DISABLED,
           imageBasedLighting: imageLighting,
           environmentMapOptions: { enabled: false },
@@ -356,8 +368,9 @@ export function createBlocksTilesLayer({
    */
   function frame() {
     if (!shownUrl || !state) return;
-    const shown = loaded.get(shownUrl)?.tileset;
-    if (shown) guard.update(shown);
+    const shownEntry = loaded.get(shownUrl);
+    const shown = shownEntry?.tileset;
+    if (shown) shownEntry.guard.update(shown);
     const at = scene.camera?.positionCartographic;
     if (at) {
       const { color } = fogColorFor(scene, {
@@ -457,7 +470,7 @@ export function createBlocksTilesLayer({
       state = status?.tiles || null;
       const box = state ? boxes.find((each) => each.name === state.box) : null;
       shownUrl = box ? box.url({ buildings: buildings() !== false }) : null;
-      if (shownUrl) tilesetFor(shownUrl);
+      if (shownUrl) tilesetFor(shownUrl, box);
       for (const [url, entry] of loaded)
         if (entry.tileset) entry.tileset.show = url === shownUrl;
       if (state?.fog) {
@@ -482,8 +495,9 @@ export function createBlocksTilesLayer({
         // The cache guard: the error it holds now, and how often it held.
         tileUnloads,
         unloadTrail: unloadTrail.slice(),
-        heldError: guard.error,
-        guardHolds: guard.steps,
+        screenError: shown ? shown.maximumScreenSpaceError : null,
+        heldError: loaded.get(shownUrl)?.guard.error ?? null,
+        guardHolds: loaded.get(shownUrl)?.guard.steps ?? 0,
         // The hole about a camera inside a tile, and how often it opened.
         inside,
         insideOpens,
