@@ -1422,6 +1422,9 @@ function sequenceReadout() {
             guardHolds: state?.guardHolds ?? null,
             memoryMB: state?.memoryMB ?? null,
             tileUnloads: state?.tileUnloads ?? null,
+            screenError: state?.screenError ?? null,
+            tilesSelected: state?.tilesSelected ?? null,
+            tilesReady: state?.tilesReady ?? null,
             unloadTrail: state?.unloadTrail ?? null,
           }
         : { mode: 'off' };
@@ -2069,7 +2072,7 @@ export async function main(argv = process.argv.slice(2)) {
       );
       for (const step of run.results)
         console.log(
-          `${step.name} (${step.via}${step.settled ? '' : ', not settled'}): first blocks ${step.firstBlocksMs} ms, settled ${step.settledMs} ms, levels ${step.levels.join(' → ')}, upserts ${step.upserts}, tiles ${step.readout?.tiles?.mode ?? 'off'}${step.readout?.tiles?.box ? ` ${step.readout.tiles.box} from ${step.readout.tiles.floorM} m${step.readout.tiles.holeM ? `, hole ${Math.round(step.readout.tiles.holeM)} m` : ''}` : ''} (${step.tileLoads} loads, ${step.requests.blocksTiles} requests${step.readout?.tiles?.memoryMB ? `, ${step.readout.tiles.memoryMB} MB` : ''}${step.readout?.tiles?.tileUnloads ? `, ${step.readout.tiles.tileUnloads} unloads` : ''}${step.readout?.tiles?.guardHolds ? `, guard ${step.readout.tiles.guardHolds}× at ${Number(step.readout.tiles.heldError ?? 0).toFixed(1)} px` : ''}), anchors ${step.anchors}, values ${step.requests.values}, budget ${step.budget}, long tasks ${step.longTasks.count}/${step.longTasks.totalMs} ms, ${step.fps} fps, heap ${step.heapMaxMB} MB (JS ${step.heapPeaksMB?.jsHeap}, buffers ${step.heapPeaksMB?.backingStores}); still ${step.still?.fps} fps, render ${step.still?.renderMs?.median}/${step.still?.renderMs?.p95} ms, ${step.still?.commands} commands, pick ${step.still?.pick?.chunk ? `${step.still.pick.chunk.key}${step.still.pick.chunk.water ? ' water' : ''}` : 'none'}${step.still?.pick?.expected === false ? ' (NOT as expected)' : ''}`,
+          `${step.name} (${step.via}${step.settled ? '' : ', not settled'}): first blocks ${step.firstBlocksMs} ms, settled ${step.settledMs} ms, levels ${step.levels.join(' → ')}, upserts ${step.upserts}, tiles ${step.readout?.tiles?.mode ?? 'off'}${step.readout?.tiles?.box ? ` ${step.readout.tiles.box} from ${step.readout.tiles.floorM} m${step.readout.tiles.holeM ? `, hole ${Math.round(step.readout.tiles.holeM)} m` : ''}` : ''} (${step.tileLoads} loads, ${step.requests.blocksTiles} requests${step.readout?.tiles?.memoryMB ? `, ${step.readout.tiles.memoryMB} MB` : ''}${step.readout?.tiles?.tileUnloads ? `, ${step.readout.tiles.tileUnloads} unloads` : ''}${step.readout?.tiles?.screenError ? `, ${step.readout.tiles.screenError} px, ${step.readout.tiles.tilesSelected} drawn of ${step.readout.tiles.tilesReady} loaded` : ''}${step.readout?.tiles?.guardHolds ? `, guard ${step.readout.tiles.guardHolds}× at ${Number(step.readout.tiles.heldError ?? 0).toFixed(1)} px` : ''}), anchors ${step.anchors}, values ${step.requests.values}, budget ${step.budget}, long tasks ${step.longTasks.count}/${step.longTasks.totalMs} ms, ${step.fps} fps, heap ${step.heapMaxMB} MB (JS ${step.heapPeaksMB?.jsHeap}, buffers ${step.heapPeaksMB?.backingStores}); still ${step.still?.fps} fps, render ${step.still?.renderMs?.median}/${step.still?.renderMs?.p95} ms, ${step.still?.commands} commands, pick ${step.still?.pick?.chunk ? `${step.still.pick.chunk.key}${step.still.pick.chunk.water ? ' water' : ''}` : 'none'}${step.still?.pick?.expected === false ? ' (NOT as expected)' : ''}`,
         );
       console.log(`sequence: ${path.join(out, 'sequence.json')}`);
       return run;
