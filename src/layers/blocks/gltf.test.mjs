@@ -18,12 +18,20 @@ import {
   mergeParts,
   readBlocksGlb,
   readGlb,
+  splitPrimitives,
 } from './gltf.js';
 import { buildChunkMesh } from './mesh.js';
 import { createChunk } from './store.js';
 
 /** An accessor's values as a plain array. */
 const accessorValues = (json, bin, index) => [...typedValues(json, bin, index)];
+
+/** Joined or packed block points (half blocks, a 4-short stride) in blocks, three a vertex. */
+const blocksOf = ({ blockCoords }) =>
+  Float32Array.from(
+    { length: (blockCoords.length / 4) * 3 },
+    (_, k) => blockCoords[Math.floor(k / 3) * 4 + (k % 3)] / 2,
+  );
 
 /** A quad at (x, y, z) facing up, its block points the same, one colour. */
 function quad(x, y, z, rgba = [200, 194, 176, 255]) {
@@ -76,10 +84,14 @@ test('mergeParts: Y-up positions moved by their offsets, byte normals on a 4-byt
   assert.deepEqual([...merged.positions.slice(12, 15)], [130, 3, -67]);
   assert.deepEqual(merged.min, [0, 1, -68]);
   assert.deepEqual(merged.max, [131, 3, 0]);
-  // Up normals: +Y, the fourth byte padding.
+  // Up normals: +Y, the fourth byte the vertex's feature row.
   assert.deepEqual([...merged.normals.slice(0, 4)], [0, 127, 0, 0]);
-  // Block points: chunk (−1, 2) folds to (4032, 128) columns; levels as they are.
-  assert.deepEqual([...merged.blockCoords.slice(12, 15)], [4034, 131, 5]);
+  assert.deepEqual([...merged.normals.slice(16, 20)], [0, 127, 0, 1]);
+  // Block points in half blocks on a 4-short stride: chunk (−1, 2) folds
+  // to (4032, 128) columns; levels as they are.
+  assert.ok(merged.blockCoords instanceof Int16Array);
+  assert.deepEqual([...merged.blockCoords.slice(16, 20)], [8068, 262, 10, 0]);
+  assert.deepEqual([...blocksOf(merged).slice(12, 15)], [4034, 131, 5]);
   assert.deepEqual([...merged.featureIds], [0, 0, 0, 0, 1, 1, 1, 1]);
   assert.ok(merged.indices instanceof Uint16Array);
   assert.deepEqual([...merged.indices.slice(6)], [4, 5, 6, 4, 6, 7]);
@@ -96,14 +108,23 @@ test('mergeParts: Y-up positions moved by their offsets, byte normals on a 4-byt
   const offset = mergeParts([
     { part: quad(0, 0, 1), chunk: [-1, 2], blockOffset: [100, -7], feature: 0 },
   ]);
-  assert.deepEqual([...offset.blockCoords.slice(0, 3)], [100, -7, 1]);
+  assert.deepEqual([...blocksOf(offset).slice(0, 3)], [100, -7, 1]);
+  // A feature row past a byte, a block point past a SHORT's half blocks: refused.
+  assert.throws(
+    () => mergeParts([{ part: quad(0, 0, 0), feature: 256 }]),
+    RangeError,
+  );
+  assert.throws(
+    () => mergeParts([{ part: quad(0, 0, 16_400), feature: 0 }]),
+    RangeError,
+  );
 });
 
-test('mergeParts: 32-bit indices past 65,536 vertices', () => {
+test('mergeParts: 32-bit indices past 65,536 vertices, for encodeBlocksGlb to split', () => {
   const big = quad(0, 0, 0);
   const many = Array.from({ length: 16_385 }, (_, k) => ({
     part: big,
-    feature: k,
+    feature: k % 256,
   }));
   const merged = mergeParts(many);
   assert.equal(merged.vertexCount, 65_540);
@@ -164,7 +185,17 @@ test('encodeBlocksGlb: one mesh, opaque then water, the shared attribute layout,
   assert.equal(json.bufferViews[a('NORMAL').bufferView].byteStride, 4);
   assert.equal(a('COLOR_0').componentType, 5121);
   assert.equal(a('COLOR_0').normalized, true);
+  // The feature id: an UNSIGNED_BYTE in the normals' fourth byte.
   assert.equal(a('_FEATURE_ID_0').type, 'SCALAR');
+  assert.equal(a('_FEATURE_ID_0').componentType, 5121);
+  assert.equal(a('_FEATURE_ID_0').bufferView, a('NORMAL').bufferView);
+  assert.equal(a('_FEATURE_ID_0').byteOffset, 3);
+  // The block point: SHORT half blocks on an 8-byte stride.
+  assert.deepEqual(
+    [a('_BLOCKCOORD').componentType, a('_BLOCKCOORD').type],
+    [5122, 'VEC3'],
+  );
+  assert.equal(json.bufferViews[a('_BLOCKCOORD').bufferView].byteStride, 8);
   assert.equal(json.accessors[land.indices].componentType, 5123);
   for (const v of json.bufferViews) assert.equal(v.byteOffset % 8, 0);
   // Feature ids name rows of the property table.
@@ -191,7 +222,7 @@ test('encodeBlocksGlb: one mesh, opaque then water, the shared attribute layout,
   );
   assert.deepEqual(
     accessorValues(json, bin, sea.attributes._BLOCKCOORD).slice(0, 3),
-    [193, 256, 1],
+    [386, 512, 2],
   );
   assert.deepEqual(
     accessorValues(json, bin, sea.attributes._FEATURE_ID_0),
@@ -309,7 +340,7 @@ test('the fold at a chunk seam: edges on whole numbers both sides, and the dithe
   // Before the fold the renderer's column was chunk × 64 + floor(f.xy).
   const before = (ci, x) => ci * 64 + x;
   for (const ci of [0, 5, 62, 63, -1, -64, 200]) {
-    const { blockCoords } = seam(ci);
+    const blockCoords = blocksOf(seam(ci));
     // The east edge of the first quad and the west edge of the second sit
     // on the seam: both whole numbers, so the edge line falls on it.
     const westEast = blockCoords[1 * 3]; // first quad, corner (1, 0)
@@ -340,7 +371,7 @@ test('the fold at a chunk seam: edges on whole numbers both sides, and the dithe
   }
   // Across the fold's own boundary (chunk 63 to 64): column 4095 then 0,
   // two different tones, the edge on the seam.
-  const { blockCoords } = seam(63);
+  const blockCoords = blocksOf(seam(63));
   assert.equal(Math.floor(blockCoords[0]), 4095);
   assert.equal(blockCoords[4 * 3], 4096 % FOLD_COLUMNS);
 });
@@ -382,14 +413,14 @@ test('packPart: one chunk’s part in the layout once, its own vertices from 0; 
   assert.equal(packed.vertexCount, 4);
   assert.deepEqual([...packed.positions.slice(0, 3)], [2, 5, -3]);
   assert.deepEqual([...packed.normals.slice(0, 4)], [0, 127, 0, 0]);
-  assert.deepEqual([...packed.blockCoords.slice(0, 3)], [66, 4035, 5]);
+  assert.deepEqual([...packed.blockCoords.slice(0, 4)], [132, 8070, 10, 0]);
   assert.ok(packed.indices instanceof Uint16Array);
   assert.deepEqual(packed.min, [2, 5, -4]);
   assert.deepEqual(packed.max, [3, 5, -3]);
   assert.equal(packPart(packed), packed);
   assert.equal(packPart(null), null);
-  // 4 vertices: 48 + 16 + 16 + 48 bytes, and 6 16-bit indices.
-  assert.equal(packedBytes(packed), 140);
+  // 4 vertices: 48 + 16 + 16 + 32 bytes, and 6 16-bit indices.
+  assert.equal(packedBytes(packed), 124);
   assert.equal(packedBuffers(packed).length, 5);
   assert.equal(packedBytes(null), 0);
   // Merged as packed or as raw: the same arrays.
@@ -448,14 +479,84 @@ test('encodeBatchGlb: a batch from packed parts in one allocation, the same byte
   assert.equal(encodeBatchGlb({ chunks: [{ opaque: null }] }), null);
 });
 
-test('encodeBatchGlb: 32-bit indices past 65,536 vertices, as mergeParts gives them', () => {
+test('encodeBatchGlb: a kind past 65,535 vertices split into 16-bit primitives, the same bytes as encodeBlocksGlb', () => {
   const part = packPart(quad(0, 0, 0));
-  const chunks = Array.from({ length: 16_385 }, () => ({ opaque: part }));
+  const chunks = Array.from({ length: 16_385 }, () => ({
+    opaque: part,
+    features: { opaque: 0 },
+  }));
   const glb = encodeBatchGlb({ chunks, features: { count: 1 } });
   const { primitives, json } = readBlocksGlb(glb);
-  assert.equal(
-    json.accessors[json.meshes[0].primitives[0].indices].componentType,
-    5125,
+  assert.equal(primitives.length, 2);
+  for (const primitive of json.meshes[0].primitives)
+    assert.equal(json.accessors[primitive.indices].componentType, 5123);
+  assert.deepEqual(
+    primitives.map((p) => p.positions.length / 3),
+    // Cut by triangles: the second triangle of the quad at the cut opens
+    // the next primitive with its corners again.
+    [65_535, 7],
   );
-  assert.equal(primitives[0].indices.at(-1), 65_539);
+  assert.equal(
+    primitives.reduce((n, p) => n + p.indices.length, 0),
+    16_385 * 6,
+  );
+  assert.deepEqual(
+    glb,
+    encodeBlocksGlb({
+      opaque: mergeParts(
+        chunks.map(({ opaque }) => ({ part: opaque, feature: 0 })),
+      ),
+      features: { count: 1 },
+    }),
+  );
+});
+
+test('splitPrimitives: a fanned mesh past 65,535 vertices cut by its triangles, every triangle kept with its own vertices', () => {
+  // Steps every column: unevenly shaded faces, fanned round centre
+  // vertices written after every quad's corners (mesh.js).
+  const top = new Int32Array(64 * 64).map((_, k) => ((k % 64) + (k >> 6)) % 5);
+  const mesh = buildChunkMesh(createChunk({ ci: 0, cj: 0, top }), {
+    blockM: 1,
+  });
+  assert.ok(
+    mesh.blockCoords.some((v) => !Number.isInteger(v)),
+    'fans',
+  );
+  const copies = Math.ceil(70_000 / (mesh.positions.length / 3));
+  const merged = mergeParts(
+    Array.from({ length: copies }, (_, k) => ({
+      part: mesh,
+      offset: { x: 64 * k, y: 0, z: 0 },
+      feature: k % 256,
+    })),
+  );
+  assert.ok(merged.vertexCount > 65_535);
+  const parts = splitPrimitives(merged);
+  assert.ok(parts.length > 1);
+  const triangles = (positions, indices) => {
+    const out = [];
+    for (let k = 0; k < indices.length; k += 3)
+      out.push(
+        [0, 1, 2]
+          .map((c) =>
+            [
+              ...positions.slice(indices[k + c] * 3, indices[k + c] * 3 + 3),
+            ].join(','),
+          )
+          .join(' / '),
+      );
+    return out;
+  };
+  const all = [];
+  for (const part of parts) {
+    assert.ok(part.vertexCount <= 65_535);
+    assert.ok(part.indices instanceof Uint16Array);
+    for (const index of part.indices) assert.ok(index < part.vertexCount);
+    all.push(...triangles(part.positions, part.indices));
+  }
+  assert.deepEqual(
+    all,
+    triangles(merged.positions, merged.indices),
+    'every triangle, in order',
+  );
 });
