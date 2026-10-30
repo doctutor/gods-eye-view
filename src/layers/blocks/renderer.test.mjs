@@ -89,9 +89,9 @@ function fakeViewer() {
 }
 
 /** One block's top face (a quad at z = 1) and, with water, a translucent quad beside it. */
-function tinyMesh({ water = false } = {}) {
-  const quads = [[0, 0, 1, [120, 160, 80, 255]]];
-  if (water) quads.push([1, 0, 1, [58, 112, 190, 170]]);
+function tinyMesh({ water = false, z: up = 1 } = {}) {
+  const quads = [[0, 0, up, [120, 160, 80, 255]]];
+  if (water) quads.push([1, 0, up, [58, 112, 190, 170]]);
   const positions = [];
   const normals = [];
   const colors = [];
@@ -630,7 +630,8 @@ test('the real mesher into the renderer: a land and sea chunk, its opaque and wa
 test('block edges and top dither: on by default for land, never for water (the shader keys on full alpha), blockM from the region', async () => {
   const { renderer } = setup();
   renderer.setRegion(stubRegion({ blockM: 30 }));
-  renderer.upsert('3:-2', tinyMesh({ water: true }));
+  // 30 m up: one 30 m level (gltf.js keeps block points in half blocks).
+  renderer.upsert('3:-2', tinyMesh({ water: true, z: 30 }));
   await settle();
   const model = renderer.getCollection().get(0);
   assert.equal(uniform(model, 'u_blockM'), 30);
@@ -655,7 +656,7 @@ test('block edges and top dither: on by default for land, never for water (the s
   const [land] = model.decoded.primitives;
   assert.equal(land.blockCoords[0], 192);
   assert.equal(land.blockCoords[1], 3968);
-  assert.ok(Math.abs(land.blockCoords[2] - 1 / 30) < 1e-6);
+  assert.equal(land.blockCoords[2], 1);
   assert.match(BLOCKS_SHADER_FRAGMENT, /blocks_hash\(floor\(f\.xy\)\)/);
   assert.match(BLOCKS_SHADER_FRAGMENT, /fwidth\(f\)/);
   assert.deepEqual(renderer.getState().style, {
@@ -1015,9 +1016,9 @@ test('a mesh meshed in this thread is packed here, once; the GLB store keeps its
   renderer.upsert('0:0', tinyMesh());
   await settle();
   // 4 vertices: 48 bytes of positions, 16 of byte normals, 16 of colours,
-  // 48 of block points (from the positions: a flat mesh without them),
-  // 12 of 16-bit indices.
-  assert.ok(Math.abs(renderer.getState().retainedMB - 140 / 1e6) < 1e-12);
+  // 32 of block points (half blocks, from the positions: a flat mesh
+  // without them), 12 of 16-bit indices.
+  assert.ok(Math.abs(renderer.getState().retainedMB - 124 / 1e6) < 1e-12);
   assert.equal(renderer.getState().glbInWorker, false, 'no Worker in Node');
   assert.ok(renderer.getState().stats.packMs >= 0);
   renderer.remove('0:0');
@@ -1268,21 +1269,21 @@ test('levelM: the block points count levels of levelM, per ring; a level change 
   const fine = { ...stubRegion({ blockM: 120 }), levelM: 30 };
   const far = { ...stubRegion({ blockM: 480 }), levelM: 15 };
   renderer.setRegions([fine, far]);
-  // tinyMesh's top is 1 m up: 1/30 of a 30 m level, 1/15 of a 15 m one.
-  renderer.upsert('0:0', tinyMesh());
-  renderer.upsert(levelChunkKey(480, 0, 0), tinyMesh());
+  // 30 m up: one 30 m level, two 15 m ones.
+  renderer.upsert('0:0', tinyMesh({ z: 30 }));
+  renderer.upsert(levelChunkKey(480, 0, 0), tinyMesh({ z: 30 }));
   await settle();
   const [a, b] = drawn(renderer);
   assert.equal(uniform(a, 'u_blockM'), 120);
   const level = (model) => model.decoded.primitives[0].blockCoords[2];
-  assert.ok(Math.abs(level(a) - 1 / 30) < 1e-6);
-  assert.ok(Math.abs(level(b) - 1 / 15) < 1e-6);
+  assert.equal(level(a), 1);
+  assert.equal(level(b), 2);
   // Cubes when a region has no levelM.
   renderer.setRegion(stubRegion({ blockM: 30 }));
   assert.equal(renderer.getState().region.levelM, undefined);
-  renderer.upsert('0:0', tinyMesh());
+  renderer.upsert('0:0', tinyMesh({ z: 30 }));
   await settle();
-  assert.ok(Math.abs(level(renderer.getCollection().get(0)) - 1 / 30) < 1e-6);
+  assert.equal(level(renderer.getCollection().get(0)), 1);
   // The same anchor and block on other levels: its chunks go.
   renderer.setRegion({ ...stubRegion({ blockM: 30 }), levelM: 15 });
   assert.deepEqual(renderer.keys(), []);

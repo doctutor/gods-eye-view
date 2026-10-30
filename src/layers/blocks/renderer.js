@@ -193,7 +193,8 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
   vec3 positionEC = fsInput.attributes.positionEC;
   if (blocks_inHole(positionEC)) discard;
   vec4 color = fsInput.attributes.color_0;
-  vec3 f = fsInput.attributes.blockcoord;
+  // gltf.js stores the block point in half blocks (SHORT).
+  vec3 f = fsInput.attributes.blockcoord * 0.5;
   // Derivatives first, outside any branch.
   float lx = blocks_line(f.x);
   float ly = blocks_line(f.y);
