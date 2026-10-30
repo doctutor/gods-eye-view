@@ -60,6 +60,13 @@
  *
  * --tiles-dir serves the precomputed Blocks tilesets from that folder, so
  * the shots draw tiles where a box holds them and live chunks beside them.
+ *
+ *   ... --sequence --panels   # Data Layers and Display open throughout
+ *
+ * --panels opens the two panels before the steps, shoots each step 1.5 s
+ * into its flight (<step>-flight.png) and, after the city, opens the
+ * Elevation row's colour scale (<step>-grown.png), keeping the panels'
+ * rectangles, overlaps and overflow each time (sequence.json, `panels`).
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -1786,6 +1793,61 @@ async function sequenceStill() {
  * upsert for 2 s, nothing loading), with its requests, budget, long tasks,
  * frame rate and heap, and a frame with the HUD.
  */
+/**
+ * --panels: the panels' rectangles in both rails (each shown panel's id,
+ * top, bottom and whether collapsed), with the overlaps between a rail's
+ * neighbours and the panels past the viewport's bottom, to see that the
+ * rails keep their layout while Blocks flies and when a panel grows.
+ */
+function sequencePanelRects() {
+  const rails = {};
+  let overlaps = 0;
+  let offscreen = 0;
+  for (const id of ['left-panel-stack', 'right-context-rail']) {
+    const stack = document.getElementById(id);
+    if (!stack) continue;
+    const panels = [...stack.querySelectorAll(':scope > [data-panel-id]')]
+      .filter((panel) => !panel.hidden && panel.getClientRects().length)
+      .map((panel) => {
+        const rect = panel.getBoundingClientRect();
+        return {
+          id: panel.id,
+          top: Math.round(rect.top),
+          bottom: Math.round(rect.bottom),
+          collapsed: panel.classList.contains('collapsed'),
+        };
+      })
+      .sort((a, b) => a.top - b.top);
+    for (let k = 1; k < panels.length; k++)
+      if (panels[k].top < panels[k - 1].bottom - 1) overlaps++;
+    for (const panel of panels)
+      if (panel.bottom > window.innerHeight + 1) offscreen++;
+    rails[id] = panels;
+  }
+  return { rails, overlaps, offscreen };
+}
+
+/** --panels: open Data Layers and Display (their collapse buttons). */
+function sequenceOpenPanels() {
+  for (const id of ['data-panel', 'pp-toggles']) {
+    const panel = document.getElementById(id);
+    if (!panel?.classList.contains('collapsed')) continue;
+    document
+      .querySelector(`.panel-collapse-btn[data-collapse-target="${id}"]`)
+      ?.click();
+  }
+}
+
+/** --panels: the Elevation row's colour scale opened or closed; whether it was found. */
+function sequenceToggleElevationScale() {
+  const toggle = document.querySelector(
+    '[data-layer-id="ee-elevation"] .data-scale-toggle',
+  );
+  if (!toggle) return false;
+  toggle.click();
+  return true;
+}
+
 async function runSequence({
   browser,
   dist,
@@ -1795,6 +1857,7 @@ async function runSequence({
   only = null,
   heapChurn = false,
   tilesDir = null,
+  panels = false,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
@@ -1881,6 +1944,12 @@ async function runSequence({
   await page.evaluate(
     () => new Promise((resolve) => setTimeout(resolve, 8000)),
   );
+  const wait = (ms) =>
+    page.evaluate((t) => new Promise((resolve) => setTimeout(resolve, t)), ms);
+  if (panels) {
+    await page.evaluate(sequenceOpenPanels);
+    await wait(1000);
+  }
   const results = [];
   // --steps: only these, in their order (a check of one finding).
   const steps = only
@@ -1927,6 +1996,15 @@ async function runSequence({
           duration: 3,
         });
       }, step.view);
+    }
+    // --panels: the rails mid-flight, Blocks updating its status as it goes.
+    let flightPanels = null;
+    if (panels) {
+      await wait(1500);
+      flightPanels = await page.evaluate(sequencePanelRects);
+      await page.screenshot({
+        path: path.join(out, `${step.name}-flight.png`),
+      });
     }
     // The flight's end: the first flight end after this step began, with no
     // flight for 1 s after it (an arrival correction may follow). Taking the
@@ -2017,6 +2095,21 @@ async function runSequence({
         still.pick.drawn && still.pick.chunk.water === step.pickWater;
     const file = path.join(out, `${step.name}.png`);
     await page.screenshot({ path: file });
+    // --panels: after the city, a panel's content grows (the Elevation
+    // row's colour scale opened) and the rails make room; closed again.
+    let grownPanels = null;
+    if (panels && step.name === 'step4-city') {
+      const before = await page.evaluate(sequencePanelRects);
+      const opened = await page.evaluate(sequenceToggleElevationScale);
+      await wait(800);
+      const after = await page.evaluate(sequencePanelRects);
+      await page.screenshot({ path: path.join(out, `${step.name}-grown.png`) });
+      if (opened) {
+        await page.evaluate(sequenceToggleElevationScale);
+        await wait(500);
+      }
+      grownPanels = { opened, before, after };
+    }
     const budgetAfter = await budgetUsed(page);
     const metrics = stepMetrics(
       { ...qa, requests: log.requests },
@@ -2029,6 +2122,9 @@ async function runSequence({
       name: step.name,
       via,
       settled,
+      ...(panels
+        ? { panels: { flight: flightPanels, grown: grownPanels } }
+        : {}),
       flightSeconds: Math.round((flightEnd - from) / 100) / 10,
       ...metrics,
       budget:
@@ -2171,6 +2267,7 @@ export async function main(argv = process.argv.slice(2)) {
         out,
         streetQuery: argValue(argv, '--street-query'),
         heapChurn: argv.includes('--heap-churn'),
+        panels: argv.includes('--panels'),
         // The precomputed Blocks tilesets served from this folder.
         tilesDir: argValue(argv, '--tiles-dir') || null,
         only:
