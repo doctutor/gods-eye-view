@@ -964,6 +964,13 @@ download.
     own (`30m/g0_0.glb`, `30m/g0_0.ground.glb`).
   - The client (step C) shows one or the other, so land cover never depends
     on the switch.
+- **Streamed structures (2026-10-30).** A streamed build (more than 64
+  finest groups) applies the structures too, group by group: each tile at
+  30 m and finer reads its group's Overpass answer when it is built (one
+  query a group, the same pacing), and makes both variants from it, so
+  every tile's variants are built together. Coarser levels share one file.
+  A test shows a streamed build with structures writes the very tiles a
+  held one does. `--hold` keeps a box past the threshold in memory.
 - **Resume.** `build-state.json` beside the tiles holds each tile's inputs'
   digest, its bounding box and its counts. The digest covers:
   - the mesher fingerprint (since 2026-10-30, replacing a hash of the code's
