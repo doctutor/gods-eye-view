@@ -26,6 +26,7 @@ import {
 import { sharedEarthEngineService } from './earthEngine.js';
 import {
   EE_VALUE_LAYERS,
+  VALUES_EXPERIMENTS,
   createEarthEngineAdapter,
 } from './rasterValues/earthEngineValues.js';
 import {
@@ -61,7 +62,12 @@ import {
  * 400 bad parameters; 404 an unknown layer or mode; 413 more than 512
  * cells a side; 503 the layer's data not built or Earth Engine not set up;
  * 429 the day's Earth Engine budget used (a values request counts as one
- * tile). `?v=` is ignored. Answers are kept under
+ * tile). With GEV_VALUES_EXPERIMENTS=1 in the server's environment (off by
+ * default, for timing the mean), Elevation also takes `&maxPixels=16|64|256`
+ * and `&scale=band|stack` (rasterValues/earthEngineValues.js
+ * VALUES_EXPERIMENTS): its answer is computed fresh, served, never read
+ * from or written to the cache, and its header says `experiment`; a bad
+ * value, or another layer, is a 400. Without the flag they are ignored. `?v=` is ignored. Answers are kept under
  * .gev-cache/raster-values/<layer>/<mode>/<version>/<hash of box+cells>.bin;
  * the self-hosted sources are computed in worker threads.
  */
@@ -128,6 +134,36 @@ export function createRasterValuesService({
   cacheDir = path.join(sourceRoot, CACHE_DIR),
 } = {}) {
   const engine = () => earthEngine || sharedEarthEngineService(sourceRoot);
+  const experiments = env.GEV_VALUES_EXPERIMENTS === '1';
+
+  /**
+   * The experiment a request asks for ({maxPixels, scale}), null for none
+   * (or without the flag), or {error} for a 400.
+   */
+  function experimentOf(params, layer) {
+    if (!experiments) return null;
+    const get = (key) =>
+      typeof params.get === 'function' ? params.get(key) : params[key];
+    const rawMax = get('maxPixels');
+    const rawScale = get('scale');
+    const has = (raw) => raw !== null && raw !== undefined && raw !== '';
+    if (!has(rawMax) && !has(rawScale)) return null;
+    if (layer !== 'ee-elevation')
+      return { error: 'Experiments are for ee-elevation only' };
+    const maxPixels = has(rawMax) ? Number(rawMax) : undefined;
+    if (has(rawMax) && !VALUES_EXPERIMENTS.maxPixels.includes(maxPixels))
+      return {
+        error: `maxPixels must be ${VALUES_EXPERIMENTS.maxPixels.join(', ')}`,
+      };
+    if (has(rawScale) && !VALUES_EXPERIMENTS.scale.includes(rawScale))
+      return {
+        error: `scale must be ${VALUES_EXPERIMENTS.scale.join(' or ')}`,
+      };
+    return {
+      ...(maxPixels ? { maxPixels } : {}),
+      ...(has(rawScale) ? { scale: rawScale } : {}),
+    };
+  }
   const status = createSelfHostedStatus(dirs, { now });
   let local = null;
   const pool =
@@ -312,8 +348,11 @@ export function createRasterValuesService({
         return { status: 404, error: 'No such mode' };
       if (query.water && !adapter.planes?.includes('water'))
         return { status: 404, error: 'No water plane for that layer' };
+      const experiment = experimentOf(params, query.layer);
+      if (experiment?.error) return { status: 400, error: experiment.error };
       const plan = adapter.plan(query.mode, query.box, query.cells, {
         water: query.water,
+        ...(experiment ? { experiment } : {}),
       });
       if (plan.status) return { status: plan.status, error: plan.error };
       const name = crypto
@@ -328,14 +367,20 @@ export function createRasterValuesService({
         plan.version,
         `${name}.bin`,
       );
-      try {
-        const stat = fs.statSync(file);
-        if (now() - stat.mtimeMs < VALUES_TTL_MS)
-          return { status: 200, body: fs.readFileSync(file), cached: true };
-      } catch {
-        /* not on disk */
-      }
-      let work = inflight.get(file);
+      // An experiment is computed fresh: never read from the cache, never kept.
+      const fresh = Boolean(plan.experiment);
+      if (!fresh)
+        try {
+          const stat = fs.statSync(file);
+          if (now() - stat.mtimeMs < VALUES_TTL_MS)
+            return { status: 200, body: fs.readFileSync(file), cached: true };
+        } catch {
+          /* not on disk */
+        }
+      const workKey = fresh
+        ? `${file}|${JSON.stringify(plan.experiment)}`
+        : file;
+      let work = inflight.get(workKey);
       if (!work) {
         work = (async () => {
           const answer = await plan.run();
@@ -359,6 +404,7 @@ export function createRasterValuesService({
             version: plan.version,
             aggregation: answer.aggregation || plan.aggregation,
             ...(plan.band ? { band: plan.band } : {}),
+            ...(fresh ? { experiment: plan.experiment } : {}),
           };
           const body = encodeRasterValues(
             header,
@@ -366,7 +412,7 @@ export function createRasterValuesService({
             answer.water ? { water: answer.water } : {},
           );
           // A stand-in answer (a refused reduction sampled) is served, not kept.
-          if (answer.keep === false) return { status: 200, body };
+          if (answer.keep === false || fresh) return { status: 200, body };
           try {
             fs.mkdirSync(path.dirname(file), { recursive: true });
             const temporary = `${file}.${process.pid}.tmp`;
@@ -376,8 +422,8 @@ export function createRasterValuesService({
             /* serving matters more than keeping */
           }
           return { status: 200, body };
-        })().finally(() => inflight.delete(file));
-        inflight.set(file, work);
+        })().finally(() => inflight.delete(workKey));
+        inflight.set(workKey, work);
       }
       return work;
     },
