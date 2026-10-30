@@ -569,6 +569,26 @@ Findings, by what a user would notice:
    took 28 to 112 tiles a step. Open: performance work.
 7. `setRingHoles` was called on every tick. Fixed: now only on change.
 
+### Land cover cut off along the chunk grid (QA, 2026-10-29)
+
+At a Baltimore street with Buildings off, the roads and a park's greens
+covered some chunks and stopped at hard chunk edges. The OSM land cover
+(roads, greens, water) is painted with `setSurface` into the very chunk
+objects `source.js` keeps and hands out again. The Buildings switch both
+stopped the structures pass and cleared only the buildings, so every chunk
+painted while Buildings was on kept its paint, and chunks first loaded with
+it off stayed bare. Traced live: unchecked, 262 of 320 fine chunks were
+still painted 34 s later. Overpass answered every query, and the structures
+pass reached every fine chunk.
+
+Since this fix the land cover is independent of Buildings: it paints on
+every fine chunk from its first load, switch on or off. The switch governs
+the buildings alone, raised or dropped in place from each chunk's kept
+answer, with no new query. Bridge decks are roads and stay. Paint comes off
+only where land cover cannot be drawn: Overpass missing, or blocks coarser
+than 30 m (`clearSurfaces` in `store.js`).
+
+
 ## Milestone 6: a precomputed block tileset (2026-10-29, with the user)
 
 The user's goal: moving the camera in Blocks should be as fast and as

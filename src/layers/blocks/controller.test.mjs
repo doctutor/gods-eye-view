@@ -3341,3 +3341,177 @@ test('a 30,720 m region re-anchors when the camera flies to another continent (2
   assert.equal(controller._state().ticking, false);
   controller.destroy();
 });
+
+test('land cover on every fine chunk whatever the Buildings switch: off drops the buildings only, on raises them from the kept answers, a cached chunk keeps its paint', async () => {
+  const { createChunk, MATERIALS } = await import('./store.js');
+  const { applyStructures } = await import('./structures.js');
+  const N = 64;
+  const NONE = -2147483648;
+  // The source hands out the same chunk object every time (source.js
+  // keeps its chunks), as a chunk dropped and asked again comes back.
+  const held = new Map();
+  const source = {
+    regionFor: () => Promise.resolve({ blockM: 1, source: '3DEP 1 m' }),
+    loadChunk: (region, ci, cj) => {
+      const key = `${ci}:${cj}`;
+      if (!held.has(key))
+        held.set(
+          key,
+          createChunk({
+            ci,
+            cj,
+            top: new Int32Array(N * N).fill(10),
+            water: new Int32Array(N * N).fill(NONE),
+          }),
+        );
+      return Promise.resolve(held.get(key));
+    },
+  };
+  // Every chunk: a road down column 5, a park in the corner, an OSM pond
+  // at (20, 20), a building on (40…43, 40…43) to level 30 and a bridge
+  // deck at (5, 30) to level 14.
+  const asked = [];
+  const structures = {
+    loadChunk(region, ci, cj) {
+      asked.push(`${ci}:${cj}`);
+      const top = new Int32Array(N * N).fill(NONE);
+      const bottom = new Int32Array(N * N).fill(NONE);
+      const material = new Uint8Array(N * N);
+      const structure = new Uint8Array(N * N);
+      for (let j = 0; j < N; j++) material[j * N + 5] = MATERIALS.ROAD;
+      for (let j = 0; j < 4; j++)
+        for (let i = 0; i < 4; i++) material[j * N + i] = MATERIALS.GRASS;
+      material[20 * N + 20] = MATERIALS.WATER;
+      for (let j = 40; j < 44; j++)
+        for (let i = 40; i < 44; i++) {
+          top[j * N + i] = 30;
+          bottom[j * N + i] = 11;
+        }
+      top[30 * N + 5] = 14;
+      bottom[30 * N + 5] = 14;
+      structure[30 * N + 5] = MATERIALS.ROAD;
+      return Promise.resolve({ top, bottom, material, structure });
+    },
+    groupBuildings: () => Promise.resolve(['way/a']),
+    apply: applyStructures,
+  };
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  store.setBuildings(false);
+  const controller = createBlocksController({
+    viewer: fakeViewer(),
+    store,
+    layers: fakeLayers(true),
+    source,
+    structures,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller);
+  const painted = () =>
+    [...held.values()].filter((chunk) => chunk.material[5] === MATERIALS.ROAD)
+      .length;
+  const built = () =>
+    [...held.values()].filter((chunk) => chunk.structureTop(40, 40) === 30)
+      .length;
+  assert.ok(held.size > 1);
+  // Off from the first load: every fine chunk painted, none built, the
+  // bridge deck kept (a road, not a building).
+  assert.equal(painted(), held.size, 'off: every chunk painted');
+  assert.equal(built(), 0, 'off: no buildings');
+  const origin = held.get('0:0');
+  assert.equal(origin.material[0], MATERIALS.GRASS);
+  assert.equal(origin.top[20 * N + 20], 9, 'the pond');
+  assert.equal(origin.structureTop(5, 30), 14, 'the bridge deck');
+  assert.equal(controller.getStatus().buildingsOn, false);
+  assert.equal(controller.getStatus().buildings, 0);
+  // On: built from the kept answers, nothing asked again; still painted.
+  const askedBefore = asked.length;
+  store.setBuildings(true);
+  await drain(controller);
+  assert.equal(built(), held.size, 'on: every chunk built');
+  assert.equal(painted(), held.size, 'on: still painted');
+  assert.equal(asked.length, askedBefore, 'raised from the kept answers');
+  assert.equal(controller.getStatus().buildings, 1);
+  // Off again: the buildings go, the paint and the deck stay.
+  store.setBuildings(false);
+  await drain(controller);
+  assert.equal(built(), 0);
+  assert.equal(painted(), held.size, 'off: the paint stays');
+  assert.equal(origin.structureTop(5, 30), 14);
+  assert.equal(asked.length, askedBefore, 'nothing asked for the switch');
+  controller.destroy();
+});
+
+test('no land cover where it cannot be drawn: Overpass missing takes the paint off every held chunk too', async () => {
+  const { createChunk, MATERIALS } = await import('./store.js');
+  const { applyStructures } = await import('./structures.js');
+  const N = 64;
+  const held = new Map();
+  const source = {
+    regionFor: () => Promise.resolve({ blockM: 1, source: '3DEP 1 m' }),
+    loadChunk: (region, ci, cj) => {
+      const key = `${ci}:${cj}`;
+      if (!held.has(key))
+        held.set(
+          key,
+          createChunk({
+            ci,
+            cj,
+            top: new Int32Array(N * N).fill(10),
+            water: new Int32Array(N * N).fill(-2147483648),
+          }),
+        );
+      return Promise.resolve(held.get(key));
+    },
+  };
+  let unconfigured = false;
+  const structures = {
+    loadChunk() {
+      if (unconfigured)
+        return Promise.reject(
+          Object.assign(new Error('no Overpass'), { code: 'unconfigured' }),
+        );
+      const material = new Uint8Array(N * N);
+      for (let j = 0; j < N; j++) material[j * N + 5] = MATERIALS.ROAD;
+      return Promise.resolve({
+        top: new Int32Array(N * N).fill(-2147483648),
+        bottom: new Int32Array(N * N).fill(-2147483648),
+        material,
+      });
+    },
+    apply: applyStructures,
+  };
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const controller = createBlocksController({
+    viewer: fakeViewer(),
+    store,
+    layers: fakeLayers(true),
+    source,
+    structures,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  await drain(controller);
+  const painted = () =>
+    [...held.values()].filter((chunk) => chunk.material[5] === MATERIALS.ROAD)
+      .length;
+  assert.equal(painted(), held.size);
+  // A chunk asked again finds Overpass gone: land cover ends for the page,
+  // and comes off every chunk the source still holds.
+  unconfigured = true;
+  for (const entry of controller._state().chunks.values())
+    entry.structures = undefined;
+  await drain(controller);
+  assert.equal(painted(), 0);
+  controller.destroy();
+});
