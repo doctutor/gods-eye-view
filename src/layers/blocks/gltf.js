@@ -65,236 +65,281 @@ export const foldColumns = (index) =>
   CHUNK_COLUMNS;
 
 /**
- * The chunks of one kind ('opaque' or 'water') merged into one primitive's
- * arrays, in the layout above: each chunk's part moved by its offset (m,
- * east, north and up of the origin), its block points moved by its
- * columns (`blockOffset` as given, else its chunk (ci, cj) folded), every
- * vertex tagged with its feature row. Positions are taken as they are
- * (a tile's may be dropped onto the curve), min and max from them.
- * @param {Array<{part: object|null, offset?: {x, y, z}, chunk?: number[],
- *   blockOffset?: number[], feature: number}>} chunks part: {positions,
- *   normals, colors, blockCoords?, indices}, as mesh.js and the renderer's
- *   splitMesh give it.
- * @returns {object|null} {positions, normals, colors, blockCoords,
- *   featureIds, indices, min, max, vertexCount}, or null with no faces.
+ * One chunk's part (one kind of its faces) in the layout above, its own
+ * vertices from 0: positions turned Y-up, normals as bytes on a 4-byte
+ * stride, colours as given, block points moved by its columns
+ * (`blockOffset` as given, else its chunk (ci, cj) folded), indices 16-bit.
+ * What a batch copies from (encodeBatchGlb): computed once a chunk, in the
+ * mesh worker. Positions are taken as they are (a tile's may be dropped
+ * onto the curve); min and max are theirs, as stored.
+ * @param {object|null} part {positions, normals, colors, blockCoords?,
+ *   indices}, as mesh.js and splitMesh give it.
+ * @returns {object|null} {packed: true, positions, normals, colors,
+ *   blockCoords, indices, min, max, vertexCount}, or null with no faces.
  */
-export function mergeParts(chunks) {
-  let vertexCount = 0;
-  let indexCount = 0;
-  for (const { part } of chunks) {
-    if (!part?.indices?.length) continue;
-    vertexCount += part.positions.length / 3;
-    indexCount += part.indices.length;
-  }
-  if (!indexCount) return null;
-  const positions = new Float32Array(vertexCount * 3);
-  const normals = new Int8Array(vertexCount * 4);
-  const colors = new Uint8Array(vertexCount * 4);
-  const blockCoords = new Float32Array(vertexCount * 3);
-  const featureIds = new Float32Array(vertexCount);
-  const indices =
-    vertexCount < 65536
-      ? new Uint16Array(indexCount)
-      : new Uint32Array(indexCount);
+export function packPart(part, { chunk, blockOffset } = {}) {
+  if (!part?.indices?.length) return null;
+  if (part.packed) return part;
+  const n = part.positions.length / 3;
+  const positions = new Float32Array(n * 3);
+  const normals = new Int8Array(n * 4);
+  const colors = new Uint8Array(n * 4);
+  const blockCoords = new Float32Array(n * 3);
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
-  let base = 0;
-  let at = 0;
-  for (const { part, offset, chunk, blockOffset, feature } of chunks) {
-    if (!part?.indices?.length) continue;
-    const ox = offset?.x || 0;
-    const oy = offset?.y || 0;
-    const oz = offset?.z || 0;
-    const fx = blockOffset ? blockOffset[0] || 0 : foldColumns(chunk?.[0]);
-    const fy = blockOffset ? blockOffset[1] || 0 : foldColumns(chunk?.[1]);
-    const n = part.positions.length / 3;
-    const bytes = part.normals instanceof Int8Array;
-    for (let v = 0; v < n; v++) {
-      const k = v * 3;
-      const out = (base + v) * 3;
-      // (east, north, up) → glTF's (east, up, −north); 0 − never −0.
-      const e = part.positions[k] + ox;
-      const u = part.positions[k + 2] + oz;
-      const s = 0 - (part.positions[k + 1] + oy);
-      positions[out] = e;
-      positions[out + 1] = u;
-      positions[out + 2] = s;
-      if (e < min[0]) min[0] = e;
-      if (e > max[0]) max[0] = e;
-      if (u < min[1]) min[1] = u;
-      if (u > max[1]) max[1] = u;
-      if (s < min[2]) min[2] = s;
-      if (s > max[2]) max[2] = s;
-      const nOut = (base + v) * 4;
-      const scale = bytes ? 1 : 127;
-      normals[nOut] = Math.round(part.normals[k] * scale);
-      normals[nOut + 1] = Math.round(part.normals[k + 2] * scale);
-      normals[nOut + 2] = Math.round(-part.normals[k + 1] * scale);
-      const c = v * 4;
-      colors[nOut] = part.colors[c];
-      colors[nOut + 1] = part.colors[c + 1];
-      colors[nOut + 2] = part.colors[c + 2];
-      colors[nOut + 3] = part.colors[c + 3];
-      if (part.blockCoords) {
-        blockCoords[out] = part.blockCoords[k] + fx;
-        blockCoords[out + 1] = part.blockCoords[k + 1] + fy;
-        blockCoords[out + 2] = part.blockCoords[k + 2];
-      }
-      featureIds[base + v] = feature;
+  const fx = blockOffset ? blockOffset[0] || 0 : foldColumns(chunk?.[0]);
+  const fy = blockOffset ? blockOffset[1] || 0 : foldColumns(chunk?.[1]);
+  const scale = part.normals instanceof Int8Array ? 1 : 127;
+  for (let v = 0; v < n; v++) {
+    const k = v * 3;
+    // (east, north, up) → glTF's (east, up, −north); 0 − never −0.
+    positions[k] = part.positions[k];
+    positions[k + 1] = part.positions[k + 2];
+    positions[k + 2] = 0 - part.positions[k + 1];
+    for (let a = 0; a < 3; a++) {
+      const value = positions[k + a];
+      if (value < min[a]) min[a] = value;
+      if (value > max[a]) max[a] = value;
     }
-    const { indices: from } = part;
-    for (let k = 0; k < from.length; k++) indices[at + k] = from[k] + base;
-    at += from.length;
-    base += n;
+    const q = v * 4;
+    normals[q] = Math.round(part.normals[k] * scale);
+    normals[q + 1] = Math.round(part.normals[k + 2] * scale);
+    normals[q + 2] = Math.round(-part.normals[k + 1] * scale);
+    if (part.blockCoords) {
+      blockCoords[k] = part.blockCoords[k] + fx;
+      blockCoords[k + 1] = part.blockCoords[k + 1] + fy;
+      blockCoords[k + 2] = part.blockCoords[k + 2];
+    }
   }
+  colors.set(part.colors.subarray(0, n * 4));
+  const indices =
+    n < 65536 ? Uint16Array.from(part.indices) : Uint32Array.from(part.indices);
   return {
+    packed: true,
     positions,
     normals,
     colors,
     blockCoords,
-    featureIds,
     indices,
     min,
     max,
-    vertexCount,
+    vertexCount: n,
   };
 }
 
-const pad4 = (n) => (n + 3) & ~3;
+/** A packed part's buffers (to transfer between threads). */
+export const packedBuffers = (packed) =>
+  packed
+    ? [
+        packed.positions,
+        packed.normals,
+        packed.colors,
+        packed.blockCoords,
+        packed.indices,
+      ].map((array) => array.buffer)
+    : [];
+
+/** A packed part's bytes. */
+export const packedBytes = (packed) =>
+  packed
+    ? packed.positions.byteLength +
+      packed.normals.byteLength +
+      packed.colors.byteLength +
+      packed.blockCoords.byteLength +
+      packed.indices.byteLength
+    : 0;
 
 /**
- * A GLB of one mesh: the opaque primitive, then the water one, each merged
- * from its chunks (mergeParts), with a property table of `features.count`
- * rows (class 'chunk') whose columns are `features.properties`.
- * @param {{opaque?: object|null, water?: object|null,
- *   features: {count: number, properties: Object<string, ArrayLike>}}} input
- *   opaque, water: mergeParts' output (null for none).
- * @returns {Uint8Array|null} null when neither kind has faces.
+ * Packed parts of one kind side by side: each moved by its offset (m,
+ * east, north and up of the origin), tagged with its feature row, indices
+ * renumbered. Writes into `out` (the GLB's views, encodeBatchGlb) or
+ * returns new arrays (mergeParts).
  */
-export function encodeBlocksGlb({ opaque = null, water = null, features }) {
-  const kinds = [
-    ['opaque', opaque],
-    ['water', water],
-  ].filter(([, merged]) => merged);
-  if (!kinds.length) return null;
+function joinPacked(entries, out = null) {
+  let vertexCount = 0;
+  let indexCount = 0;
+  for (const { packed } of entries)
+    if (packed) {
+      vertexCount += packed.vertexCount;
+      indexCount += packed.indices.length;
+    }
+  if (!indexCount) return null;
+  const big = vertexCount >= 65536;
+  const target = out || {
+    positions: new Float32Array(vertexCount * 3),
+    normals: new Int8Array(vertexCount * 4),
+    colors: new Uint8Array(vertexCount * 4),
+    blockCoords: new Float32Array(vertexCount * 3),
+    featureIds: new Float32Array(vertexCount),
+    indices: big ? new Uint32Array(indexCount) : new Uint16Array(indexCount),
+  };
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  let base = 0;
+  let at = 0;
+  for (const { packed, offset, feature } of entries) {
+    if (!packed) continue;
+    // In the stored frame: east, up, −north.
+    const shift = [offset?.x || 0, offset?.z || 0, 0 - (offset?.y || 0)];
+    const n = packed.vertexCount;
+    const { positions } = target;
+    if (shift[0] || shift[1] || shift[2]) {
+      for (let k = 0; k < n * 3; k += 3) {
+        positions[base * 3 + k] = packed.positions[k] + shift[0];
+        positions[base * 3 + k + 1] = packed.positions[k + 1] + shift[1];
+        positions[base * 3 + k + 2] = packed.positions[k + 2] + shift[2];
+      }
+    } else positions.set(packed.positions, base * 3);
+    for (let a = 0; a < 3; a++) {
+      min[a] = Math.min(min[a], Math.fround(packed.min[a] + shift[a]));
+      max[a] = Math.max(max[a], Math.fround(packed.max[a] + shift[a]));
+    }
+    target.normals.set(packed.normals, base * 4);
+    target.colors.set(packed.colors, base * 4);
+    target.blockCoords.set(packed.blockCoords, base * 3);
+    target.featureIds.fill(feature, base, base + n);
+    const { indices } = packed;
+    if (base === 0) target.indices.set(indices, at);
+    else
+      for (let k = 0; k < indices.length; k++)
+        target.indices[at + k] = indices[k] + base;
+    at += indices.length;
+    base += n;
+  }
+  return { ...target, min, max, vertexCount };
+}
+
+/**
+ * The chunks of one kind ('opaque' or 'water') merged into one primitive's
+ * arrays, in the layout above: each chunk's part packed (packPart: its
+ * block points moved by `blockOffset`, else its chunk folded), moved by
+ * its offset (m, east, north and up of the origin), every vertex tagged
+ * with its feature row. A part already packed is taken as it is.
+ * @param {Array<{part: object|null, offset?: {x, y, z}, chunk?: number[],
+ *   blockOffset?: number[], feature: number}>} chunks
+ * @returns {object|null} {positions, normals, colors, blockCoords,
+ *   featureIds, indices, min, max, vertexCount}, or null with no faces.
+ */
+export function mergeParts(chunks) {
+  return joinPacked(
+    chunks.map(({ part, offset, chunk, blockOffset, feature }) => ({
+      packed: packPart(part, { chunk, blockOffset }),
+      offset,
+      feature,
+    })),
+  );
+}
+
+const pad4 = (n) => (n + 3) & ~3;
+const align8 = (n) => (n + 7) & ~7;
+
+/** A property table's columns as typed arrays of `count` rows, and their glTF types. */
+function tableColumns(features) {
   const count = Math.max(1, features?.count || 0);
   const properties = Object.entries(features?.properties || {});
   if (!properties.length)
     properties.push(['row', Uint32Array.from({ length: count }, (_, k) => k)]);
+  return {
+    count,
+    columns: properties.map(([name, values]) => {
+      const [Type, componentType] =
+        COMPONENT_TYPES.find(([Type]) => values instanceof Type) ||
+        COMPONENT_TYPES[5];
+      const column =
+        values instanceof Type && values.length === count
+          ? values
+          : Type.from({ length: count }, (_, k) => values[k] ?? 0);
+      return { name, column, componentType };
+    }),
+  };
+}
 
-  const views = [];
-  const pieces = [];
+/**
+ * The GLB's layout for primitives of these sizes and a property table:
+ * its JSON, the binary chunk's length, and where each view starts in it.
+ * Every view starts on 8 bytes (a FLOAT64 column's alignment, and more
+ * than any vertex attribute needs).
+ */
+function glbLayout(kinds, table) {
   let length = 0;
-  const addView = (array, target, byteStride) => {
-    const bytes = new Uint8Array(
-      array.buffer,
-      array.byteOffset,
-      array.byteLength,
-    );
-    // Every view starts on 8 bytes: a FLOAT64 column's alignment, and more
-    // than any vertex attribute needs.
-    const offset = (length + 7) & ~7;
-    if (offset > length) pieces.push(new Uint8Array(offset - length));
-    pieces.push(bytes);
-    length = offset + bytes.byteLength;
-    views.push({
+  const bufferViews = [];
+  const accessors = [];
+  const view = (byteLength, target, byteStride) => {
+    const byteOffset = align8(length);
+    length = byteOffset + byteLength;
+    bufferViews.push({
       buffer: 0,
-      byteOffset: offset,
-      byteLength: bytes.byteLength,
+      byteOffset,
+      byteLength,
       ...(byteStride ? { byteStride } : {}),
       ...(target ? { target } : {}),
     });
-    return views.length - 1;
+    return bufferViews.length - 1;
   };
-
-  const accessors = [];
-  const addAccessor = (view, componentType, countOf, type, extra = {}) => {
-    accessors.push({
-      bufferView: view,
-      componentType,
-      count: countOf,
-      type,
-      ...extra,
-    });
+  const accessor = (bufferView, componentType, count, type, extra = {}) => {
+    accessors.push({ bufferView, componentType, count, type, ...extra });
     return accessors.length - 1;
   };
-
-  const primitives = kinds.map(([kind, merged]) => {
-    const n = merged.vertexCount;
-    const position = addAccessor(
-      addView(merged.positions, GL.ARRAY_BUFFER),
-      GL.FLOAT,
-      n,
-      'VEC3',
-      { min: merged.min, max: merged.max },
-    );
-    const normal = addAccessor(
-      addView(merged.normals, GL.ARRAY_BUFFER, 4),
-      GL.BYTE,
-      n,
-      'VEC3',
-      { normalized: true },
-    );
-    const color = addAccessor(
-      addView(merged.colors, GL.ARRAY_BUFFER),
-      GL.UNSIGNED_BYTE,
-      n,
-      'VEC4',
-      { normalized: true },
-    );
-    const blockCoord = addAccessor(
-      addView(merged.blockCoords, GL.ARRAY_BUFFER),
-      GL.FLOAT,
-      n,
-      'VEC3',
-    );
-    const featureId = addAccessor(
-      addView(merged.featureIds, GL.ARRAY_BUFFER),
-      GL.FLOAT,
-      n,
-      'SCALAR',
-    );
-    const indices = addAccessor(
-      addView(merged.indices, GL.ELEMENT_ARRAY_BUFFER),
-      merged.indices instanceof Uint16Array
-        ? GL.UNSIGNED_SHORT
-        : GL.UNSIGNED_INT,
-      merged.indices.length,
-      'SCALAR',
-    );
-    return {
-      attributes: {
-        POSITION: position,
-        NORMAL: normal,
-        COLOR_0: color,
-        _BLOCKCOORD: blockCoord,
-        _FEATURE_ID_0: featureId,
-      },
-      indices,
-      material: kind === 'water' ? 1 : 0,
-      mode: GL.TRIANGLES,
-      extensions: {
-        EXT_mesh_features: {
-          featureIds: [{ featureCount: count, attribute: 0, propertyTable: 0 }],
+  const at = [];
+  const primitives = kinds.map(
+    ({ kind, vertexCount: n, indexCount, min, max, big }) => {
+      const views = {
+        positions: view(n * 12, GL.ARRAY_BUFFER),
+        normals: view(n * 4, GL.ARRAY_BUFFER, 4),
+        colors: view(n * 4, GL.ARRAY_BUFFER),
+        blockCoords: view(n * 12, GL.ARRAY_BUFFER),
+        featureIds: view(n * 4, GL.ARRAY_BUFFER),
+        indices: view(indexCount * (big ? 4 : 2), GL.ELEMENT_ARRAY_BUFFER),
+      };
+      at.push(
+        Object.fromEntries(
+          Object.entries(views).map(([name, index]) => [
+            name,
+            bufferViews[index].byteOffset,
+          ]),
+        ),
+      );
+      return {
+        attributes: {
+          POSITION: accessor(views.positions, GL.FLOAT, n, 'VEC3', {
+            min,
+            max,
+          }),
+          NORMAL: accessor(views.normals, GL.BYTE, n, 'VEC3', {
+            normalized: true,
+          }),
+          COLOR_0: accessor(views.colors, GL.UNSIGNED_BYTE, n, 'VEC4', {
+            normalized: true,
+          }),
+          _BLOCKCOORD: accessor(views.blockCoords, GL.FLOAT, n, 'VEC3'),
+          _FEATURE_ID_0: accessor(views.featureIds, GL.FLOAT, n, 'SCALAR'),
         },
-      },
-    };
-  });
-
+        indices: accessor(
+          views.indices,
+          big ? GL.UNSIGNED_INT : GL.UNSIGNED_SHORT,
+          indexCount,
+          'SCALAR',
+        ),
+        material: kind === 'water' ? 1 : 0,
+        mode: GL.TRIANGLES,
+        extensions: {
+          EXT_mesh_features: {
+            featureIds: [
+              { featureCount: table.count, attribute: 0, propertyTable: 0 },
+            ],
+          },
+        },
+      };
+    },
+  );
   const classProperties = {};
   const tableProperties = {};
-  for (const [name, values] of properties) {
-    const [Type, componentType] =
-      COMPONENT_TYPES.find(([Type]) => values instanceof Type) ||
-      COMPONENT_TYPES[5];
-    const column =
-      values instanceof Type && values.length === count
-        ? values
-        : Type.from({ length: count }, (_, k) => values[k] ?? 0);
+  const columnsAt = table.columns.map(({ name, column, componentType }) => {
     classProperties[name] = { type: 'SCALAR', componentType };
-    tableProperties[name] = { values: addView(column) };
-  }
-
+    const index = view(column.byteLength);
+    tableProperties[name] = { values: index };
+    return bufferViews[index].byteOffset;
+  });
   const material = (name, alphaMode) => ({
     name,
     pbrMetallicRoughness: {
@@ -306,7 +351,6 @@ export function encodeBlocksGlb({ opaque = null, water = null, features }) {
     doubleSided: true,
     extensions: { KHR_materials_unlit: {} },
   });
-
   const json = {
     asset: { version: '2.0', generator: 'godseye blocks gltf.js' },
     extensionsUsed: [
@@ -322,7 +366,7 @@ export function encodeBlocksGlb({ opaque = null, water = null, features }) {
     meshes: [{ primitives }],
     materials: [material('blocks', 'OPAQUE'), material('water', 'BLEND')],
     accessors,
-    bufferViews: views,
+    bufferViews,
     buffers: [{ byteLength: pad4(length) }],
     extensions: {
       EXT_structural_metadata: {
@@ -331,16 +375,22 @@ export function encodeBlocksGlb({ opaque = null, water = null, features }) {
           classes: { chunk: { properties: classProperties } },
         },
         propertyTables: [
-          { class: 'chunk', count, properties: tableProperties },
+          { class: 'chunk', count: table.count, properties: tableProperties },
         ],
       },
     },
   };
+  return { json, binLength: pad4(length), at, columnsAt };
+}
 
-  const jsonBytes = new TextEncoder().encode(JSON.stringify(json));
+/**
+ * A GLB of the layout's size, its header and JSON written: the binary
+ * chunk's start, and views over the GLB for each primitive's arrays.
+ */
+function glbShell(layout, kinds) {
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(layout.json));
   const jsonLength = pad4(jsonBytes.byteLength);
-  const binLength = pad4(length);
-  const total = 12 + 8 + jsonLength + 8 + binLength;
+  const total = 12 + 8 + jsonLength + 8 + layout.binLength;
   const glb = new Uint8Array(total);
   const view = new DataView(glb.buffer);
   view.setUint32(0, 0x46546c67, true); // 'glTF'
@@ -350,14 +400,132 @@ export function encodeBlocksGlb({ opaque = null, water = null, features }) {
   view.setUint32(16, 0x4e4f534a, true); // 'JSON'
   glb.set(jsonBytes, 20);
   glb.fill(0x20, 20 + jsonBytes.byteLength, 20 + jsonLength);
-  const binAt = 20 + jsonLength;
-  view.setUint32(binAt, binLength, true);
-  view.setUint32(binAt + 4, 0x004e4942, true); // 'BIN\0'
-  let at = binAt + 8;
-  for (const piece of pieces) {
-    glb.set(piece, at);
-    at += piece.byteLength;
+  const bin = 20 + jsonLength;
+  view.setUint32(bin, layout.binLength, true);
+  view.setUint32(bin + 4, 0x004e4942, true); // 'BIN\0'
+  const start = bin + 8;
+  const targets = kinds.map(({ vertexCount: n, indexCount, big }, k) => {
+    const at = layout.at[k];
+    return {
+      positions: new Float32Array(glb.buffer, start + at.positions, n * 3),
+      normals: new Int8Array(glb.buffer, start + at.normals, n * 4),
+      colors: new Uint8Array(glb.buffer, start + at.colors, n * 4),
+      blockCoords: new Float32Array(glb.buffer, start + at.blockCoords, n * 3),
+      featureIds: new Float32Array(glb.buffer, start + at.featureIds, n),
+      indices: big
+        ? new Uint32Array(glb.buffer, start + at.indices, indexCount)
+        : new Uint16Array(glb.buffer, start + at.indices, indexCount),
+    };
+  });
+  return { glb, start, targets };
+}
+
+/** The property table's columns into their views. */
+function writeColumns(glb, start, layout, table) {
+  table.columns.forEach(({ column }, k) =>
+    glb.set(
+      new Uint8Array(column.buffer, column.byteOffset, column.byteLength),
+      start + layout.columnsAt[k],
+    ),
+  );
+}
+
+/**
+ * A GLB of one mesh: the opaque primitive, then the water one, each merged
+ * from its chunks (mergeParts), with a property table of `features.count`
+ * rows (class 'chunk') whose columns are `features.properties`.
+ * @param {{opaque?: object|null, water?: object|null,
+ *   features: {count: number, properties: Object<string, ArrayLike>}}} input
+ *   opaque, water: mergeParts' output (null for none).
+ * @returns {Uint8Array|null} null when neither kind has faces.
+ */
+export function encodeBlocksGlb({ opaque = null, water = null, features }) {
+  const kinds = [
+    ['opaque', opaque],
+    ['water', water],
+  ]
+    .filter(([, merged]) => merged)
+    .map(([kind, merged]) => ({
+      kind,
+      merged,
+      vertexCount: merged.vertexCount,
+      indexCount: merged.indices.length,
+      min: merged.min.map(Math.fround),
+      max: merged.max.map(Math.fround),
+      big: merged.indices instanceof Uint32Array,
+    }));
+  if (!kinds.length) return null;
+  const table = tableColumns(features);
+  const layout = glbLayout(kinds, table);
+  const { glb, start, targets } = glbShell(layout, kinds);
+  kinds.forEach(({ merged }, k) => {
+    for (const name of [
+      'positions',
+      'normals',
+      'colors',
+      'blockCoords',
+      'featureIds',
+      'indices',
+    ])
+      targets[k][name].set(merged[name]);
+  });
+  writeColumns(glb, start, layout, table);
+  return glb;
+}
+
+/**
+ * A batch's GLB straight from its chunks' packed parts (packPart), in one
+ * allocation: each chunk's opaque faces feature `features.opaque` (else
+ * its index s), its water `features.water` (else n + s), moved by its
+ * offset (m, east, north and up of the GLB's origin). The same bytes as
+ * encodeBlocksGlb of mergeParts of the same chunks.
+ * @param {{chunks: Array<{opaque?: object|null, water?: object|null,
+ *   offset?: {x, y, z}, features?: {opaque?: number, water?: number}}>,
+ *   features: {count: number, properties: Object<string, ArrayLike>}}} input
+ * @returns {Uint8Array|null} null when no chunk has faces.
+ */
+export function encodeBatchGlb({ chunks, features }) {
+  const n = chunks.length;
+  const entriesOf = (kind) =>
+    chunks.map((chunk, s) => ({
+      packed: chunk[kind] || null,
+      offset: chunk.offset,
+      feature: chunk.features?.[kind] ?? (kind === 'water' ? n + s : s),
+    }));
+  const kinds = [];
+  for (const kind of ['opaque', 'water']) {
+    const entries = entriesOf(kind);
+    let vertexCount = 0;
+    let indexCount = 0;
+    const min = [Infinity, Infinity, Infinity];
+    const max = [-Infinity, -Infinity, -Infinity];
+    for (const { packed, offset } of entries) {
+      if (!packed) continue;
+      vertexCount += packed.vertexCount;
+      indexCount += packed.indices.length;
+      const shift = [offset?.x || 0, offset?.z || 0, 0 - (offset?.y || 0)];
+      for (let a = 0; a < 3; a++) {
+        min[a] = Math.min(min[a], Math.fround(packed.min[a] + shift[a]));
+        max[a] = Math.max(max[a], Math.fround(packed.max[a] + shift[a]));
+      }
+    }
+    if (indexCount)
+      kinds.push({
+        kind,
+        entries,
+        vertexCount,
+        indexCount,
+        min,
+        max,
+        big: vertexCount >= 65536,
+      });
   }
+  if (!kinds.length) return null;
+  const table = tableColumns(features);
+  const layout = glbLayout(kinds, table);
+  const { glb, start, targets } = glbShell(layout, kinds);
+  kinds.forEach(({ entries }, k) => joinPacked(entries, targets[k]));
+  writeColumns(glb, start, layout, table);
   return glb;
 }
 
