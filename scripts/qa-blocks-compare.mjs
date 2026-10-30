@@ -54,6 +54,11 @@
  *
  * --place shoots the --altitudes views over a latitude and longitude (the
  * Great Lakes, Lake Tahoe) instead of Baltimore.
+ *
+ *   ... --tiles-dir D:/gev-cache/blocks-tiles   # with --sequence or --altitudes
+ *
+ * --tiles-dir serves the precomputed Blocks tilesets from that folder, so
+ * the shots draw tiles where a box holds them and live chunks beside them.
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -943,6 +948,7 @@ async function shoot({
   viewMode = null,
   prefix = null,
   isolate = false,
+  tilesDir = null,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
@@ -980,9 +986,9 @@ async function shoot({
   await page.setViewport({ width: WIDTH, height: HEIGHT });
   await page.setRequestInterception(true);
   page.on('request', (request) => {
-    Promise.resolve(respond(request, { dist, field, log, live })).catch(
-      (error) => log.errors.push(`respond: ${error?.message || error}`),
-    );
+    Promise.resolve(
+      respond(request, { dist, field, log, live, tilesDir }),
+    ).catch((error) => log.errors.push(`respond: ${error?.message || error}`));
   });
   const mode = blocks ? 'blocks' : 'colour';
   const name = prefix ? `${prefix}-${mode}` : `${mode}${suffix}`;
@@ -2038,6 +2044,7 @@ export async function main(argv = process.argv.slice(2)) {
             blocks,
             live,
             isolate: argv.includes('--isolate'),
+            tilesDir: argValue(argv, '--tiles-dir') || null,
             ...shot,
           }),
         );
