@@ -123,6 +123,22 @@ export const TILE_CELL_PX = 4;
 export const tileRunCap = (blockM) =>
   Math.max(1, Math.floor(Math.sqrt((8 * 6_371_000) / (TILE_CELL_PX * blockM))));
 
+/**
+ * How far a level's tiles are drawn below its blocks: at the levels whose
+ * step is coarser than 30 m (1,920 m and up, where levelMFor is blockM/32),
+ * one step. grid.js stands a column's top block on [L·step, (L+1)·step]
+ * with L = floor(h / step), up to a step above its ground; drawn one step
+ * lower its top is floor(h / step) × step, at or below the ground, and the
+ * sea's surface is at 0 m. A camera at the street is then never inside a
+ * coarse block (a 960 m one at 30,720 m) while the finer tiles load. Only
+ * the drawing moves: the columns, the summaries and the live mesher are
+ * as they are.
+ */
+export const coarseDropM = (blockM) => {
+  const levelM = levelMFor(blockM);
+  return levelM > 30 ? levelM : 0;
+};
+
 /** External tilesets: a subtree in its own JSON every this many levels below the root. */
 export const SPLIT_DEPTH = 2;
 /**
@@ -529,9 +545,10 @@ export function skirtFloors(tile, chunksByLevel, summaries = null) {
   const floors = {};
   for (const [name, line] of Object.entries(lines)) {
     let lowestM = Infinity;
+    // Each level's lowest top in drawn metres (its coarseDropM below its blocks).
     const lower = (top, m) => {
       if (top !== null && top !== undefined)
-        lowestM = Math.min(lowestM, top * levelMFor(m));
+        lowestM = Math.min(lowestM, top * levelMFor(m) - coarseDropM(m));
     };
     for (const [m, byKey] of summaries ?? chunksByLevel) {
       if (!summaries) {
@@ -576,8 +593,11 @@ export function skirtFloors(tile, chunksByLevel, summaries = null) {
       for (let k = first; k <= last; k++)
         for (const c of crossing) lower(byKey.get(key(c, k))?.all, m);
     }
+    // In this tile's own levels, which are drawn its coarseDropM lower.
     floors[name] =
-      lowestM === Infinity ? null : Math.floor(lowestM / levelM + 1e-9);
+      lowestM === Infinity
+        ? null
+        : Math.floor((lowestM + coarseDropM(tile.level)) / levelM + 1e-9);
   }
   return floors;
 }
@@ -597,9 +617,16 @@ export function tileMesh(
   tile,
   chunksByLevel,
   region,
-  { summaries = null, toTile = null, mesher = buildChunkMesh } = {},
+  {
+    summaries = null,
+    toTile = null,
+    mesher = buildChunkMesh,
+    dropM = coarseDropM(tile.level),
+  } = {},
 ) {
   const chunks = chunksByLevel.get(tile.level);
+  // Curved levels only (every level coarser than 30 m a step is curved).
+  const datumM = region.curved ? -dropM : 0;
   const levelM = levelMFor(tile.level);
   const blockM = tile.level;
   const chunkM = CHUNK_COLUMNS * blockM;
@@ -642,7 +669,7 @@ export function tileMesh(
               lat0: region.lat0,
               regionBlockM: region.blockM,
               cornerM: { x: ci * chunkM, y: cj * chunkM },
-              datumM: 0,
+              datumM,
             },
           }
         : {}),
@@ -674,10 +701,11 @@ export function tileMesh(
     const dy = cj * chunkM;
     for (let v = 0; v < count; v++) {
       if (region.curved) {
-        // The anchor's frame (the mesh's origin plus its position), then the tile's.
+        // The anchor's frame (the mesh's origin plus its position, which
+        // the mesher writes from its datum, the anchor's up), then the tile's.
         const ax = mesh.origin.x + mesh.positions[v * 3];
         const ay = mesh.origin.y + mesh.positions[v * 3 + 1];
-        const az = mesh.origin.z + mesh.positions[v * 3 + 2];
+        const az = mesh.origin.z + mesh.positions[v * 3 + 2] + datumM;
         for (let c = 0; c < 3; c++)
           p[c] =
             toTile[c] * ax +
@@ -1208,6 +1236,7 @@ export function meshFingerprint({
     const mesh = tileMesh(tile, chunks, region, {
       toTile: curved ? tileFrame(tile, region).toTile : null,
       mesher,
+      dropM: 0,
     });
     hash.update(encode(mesh, blockM));
   }
@@ -1262,6 +1291,7 @@ export function tileDigest(
       ci: tile.ci,
       cj: tile.cj,
       floors: skirtFloors(tile, chunksByLevel, summaries),
+      ...(coarseDropM(tile.level) ? { dropM: coarseDropM(tile.level) } : {}),
     }),
   );
   const chunks = chunksByLevel.get(tile.level);
