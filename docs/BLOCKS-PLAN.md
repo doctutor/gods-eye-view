@@ -1330,3 +1330,109 @@ before and after, so it includes retries.
 - **The day.** 8,653 of the 20,000 tiles by the end (325 before run 1).
   Every tile on worker1's lists is cached: the recheck of the largest box
   answered 1,610 of 1,610 from the cache in 8 s.
+
+### The record, and where it stands (2026-10-30)
+
+One measured pass of the five steps and a page load at a Baltimore street,
+on the morning's baseline (039deebb: live chunks only, the Primitive
+renderer, no tiles) and on the day's final client (local-fixes 11044111:
+the Model renderer, the tiles, the box switch) with the trees served at
+15:00 UTC, back to back (`scripts/qa-blocks-compare.mjs --sequence`, then
+`--altitudes 297 --pitches -10,-45 --load-frames --frame-eval scripts/qa-blocks-timeline.js`).
+Quiet but for worker2's Europe 120 m values warm-up, which the harness
+recorded beside every run; the baseline's steps also waited for a full unit
+suite to end first. One run each: a record, not a verdict on any one
+number.
+
+The steps. First picture and settled are ms after the flight's end; long
+tasks are their count and total ms; links are the shader programs linked
+during the step and the ms the main thread waited on them; heap peaks are
+the JS heap and the buffers (MB); requests are the values requests and the
+tile requests during the step.
+
+| Step               | Build    | First picture | Settled | Long tasks  | Links / waiting | Heap peaks (JS / buffers) | Values | Tiles | Box and mode                   |
+| ------------------ | -------- | ------------- | ------- | ----------- | --------------- | ------------------------- | ------ | ----- | ------------------------------ |
+| Continent          | baseline | 1,092         | 5,178   | 2 / 567     | 41 / 6,589      | 48 / 201                  | 1      | 0     | live, 30,720 m                 |
+|                    | final    | 0             | 0       | 0 / 0       | 19 / 2,362      | 52 / 124                  | 0      | 68    | tiles, `europe-480`            |
+| Country            | baseline | 519           | 5,513   | 1 / 447     | 3 / 20          | 49 / 205                  | 1      | 0     | live, 30,720 m                 |
+|                    | final    | 0             | 0       | 0 / 0       | 0 / 0           | 51 / 93                   | 0      | 64    | tiles, `lower48-120`           |
+| Lake Tahoe         | baseline | 517           | 27,470  | 80 / 10,866 | 14 / 1,370      | 60 / 2,162                | 42     | 0     | live, 30,720 → 120 m           |
+|                    | final    | 157           | 22,096  | 7 / 446     | 0 / 0           | 91 / 333                  | 0      | 149   | tiles, `lower48-120`           |
+| The city           | baseline | 1,923         | 15,786  | 32 / 4,847  | 9 / 386         | 70 / 1,515                | 34     | 0     | live, 120 m                    |
+|                    | final    | 164           | 3,363   | 0 / 0       | 4 / 98          | 104 / 223                 | 0      | 218   | tiles, `baltimore-harbour-30`  |
+| A Baltimore street | baseline | 551           | 18,095  | 26 / 4,389  | 4 / 228         | 131 / 959                 | 51     | 0     | live, 120 → 1 m                |
+|                    | final    | 446           | 11,415  | 10 / 2,034  | 0 / 0           | 199 / 415                 | 31     | 34    | hybrid, `baltimore-harbour-30` |
+
+- The continent's 19 links in the final build are the app's start (Cesium's
+  own and the pre-warm's), not the tiles.
+- Lake Tahoe settles late in both: the final's 22 s is the 120 m tree
+  refining (886 MB of tiles, 73 unloads under the cache guard), with seven
+  long tasks where the baseline had eighty.
+- The city's 4 links (98 ms) are the programs left open in step C (their
+  text matches one linked at the start).
+
+The page load at the street (ms from the page's navigation, from
+`scripts/qa-blocks-timeline.js`):
+
+| Pitch | Build    | Splash gone | Tiles drawn           | Box switch                                            | Cover gaps       | Values | Tiles | Live region ready |
+| ----- | -------- | ----------- | --------------------- | ----------------------------------------------------- | ---------------- | ------ | ----- | ----------------- |
+| −10°  | baseline | 9,472       | none (no tiles)       | —                                                     | —                | 55     | 0     | after 20 s        |
+|       | final    | 7,297       | 4,478 (`lower48-120`) | `baltimore-harbour-30` asked at 6,363, drawn at 7,767 | 200 ms, at 7,767 | 33     | 180   | by 20 s           |
+| −45°  | baseline | 6,939       | none (no tiles)       | —                                                     | —                | 55     | 0     | after 20 s        |
+|       | final    | 7,094       | 2,376 (`lower48-120`) | `baltimore-harbour-30` asked at 5,861, drawn at 7,915 | none             | 33     | 180   | by 20 s           |
+
+- In the final build the ground is drawn under the splash: the lower 48's
+  120 m tree from 2.4 to 4.5 s, the harbour box once it covers the view.
+- The one gap: 200 ms just after the switch at −10°. The switch checks
+  the new box's cover only in the frame it swaps; in the frames after, some
+  tile in view was not in yet. A switch that waits for a few covering
+  frames would close it.
+- The baseline has no tiles: its far ground is the live coarse rings (606
+  coarse chunks against the final's 208), ready after 20 s.
+
+**Where it stands.**
+
+- **Tiles only.** Wherever a built box covers the whole view at or above
+  its floor: the continent and the country views (`europe-480`,
+  `lower48-480`, `lower48-120`), Lake Tahoe (`lower48-120`) and the city
+  view (`baltimore-harbour-30`, `baltimore-metro-30`, from 30 m). No live
+  region and no values requests; the first picture is the tiles already
+  loaded.
+- **Hybrid.** Under a box's floor: at a Baltimore street the live chunks
+  draw the 1 m disc and its rings out to the hole (2,048 m once they are
+  in), the harbour box's tiles everything past it.
+- **Live only.** Outside every box (anywhere but the lower 48, Europe and
+  the Baltimore boxes), and the levels under 30 m everywhere: the live
+  controller as before milestone 6.
+
+**Open items.**
+
+1. **The big trees' rebuild with the drop.** `lower48-480`, `lower48-120`
+   and `europe-480` still stand their coarse levels on their heights
+   (960 m steps at 30,720 m), so a camera low over a held lower-48 tile
+   can stand inside a block. Worker1's build-only drop (ae760936: from
+   1,920 m up the tiles are drawn one level lower) goes into those trees
+   at their next rebuilds; the three Baltimore boxes were rebuilt with
+   `--coarsest 1920` instead.
+2. **The 1 m city levels.** A box finer than 30 m waits on the lidar and
+   DEM download, which needs its own yes.
+3. **Walk and Fly on the tiles.** Deferred: the walker stands on the live
+   disc under it (the scoping section's recommendation 3).
+4. **The city's 4 links.** About 0.1 s; programs whose text matches one
+   linked at the start. Left.
+5. **The switch's one-frame cover.** The 200 ms gap above.
+
+**Known costs.**
+
+- **The values warm-up's pace by latitude** (worker2, Europe 120 m, run 8,
+  concurrency 2): about 3 s a tile to 57° N (1,200 tiles an hour; the lower
+  48 at 120 m ran 2.9 to 3.0 s throughout, 24 to 50° N), 13.4 s a tile from
+  57 to 60° N and 16.7 s from 60 to 64° N (215 to 270 an hour). There were
+  no failures and 4173 answered in 5 ms, so Earth Engine itself is slower
+  there (the water plane over lakes, fjords and coasts is the guess). Plan
+  a northern box at 15 to 19 s a tile.
+- **The day's budget.** 11,979 of the 20,000 Earth Engine tiles by 15:06
+  UTC, about 12,500 expected when the warm-up ends. The spend tracks the
+  tiles fetched almost one for one (retries add 0 to 30 %), so a warm-up
+  spends at its pace: about 1,200 an hour in the south, 215 to 270 north of
+  57° N.
