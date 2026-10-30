@@ -65,6 +65,8 @@ export function createApplicationBlocks({
   const tiles = createBlocksTilesLayer({
     viewer,
     buildings: () => store.getBuildings?.() !== false,
+    // The QA harness holds the pre-warm's Models to see that they never show.
+    holdPrewarm: () => Boolean(globalThis.__gevBlocksProbe?.holdPrewarm),
   });
   const controller = createBlocksController({
     viewer,

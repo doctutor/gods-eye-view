@@ -731,16 +731,20 @@ test('the first Blocks status links its programs before any flight: three centim
     assert.ok(model.glb.byteLength > 0, 'a GLB of ground and water');
     assert.ok(viewer.scene.primitives.contains(model), 'drawn');
   }
-  // 10 m in front of the eye (nothing culls it there).
-  const origin = Cesium.Matrix4.getTranslation(
-    fakeModels[0].options.modelMatrix,
-    new Cesium.Cartesian3(),
-  );
+  // Ahead of the eye, half the camera's height out (5,000 m up: 2,500 m).
+  const distanceFromEye = (matrix) =>
+    Cesium.Cartesian3.distance(
+      Cesium.Matrix4.getTranslation(matrix, new Cesium.Cartesian3()),
+      viewer.scene.camera.positionWC,
+    );
   assert.ok(
-    Math.abs(
-      Cesium.Cartesian3.distance(origin, viewer.scene.camera.positionWC) - 10,
-    ) < 1e-6,
+    Math.abs(distanceFromEye(fakeModels[0].options.modelMatrix) - 2500) < 1e-6,
   );
+  // The camera moves (a shared link's flight): they follow it each frame.
+  viewer.scene.camera.positionWC = Cesium.Cartesian3.fromDegrees(-70, 40, 5000);
+  viewer.scene.preRender.raiseEvent();
+  for (const model of fakeModels)
+    assert.ok(Math.abs(distanceFromEye(model.modelMatrix) - 2500) < 1e-6);
   // Removed once drawn (ready a few frames).
   for (let frame = 0; frame < 4; frame++) viewer.scene.preRender.raiseEvent();
   for (const model of fakeModels)
@@ -762,4 +766,49 @@ test('the pre-warm GLBs carry a live batch’s feature table or a tile’s: Cesi
     ).sort();
   assert.deepEqual(names(prewarmBlocksGlb('live')), ['ci', 'cj', 'water']);
   assert.deepEqual(names(prewarmBlocksGlb('tile')), ['blockM', 'ci', 'cj']);
+});
+
+test('held by the QA harness (holdPrewarm), the pre-warm’s Models stay drawn until let go, so a frame grab can show they never show', async () => {
+  fakeModels.length = 0;
+  let hold = true;
+  const viewer = {
+    scene: {
+      primitives: new Cesium.PrimitiveCollection(),
+      preRender: new Cesium.Event(),
+      requestRender() {},
+      camera: {
+        positionCartographic: Cesium.Cartographic.fromDegrees(
+          -76.6,
+          39.27,
+          5000,
+        ),
+        positionWC: Cesium.Cartesian3.fromDegrees(-76.6, 39.27, 5000),
+        directionWC: new Cesium.Cartesian3(0, 0, -1),
+        viewMatrix: Cesium.Matrix4.IDENTITY,
+        moveStart: new Cesium.Event(),
+        moveEnd: new Cesium.Event(),
+      },
+    },
+  };
+  const layer = createBlocksTilesLayer({
+    viewer,
+    fetchIndex: async () => INDEX,
+    createModel: fakeModel,
+    createTileset: async () => ({ tileLoad: new Cesium.Event(), destroy() {} }),
+    holdPrewarm: () => hold,
+  });
+  await layer.ready;
+  layer.apply({ state: 'loading', tiles: null });
+  await settle();
+  for (let frame = 0; frame < PREWARM_FRAMES + 5; frame++)
+    viewer.scene.preRender.raiseEvent();
+  assert.equal(layer.prewarmNow().state, 'under way');
+  assert.equal(layer.prewarmNow().models.length, 3);
+  for (const model of layer.prewarmNow().models)
+    assert.ok(viewer.scene.primitives.contains(model), 'held');
+  hold = false;
+  viewer.scene.preRender.raiseEvent();
+  assert.equal(layer.prewarmNow().state, 'done');
+  assert.equal(viewer.scene.primitives.length, 0);
+  layer.destroy();
 });
