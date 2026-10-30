@@ -418,7 +418,10 @@ test('loadChunk: a group built once serves its 16 chunks and the coarse one', as
   const chunks = await Promise.all(all);
   assert.equal(new Set(chunks).size, 16);
   const coarse = await source.loadCoarseChunk(region, 1, 2);
-  assert.equal(calls.length, first);
+  // No 30 m tile again: only its water shares, from the 120 m tile the
+  // ring reads (asked when the coarse chunk is, not with the group).
+  assert.ok(calls.slice(first).every((call) => call.water === true));
+  assertLatticeCalls(calls.slice(first), 120);
   assert.equal(coarse.ci, 1);
   assert.equal(coarse.cj, 2);
   // The same chunk object each time.
@@ -429,7 +432,14 @@ test('loadChunk: a group built once serves its 16 chunks and the coarse one', as
     source.loadChunk(region, 3, 3),
     source.loadCoarseChunk(region, 0, 0),
   ]);
-  assertLatticeCalls(calls, 30);
+  assertLatticeCalls(
+    calls.filter((call) => !call.water),
+    30,
+  );
+  assertLatticeCalls(
+    calls.filter((call) => call.water),
+    120,
+  );
   assert.equal(c.ci, 0);
   // Another level is another lattice.
   const before = calls.length;
@@ -615,6 +625,63 @@ test('loadCoarseChunk: the fine group coarse chunk, the mean of its columns, win
       replaced.top[5 * CHUNK_COLUMNS] - fromSuper.top[5 * CHUNK_COLUMNS],
     ) <= 2,
   );
+});
+
+test("a 30 m region: a lake across the seam between a fine group's coarse chunk and a supergroup's is water on both sides, read from the same 120 m tile", async () => {
+  // The fine level has no water plane (OSM paints its lakes); the coarse
+  // ring's 120 m tiles do. A lake at 50 m over the whole ground.
+  const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 30 });
+  const { fetchValues, calls } = fakeValues({
+    nativeM: 30,
+    heightAt: () => 50,
+    waterAt: () => 1,
+  });
+  const source = createChunkSource({ fetchValues, createChunk });
+  await source.loadChunk(region, 12, 0); // group (3, 0): its coarse chunk too
+  // The fine group alone asks no 120 m tile: a group inside the fine disc,
+  // whose coarse chunk is never drawn, costs what it did.
+  assert.ok(calls.length && calls.every((call) => !call.water));
+  const group = await source.loadCoarseChunk(region, 3, 0);
+  const fromSuper = await source.loadCoarseChunk(region, 4, 0); // supergroup (1, 0)
+  const lake = fromSuper.water[columnIndex(0, 10)];
+  assert.notEqual(lake, NONE);
+  // Group (3, 0)'s east edge meets supergroup (1, 0)'s west edge.
+  assert.equal(group.water[columnIndex(CHUNK_COLUMNS - 1, 10)], lake);
+  assert.ok(group.water.every((level) => level === lake));
+  assert.equal(group.top[columnIndex(0, 0)], fromSuper.top[columnIndex(0, 0)]);
+  // The group's shares come from the 120 m tiles the ring reads: each
+  // asked once, with the plane; the 30 m tiles without it.
+  assertLatticeCalls(
+    calls.filter((call) => call.water),
+    120,
+  );
+  assertLatticeCalls(
+    calls.filter((call) => !call.water),
+    30,
+  );
+});
+
+test("a group's coarse chunk whose 120 m water tile fails is served dry, and its fine chunks are whole", async () => {
+  const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 30 });
+  const values = fakeValues({
+    nativeM: 30,
+    heightAt: () => 50,
+    waterAt: () => 1,
+  });
+  const fetchValues = async (request) => {
+    if (request.water) {
+      const error = new Error('Raster values: HTTP 503');
+      error.status = 503;
+      throw error;
+    }
+    return values.fetchValues(request);
+  };
+  const source = createChunkSource({ fetchValues, createChunk, retryMs: [] });
+  const chunk = await source.loadChunk(region, 0, 0);
+  assert.ok(chunk.top.every((level) => level !== NONE));
+  const coarse = await source.loadCoarseChunk(region, 0, 0);
+  assert.ok(coarse.water.every((level) => level === NONE));
+  assert.ok(coarse.top.every((level) => level !== NONE));
 });
 
 test('loadCoarseChunk: a failed supergroup rejects its waiting chunks and is asked again', async () => {

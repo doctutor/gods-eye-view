@@ -27,7 +27,10 @@
 // rivers are OSM's, structures.js) each tile carries the water plane too,
 // the share of each cell that is water (MODIS MOD44W's land-water mask): a
 // column at least LAKE_SHARE water is a lake, its surface at the column's
-// own level (a DEM's height over a lake is its surface).
+// own level (a DEM's height over a lake is its surface). A fine group's
+// coarse chunk at a level without the plane (a 30 m region's, at 120 m)
+// takes its shares from the coarse level's tile, as its supergroup
+// neighbours do, when the ring first asks for it.
 //
 // A region (grid.js) is used through lon0, lat0, blockM, levelM (the
 // metres a level, worker1's; blockM when absent), chunkBounds and
@@ -393,6 +396,19 @@ export const regionKey = (region) =>
  *   Float32Array}>, createChunk?: Function, maxChunks?: number,
  *   maxTiles?: number}} options createChunk: store.js's unless given.
  */
+/**
+ * A promise of make()'s result that calls make only when first awaited
+ * (then or catch), so work held in the cache costs nothing until asked.
+ */
+function whenAsked(make) {
+  let promise = null;
+  const start = () => (promise ??= make());
+  return {
+    then: (resolve, reject) => start().then(resolve, reject),
+    catch: (reject) => start().catch(reject),
+  };
+}
+
 export function createChunkSource({
   fetchValues,
   createChunk = storeChunk,
@@ -520,7 +536,7 @@ export function createChunkSource({
    * A group's 16 chunks and its coarse chunk from one request. Once built
    * they all go into the cache, so the neighbours come free; the coarse
    * chunk, the mean of the fine columns, replaces a supergroup's.
-   * @returns {Promise<{chunks: Map<string, object>, coarse: object,
+   * @returns {Promise<{chunks: Map<string, object>, coarse: Promise<object>,
    *   coarseKey: string}>}
    */
   function loadGroup(region, gi, gj) {
@@ -553,18 +569,42 @@ export function createChunkSource({
             createChunk({ ci, cj, ...columns }),
           );
         }
-      const coarse = createChunk({
-        ci: gi,
-        cj: gj,
-        ...columnsFromHeights(
-          coarseHeights(heights, GROUP_COLUMNS, CHUNK_GROUP, {
-            landShare: LAND_SHARE,
-          }),
-          coarseLevelOf(region),
-          // A coarse column's share of water: its fine columns' mean.
-          water && coarseHeights(water, GROUP_COLUMNS, CHUNK_GROUP),
-        ),
+      const coarseColumns = coarseHeights(heights, GROUP_COLUMNS, CHUNK_GROUP, {
+        landShare: LAND_SHARE,
       });
+      const coarseOf = (shares) =>
+        createChunk({
+          ci: gi,
+          cj: gj,
+          ...columnsFromHeights(coarseColumns, coarseLevelOf(region), shares),
+        });
+      // A coarse column's share of water: its fine columns' mean, or, when
+      // the fine level has no plane and the coarse one has (a 30 m region's
+      // 120 m ring), the coarse level's tile under it, as the supergroup
+      // beside it reads, so a lake does not stop at their seam. That tile
+      // is asked only when the ring draws this chunk (it reads the tile
+      // anyway); the fine chunks never wait on it, and without it the
+      // coarse chunk is dry as before.
+      const coarseM = blockM * CHUNK_GROUP;
+      const coarse =
+        water || !asksWater(coarseM)
+          ? Promise.resolve(
+              coarseOf(
+                water && coarseHeights(water, GROUP_COLUMNS, CHUNK_GROUP),
+              ),
+            )
+          : whenAsked(() =>
+              heightsAt(coarseM, CHUNK_COLUMNS, (i, j) =>
+                placeAt(
+                  region,
+                  (gi * CHUNK_COLUMNS + i + 0.5) * coarseM,
+                  (gj * CHUNK_COLUMNS + j + 0.5) * coarseM,
+                ),
+              ).then(
+                (answer) => coarseOf(answer.water),
+                () => coarseOf(null),
+              ),
+            );
       return { chunks, coarse, coarseKey: coarseKey(region, gi, gj) };
     })();
     groups.set(key, promise);
@@ -573,7 +613,7 @@ export function createChunkSource({
         ({ chunks, coarse, coarseKey: exactKey }) => {
           for (const [chunkKey, chunk] of chunks)
             if (!held.has(chunkKey)) remember(chunkKey, Promise.resolve(chunk));
-          remember(exactKey, Promise.resolve(coarse));
+          remember(exactKey, coarse);
         },
         () => {},
       )
