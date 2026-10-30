@@ -460,6 +460,8 @@ export function createRasterValuesHandler({ service }) {
         return sendJson(res, answer.status, { error: answer.error });
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/octet-stream');
+      // Whether the answer was the disk's (scripts/blocks-pyramid.mjs --server).
+      res.setHeader('X-Raster-Values-Cache', answer.cached ? 'hit' : 'miss');
       res.setHeader('Cache-Control', 'private, max-age=3600');
       res.setHeader('Content-Length', String(answer.body.byteLength));
       res.end(

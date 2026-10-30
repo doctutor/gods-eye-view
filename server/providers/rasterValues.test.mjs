@@ -932,6 +932,10 @@ test('the route: octet-stream, JSON errors, same-site, GET only', async (t) => {
   assert.equal(ok.headers['content-type'], 'application/octet-stream');
   assert.equal(decodeRasterValues(ok.body).header.layer, 'ee-elevation');
   assert.equal(Number(ok.headers['content-length']), ok.body.length);
+  // Whether the answer was the disk's: a miss, then a hit.
+  assert.equal(ok.headers['x-raster-values-cache'], 'miss');
+  const kept = await call(`/?${new URLSearchParams(query())}`);
+  assert.equal(kept.headers['x-raster-values-cache'], 'hit');
   const bad = await call(`/?${new URLSearchParams(query({ cells: '0' }))}`);
   assert.equal(bad.statusCode, 400);
   assert.match(JSON.parse(bad.body).error, /cells/);
