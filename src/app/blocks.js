@@ -27,6 +27,8 @@ import { viewFootprintM } from '../hud/cameraState.js';
 import { navigationStore } from '../navigation/store.js';
 // Personal fork: Walk and Fly walk on the drawn blocks (src/navigation/).
 import { provideBlocksWorld } from '../navigation/blocksSource.js';
+// Personal fork: the precomputed tilesets where they are built (milestone 6).
+import { createBlocksTilesLayer } from './blocksTiles.js';
 
 /**
  * Personal fork: Render: Blocks (docs/BLOCKS-PLAN.md), the ground around
@@ -58,6 +60,12 @@ export function createApplicationBlocks({
     loadChunk: (region, ci, cj) => chunks.loadChunk(region, ci, cj),
   });
   const renderer = lazyRenderer(() => createBlocksRenderer({ viewer }));
+  // The built boxes' tiles, drawn where the controller's plan says, the
+  // Buildings switch choosing their variant.
+  const tiles = createBlocksTilesLayer({
+    viewer,
+    buildings: () => store.getBuildings?.() !== false,
+  });
   const controller = createBlocksController({
     viewer,
     store,
@@ -115,7 +123,15 @@ export function createApplicationBlocks({
     flatStyle: () =>
       isFlatBasemap(mapStackController?.getActiveStack?.()) === true,
     requestRender: governorRequestRender,
+    tiles: { plan: (view) => tiles.plan(view) },
   });
+  // The tiles follow the controller's status; once the index is read the
+  // view is planned again; the Buildings switch changes their variant.
+  const offTilesStatus = controller.subscribe((status) => tiles.apply(status));
+  tiles.ready.then(() => controller.tick?.());
+  const offTilesBuildings = store.subscribe?.(() =>
+    tiles.apply(controller.getStatus?.()),
+  );
   // A QA page (scripts/qa-blocks-compare.mjs --sequence) that set
   // window.__gevBlocksProbe before the app loaded is handed the controller
   // and its renderer to watch; nothing else reads it.
@@ -123,6 +139,7 @@ export function createApplicationBlocks({
   if (probe && typeof probe === 'object') {
     probe.controller = controller;
     probe.renderer = renderer;
+    probe.tiles = tiles;
   }
   const unprovide = provideBlocksWorld(() => controller.world());
   // Personal fork: an arrival's ground while Blocks hides the globe (the
@@ -136,6 +153,9 @@ export function createApplicationBlocks({
   controller.destroy = () => {
     unsetGround();
     unprovide();
+    offTilesStatus?.();
+    offTilesBuildings?.();
+    tiles.destroy();
     destroy();
   };
   return controller;
