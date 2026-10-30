@@ -1,9 +1,10 @@
 // Personal fork: draws the Blocks render mode's chunk meshes
-// (docs/BLOCKS-PLAN.md). One Cesium.Primitive per chunk from mesh.js's
-// typed arrays, plus a second, translucent one for the chunk's water faces
-// (translucency is per appearance). Positions stay float, in metres east,
-// north and up of the chunk's origin, and the primitive's model matrix puts
-// them on the globe: the region's east-north-up frame at its origin,
+// (docs/BLOCKS-PLAN.md). Chunks draw as Cesium Models from in-memory GLBs
+// (gltf.js, the encoder the precomputed tileset shares), a batch of 4 × 4
+// chunks a Model, its opaque faces one primitive and its translucent water
+// another, the look a CustomShader (BLOCKS_SHADER_*). Positions stay float,
+// in metres east, north and up of the batch's origin, and the Model's
+// matrix puts them on the globe: the region's east-north-up frame at its origin,
 // raised by the controller's datum offset, and moved to the chunk's origin.
 // The offset is where mean sea level, the heights' datum, sits on the
 // ellipsoid: 0 on the flat basemaps, whose globe surface is the ellipsoid
@@ -14,14 +15,16 @@
 // 2D or moved to world coordinates on the CPU.
 //
 // The colours are baked by mesh.js (face shade, ambient occlusion, sun);
-// the fragment shader adds distance fog toward the sky colour, since
-// Cesium's fog is the globe's and does not touch primitives. Opaque faces
+// the shader adds the block edges, the dither and distance fog toward the
+// sky colour (Cesium's own atmosphere fog is kept off the Models). Opaque faces
 // write depth, so scene.pickPosition and the HUD's AGL and centre distance
 // land on the blocks; water does not, so they land on the ground under it.
 
 import * as Cesium from 'cesium';
 import { solarParameters, sunPosition } from '../../data/solarDaylight.js';
 import { CHUNK_COLUMNS, CURVED_BLOCK_M, parseChunkKey } from './grid.js';
+import { createGlbService } from './glbService.js';
+import { packMesh, packedMeshHasFaces } from './packMesh.js';
 import { STUDY_SUN, STUDY_SUN_DIR, sunDirection } from './lighting.js';
 
 /** The real sun lights the blocks above this elevation, else the study sun. */
@@ -136,67 +139,33 @@ export const EDGE_DEFAULTS = Object.freeze({
 /** Top-face tone dither: ± this share of the colour, per block. */
 export const DITHER_DEFAULTS = Object.freeze({ amount: 0.03 });
 
-const VERTEX_SHADER = `
-const float DEPTH_BIAS = ${DEPTH_BIAS.toExponential()};
-in vec3 position;
-in vec3 normal;
-in vec4 color;
-in vec3 blockCoord;
-in float batchId;
-
-out vec3 v_positionEC;
-out vec3 v_normalEC;
-out vec4 v_color;
-out vec3 v_blockCoord;
-out vec3 v_localNormal;
-out vec2 v_chunk;
-
-void main() {
-  vec4 p = vec4(position, 1.0);
-  vec4 positionEC = czm_modelView * p;
-  v_positionEC = positionEC.xyz;
-  v_normalEC = czm_normal * normal;
-  v_color = color;
-  // The vertex's block point (mesh.js blockCoords): on the lattice of
-  // blocks and levels, flat chunk or curved, wherever the batch puts it.
-  v_blockCoord = blockCoord;
-  v_localNormal = normal;
-  v_chunk = czm_batchTable_blockChunk(batchId);
-  gl_Position = czm_projection * vec4(positionEC.xyz * (1.0 - DEPTH_BIAS), 1.0);
+// The look as a Cesium CustomShader on each batch's Model (gltf.js's
+// layout), shared by every batch of a level. The vertex stage draws each
+// vertex DEPTH_BIAS of its distance nearer the eye: the model coordinates'
+// eye is czm_inverseModelView's origin, and a step toward it is the eye
+// coordinates scaled by 1 − DEPTH_BIAS. It also hands the fragment the
+// stored normal back in the region's frame (glTF's Y-up undone).
+export const BLOCKS_SHADER_VERTEX = `
+void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput) {
+  vec3 eyeMC = (czm_inverseModelView * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+  vsOutput.positionMC += (eyeMC - vsOutput.positionMC) * ${DEPTH_BIAS.toExponential()};
+  vec3 n = vsInput.attributes.normalMC;
+  v_localNormal = vec3(n.x, -n.z, n.y);
 }
 `;
 
-const FRAGMENT_SHADER = `
-in vec3 v_positionEC;
-in vec3 v_normalEC;
-in vec4 v_color;
-in vec3 v_blockCoord;
-in vec3 v_localNormal;
-in vec2 v_chunk;
-
-void main() {
-  // A ring's ground the rings inside it already draw: not drawn twice.
-  if (blocks_inHole(v_positionEC)) discard;
-  czm_materialInput materialInput;
-  materialInput.positionToEyeEC = -v_positionEC;
-  materialInput.normalEC = normalize(v_normalEC);
-  czm_material fog = czm_getMaterial(materialInput);
-  float tone = blocks_tone(v_blockCoord, v_localNormal, v_chunk, length(v_positionEC));
-  out_FragColor = vec4(mix(v_color.rgb * tone, fog.diffuse, fog.alpha), v_color.a);
-}
-`;
-
-// The fog and the block tone live in a material because a material's
-// uniforms are the only ones an Appearance can carry. czm_getMaterial is
-// the fog: diffuse its colour, alpha how much of it a fragment at that
-// distance takes. blocks_tone is the shade that gives every block an edge:
-// a line about 1.5 px wide where the face's block point (mesh.js
-// blockCoords, interpolated) crosses a whole number on its two in-plane
-// axes, fading out with distance and before the blocks
-// are too small on the screen for a line (no moiré), and on top faces a
-// per-block tone from a hash of the block's column, so a flat field is
-// not one colour (faded out as a block nears a pixel).
-const MATERIAL_SOURCE = `
+// The fragment stage: a ring's ground the rings inside it already draw is
+// not drawn twice (blocks_inHole); every land block gets an edge, a line
+// about 1.5 px wide where the face's block point (gltf.js _BLOCKCOORD,
+// interpolated) crosses a whole number on its two in-plane axes, fading
+// out with distance and before the blocks are too small on the screen for
+// a line (no moiré); top faces get a per-block tone from a hash of the
+// block's column (folded, so it runs on across chunks), faded out as a
+// block nears a pixel; then the distance fog toward u_fogColor. Water
+// (the only colour below full alpha) gets neither edge nor dither. The
+// colours are the mesher's display values, so they go to the lighting
+// stage as linear (it turns linear back into the frame buffer's sRGB).
+export const BLOCKS_SHADER_FRAGMENT = `
 float blocks_hash(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
@@ -210,10 +179,21 @@ float blocks_line(float f) {
   return line * (1.0 - smoothstep(0.15, 0.35, w));
 }
 
-float blocks_tone(vec3 blockCoord, vec3 localNormal, vec2 chunk, float distanceM) {
-  // The block point: whole numbers on block edges and level steps, on a
-  // flat chunk or one standing on the ellipsoid alike.
-  vec3 f = blockCoord;
+// Within u_holeRadiusM of the inner rings' centre, measured across the
+// ground (along the local up removed), the rings inside draw the ground;
+// 0 is no hole.
+bool blocks_inHole(vec3 positionEC) {
+  if (u_holeRadiusM <= 0.0) return false;
+  vec3 d = positionEC - u_holeCentreEC;
+  vec3 across = d - dot(d, u_holeUpEC) * u_holeUpEC;
+  return dot(across, across) < u_holeRadiusM * u_holeRadiusM;
+}
+
+void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+  vec3 positionEC = fsInput.attributes.positionEC;
+  if (blocks_inHole(positionEC)) discard;
+  vec4 color = fsInput.attributes.color_0;
+  vec3 f = fsInput.attributes.blockcoord;
   // Derivatives first, outside any branch.
   float lx = blocks_line(f.x);
   float ly = blocks_line(f.y);
@@ -221,60 +201,65 @@ float blocks_tone(vec3 blockCoord, vec3 localNormal, vec2 chunk, float distanceM
   // A block under about a pixel gets no dither: it would sparkle as grain.
   float footprint = max(fwidth(f.x), fwidth(f.y));
   float ditherFade = 1.0 - smoothstep(0.5, 1.0, footprint);
-  vec3 a = abs(localNormal);
+  float land = step(0.999, color.a);
+  vec3 a = abs(v_localNormal);
   float line = a.z > 0.5 ? max(lx, ly) : a.x > 0.5 ? max(ly, lz) : max(lx, lz);
-  float fade = 1.0 - smoothstep(edgeFadeStart, edgeFadeEnd, distanceM / blockM);
-  float tone = 1.0 - edgeStrength * line * fade;
-  if (localNormal.z > 0.5) {
-    // The chunk is interpolated like any varying, so a hair off its whole
-    // number; rounded, or the hash bands across the block.
-    vec2 column = floor(chunk + 0.5) * ${CHUNK_COLUMNS.toFixed(1)} + floor(f.xy);
-    tone *= 1.0 + ditherAmount * ditherFade * (2.0 * blocks_hash(column) - 1.0);
-  }
-  return tone;
-}
-
-// A ring's hole (setRingHoles): within holeRadiusM of the inner rings'
-// centre, measured across the ground (along the local up removed), the
-// rings inside draw the ground; 0 is no hole.
-bool blocks_inHole(vec3 positionEC) {
-  if (holeRadiusM <= 0.0) return false;
-  vec3 d = positionEC - holeCentreEC;
-  vec3 across = d - dot(d, holeUpEC) * holeUpEC;
-  return dot(across, across) < holeRadiusM * holeRadiusM;
-}
-
-czm_material czm_getMaterial(czm_materialInput materialInput) {
-  czm_material material = czm_getDefaultMaterial(materialInput);
-  float d = length(materialInput.positionToEyeEC);
-  float t = clamp((d - fogStartM) / max(fogEndM - fogStartM, 1.0), 0.0, 1.0);
-  material.diffuse = fogColor.rgb;
-  material.alpha = t * t * (3.0 - 2.0 * t) * fogColor.a;
-  return material;
+  float distanceM = length(positionEC);
+  float fade = 1.0 - smoothstep(u_edgeFadeStart, u_edgeFadeEnd, distanceM / u_blockM);
+  float tone = 1.0 - u_edgeStrength * land * line * fade;
+  if (v_localNormal.z > 0.5)
+    tone *= 1.0 + u_ditherAmount * land * ditherFade * (2.0 * blocks_hash(floor(f.xy)) - 1.0);
+  float t = clamp((distanceM - u_fogStartM) / max(u_fogEndM - u_fogStartM, 1.0), 0.0, 1.0);
+  float fog = t * t * (3.0 - 2.0 * t) * u_fogColor.a;
+  vec3 rgb = mix(color.rgb * tone, u_fogColor.rgb, fog);
+#ifndef HDR
+  rgb = czm_srgbToLinear(rgb);
+#endif
+  material.diffuse = rgb;
+  material.alpha = color.a;
 }
 `;
 
-function blocksMaterial(translucent) {
-  return new Cesium.Material({
-    translucent,
-    fabric: {
-      type: translucent ? 'BlocksFogWater' : 'BlocksFog',
-      uniforms: {
-        fogStartM: 1e9,
-        fogEndM: 2e9,
-        fogColor: new Cesium.Color(...DEFAULT_FOG_COLOR),
-        blockM: 1,
-        levelM: 1,
-        edgeStrength: 0,
-        edgeFadeStart: EDGE_DEFAULTS.fadeStartBlocks,
-        edgeFadeEnd: EDGE_DEFAULTS.fadeEndBlocks,
-        ditherAmount: 0,
-        holeRadiusM: 0,
-        holeCentreEC: new Cesium.Cartesian3(0, 0, 0),
-        holeUpEC: new Cesium.Cartesian3(0, 0, 1),
-      },
-      source: MATERIAL_SOURCE,
-    },
+/** The shader's uniforms as they start: no fog, no edges, no hole. */
+const SHADER_UNIFORMS = () => ({
+  u_fogStartM: { type: 'FLOAT', value: 1e9 },
+  u_fogEndM: { type: 'FLOAT', value: 2e9 },
+  u_fogColor: {
+    type: 'VEC4',
+    value: new Cesium.Cartesian4(...DEFAULT_FOG_COLOR),
+  },
+  u_blockM: { type: 'FLOAT', value: 1 },
+  u_edgeStrength: { type: 'FLOAT', value: 0 },
+  u_edgeFadeStart: { type: 'FLOAT', value: EDGE_DEFAULTS.fadeStartBlocks },
+  u_edgeFadeEnd: { type: 'FLOAT', value: EDGE_DEFAULTS.fadeEndBlocks },
+  u_ditherAmount: { type: 'FLOAT', value: 0 },
+  u_holeRadiusM: { type: 'FLOAT', value: 0 },
+  u_holeCentreEC: { type: 'VEC3', value: new Cesium.Cartesian3(0, 0, 0) },
+  u_holeUpEC: { type: 'VEC3', value: new Cesium.Cartesian3(0, 0, 1) },
+});
+
+/**
+ * A level's shader: the Blocks look over the baked colours, unlit, the
+ * water's translucency from its glTF material (BLEND). It modifies the
+ * material rather than replacing it: with a replacing fragment shader
+ * Cesium skips the material stage, and with it the alpha mode, so the
+ * water drew opaque and wrote depth (the fragment sets every colour and
+ * alpha the material stage gave anyway).
+ */
+export function blocksShader() {
+  return new Cesium.CustomShader({
+    mode: Cesium.CustomShaderMode.MODIFY_MATERIAL,
+    lightingModel: Cesium.LightingModel.UNLIT,
+    translucencyMode: Cesium.CustomShaderTranslucencyMode.INHERIT,
+    uniforms: Object.fromEntries(
+      Object.entries(SHADER_UNIFORMS()).map(([name, { type, value }]) => [
+        name,
+        { type: Cesium.UniformType[type], value },
+      ]),
+    ),
+    varyings: { v_localNormal: Cesium.VaryingType.VEC3 },
+    vertexShaderText: BLOCKS_SHADER_VERTEX,
+    fragmentShaderText: BLOCKS_SHADER_FRAGMENT,
   });
 }
 
@@ -284,240 +269,80 @@ function styleOption(value, defaults) {
   return { ...defaults, ...(typeof value === 'object' ? value : {}) };
 }
 
-function blocksAppearance(translucent) {
-  return new Cesium.Appearance({
-    material: blocksMaterial(translucent),
-    translucent,
-    closed: false,
-    vertexShaderSource: VERTEX_SHADER,
-    fragmentShaderSource: FRAGMENT_SHADER,
-    renderState: Cesium.Appearance.getDefaultRenderState(translucent, false),
-  });
-}
+// The mesh split into opaque and water (packMesh.js), as before.
+export { splitMesh } from './packMesh.js';
 
 /**
- * A mesh's faces split into opaque and water: mesh.js puts the opaque
- * faces first, [0, opaqueIndexCount) of the indices, and water after.
- * A part that uses only some of the vertices gets just those, renumbered;
- * a mesh without water is drawn from its own arrays.
- * @returns {{opaque: object|null, water: object|null}}
+ * A Cesium.Model that updates as if the scene were 3D only and fogless:
+ * Blocks draws in 3D only, so the other scene modes draw nothing, and the
+ * fog is the shader's own (toward the sky behind the blocks), so Cesium's
+ * atmosphere fog stage stays out of the model's shader. Each update sees a
+ * view of the frame state with fog.renderable false (not a change to it).
  */
-export function splitMesh({
-  positions,
-  normals,
-  colors,
-  blockCoords = null,
-  indices,
-  opaqueIndexCount,
-}) {
-  const cut = Number.isInteger(opaqueIndexCount)
-    ? opaqueIndexCount
-    : indices.length;
-  const vertexCount = positions.length / 3;
-  const remap = new Int32Array(vertexCount);
-  const part = (from, to) => {
-    if (from >= to) return null;
-    if (from === 0 && to === indices.length)
-      return { positions, normals, colors, blockCoords, indices };
-    remap.fill(-1);
-    const out = new Uint32Array(to - from);
-    let used = 0;
-    for (let k = from; k < to; k++) {
-      const v = indices[k];
-      if (remap[v] < 0) remap[v] = used++;
-      out[k - from] = remap[v];
-    }
-    const p = new Float32Array(used * 3);
-    const n = new Float32Array(used * 3);
-    const c = new Uint8Array(used * 4);
-    const b = blockCoords ? new Float32Array(used * 3) : null;
-    for (let v = 0; v < vertexCount; v++) {
-      const at = remap[v];
-      if (at < 0) continue;
-      if (b) {
-        b[at * 3] = blockCoords[v * 3];
-        b[at * 3 + 1] = blockCoords[v * 3 + 1];
-        b[at * 3 + 2] = blockCoords[v * 3 + 2];
-      }
-      p[at * 3] = positions[v * 3];
-      p[at * 3 + 1] = positions[v * 3 + 1];
-      p[at * 3 + 2] = positions[v * 3 + 2];
-      n[at * 3] = normals[v * 3];
-      n[at * 3 + 1] = normals[v * 3 + 1];
-      n[at * 3 + 2] = normals[v * 3 + 2];
-      c[at * 4] = colors[v * 4];
-      c[at * 4 + 1] = colors[v * 4 + 1];
-      c[at * 4 + 2] = colors[v * 4 + 2];
-      c[at * 4 + 3] = colors[v * 4 + 3];
-    }
-    return {
-      positions: p,
-      normals: n,
-      colors: c,
-      blockCoords: b,
-      indices: out,
-    };
-  };
-  return { opaque: part(0, cut), water: part(cut, indices.length) };
-}
-
-/**
- * A mesh part as the renderer keeps it to rebuild batches from: normals as
- * normalized bytes (they are axis unit vectors, so exact) and indices as
- * 16 bits where they fit; positions and colours as given.
- */
-export function compactPart(part) {
-  if (!part) return null;
-  const { positions, normals, colors, blockCoords = null, indices } = part;
-  let bytes = normals;
-  if (!(normals instanceof Int8Array)) {
-    bytes = new Int8Array(normals.length);
-    for (let k = 0; k < normals.length; k++)
-      bytes[k] = Math.round(normals[k] * 127);
-  }
-  const short =
-    positions.length / 3 < 65536 && !(indices instanceof Uint16Array)
-      ? new Uint16Array(indices)
-      : indices;
-  return { positions, normals: bytes, colors, blockCoords, indices: short };
-}
-
-/** A kept part's bytes. */
-const partBytes = (part) =>
-  part
-    ? part.positions.byteLength +
-      part.normals.byteLength +
-      part.colors.byteLength +
-      (part.blockCoords?.byteLength || 0) +
-      part.indices.byteLength
-    : 0;
-
-/**
- * A part's bounding sphere from one pass over its positions (the box's
- * corners): computed once when a chunk arrives and kept with it, where
- * BoundingSphere.fromVertices on every geometry, alone and again at each
- * batch rebuild, was a fifth of the main thread's geometry time while a
- * view streamed in (QA, 2026-10-29).
- */
-export function partSphere(positions) {
-  if (!positions?.length) return new Cesium.BoundingSphere();
-  let minX = Infinity;
-  let minY = Infinity;
-  let minZ = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  let maxZ = -Infinity;
-  for (let k = 0; k < positions.length; k += 3) {
-    const x = positions[k];
-    const y = positions[k + 1];
-    const z = positions[k + 2];
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-    if (z < minZ) minZ = z;
-    if (z > maxZ) maxZ = z;
-  }
-  return Cesium.BoundingSphere.fromCornerPoints(
-    new Cesium.Cartesian3(minX, minY, minZ),
-    new Cesium.Cartesian3(maxX, maxY, maxZ),
-  );
-}
-
-function meshGeometry(
-  { positions, normals, colors, blockCoords, indices, sphere },
-  offset = null,
-) {
-  const vertexCount = positions.length / 3;
-  // Without block points (a curved chunk from an older mesher, drawn
-  // plain) the attribute is there, all zeros: the shader reads it.
-  const coords = blockCoords || new Float32Array(positions.length);
-  if (offset && (offset.x || offset.y || offset.z)) {
-    const moved = new Float32Array(positions.length);
-    for (let k = 0; k < positions.length; k += 3) {
-      moved[k] = positions[k] + offset.x;
-      moved[k + 1] = positions[k + 1] + offset.y;
-      moved[k + 2] = positions[k + 2] + offset.z;
-    }
-    positions = moved;
-  }
-  return new Cesium.Geometry({
-    attributes: {
-      position: new Cesium.GeometryAttribute({
-        componentDatatype: Cesium.ComponentDatatype.FLOAT,
-        componentsPerAttribute: 3,
-        values: positions,
-      }),
-      normal:
-        normals instanceof Int8Array
-          ? new Cesium.GeometryAttribute({
-              componentDatatype: Cesium.ComponentDatatype.BYTE,
-              componentsPerAttribute: 3,
-              normalize: true,
-              values: normals,
-            })
-          : new Cesium.GeometryAttribute({
-              componentDatatype: Cesium.ComponentDatatype.FLOAT,
-              componentsPerAttribute: 3,
-              values: normals,
-            }),
-      color: new Cesium.GeometryAttribute({
-        componentDatatype: Cesium.ComponentDatatype.UNSIGNED_BYTE,
-        componentsPerAttribute: 4,
-        normalize: true,
-        values: colors,
-      }),
-      blockCoord: new Cesium.GeometryAttribute({
-        componentDatatype: Cesium.ComponentDatatype.FLOAT,
-        componentsPerAttribute: 3,
-        values: coords,
-      }),
-    },
-    indices:
-      vertexCount < 65536
-        ? indices instanceof Uint16Array
-          ? indices
-          : Uint16Array.from(indices)
-        : indices instanceof Uint32Array
-          ? indices
-          : Uint32Array.from(indices),
-    primitiveType: Cesium.PrimitiveType.TRIANGLES,
-    // The part's own sphere (partSphere), moved with it into its batch.
-    boundingSphere: sphere
-      ? new Cesium.BoundingSphere(
-          offset
-            ? Cesium.Cartesian3.add(
-                sphere.center,
-                new Cesium.Cartesian3(offset.x, offset.y, offset.z || 0),
-                new Cesium.Cartesian3(),
-              )
-            : Cesium.Cartesian3.clone(sphere.center),
-          sphere.radius,
-        )
-      : Cesium.BoundingSphere.fromVertices(positions),
-  });
-}
-
-/**
- * A Cesium.Primitive that updates as if the scene were 3D only. Unless it
- * is, Primitive projects DOUBLE positions to 2D and needs a Columbus-view
- * bounding sphere that float local positions never get; Blocks draws in 3D
- * only, so each update sees the frame state with scene3DOnly set (a view
- * of it, not a change to it) and the other scene modes draw nothing.
- */
-export function primitive3D(options) {
-  const primitive = new Cesium.Primitive(options);
-  const update = primitive.update;
-  primitive.update = function (frameState) {
+export function model3D(model) {
+  const update = model.update;
+  let state = null;
+  let view = null;
+  model.update = function (frameState) {
     if (frameState.mode !== Cesium.SceneMode.SCENE3D) return;
-    update.call(
-      this,
-      frameState.scene3DOnly
-        ? frameState
-        : Object.create(frameState, { scene3DOnly: { value: true } }),
-    );
+    if (frameState !== state) {
+      state = frameState;
+      view = frameState.fog
+        ? Object.create(frameState, {
+            fog: {
+              value: Object.create(frameState.fog, {
+                renderable: { value: false },
+              }),
+            },
+          })
+        : frameState;
+    }
+    update.call(this, view);
   };
-  return primitive;
+  return model;
+}
+
+/** No image-based lighting: the blocks' light is baked (one, shared). */
+let noImageLighting = null;
+const imageLightingOff = () =>
+  (noImageLighting ||= new Cesium.ImageBasedLighting({
+    imageBasedLightingFactor: new Cesium.Cartesian2(0, 0),
+  }));
+
+/** Each Blocks Model's own base path (createBlocksModel). */
+let glbSerial = 0;
+
+/**
+ * A Blocks Model from a GLB (gltf.js), as the renderer draws it: no
+ * vertical exaggeration (the controller bakes the relief into the mesh),
+ * no environment map or image lighting, no shadows, picked by feature;
+ * its axes a 3D Tiles tile's.
+ * @returns {Promise<Cesium.Model>}
+ */
+export function createBlocksModel(glb, { modelMatrix, customShader }) {
+  return Cesium.Model.fromGltfAsync({
+    gltf: glb,
+    // Cesium caches a glTF's JSON and buffers by its address; an in-memory
+    // GLB's is the base path, the same for all of them, so Models loading
+    // at once took the first one's geometry. A path of its own each (the
+    // buffers are in the GLB: nothing is fetched).
+    basePath: `blocks-glb/${++glbSerial}/`,
+    // glTF's Y-up turned to Z-up and nothing more, as a 3D Tiles tile is
+    // (Cesium3DTileset's modelForwardAxis X): a lone Model's default Z
+    // forward adds a quarter turn about up, which turned every batch about
+    // its own corner.
+    upAxis: Cesium.Axis.Y,
+    forwardAxis: Cesium.Axis.X,
+    modelMatrix,
+    customShader,
+    asynchronous: false,
+    releaseGltfJson: true,
+    enableVerticalExaggeration: false,
+    environmentMapOptions: { enabled: false },
+    imageBasedLighting: imageLightingOff(),
+    shadows: Cesium.ShadowMode.DISABLED,
+    allowPicking: true,
+  });
 }
 
 /** The region's frame: east-north-up at its origin, `datumOffsetM` above the ellipsoid. */
@@ -596,10 +421,11 @@ export const CENTRE_QUIET_MS = 250;
 
 /**
  * How long a batch's chunks are left alone before it is rebuilt with them,
- * ms. Each rebuild sends all 16 chunks through Cesium's synchronous geometry
- * pipeline again; at 1.5 s a batch rebuilt about 2.3 times as its chunks
- * streamed in (each chunk about 2.65 passes, alone and in rebuilds: QA,
- * 2026-10-29). Meanwhile its new chunks draw alone, a draw call each.
+ * ms. Each rebuild encodes all 16 chunks again and makes a new Model of
+ * them (it was Cesium's synchronous geometry pipeline: at 1.5 s a batch
+ * rebuilt about 2.3 times as its chunks streamed in, each chunk about 2.65
+ * passes, alone and in rebuilds: QA, 2026-10-29). Meanwhile its new chunks
+ * draw alone, a draw call each.
  */
 export const BATCH_QUIET_MS = 3000;
 
@@ -631,10 +457,13 @@ export function chunkMatrix(frame, origin, result = new Cesium.Matrix4()) {
 
 /**
  * @param {{viewer: object, edges?: boolean|object, dither?: boolean|object,
- *   now?: () => number}} options edges: a line on every block edge
- *   (EDGE_DEFAULTS, on by default); dither: a per-block tone on top faces
- *   (DITHER_DEFAULTS, on by default). Water faces get neither. now: the
- *   wall clock the sky fog's sun is read on (Date.now).
+ *   now?: () => number, createModel?: Function}} options edges: a line on
+ *   every block edge (EDGE_DEFAULTS, on by default); dither: a per-block
+ *   tone on top faces (DITHER_DEFAULTS, on by default). Water faces get
+ *   neither. now: the wall clock the sky fog's sun is read on (Date.now).
+ *   createModel: (glb, {modelMatrix, customShader}) → a Promise of a
+ *   Model (createBlocksModel; a test's fake). glbService: where the
+ *   chunks' parts are kept and the GLBs made (createGlbService: a worker).
  */
 export function createBlocksRenderer({
   viewer,
@@ -649,30 +478,40 @@ export function createBlocksRenderer({
   },
   clearTimeoutImpl = (handle) => clearTimeout(handle),
   viewCentre = null,
+  createModel = createBlocksModel,
+  glbService = null,
 } = {}) {
+  // The chunks' geometry and the GLBs made of it, in a worker (glbService.js).
+  const glbs = glbService || createGlbService();
   const scene = viewer.scene;
   const collection = scene.primitives.add(
     new Cesium.PrimitiveCollection({ destroyPrimitives: true }),
   );
-  const appearances = {
-    opaque: blocksAppearance(false),
-    water: blocksAppearance(true),
-  };
+  const shader = blocksShader();
   // The rings past the primary region (setRegions), by block size: each
-  // its region, frame and appearances (their blockM for the edges).
-  /** blockM → {region, frame, appearances} */
+  // its region, frame and shader (its blockM for the edges, its hole).
+  /** blockM → {region, frame, shader} */
   const rings = new Map();
-  // Chunks draw in batches of 4 × 4 (batchKeyOf): one opaque and one water
-  // primitive a batch, one geometry instance a chunk, so hundreds of chunks
-  // are tens of draw calls. A chunk that arrives or changes draws alone at
-  // once (its old instance in the batch hidden), and the batch is rebuilt
-  // with it once it has been quiet for `quietMs`, one batch a frame, so
-  // neither streaming nor an edit waits on rebuilding sixteen chunks.
-  /** key → {batch, origin, parts: {opaque, water}, chunk: [ci, cj], alone: Primitive[], ids} */
+  // Chunks draw in batches of 4 × 4 (batchKeyOf): one Model a batch, its
+  // opaque and water primitives (gltf.js), a feature a chunk and kind, so
+  // hundreds of chunks are tens of draw calls. A chunk that arrives or
+  // changes draws alone at once, as a Model of its own; once that is ready
+  // its old features in the batch are hidden, and the batch is rebuilt with
+  // it after `quietMs` of quiet, one batch a frame. A Model is ready a frame
+  // or more after it is made, so what it replaces stays drawn until then.
+  /** key → {batch, origin, parts: {opaque, water}, chunk: [ci, cj], level, plain, version, alone: entry[]} */
   const chunks = new Map();
-  /** batch key → {origin, members: Set, built: Map<key, ids>, primitives, changedAt} */
+  /**
+   * batch key → {origin, level, plain, blockM, members: Set, current, next,
+   * changedAt}; current (drawn) and next (being made) are builds:
+   * {entry, keys, versions: Map<key, version>, hidden: Set}, feature s the
+   * opaque faces of keys[s] and keys.length + s its water.
+   */
   const batches = new Map();
   const pending = new Set(); // batches with chunks drawn alone, or hidden
+  /** A drawn Model → whose it is: {key} alone, or {build} a batch's. */
+  const owners = new WeakMap();
+  let versions = 0;
   let wake = null;
   let region = null;
   let datumOffsetM = 0;
@@ -702,52 +541,48 @@ export function createBlocksRenderer({
   // A curved chunk (chunkIsCurved) without block points (mesh.js gives
   // them; an older mesh does not) draws without block edges or dither: its
   // positions are off the block lattice, so nothing could find its edges.
-  const curvedAppearances = {
-    opaque: blocksAppearance(false),
-    water: blocksAppearance(true),
-  };
+  const plainShader = blocksShader();
 
-  /** Every appearance set, with the block size and level its edges are drawn at. */
-  const appearanceSets = () => [
-    { blockM: region?.blockM || 1, levelM: levelMOf(region), set: appearances },
-    ...[...rings].map(([blockM, ring]) => ({
-      blockM,
-      levelM: levelMOf(ring.region),
-      set: ring.appearances,
-    })),
-    { blockM: 1, levelM: 1, set: curvedAppearances, plain: true },
+  /** Every shader, with the block size its edges are drawn at. */
+  const shaderSets = () => [
+    { blockM: region?.blockM || 1, shader },
+    ...[...rings].map(([blockM, ring]) => ({ blockM, shader: ring.shader })),
+    { blockM: 1, shader: plainShader, plain: true },
   ];
 
   /** The block size and the land's edge and dither uniforms. */
   function applyStyle() {
-    for (const { blockM, levelM, set, plain } of appearanceSets())
-      styleAppearances(set, blockM, levelM, { plain });
+    for (const { blockM, shader: set, plain } of shaderSets())
+      styleShader(set, blockM, { plain });
   }
 
-  function styleAppearances(set, blockM, levelM = blockM, { plain } = {}) {
-    for (const [kind, appearance] of Object.entries(set)) {
-      const uniforms = appearance.material.uniforms;
-      uniforms.levelM = levelM;
-      const land = kind === 'opaque' && !plain;
-      uniforms.blockM = blockM;
-      uniforms.edgeStrength = land && style.edges ? style.edges.strength : 0;
-      uniforms.edgeFadeStart =
-        style.edges?.fadeStartBlocks ?? EDGE_DEFAULTS.fadeStartBlocks;
-      uniforms.edgeFadeEnd =
-        style.edges?.fadeEndBlocks ?? EDGE_DEFAULTS.fadeEndBlocks;
-      uniforms.ditherAmount = land && style.dither ? style.dither.amount : 0;
-    }
+  function styleShader(set, blockM, { plain } = {}) {
+    set.setUniform('u_blockM', blockM);
+    set.setUniform(
+      'u_edgeStrength',
+      !plain && style.edges ? style.edges.strength : 0,
+    );
+    set.setUniform(
+      'u_edgeFadeStart',
+      style.edges?.fadeStartBlocks ?? EDGE_DEFAULTS.fadeStartBlocks,
+    );
+    set.setUniform(
+      'u_edgeFadeEnd',
+      style.edges?.fadeEndBlocks ?? EDGE_DEFAULTS.fadeEndBlocks,
+    );
+    set.setUniform(
+      'u_ditherAmount',
+      !plain && style.dither ? style.dither.amount : 0,
+    );
   }
   applyStyle();
 
   function applyFog() {
-    for (const appearance of appearanceSets().flatMap(({ set }) =>
-      Object.values(set),
-    )) {
-      const uniforms = appearance.material.uniforms;
-      uniforms.fogStartM = fog.startM;
-      uniforms.fogEndM = fog.endM;
-      uniforms.fogColor = new Cesium.Color(...fog.color);
+    const color = new Cesium.Cartesian4(...fog.color);
+    for (const { shader: set } of shaderSets()) {
+      set.setUniform('u_fogStartM', fog.startM);
+      set.setUniform('u_fogEndM', fog.endM);
+      set.setUniform('u_fogColor', color);
     }
   }
 
@@ -809,13 +644,10 @@ export function createBlocksRenderer({
     }
     for (const [level, ring] of rings) {
       const radius = radiusOf(level);
-      for (const appearance of Object.values(ring.appearances)) {
-        const uniforms = appearance.material.uniforms;
-        uniforms.holeRadiusM = radius;
-        if (radius > 0) {
-          uniforms.holeCentreEC = centreEC;
-          uniforms.holeUpEC = upEC;
-        }
+      ring.shader.setUniform('u_holeRadiusM', radius);
+      if (radius > 0) {
+        ring.shader.setUniform('u_holeCentreEC', centreEC);
+        ring.shader.setUniform('u_holeUpEC', upEC);
       }
     }
   }
@@ -828,139 +660,204 @@ export function createBlocksRenderer({
   followBackground();
   applyFog();
 
-  /** A chunk's geometry instance: its place (the dither's global columns) and its offset in a batch (its own coordinates for the block edges). */
-  function chunkInstance(key, held, kind, offset, id) {
-    return new Cesium.GeometryInstance({
-      geometry: meshGeometry(held.parts[kind], offset),
-      id,
-      attributes: {
-        blockChunk: new Cesium.GeometryInstanceAttribute({
-          componentDatatype: Cesium.ComponentDatatype.FLOAT,
-          componentsPerAttribute: 2,
-          value: held.chunk,
-        }),
-        blockOffset: new Cesium.GeometryInstanceAttribute({
-          componentDatatype: Cesium.ComponentDatatype.FLOAT,
-          componentsPerAttribute: 3,
-          value: [offset.x, offset.y, offset.z],
-        }),
-        show: new Cesium.ShowGeometryInstanceAttribute(true),
-      },
-    });
-  }
-
-  /** A level's frame and appearances: a ring's, else the primary region's. */
+  /** A level's frame and shader: a ring's, else the primary region's. */
   const levelOf = (level) => {
     const ring = level ? rings.get(level) : null;
     return ring
-      ? { frame: ring.frame, set: ring.appearances }
-      : { frame, set: appearances };
+      ? { frame: ring.frame, shader: ring.shader }
+      : { frame, shader };
   };
 
-  function drawn(instances, kind, origin, level = null, plain = false) {
-    const { frame: at, set } = levelOf(level);
-    return collection.add(
-      primitive3D({
-        geometryInstances: instances,
-        appearance: (plain ? curvedAppearances : set)[kind],
-        modelMatrix: chunkMatrix(at, origin),
-        asynchronous: false,
-        compressVertices: false,
-        allowPicking: true,
-        shadows: Cesium.ShadowMode.DISABLED,
-      }),
-    );
+  /** Where a chunk or batch ({origin, level}) draws: its level's frame at its origin. */
+  const matrixOf = (place) =>
+    chunkMatrix(levelOf(place.level).frame, place.origin);
+
+  /**
+   * How often geometry was made: chunks drawn alone, batch rebuilds, the
+   * chunks those combined, Models made, those rejected, and the main
+   * thread's ms spent packing meshes meshed in this thread (a mesh
+   * worker's come packed; the GLBs are made in the GLB worker).
+   */
+  const stats = {
+    alone: 0,
+    rebuilds: 0,
+    rebuiltChunks: 0,
+    models: 0,
+    failed: 0,
+    packMs: 0,
+  };
+  /** Models being made or loaded: not drawn yet, not taken away. */
+  const loading = new Set();
+
+  const clock = () => globalThis.performance?.now?.() ?? Date.now();
+
+  /** Take a drawn (or still being made) Model away. */
+  function removeEntry(entry) {
+    if (!entry || entry.removed) return;
+    entry.removed = true;
+    loading.delete(entry);
+    if (entry.model) collection.remove(entry.model);
+    entry.model = null;
   }
 
   /**
-   * How often geometry went through Cesium's (synchronous) pipeline: chunks
-   * drawn alone, batch rebuilds, and the chunks those rebuilds combined.
+   * A Model of a GLB (a promise of one, from the GLB worker) at a place
+   * ({origin, level, plain}), made asynchronously: the entry {model, ready,
+   * removed}; `onReady(entry)` once it draws (at once for a GLB of no
+   * faces), `onFailed(entry)` if the GLB or the Model is rejected (what it
+   * was to replace stays drawn). Taken away before then, it is never added.
    */
-  const stats = { alone: 0, rebuilds: 0, rebuiltChunks: 0 };
-
-  /** A chunk drawn alone, at its own origin. */
-  function drawAlone(key, held) {
-    stats.alone++;
-    const zero = { x: 0, y: 0, z: 0 };
-    return ['opaque', 'water']
-      .filter((kind) => held.parts[kind])
-      .map((kind) =>
-        drawn(
-          [
-            chunkInstance(key, held, kind, zero, {
-              blocks: true,
-              key,
-              water: kind === 'water',
-            }),
-          ],
-          kind,
-          held.origin,
-          held.level,
-          held.plain,
-        ),
-      );
+  function drawModel(source, place, owner, onReady, onFailed = () => {}) {
+    const entry = { model: null, ready: false, removed: false };
+    const done = () => {
+      if (entry.removed || entry.ready) return;
+      loading.delete(entry);
+      entry.ready = true;
+      onReady(entry);
+      requestRender();
+    };
+    loading.add(entry);
+    const customShader = place.plain
+      ? plainShader
+      : levelOf(place.level).shader;
+    Promise.resolve(source)
+      .then((glb) => {
+        if (entry.removed || destroyed) return null;
+        if (!glb) {
+          done();
+          return null;
+        }
+        stats.models++;
+        return createModel(glb, { modelMatrix: matrixOf(place), customShader });
+      })
+      .then((model) => {
+        if (!model) return;
+        if (entry.removed || destroyed || !levelOf(place.level).frame) {
+          model.destroy?.();
+          return;
+        }
+        // The frame may have moved while it was made (placeAll).
+        model.modelMatrix = matrixOf(place);
+        entry.model = model3D(model);
+        owners.set(model, owner);
+        collection.add(model);
+        if (model.ready) done();
+        else model.readyEvent?.addEventListener(done);
+        requestRender();
+      })
+      .catch((error) => {
+        if (entry.removed) return;
+        loading.delete(entry);
+        entry.failed = true;
+        stats.failed++;
+        console.warn('[blocks] a chunk Model failed:', error?.message || error);
+        onFailed(entry);
+      });
+    return entry;
   }
 
-  /** Rebuild a batch from its chunks, each offset to the batch's origin; their lone primitives go. */
+  /**
+   * A chunk drawn alone, at its own origin, from its own GLB (`source`, a
+   * promise from the GLB worker). Once it draws, the chunk's earlier Models
+   * go and its old features in the batch are hidden.
+   */
+  function drawAlone(key, held, source) {
+    stats.alone++;
+    const entry = drawModel(source, held, { key }, () => {
+      // Replaced (the newer one takes this away) or dropped: nothing.
+      if (chunks.get(key) !== held) return;
+      for (const other of held.alone) if (other !== entry) removeEntry(other);
+      held.alone = [entry];
+      const batch = batches.get(held.batch);
+      if (batch) hideInBatch(batch, key);
+    });
+    return entry;
+  }
+
+  /**
+   * Rebuild a batch from its chunks, each offset to the batch's origin.
+   * Once the new Model draws, the old one goes, and with it the lone Models
+   * of the chunks it holds as they are now; a chunk changed or dropped
+   * meanwhile is hidden in it.
+   */
   function rebuild(batchKey) {
     const batch = batches.get(batchKey);
     pending.delete(batchKey);
     if (!batch) return;
+    if (!batch.members.size) {
+      dropBatch(batchKey);
+      return;
+    }
     stats.rebuilds++;
     stats.rebuiltChunks += batch.members.size;
-    batch.rebuildNow = false;
-    const instances = { opaque: [], water: [] };
-    const built = new Map();
-    for (const key of batch.members) {
+    const keys = [...batch.members];
+    const members = keys.map((key) => {
       const held = chunks.get(key);
-      const offset = {
-        x: held.origin.x - batch.origin.x,
-        y: held.origin.y - batch.origin.y,
-        z: (held.origin.z || 0) - (batch.origin.z || 0),
+      return {
+        key,
+        offset: {
+          x: held.origin.x - batch.origin.x,
+          y: held.origin.y - batch.origin.y,
+          z: (held.origin.z || 0) - (batch.origin.z || 0),
+        },
       };
-      const ids = {};
-      for (const kind of ['opaque', 'water']) {
-        if (!held.parts[kind]) continue;
-        ids[kind] = { blocks: true, key, water: kind === 'water' };
-        instances[kind].push(chunkInstance(key, held, kind, offset, ids[kind]));
-      }
-      built.set(key, ids);
-    }
-    const before = batch.primitives;
-    batch.primitives = ['opaque', 'water']
-      .filter((kind) => instances[kind].length)
-      .map((kind) =>
-        drawn(instances[kind], kind, batch.origin, batch.level, batch.plain),
-      );
-    batch.built = built;
-    for (const primitive of before) collection.remove(primitive);
-    for (const key of batch.members) {
-      const held = chunks.get(key);
-      for (const primitive of held.alone) collection.remove(primitive);
-      held.alone = [];
-    }
-    if (!batch.members.size) batches.delete(batchKey);
+    });
+    // The versions are the GLB worker's: what it held when it made the GLB.
+    const build = { entry: null, keys, versions: new Map(), hidden: new Set() };
+    removeEntry(batch.next?.entry);
+    batch.next = build;
+    const source = glbs.batch(members).then(({ glb, versions }) => {
+      keys.forEach((key, s) => build.versions.set(key, versions[s]));
+      return glb;
+    });
+    build.entry = drawModel(
+      source,
+      batch,
+      { build },
+      () => batchReady(batchKey, build),
+      // Rejected: its chunks stay drawn alone, and it is tried again after
+      // the next quiet.
+      () => {
+        const now = batches.get(batchKey);
+        if (now?.next !== build) return;
+        now.next = null;
+        changed(batchKey, now);
+      },
+    );
   }
 
-  /**
-   * Hide a chunk's instance in its batch (it is drawn alone, or gone); a
-   * batch not drawn yet is rebuilt instead.
-   */
-  function hideInBatch(batch, key) {
-    const ids = batch.built.get(key);
-    if (!ids) return;
-    batch.built.delete(key);
-    for (const primitive of batch.primitives) {
-      const id = primitive.appearance.translucent ? ids.water : ids.opaque;
-      if (!id) continue;
-      if (!primitive.ready) {
-        batch.rebuildNow = true; // not drawn yet: rebuilt on the next frame
-        continue;
-      }
-      const attributes = primitive.getGeometryInstanceAttributes(id);
-      if (attributes)
-        attributes.show = Cesium.ShowGeometryInstanceAttribute.toValue(false);
+  function batchReady(batchKey, build) {
+    const batch = batches.get(batchKey);
+    if (!batch || batch.next !== build) return;
+    batch.next = null;
+    removeEntry(batch.current?.entry);
+    batch.current = build;
+    for (const key of build.keys) {
+      const held = chunks.get(key);
+      if (
+        held &&
+        held.batch === batchKey &&
+        held.version === build.versions.get(key)
+      ) {
+        for (const entry of held.alone) removeEntry(entry);
+        held.alone = [];
+      } else hideInBatch(batch, key);
     }
+  }
+
+  /** Hide a chunk's features in its batch's drawn Model (it is drawn alone, or gone). */
+  function hideInBatch(batch, key) {
+    const build = batch.current;
+    const s = build ? build.keys.indexOf(key) : -1;
+    if (s < 0 || build.hidden.has(key)) return;
+    build.hidden.add(key);
+    const model = build.entry?.model;
+    const table = model?.featureTables?.[model.featureTableId];
+    if (table) {
+      table.setShow(s, false);
+      table.setShow(build.keys.length + s, false);
+    }
+    requestRender();
   }
 
   /** Wake a frame when a pending batch has been quiet long enough (requestRenderMode draws only on request). */
@@ -1006,9 +903,8 @@ export function createBlocksRenderer({
   /** A batch's middle in world coordinates, and the radius it covers, m. */
   function batchPlace(batch) {
     const side = BATCH_CHUNKS * CHUNK_COLUMNS * (batch.blockM || 1);
-    const matrix = chunkMatrix(levelOf(batch.level).frame, batch.origin);
     const middle = Cesium.Matrix4.multiplyByPoint(
-      matrix,
+      matrixOf(batch),
       new Cesium.Cartesian3(side / 2, side / 2, 0),
       new Cesium.Cartesian3(),
     );
@@ -1050,7 +946,6 @@ export function createBlocksRenderer({
       if (
         !all &&
         batch &&
-        !batch.rebuildNow &&
         time - batch.changedAt <
           (covers ? Math.min(quietMs, CENTRE_QUIET_MS) : quietMs)
       )
@@ -1067,7 +962,8 @@ export function createBlocksRenderer({
     const held = chunks.get(key);
     if (!held) return false;
     chunks.delete(key);
-    for (const primitive of held.alone) collection.remove(primitive);
+    glbs.forget(key);
+    for (const entry of held.alone) removeEntry(entry);
     const batch = batches.get(held.batch);
     if (batch) {
       batch.members.delete(key);
@@ -1077,29 +973,32 @@ export function createBlocksRenderer({
     return true;
   }
 
+  function dropBatch(batchKey) {
+    const batch = batches.get(batchKey);
+    if (!batch) return;
+    removeEntry(batch.current?.entry);
+    removeEntry(batch.next?.entry);
+    batches.delete(batchKey);
+    pending.delete(batchKey);
+  }
+
   function dropAll() {
-    for (const batch of batches.values())
-      for (const primitive of batch.primitives) collection.remove(primitive);
+    for (const batchKey of [...batches.keys()]) dropBatch(batchKey);
     for (const held of chunks.values())
-      for (const primitive of held.alone) collection.remove(primitive);
-    batches.clear();
+      for (const entry of held.alone) removeEntry(entry);
     chunks.clear();
     pending.clear();
+    glbs.forgetAll();
   }
 
   function placeAll() {
     for (const batch of batches.values())
-      for (const primitive of batch.primitives)
-        primitive.modelMatrix = chunkMatrix(
-          levelOf(batch.level).frame,
-          batch.origin,
-        );
+      for (const build of [batch.current, batch.next])
+        if (build?.entry?.model)
+          build.entry.model.modelMatrix = matrixOf(batch);
     for (const held of chunks.values())
-      for (const primitive of held.alone)
-        primitive.modelMatrix = chunkMatrix(
-          levelOf(held.level).frame,
-          held.origin,
-        );
+      for (const entry of held.alone)
+        if (entry.model) entry.model.modelMatrix = matrixOf(held);
   }
 
   /** Drop the chunks of one ring's level (its region changed or went). */
@@ -1189,16 +1088,13 @@ export function createBlocksRenderer({
         const ring = rings.get(level);
         if (ring && sameRegion(ring.region, next)) continue;
         if (ring) dropLevel(level);
-        const set = ring?.appearances || {
-          opaque: blocksAppearance(false),
-          water: blocksAppearance(true),
-        };
+        const set = ring?.shader || blocksShader();
         rings.set(level, {
           region: next,
           frame: regionFrame(next, datumOffsetM),
-          appearances: set,
+          shader: set,
         });
-        styleAppearances(set, level, levelMOf(next));
+        styleShader(set, level);
       }
       if (Number.isFinite(fogReachBlocks) && list.length) {
         const ringFog = ringsFog(list, fogReachBlocks);
@@ -1211,14 +1107,19 @@ export function createBlocksRenderer({
     },
 
     /**
-     * Draw or replace a chunk's mesh (mesh.js's buildChunkMesh). It draws
-     * alone at once, its old self in its batch hidden; the batch takes it
-     * in when it has been quiet for `quietMs`. The mesh's arrays are kept
-     * (as given: the mesher does not change them after) to rebuild from.
+     * Draw or replace a chunk's mesh: mesh.js's buildChunkMesh, or one a
+     * mesh worker packed (packMesh.js). It draws alone as soon as its Model
+     * is ready, its old self in its batch hidden then; the batch takes it
+     * in when it has been quiet for `quietMs`. Its packed parts go to the
+     * GLB worker (a packed mesh's buffers are transferred: given again, as
+     * a coarse chunk's is when it comes back, the worker's are used).
      */
     upsert(key, mesh) {
       if (!region) throw new Error('Blocks renderer: setRegion first');
-      if (!mesh || !mesh.indices?.length) {
+      const faces = mesh?.packedParts
+        ? packedMeshHasFaces(mesh)
+        : Boolean(mesh?.indices?.length);
+      if (!faces) {
         if (!dropChunk(key)) requestRender();
         return;
       }
@@ -1233,24 +1134,38 @@ export function createBlocksRenderer({
       if (!origin) throw new Error(`Blocks renderer: no origin for ${key}`);
       const batchKey = batchKeyOf(key);
       const before = chunks.get(key);
-      if (before) {
-        for (const primitive of before.alone) collection.remove(primitive);
-        if (before.batch !== batchKey) dropChunk(key);
+      if (before && before.batch !== batchKey) dropChunk(key);
+      // Its earlier Models stay drawn until the new one is ready.
+      const earlier = before && before.batch === batchKey ? before.alone : [];
+      // The chunk whose columns fold into its block points: its own, a
+      // coarse chunk's group (as the mesh worker folds them).
+      const coarse = /^c:(-?\d+):(-?\d+)$/.exec(key);
+      const chunk = parsed
+        ? [parsed.ci, parsed.cj]
+        : coarse
+          ? [Number(coarse[1]), Number(coarse[2])]
+          : [0, 0];
+      let packed = mesh.packedParts ? mesh : null;
+      if (!packed) {
+        // Meshed in this thread: packed here. Its block points: the
+        // mesher's, else from a flat mesh's positions; a curved one without
+        // them draws plain (no edges, no dither).
+        const start = clock();
+        const scaleM =
+          leveled?.blockM ??
+          region.blockM * (/^c:/.test(key) ? BATCH_CHUNKS : 1);
+        const blockCoords = chunkIsCurved(key, mesh, region.blockM)
+          ? mesh.blockCoords || null
+          : derivedBlockCoords(
+              mesh,
+              scaleM,
+              // Fine and coarse chunks are meshed on the region's levels.
+              levelMOf(ring?.region || region),
+            );
+        packed = packMesh(mesh, { chunk, blockCoords });
+        stats.packMs += clock() - start;
       }
-      // Its block points: the mesher's, else from a flat mesh's positions;
-      // a curved one without them draws plain (no edges, no dither).
-      const scaleM =
-        leveled?.blockM ?? region.blockM * (/^c:/.test(key) ? BATCH_CHUNKS : 1);
-      const curved = chunkIsCurved(key, mesh, region.blockM);
-      const blockCoords = curved
-        ? mesh.blockCoords || null
-        : derivedBlockCoords(
-            mesh,
-            scaleM,
-            // Fine and coarse chunks are meshed on the region's levels.
-            levelMOf(ring?.region || region),
-          );
-      const plain = !blockCoords;
+      const plain = packed.plain;
       let batch = batches.get(batchKey);
       if (!batch) {
         batch = {
@@ -1262,35 +1177,29 @@ export function createBlocksRenderer({
             leveled?.blockM ??
             region.blockM * (/^c:/.test(key) ? BATCH_CHUNKS : 1),
           members: new Set(),
-          built: new Map(),
-          primitives: [],
+          current: null,
+          next: null,
           changedAt: 0,
         };
         batches.set(batchKey, batch);
       }
       batch.members.add(key);
-      hideInBatch(batch, key);
       const held = {
         batch: batchKey,
         origin,
-        parts: Object.fromEntries(
-          Object.entries(splitMesh({ ...mesh, blockCoords })).map(
-            ([kind, part]) => {
-              const kept = compactPart(part);
-              return [
-                kind,
-                kept && { ...kept, sphere: partSphere(kept.positions) },
-              ];
-            },
-          ),
-        ),
-        chunk: [parsed?.ci ?? 0, parsed?.cj ?? 0],
+        chunk,
         level: leveled?.blockM ?? null,
         plain,
-        alone: [],
+        version: ++versions,
+        alone: earlier,
       };
       chunks.set(key, held);
-      held.alone = drawAlone(key, held);
+      // A packed mesh given before has its buffers in the GLB worker.
+      const source = packed.given
+        ? glbs.revive(key, held.version)
+        : glbs.put(key, held.version, packed.packedParts, chunk);
+      if (packed === mesh) mesh.given = true;
+      held.alone = [...earlier, drawAlone(key, held, source)];
       changed(batchKey, batch);
     },
 
@@ -1391,13 +1300,14 @@ export function createBlocksRenderer({
       chunks: chunks.size,
       batches: batches.size,
       stats: { ...stats },
-      // What is kept to rebuild batches from, MB.
-      retainedMB:
-        [...chunks.values()].reduce(
-          (sum, held) =>
-            sum + partBytes(held.parts.opaque) + partBytes(held.parts.water),
-          0,
-        ) / 1e6,
+      // Models made and not drawn yet (one that never loads stays here).
+      loadingModels: loading.size,
+      // What the GLB worker keeps to rebuild batches from, MB.
+      retainedMB: glbs.stats().bytes / 1e6,
+      glbInWorker: glbs.inWorker(),
+      // The GLB worker's count of chunks kept and kept aside (its last answer).
+      glbStore: glbs.stats(),
+      // The Models drawn or being added (each batch's, each lone chunk's).
       primitives: collection.length,
       sun,
       fog: {
@@ -1408,7 +1318,21 @@ export function createBlocksRenderer({
       },
     }),
 
-    /** The collection the primitives are in (for tests and the harness). */
+    /**
+     * A pick's chunk: {key, water} when `picked` (scene.pick's result, a
+     * feature of a Blocks Model) is one of the chunks drawn, else null.
+     */
+    pickedChunk(picked) {
+      const owner = picked?.primitive ? owners.get(picked.primitive) : null;
+      const id = picked?.featureId;
+      if (!owner || !Number.isInteger(id)) return null;
+      if (owner.key) return { key: owner.key, water: id === 1 };
+      const n = owner.build.keys.length;
+      const key = owner.build.keys[id % n];
+      return key === undefined ? null : { key, water: id >= n };
+    },
+
+    /** The collection the Models are in (for tests and the harness). */
     getCollection: () => collection,
 
     destroy() {
@@ -1418,6 +1342,7 @@ export function createBlocksRenderer({
       if (wake !== null) clearTimeoutImpl(wake);
       wake = null;
       dropAll();
+      glbs.destroy();
       rings.clear();
       scene.primitives.remove(collection);
       requestRender();

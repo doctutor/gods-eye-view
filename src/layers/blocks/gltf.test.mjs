@@ -9,7 +9,11 @@ import * as Cesium from 'cesium';
 import {
   FOLD_COLUMNS,
   accessorValues as typedValues,
+  encodeBatchGlb,
   encodeBlocksGlb,
+  packPart,
+  packedBuffers,
+  packedBytes,
   foldColumns,
   mergeParts,
   readBlocksGlb,
@@ -370,4 +374,88 @@ test('a real chunk round-trips: the mesher’s faces, positions, colours and blo
       ),
     );
   }
+});
+
+test('packPart: one chunk’s part in the layout once, its own vertices from 0; mergeParts takes it as it is', () => {
+  const packed = packPart(quad(2, 3, 5), { chunk: [1, -1] });
+  assert.equal(packed.packed, true);
+  assert.equal(packed.vertexCount, 4);
+  assert.deepEqual([...packed.positions.slice(0, 3)], [2, 5, -3]);
+  assert.deepEqual([...packed.normals.slice(0, 4)], [0, 127, 0, 0]);
+  assert.deepEqual([...packed.blockCoords.slice(0, 3)], [66, 4035, 5]);
+  assert.ok(packed.indices instanceof Uint16Array);
+  assert.deepEqual(packed.min, [2, 5, -4]);
+  assert.deepEqual(packed.max, [3, 5, -3]);
+  assert.equal(packPart(packed), packed);
+  assert.equal(packPart(null), null);
+  // 4 vertices: 48 + 16 + 16 + 48 bytes, and 6 16-bit indices.
+  assert.equal(packedBytes(packed), 140);
+  assert.equal(packedBuffers(packed).length, 5);
+  assert.equal(packedBytes(null), 0);
+  // Merged as packed or as raw: the same arrays.
+  const raw = mergeParts([
+    { part: quad(2, 3, 5), chunk: [1, -1], offset: { x: 64 }, feature: 2 },
+  ]);
+  const fromPacked = mergeParts([
+    { part: packed, offset: { x: 64 }, feature: 2 },
+  ]);
+  for (const name of ['positions', 'normals', 'blockCoords', 'indices'])
+    assert.deepEqual([...fromPacked[name]], [...raw[name]], name);
+});
+
+test('encodeBatchGlb: a batch from packed parts in one allocation, the same bytes as encodeBlocksGlb of mergeParts', () => {
+  const water = (x) => quad(x, 0, 1, [58, 112, 190, 170]);
+  const chunks = [
+    { opaque: quad(0, 0, 1), water: water(1), chunk: [4, 0], offset: null },
+    { opaque: quad(5, 7, 2), water: null, chunk: [5, 0], offset: { x: 64 } },
+    {
+      opaque: quad(1, 1, 3),
+      water: water(2),
+      chunk: [4, 1],
+      offset: { x: 0, y: 64, z: -0.25 },
+    },
+  ];
+  const features = {
+    count: 6,
+    properties: { ci: Int32Array.of(4, 5, 4, 4, 5, 4) },
+  };
+  const merged = (kind, base) =>
+    mergeParts(
+      chunks.map((c, s) => ({
+        part: c[kind],
+        chunk: c.chunk,
+        offset: c.offset,
+        feature: base + s,
+      })),
+    );
+  const expected = encodeBlocksGlb({
+    opaque: merged('opaque', 0),
+    water: merged('water', 3),
+    features,
+  });
+  const batch = encodeBatchGlb({
+    chunks: chunks.map((c) => ({
+      opaque: packPart(c.opaque, { chunk: c.chunk }),
+      water: packPart(c.water, { chunk: c.chunk }),
+      offset: c.offset,
+    })),
+    features,
+  });
+  assert.deepEqual(batch, expected);
+  const { primitives } = readBlocksGlb(batch);
+  assert.deepEqual([...primitives[1].featureIds], [3, 3, 3, 3, 5, 5, 5, 5]);
+  assert.deepEqual([...primitives[0].positions.slice(12, 15)], [69, 7, 2]);
+  assert.equal(encodeBatchGlb({ chunks: [{ opaque: null }] }), null);
+});
+
+test('encodeBatchGlb: 32-bit indices past 65,536 vertices, as mergeParts gives them', () => {
+  const part = packPart(quad(0, 0, 0));
+  const chunks = Array.from({ length: 16_385 }, () => ({ opaque: part }));
+  const glb = encodeBatchGlb({ chunks, features: { count: 1 } });
+  const { primitives, json } = readBlocksGlb(glb);
+  assert.equal(
+    json.accessors[json.meshes[0].primitives[0].indices].componentType,
+    5125,
+  );
+  assert.equal(primitives[0].indices.at(-1), 65_539);
 });

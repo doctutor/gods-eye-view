@@ -7,6 +7,7 @@
  * typed arrays come back transferred. Pure; no DOM, no Worker.
  */
 import { buildChunkMesh } from './mesh.js';
+import { packMesh, packedMeshBuffers } from './packMesh.js';
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
 import { MATERIALS, NONE, applyEdits, createChunk } from './store.js';
 
@@ -213,19 +214,34 @@ export function snapshotJob(chunk, { neighbours = {}, ...options } = {}) {
   return { job, transfer };
 }
 
-/** Mesh a job: the same mesh buildChunkMesh gives for the live chunks. */
+/**
+ * Mesh a job: the same mesh buildChunkMesh gives for the live chunks; with
+ * the option `pack`, that mesh packed as the renderer draws it (packMesh,
+ * the chunk's columns folded in), so the worker does the conversion and
+ * the page only passes the buffers on.
+ */
 export function runMeshJob(job) {
   const neighbours = {};
   for (const [key, snapshot] of Object.entries(job.neighbours || {}))
     neighbours[key] = restoreNeighbour(snapshot);
-  return buildChunkMesh(restoreChunk(job.chunk), {
-    ...job.options,
+  const { pack = false, ...options } = job.options || {};
+  const mesh = buildChunkMesh(restoreChunk(job.chunk), {
+    ...options,
     neighbours,
   });
+  return pack ? packMesh(mesh, { chunk: [job.chunk.ci, job.chunk.cj] }) : mesh;
 }
 
-/** The mesh's buffers, to transfer back. */
+/** The mesh's buffers (a packed mesh's too), to transfer back. */
 export const meshTransferList = (mesh) =>
-  [mesh.positions, mesh.normals, mesh.colors, mesh.blockCoords, mesh.indices]
-    .filter(Boolean)
-    .map((array) => array.buffer);
+  mesh?.packedParts
+    ? packedMeshBuffers(mesh)
+    : [
+        mesh.positions,
+        mesh.normals,
+        mesh.colors,
+        mesh.blockCoords,
+        mesh.indices,
+      ]
+        .filter(Boolean)
+        .map((array) => array.buffer);
