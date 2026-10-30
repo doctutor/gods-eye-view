@@ -1327,6 +1327,45 @@ function sequenceInstrument() {
   const ev = window.__qa.events;
   if (!probe?.renderer || !probe?.controller || window.__qa.wired) return false;
   window.__qa.wired = true;
+  // What the panel layout's observers would hear (src/ui/
+  // panelLayoutController.js): the rails' subtrees and the HUD's classes,
+  // counted by target, so a step says which mutations re-ran the layout.
+  const mutations = new Map();
+  window.__qa.mutations = mutations;
+  const where = (node) => {
+    const element = node.nodeType === 1 ? node : node.parentElement;
+    const owner = element?.closest?.('[id]');
+    const cls = String(element?.className?.baseVal ?? element?.className ?? '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .join('.');
+    return `${owner?.id || '?'}${cls ? ` .${cls}` : ''}`;
+  };
+  const watch = new MutationObserver((records) => {
+    for (const record of records) {
+      const key = `${record.type}${record.attributeName ? `[${record.attributeName}]` : ''} ${where(record.target)}`;
+      mutations.set(key, (mutations.get(key) || 0) + 1);
+    }
+  });
+  for (const id of ['right-context-rail', 'left-panel-stack']) {
+    const stack = document.getElementById(id);
+    if (stack)
+      watch.observe(stack, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['class', 'hidden', 'data-variant'],
+      });
+  }
+  const hud = document.getElementById('intel-hud');
+  if (hud)
+    watch.observe(hud, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'hidden', 'data-variant'],
+    });
   const renderer = probe.renderer;
   for (const name of [
     'upsert',
@@ -1382,6 +1421,15 @@ function sequenceInstrument() {
 /** What the page shows now: the status line, the HUD's readouts, the camera. */
 function sequenceReadout() {
   const gev = window.__godsEyeView;
+  // The panel layout's mutations since the last step's readout, top 12.
+  const counted = window.__qa?.mutations;
+  const mutations = counted
+    ? [...counted.entries()]
+        .sort((x, y) => y[1] - x[1])
+        .slice(0, 12)
+        .map(([key, count]) => ({ key, count }))
+    : null;
+  counted?.clear();
   const carto = gev.viewer.camera.positionCartographic;
   const text = (id) => document.getElementById(id)?.textContent?.trim() || '';
   let floor = '';
@@ -1404,6 +1452,7 @@ function sequenceReadout() {
     },
     globeShown: gev.viewer.scene.globe.show,
     drapes: gev.viewer.imageryLayers.length,
+    mutations,
     // The precomputed tiles: the controller's plan and what is shown.
     tiles: (() => {
       const probe = window.__gevBlocksProbe;
@@ -1546,6 +1595,67 @@ export function profileSelfTime(profile, limit = 25) {
     .slice(0, limit)
     .map(([fn, ms]) => ({ fn, ms: Math.round(ms) }));
   return { totalMs: Math.round(total), top };
+}
+
+/** The DOM reads and layouts the UI layout pass is made of (profile leaves). */
+const DOM_LEAVES = new Set([
+  'querySelectorAll',
+  'querySelector',
+  'getBoundingClientRect',
+  'getComputedStyle',
+  'getPropertyValue',
+  'matchMedia',
+  'get offsetHeight',
+  'get offsetWidth',
+  'get clientHeight',
+  'get clientWidth',
+  'get scrollHeight',
+  '(layout)',
+  'Layout',
+]);
+
+/**
+ * Who asks the DOM (CDP profile): the time of samples whose leaf is a DOM
+ * read or layout (DOM_LEAVES), by the first three named script frames
+ * above it (`fn file:line < caller < its caller`), the top `limit`.
+ */
+export function profileDomCallers(profile, limit = 15) {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parent = new Map();
+  for (const node of profile.nodes)
+    for (const child of node.children || []) parent.set(child, node.id);
+  const name = (node) => {
+    const frame = node.callFrame;
+    const file = String(frame.url || '')
+      .split('/')
+      .pop()
+      .split('?')[0];
+    return `${frame.functionName || '(anonymous)'}${file ? ` ${file}:${frame.lineNumber + 1}` : ''}`;
+  };
+  const chains = new Map();
+  let totalMs = 0;
+  const { samples = [], timeDeltas = [] } = profile;
+  for (let n = 0; n < samples.length; n++) {
+    const leaf = byId.get(samples[n]);
+    if (!leaf || !DOM_LEAVES.has(leaf.callFrame.functionName)) continue;
+    const ms = (timeDeltas[n] || 0) / 1000;
+    totalMs += ms;
+    const names = [];
+    let id = parent.get(leaf.id);
+    while (id !== undefined && names.length < 3) {
+      const node = byId.get(id);
+      if (node.callFrame.url && node.callFrame.functionName)
+        names.push(name(node));
+      id = parent.get(id);
+    }
+    const key = `${leaf.callFrame.functionName} ← ${names.join(' < ') || '(none)'}`;
+    chains.set(key, (chains.get(key) || 0) + ms);
+  }
+  const top = [...chains.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([chain, ms]) => ({ chain, ms: Math.round(ms) }));
+  return { totalMs: Math.round(totalMs), top };
 }
 
 /**
@@ -1890,7 +2000,10 @@ async function runSequence({
     const to = settled ? lastUpsert : Date.now();
     const readout = await page.evaluate(sequenceReadout);
     const { profile } = await cdp.send('Profiler.stop');
-    const cpu = profileSelfTime(profile);
+    const cpu = {
+      ...profileSelfTime(profile),
+      dom: profileDomCallers(profile),
+    };
     // What stays: after a full collection, the heap and its live sites.
     await cdp.send('HeapProfiler.collectGarbage');
     const { usedSize } = await cdp.send('Runtime.getHeapUsage');

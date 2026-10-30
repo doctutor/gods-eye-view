@@ -774,15 +774,18 @@ export class IntelHUD {
     } catch {
       reading = null;
     }
-    box.hidden = !reading || !Number.isFinite(reading.headingDeg);
-    if (box.hidden) return;
+    // Written only when it changes (each write is a mutation the panel
+    // layout hears); read on every camera readout tick.
+    const hidden = !reading || !Number.isFinite(reading.headingDeg);
+    if (box.hidden !== hidden) box.hidden = hidden;
+    if (hidden) return;
     const { roseDeg, homeDeg } = compassAngles(reading);
     document
       .getElementById('hud-compass-rose')
       ?.setAttribute('transform', `rotate(${roseDeg.toFixed(1)})`);
     const home = document.getElementById('hud-compass-home');
     if (home) {
-      home.hidden = homeDeg === null;
+      if (home.hidden !== (homeDeg === null)) home.hidden = homeDeg === null;
       if (homeDeg !== null)
         home.setAttribute('transform', `rotate(${homeDeg.toFixed(1)})`);
     }

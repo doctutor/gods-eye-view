@@ -1128,6 +1128,15 @@ walker; the two never draw the same ground.
   the error floor 1.25× each time the cache frees after an overflow, so a
   view that overflows settles instead of swinging; it lets go when the camera
   moves or stops. `dynamicScreenSpaceError` off.
+- **Sockets.** Cesium asks the page's own server at most 4 requests at once
+  (`TILES_REQUESTS_PER_SERVER`). Its scheduler allows 18 a server, sized for
+  HTTP/2; the page's server speaks HTTP/1.1, where the browser opens six
+  sockets a host, shared by the tiles, the Earth Engine imagery and the
+  app's own fetches. With the tiles holding all six, the live region's
+  values probe waited 10 to 20 s before it was sent (Lake Tahoe,
+  2026-10-30). Two stay free. A tree with more tiles a view (the 120 m
+  tree) leans on this harder: keep the cap, or serve the tiles over HTTP/2
+  or from a second origin, before raising it.
 - **Look.** The live chunks and the tiles mesh alike: faces at 120 m and up
   are two triangles split by their corners' shading (`FAN_BELOW_M`), live
   480 m regions are curved as the tiles' 480 m level is
@@ -1151,6 +1160,13 @@ unloads) gone at 8 px, 2 unloads, no request repeated after the flight.
    harness counts the tiles drawn at the flight's end as the first picture,
    or the refinement is made faster (fewer requests churned while the hole
    widens: 168 requests for 53 tiles in one run).
+
+   **Done without a change of its own (2026-10-30).** The socket cap and the
+   region set at the flight's end (item 2) took both: at Lake Tahoe the
+   harness's first picture is 137 ms, and the step asks 93 tile requests
+   for 63 tiles, none asked again after the flight (the 7 asked twice are
+   Cesium's own cancellations while the camera flies).
+
 2. **Late live anchoring, the next performance target.** The live region is
    set 3 to 15 s after a flight: the controller waits for the camera to be
    still after moveEnd (moveEnd itself is unreliable), then asks the source
