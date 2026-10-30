@@ -73,7 +73,10 @@
  * canvas's centre, read back from the scene itself: none, if they never
  * show.
  *
+ * --buildings-off opens the page with Blocks' Buildings off (bk=1.b0).
+ *
  * --load-frames shoots each step 2, 5, 10 and 20 s after its flight's end
+ * (with --altitudes: each Blocks shot 2 to 80 s from the page's load)
  * (<step>-load-<s>s.png) with the status line, the tiles' hole and the mesh
  * pool's counts then; for a check, not a timing run.
  *
@@ -667,7 +670,12 @@ export function parseBlocksStatus(text = '') {
  * list (Earth Engine layers are not in it: the page turns Elevation on),
  * the Elevation layer's colour scale PET 0–100 m; Blocks with bk=1.
  */
-export function pageHash({ blocks, view = VIEW, nav = null }) {
+export function pageHash({
+  blocks,
+  view = VIEW,
+  nav = null,
+  buildingsOff = false,
+}) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(view))
     params.set(key, String(value));
@@ -675,7 +683,8 @@ export function pageHash({ blocks, view = VIEW, nav = null }) {
   encodeLayerStateParams(params, { enabledLayerIds: [], options: {} });
   // The Elevation layer's colour scale: PET rainbow, 0 to 100 m, linear.
   params.set('cs', 'el.r.0.100.n');
-  if (blocks) params.set('bk', '1');
+  // --buildings-off: Blocks without its buildings (renderMode.js b0).
+  if (blocks) params.set('bk', buildingsOff ? '1.b0' : '1');
   // Walk or Fly from the link (src/navigation/store.js).
   if (nav) params.set('nav', nav);
   return `#${params.toString()}`;
@@ -1113,6 +1122,8 @@ async function shoot({
   isolate = false,
   tilesDir = null,
   checkPrewarm = false,
+  loadFramesOn = false,
+  buildingsOff = false,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
@@ -1160,9 +1171,12 @@ async function shoot({
   });
   const mode = blocks ? 'blocks' : 'colour';
   const name = prefix ? `${prefix}-${mode}` : `${mode}${suffix}`;
-  await page.goto(`${ORIGIN}/${pageHash({ blocks, view, nav })}`, {
-    waitUntil: 'domcontentloaded',
-  });
+  await page.goto(
+    `${ORIGIN}/${pageHash({ blocks, view, nav, buildingsOff })}`,
+    {
+      waitUntil: 'domcontentloaded',
+    },
+  );
   await page.waitForFunction(() => Boolean(window.__godsEyeView?.viewer), {
     timeout: 120_000,
   });
@@ -1182,6 +1196,40 @@ async function shoot({
   );
   const prewarm =
     checkPrewarm && blocks ? await prewarmCheck(page, out, name) : null;
+  // --load-frames: the page loading at the place (not a flight), shot at
+  // SHOT_LOAD_FRAMES_MS from Elevation on, with what the status says then.
+  const loadFrames = [];
+  if (loadFramesOn && blocks) {
+    const from = Date.now();
+    for (const at of SHOT_LOAD_FRAMES_MS) {
+      const wait = from + at - Date.now();
+      if (wait > 0)
+        await page.evaluate(
+          (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+          wait,
+        );
+      const frame = path.join(out, `${name}-load-${at / 1000}s.png`);
+      await page.screenshot({ path: frame });
+      loadFrames.push({
+        at,
+        file: frame,
+        ...(await page.evaluate(() => {
+          const status = window.__gevBlocksProbe?.controller?.getStatus?.();
+          const tiles = window.__gevBlocksProbe?.tiles?.getState?.();
+          return {
+            status:
+              document.querySelector('.lego-render-status')?.textContent || '',
+            state: status?.state ?? null,
+            pending: status?.pending ?? null,
+            tiles: status?.tiles?.mode ?? 'off',
+            holeM: status?.tiles?.hole?.radiusM ?? null,
+            tilesLoaded: tiles?.tilesLoaded ?? null,
+            tileLoads: tiles?.tileLoads ?? null,
+          };
+        })),
+      });
+    }
+  }
   // The fresh ring's time: from Elevation on (Blocks may start) until the
   // status line says nothing is loading any more.
   const ringStarted = Date.now();
@@ -1317,6 +1365,7 @@ async function shoot({
     ...log,
     missing: [...log.missing],
     ...(prewarm ? { prewarm } : {}),
+    ...(loadFrames.length ? { loadFrames } : {}),
   };
 }
 
@@ -2178,6 +2227,11 @@ export async function waitQuiet({
   return jobs;
 }
 
+/** --load-frames with --altitudes: the frames' times from the page's load (ms). */
+export const SHOT_LOAD_FRAMES_MS = Object.freeze([
+  2000, 5000, 10000, 20000, 40000, 80000,
+]);
+
 /** --load-frames: the frames' times after a flight's end (ms). */
 export const LOAD_FRAMES_MS = Object.freeze([2000, 5000, 10000, 20000]);
 
@@ -2775,6 +2829,8 @@ export async function main(argv = process.argv.slice(2)) {
             live,
             isolate: argv.includes('--isolate'),
             checkPrewarm: argv.includes('--prewarm-check'),
+            loadFramesOn: argv.includes('--load-frames'),
+            buildingsOff: argv.includes('--buildings-off'),
             tilesDir: argValue(argv, '--tiles-dir') || null,
             ...shot,
           }),
@@ -2786,6 +2842,10 @@ export async function main(argv = process.argv.slice(2)) {
   for (const result of results) {
     console.log(`${result.name}: ${result.file}`);
     console.log(`  status line: ${result.status || '(none)'}`);
+    for (const frame of result.loadFrames || [])
+      console.log(
+        `  +${frame.at / 1000}s: ${frame.state}, ${frame.pending ?? '-'} loading, tiles ${frame.tiles}${frame.holeM ? ` hole ${Math.round(frame.holeM)} m` : ''}, ${frame.tileLoads ?? '-'} tile loads${frame.tilesLoaded ? ', all in' : ''}`,
+      );
     if (result.prewarm)
       console.log(
         `  pre-warm: ${result.prewarm.found ? `${result.prewarm.models} Models, ${result.prewarm.centre} of 4,096 px differ at the centre shown against hidden (${result.prewarm.scene} hidden against hidden; scaled to 100 m, ${result.prewarm.control}; mean light ${result.prewarm.meanLight})` : 'not caught'}`,
