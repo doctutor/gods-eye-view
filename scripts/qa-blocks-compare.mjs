@@ -796,8 +796,19 @@ function countRequest(url, log) {
 function respond(request, { dist, field, log, live }) {
   const url = new URL(request.url());
   if (url.origin !== ORIGIN) return request.abort('blockedbyclient');
-  if (log.requests && url.pathname.startsWith('/api/'))
-    log.requests.push({ at: Date.now(), path: url.pathname });
+  if (log.requests && url.pathname.startsWith('/api/')) {
+    const entry = { at: Date.now(), path: url.pathname };
+    if (url.pathname === '/api/raster/values') {
+      // The cell asked for, metres (north to south over the rows).
+      const query = parseRasterValuesQuery(url.searchParams);
+      if (query.ok) {
+        const { box, cells } = query;
+        entry.cellM = Math.round(((box.north - box.south) * M_PER_DEG) / cells);
+        entry.cells = cells;
+      }
+    }
+    log.requests.push(entry);
+  }
   if (live && isLiveRoute(url.pathname)) {
     countRequest(url, log);
     return proxy(request, url, live, log);
@@ -1329,6 +1340,85 @@ export function stepMetrics(
 }
 
 /**
+ * A CPU profile's main-thread self time by function (CDP Profiler): the
+ * top `limit` as {fn, ms}, and the total sampled.
+ */
+export function profileSelfTime(profile, limit = 25) {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const self = new Map();
+  const { samples = [], timeDeltas = [] } = profile;
+  for (let n = 0; n < samples.length; n++) {
+    const node = byId.get(samples[n]);
+    if (!node) continue;
+    const frame = node.callFrame;
+    const file = String(frame.url || '')
+      .split('/')
+      .pop()
+      .split('?')[0];
+    const fn = `${frame.functionName || '(anonymous)'}${file ? ` ${file}:${frame.lineNumber + 1}` : ''}`;
+    self.set(fn, (self.get(fn) || 0) + (timeDeltas[n] || 0) / 1000);
+  }
+  const total = [...self.values()].reduce((sum, ms) => sum + ms, 0);
+  const top = [...self.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([fn, ms]) => ({ fn, ms: Math.round(ms) }));
+  return { totalMs: Math.round(total), top };
+}
+
+/**
+ * A sampling heap profile's live bytes by allocation site (the frame that
+ * allocated, with its caller): the top `limit` as {site, mb}.
+ */
+export function heapSites(profile, limit = 20) {
+  const sites = new Map();
+  const walk = (node, parent) => {
+    const frame = node.callFrame;
+    const file = String(frame.url || '')
+      .split('/')
+      .pop()
+      .split('?')[0];
+    const name = `${frame.functionName || '(anonymous)'}${file ? ` ${file}:${frame.lineNumber + 1}` : ''}`;
+    if (node.selfSize) {
+      const site = parent ? `${name} ← ${parent}` : name;
+      sites.set(site, (sites.get(site) || 0) + node.selfSize);
+    }
+    for (const child of node.children || []) walk(child, name);
+  };
+  walk(profile.head, null);
+  return [...sites.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([site, bytes]) => ({ site, mb: Math.round(bytes / 1e5) / 10 }));
+}
+
+/** What the controller and renderer hold now (the QA probe). */
+function sequenceHoldings() {
+  const probe = window.__gevBlocksProbe;
+  const st = probe?.controller?._state?.();
+  const rs = probe?.renderer?.getState?.();
+  const ringChunks = st
+    ? [...st.rings.values()].reduce((n, ring) => n + ring.chunks.size, 0)
+    : null;
+  return {
+    controller: st
+      ? {
+          fine: st.chunks.size,
+          coarse: st.coarse.size,
+          ringChunks,
+          rings: [...st.rings.keys()],
+          blockM: st.region?.blockM ?? null,
+        }
+      : null,
+    renderer: rs
+      ? { chunks: rs.chunks, batches: rs.batches, stats: rs.stats ?? null }
+      : null,
+    primitives: window.__godsEyeView?.viewer?.scene?.primitives?.length ?? null,
+    imageryLayers: window.__godsEyeView?.viewer?.imageryLayers?.length ?? null,
+  };
+}
+
+/**
  * --sequence: one page, the steps of SEQUENCE_STEPS in order through the
  * app's location search (else a camera flight to the step's view), each
  * timed from the flight's end to its first blocks and to settled (no chunk
@@ -1390,6 +1480,12 @@ async function runSequence({
     timeout: 120_000,
   });
   await page.waitForFunction(sequenceInstrument, { timeout: 30_000 });
+  // The main thread's CPU and the heap's live allocations, a step at a time.
+  const cdp = await page.createCDPSession();
+  await cdp.send('Profiler.enable');
+  await cdp.send('Profiler.setSamplingInterval', { interval: 1000 });
+  await cdp.send('HeapProfiler.enable');
+  await cdp.send('HeapProfiler.startSampling', { samplingInterval: 65_536 });
   // The opening view settles before the first step.
   await page.evaluate(
     () => new Promise((resolve) => setTimeout(resolve, 8000)),
@@ -1402,6 +1498,7 @@ async function runSequence({
   for (const step of steps) {
     const query = step.query ?? streetQuery;
     const from = Date.now();
+    await cdp.send('Profiler.start');
     const budgetBefore = await budgetUsed(page);
     let via = 'search';
     if (query)
@@ -1497,6 +1594,13 @@ async function runSequence({
         .at(-1)?.[0] ?? flightEnd;
     const to = settled ? lastUpsert : Date.now();
     const readout = await page.evaluate(sequenceReadout);
+    const { profile } = await cdp.send('Profiler.stop');
+    const cpu = profileSelfTime(profile);
+    // What stays: after a full collection, the heap and its live sites.
+    await cdp.send('HeapProfiler.collectGarbage');
+    const { usedSize } = await cdp.send('Runtime.getHeapUsage');
+    const { profile: heap } = await cdp.send('HeapProfiler.getSamplingProfile');
+    const holdings = await page.evaluate(sequenceHoldings);
     const file = path.join(out, `${step.name}.png`);
     await page.screenshot({ path: file });
     const budgetAfter = await budgetUsed(page);
@@ -1517,6 +1621,21 @@ async function runSequence({
           ? budgetAfter - budgetBefore
           : null,
       readout,
+      cpu,
+      heapAfterGcMB: Math.round(usedSize / 1e5) / 10,
+      heapSites: heapSites(heap),
+      holdings,
+      valuesByCell: Object.fromEntries(
+        Object.entries(
+          log.requests
+            .filter((r) => r.at >= from && r.at <= to && r.cellM)
+            .reduce((acc, r) => {
+              const key = `${r.cellM} m × ${r.cells}`;
+              acc[key] = (acc[key] || 0) + 1;
+              return acc;
+            }, {}),
+        ),
+      ),
       file,
     });
     // A breath between steps, as a person would take.
@@ -1554,7 +1673,15 @@ export async function main(argv = process.argv.slice(2)) {
     const vite = path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
     const built = spawnSync(
       process.execPath,
-      [vite, 'build', '--outDir', dist, '--emptyOutDir'],
+      [
+        vite,
+        'build',
+        '--outDir',
+        dist,
+        '--emptyOutDir',
+        // --no-minify: function names survive for --sequence's CPU profiles.
+        ...(argv.includes('--no-minify') ? ['--minify', 'false'] : []),
+      ],
       {
         cwd: ROOT,
         stdio: 'inherit',

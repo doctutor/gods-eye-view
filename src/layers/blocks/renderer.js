@@ -392,8 +392,40 @@ const partBytes = (part) =>
       part.indices.byteLength
     : 0;
 
+/**
+ * A part's bounding sphere from one pass over its positions (the box's
+ * corners): computed once when a chunk arrives and kept with it, where
+ * BoundingSphere.fromVertices on every geometry, alone and again at each
+ * batch rebuild, was a fifth of the main thread's geometry time while a
+ * view streamed in (QA, 2026-10-29).
+ */
+export function partSphere(positions) {
+  if (!positions?.length) return new Cesium.BoundingSphere();
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+  for (let k = 0; k < positions.length; k += 3) {
+    const x = positions[k];
+    const y = positions[k + 1];
+    const z = positions[k + 2];
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
+  return Cesium.BoundingSphere.fromCornerPoints(
+    new Cesium.Cartesian3(minX, minY, minZ),
+    new Cesium.Cartesian3(maxX, maxY, maxZ),
+  );
+}
+
 function meshGeometry(
-  { positions, normals, colors, blockCoords, indices },
+  { positions, normals, colors, blockCoords, indices, sphere },
   offset = null,
 ) {
   const vertexCount = positions.length / 3;
@@ -450,7 +482,19 @@ function meshGeometry(
           ? indices
           : Uint32Array.from(indices),
     primitiveType: Cesium.PrimitiveType.TRIANGLES,
-    boundingSphere: Cesium.BoundingSphere.fromVertices(positions),
+    // The part's own sphere (partSphere), moved with it into its batch.
+    boundingSphere: sphere
+      ? new Cesium.BoundingSphere(
+          offset
+            ? Cesium.Cartesian3.add(
+                sphere.center,
+                new Cesium.Cartesian3(offset.x, offset.y, offset.z || 0),
+                new Cesium.Cartesian3(),
+              )
+            : Cesium.Cartesian3.clone(sphere.center),
+          sphere.radius,
+        )
+      : Cesium.BoundingSphere.fromVertices(positions),
   });
 }
 
@@ -550,8 +594,14 @@ export function chunkIsCurved(key, mesh, primaryBlockM) {
  */
 export const CENTRE_QUIET_MS = 250;
 
-/** How long a batch's chunks are left alone before it is rebuilt with them, ms. */
-export const BATCH_QUIET_MS = 1500;
+/**
+ * How long a batch's chunks are left alone before it is rebuilt with them,
+ * ms. Each rebuild sends all 16 chunks through Cesium's synchronous geometry
+ * pipeline again; at 1.5 s a batch rebuilt about 2.3 times as its chunks
+ * streamed in (each chunk about 2.65 passes, alone and in rebuilds: QA,
+ * 2026-10-29). Meanwhile its new chunks draw alone, a draw call each.
+ */
+export const BATCH_QUIET_MS = 3000;
 
 /**
  * The batch a chunk key draws in: fine chunks 'ci:cj' by their 4 × 4
@@ -822,8 +872,15 @@ export function createBlocksRenderer({
     );
   }
 
+  /**
+   * How often geometry went through Cesium's (synchronous) pipeline: chunks
+   * drawn alone, batch rebuilds, and the chunks those rebuilds combined.
+   */
+  const stats = { alone: 0, rebuilds: 0, rebuiltChunks: 0 };
+
   /** A chunk drawn alone, at its own origin. */
   function drawAlone(key, held) {
+    stats.alone++;
     const zero = { x: 0, y: 0, z: 0 };
     return ['opaque', 'water']
       .filter((kind) => held.parts[kind])
@@ -849,6 +906,8 @@ export function createBlocksRenderer({
     const batch = batches.get(batchKey);
     pending.delete(batchKey);
     if (!batch) return;
+    stats.rebuilds++;
+    stats.rebuiltChunks += batch.members.size;
     batch.rebuildNow = false;
     const instances = { opaque: [], water: [] };
     const built = new Map();
@@ -1216,7 +1275,13 @@ export function createBlocksRenderer({
         origin,
         parts: Object.fromEntries(
           Object.entries(splitMesh({ ...mesh, blockCoords })).map(
-            ([kind, part]) => [kind, compactPart(part)],
+            ([kind, part]) => {
+              const kept = compactPart(part);
+              return [
+                kind,
+                kept && { ...kept, sphere: partSphere(kept.positions) },
+              ];
+            },
           ),
         ),
         chunk: [parsed?.ci ?? 0, parsed?.cj ?? 0],
@@ -1325,6 +1390,7 @@ export function createBlocksRenderer({
       },
       chunks: chunks.size,
       batches: batches.size,
+      stats: { ...stats },
       // What is kept to rebuild batches from, MB.
       retainedMB:
         [...chunks.values()].reduce(

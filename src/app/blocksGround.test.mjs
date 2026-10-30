@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { pointGroundM } from './blocks.js';
+import { memoizeFootprint, pointGroundM } from './blocks.js';
 
 const valuesAnswering = (heights) => {
   const asked = [];
@@ -45,4 +45,28 @@ test('the point probe: one 4-cell request about the point, the mean of its plaus
   assert.ok(
     Number.isNaN(await pointGroundM({ values: empty, datum: flat }, 0, 0)),
   );
+});
+
+test('the footprint is read once a second for a camera that has not moved, and again when it moves (each read is a depth pick)', () => {
+  let time = 0;
+  let pose = 'a';
+  let reads = 0;
+  const footprint = memoizeFootprint(
+    () => {
+      reads++;
+      return reads;
+    },
+    () => pose,
+    { now: () => time, maxAgeMs: 1000 },
+  );
+  assert.equal(footprint(), 1);
+  time = 400;
+  assert.equal(footprint(), 1, 'the level and the style in one tick');
+  assert.equal(reads, 1);
+  time = 1000;
+  assert.equal(footprint(), 2, 'a second later, read again');
+  pose = 'b';
+  time = 1100;
+  assert.equal(footprint(), 3, 'the camera moved: read again');
+  assert.equal(reads, 3);
 });

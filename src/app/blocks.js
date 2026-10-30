@@ -89,10 +89,13 @@ export function createApplicationBlocks({
     // The block size from the HUD's PX at the view's centre (milestone 5);
     // none in Walk and Fly, where the centre is the horizon's and the
     // blocks underfoot keep their size.
-    footprint: () =>
-      navigationStore().get() === 'spectator'
-        ? viewFootprintM(viewer)
-        : Number.NaN,
+    footprint: memoizeFootprint(
+      () =>
+        navigationStore().get() === 'spectator'
+          ? viewFootprintM(viewer)
+          : Number.NaN,
+      () => cameraPoseKey(viewer),
+    ),
     // The Relief control as the scene draws the globe with it
     // (photoreal.js applyRelief), heard through its store.
     relief: () => ({
@@ -133,6 +136,45 @@ export function createApplicationBlocks({
     destroy();
   };
   return controller;
+}
+
+/** How long a footprint stands for a camera that has not moved (ms). */
+export const FOOTPRINT_REUSE_MS = 1000;
+
+/**
+ * The camera's pose as a key: where it is and where it looks, rounded below
+ * what would change a footprint. Empty without a camera.
+ */
+export function cameraPoseKey(viewer) {
+  const camera = viewer?.camera;
+  const p = camera?.positionWC;
+  const d = camera?.directionWC;
+  if (!p || !d) return '';
+  return [p.x, p.y, p.z]
+    .map((v) => v.toFixed(1))
+    .concat([d.x, d.y, d.z].map((v) => v.toFixed(5)))
+    .join(',');
+}
+
+/**
+ * A footprint read at most once a FOOTPRINT_REUSE_MS for an unmoved camera:
+ * each read is a depth pick (a GPU readback the main thread waits on), and
+ * the controller asks two and three times a tick (the level, the style).
+ */
+export function memoizeFootprint(
+  read,
+  poseOf,
+  { now = () => Date.now(), maxAgeMs = FOOTPRINT_REUSE_MS } = {},
+) {
+  let held = null;
+  return () => {
+    const pose = poseOf();
+    const t = now();
+    if (held && held.pose === pose && t - held.at < maxAgeMs) return held.px;
+    const px = read();
+    held = { pose, at: t, px };
+    return px;
+  };
 }
 
 /** The side of the point probe's box, metres, and its cells a side. */
@@ -204,6 +246,7 @@ export function lazyRenderer(make) {
     setFog: (fog) => made().setFog?.(fog),
     setVisible: (on) => renderer?.setVisible?.(on),
     keys: () => renderer?.keys?.() ?? [],
+    getState: () => renderer?.getState?.() ?? null,
     destroy() {
       renderer?.destroy?.();
       renderer = null;

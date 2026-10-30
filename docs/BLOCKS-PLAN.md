@@ -588,6 +588,76 @@ answer, with no new query. Bridge decks are roads and stay. Paint comes off
 only where land cover cannot be drawn: Overpass missing, or blocks coarser
 than 30 m (`clearSurfaces` in `store.js`).
 
+#### Performance pass (findings 3, 4 and 6, 2026-10-29)
+
+Measured with `qa-blocks-compare.mjs --sequence --live --no-minify` (a CPU
+profile, the heap after a forced collection and its live sites, what the
+controller and renderer hold, each values request's cell), the same five
+steps before and after, each run alone.
+
+| Step               | Settled                     | Long tasks (count, total) | Values requests | Drape tiles | Heap after GC |
+| ------------------ | --------------------------- | ------------------------- | --------------- | ----------- | ------------- |
+| Europe             | 6.5 → 5.2 s                 | 6, 1.4 s → 3, 0.8 s       | 1 → 2           | 156 → 100   | 39 → 35 MB    |
+| United States      | 11.1 → 5.1 s                | 21, 2.5 s → 4, 1.1 s      | 30 → 1          | 245 → 119   | 42 → 39 MB    |
+| Lake Tahoe         | not settled (241 s) → 109 s | 260, 46.8 s → 183, 46.7 s | 43 → 42         | 140 → 114   | 46 → 44 MB    |
+| Baltimore          | 22.6 → 15.2 s               | 59, 10.2 s → 26, 3.9 s    | 35 → 34         | 112 → 112   | 47 → 46 MB    |
+| a Baltimore street | 23.3 → 20.5 s               | 57, 8.9 s → 38, 5.7 s     | 62 → 51         | 28 → 23     | 57 → 55 MB    |
+
+The before run's United States search fell back to a camera flight. The
+after run's reused the region already anchored from Europe, so it asked one
+values request. That row is not a like-for-like comparison.
+
+What each finding turned out to be:
+
+- **4, the heap: churn, not a leak.** After a forced collection the retained
+  JS heap stays at 35 to 57 MB across the five steps. The previous
+  location's chunks are released, and the live sites are Cesium's shader
+  cache and the current chunks. The 1 to 2 GB peaks are geometry garbage
+  awaiting collection. Typed-array backing stores live outside the JS heap,
+  so these numbers do not measure them.
+- **3, the long tasks: Cesium's synchronous geometry pipeline**, plus depth
+  picks. At Lake Tahoe the main thread spent:
+  - `combineInstances`: 11.8 s;
+  - `createTypedArray`: 7.1 s;
+  - `cloneAttribute`: 5.2 s;
+  - `BoundingSphere.fromVertices`: about 5 s, the renderer's own on every
+    geometry;
+  - `readPixels`: 6 s, the footprint's depth pick, asked two or three times
+    a tick.
+
+  Fixed here:
+  - each chunk's bounding sphere is computed once, when it arrives;
+  - the footprint is reused for a second while the camera is still;
+  - a batch is rebuilt after 3 s of quiet, not 1.5 s.
+
+  Each chunk passed through Cesium about 2.65 times: once alone, then about
+  1.65 times in batch rebuilds (2.3 rebuilds a batch). At Lake Tahoe it was
+  more than three, since the batches under the view's centre rebuild after
+  250 ms of quiet.
+
+  The options are:
+  - (1) a longer quiet before a rebuild;
+  - (2) skipping the lone draw while a batch streams;
+  - (3) taking the geometry off the main thread.
+
+  (3) is chosen, as its own branch, and (1) is its interim, in this branch.
+
+- **6, the requests: the rings, and a drape hidden under drawn blocks.**
+  - A fresh view asked the probe, the fine disc's lattice tiles (up to 4 × 4
+    with whole groups), the coarse ring's supergroups, and 4 to 16 tiles a
+    ring. The plan's 18 predated the rings.
+  - Each ring now asks at most its nearest 3 × 3 tiles, counted by the
+    chunk's group, as the source loads them.
+  - At coarse levels the rings reach the horizon, so the drape is now
+    shown only while blocks build and where Blocks cannot build.
+- **Caveat: the harness overstates tile counts.** Request interception
+  disables Puppeteer's browser cache, so its tile counts overstate the
+  app's; a tile seen before costs no Earth Engine budget either way (the
+  server's disk cache).
+- **Follow-up, not in this branch:** the app's layout every frame,
+  `querySelectorAll`, `getBoundingClientRect`, `layoutRightPanelRail` and
+  the widget's resize check, cost 2 to 4 s of main thread a step.
+
 ## Milestone 6: a precomputed block tileset (2026-10-29, with the user)
 
 The user's goal: moving the camera in Blocks should be as fast and as
