@@ -183,7 +183,7 @@ export function createBlocksTilesLayer({
   buildings = () => true,
   now = () => Date.now(),
 }) {
-  const scene = viewer.scene;
+  const scene = viewer?.scene;
   let boxes = [];
   let destroyed = false;
   const ready = Promise.resolve()
@@ -268,12 +268,12 @@ export function createBlocksTilesLayer({
     return inside;
   }
 
-  const requestRender = () => scene.requestRender?.();
+  const requestRender = () => scene?.requestRender?.();
 
   /** Whether the camera is high (cameraHigh), with hysteresis. */
   let high = false;
   function updateHigh() {
-    const heightM = scene.camera?.positionCartographic?.height;
+    const heightM = scene?.camera?.positionCartographic?.height;
     if (Number.isFinite(heightM)) high = cameraHigh(heightM, high);
   }
 
@@ -285,8 +285,8 @@ export function createBlocksTilesLayer({
     if (released) requestRender();
   }
   const removeMoveStart =
-    scene.camera?.moveStart?.addEventListener(releaseGuard);
-  const removeMoveEnd = scene.camera?.moveEnd?.addEventListener(releaseGuard);
+    scene?.camera?.moveStart?.addEventListener(releaseGuard);
+  const removeMoveEnd = scene?.camera?.moveEnd?.addEventListener(releaseGuard);
 
   function tilesetFor(url, box) {
     let entry = loaded.get(url);
@@ -355,7 +355,7 @@ export function createBlocksTilesLayer({
         tileset.show = url === shownUrl;
         entry.tileset = tileset;
         clippedKey = null;
-        scene.primitives.add(tileset);
+        scene?.primitives?.add(tileset);
         place();
         requestRender();
       })
@@ -373,7 +373,7 @@ export function createBlocksTilesLayer({
    */
   function place() {
     const offset = Number(state?.datumOffsetM) || 0;
-    const place = scene.camera?.positionCartographic;
+    const place = scene?.camera?.positionCartographic;
     let matrix = Cesium.Matrix4.IDENTITY;
     if (offset && place) {
       const up = Cesium.Ellipsoid.WGS84.geodeticSurfaceNormalCartographic(
@@ -409,7 +409,7 @@ export function createBlocksTilesLayer({
       }
       shownEntry.guard.update(shown);
     }
-    const at = scene.camera?.positionCartographic;
+    const at = scene?.camera?.positionCartographic;
     if (at) {
       const { color } = fogColorFor(scene, {
         heightM: at.height,
@@ -424,7 +424,7 @@ export function createBlocksTilesLayer({
     let hole = state.hole;
     if (hole?.radiusM > 0) inside = null;
     else if (shown && at) hole = insideHole(shown, at);
-    const view = scene.camera?.viewMatrix;
+    const view = scene?.camera?.viewMatrix;
     if (hole?.radiusM > 0 && view) {
       const world = Cesium.Cartesian3.fromDegrees(
         hole.lon,
@@ -563,7 +563,7 @@ export function createBlocksTilesLayer({
       removeMoveStart?.();
       removeMoveEnd?.();
       for (const entry of loaded.values())
-        if (entry.tileset) scene.primitives.remove(entry.tileset);
+        if (entry.tileset) scene?.primitives?.remove(entry.tileset);
       loaded.clear();
       requestRender();
     },
