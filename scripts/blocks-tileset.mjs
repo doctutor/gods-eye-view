@@ -61,7 +61,7 @@ import {
   metresPerDegree,
   snapOrigin,
 } from '../src/layers/blocks/grid.js';
-import { latticeTilesOver } from '../src/layers/blocks/lattice.js';
+import { latticeBox, latticeTilesOver } from '../src/layers/blocks/lattice.js';
 import { buildChunkMesh } from '../src/layers/blocks/mesh.js';
 import {
   FOLD_COLUMNS,
@@ -175,6 +175,8 @@ export function parseArgs(argv) {
     base: value('--base') ?? DEFAULT_BASE,
     structures: !argv.includes('--no-structures'),
     stream: argv.includes('--stream'),
+    landOnly: argv.includes('--land-only'),
+    listReads: value('--list-reads') ?? null,
     splitDepth,
     dryRun,
   };
@@ -436,11 +438,13 @@ export function chunkSummary(chunk) {
   const N = CHUNK_COLUMNS;
   const low = { n: Infinity, s: Infinity, e: Infinity, w: Infinity };
   let all = Infinity;
+  let high = -Infinity;
   for (let j = 0; j < N; j++)
     for (let i = 0; i < N; i++) {
       const top = chunk.top[j * N + i];
       if (top === NONE) continue;
       if (top < all) all = top;
+      if (top > high) high = top;
       if (j === N - 1 && top < low.n) low.n = top;
       if (j === 0 && top < low.s) low.s = top;
       if (i === N - 1 && top < low.e) low.e = top;
@@ -453,7 +457,32 @@ export function chunkSummary(chunk) {
     e: or(low.e),
     w: or(low.w),
     all: or(all),
+    high: high === -Infinity ? null : high,
   };
+}
+
+/**
+ * Land only: the finest level's groups whose parent chunk (the same ground
+ * one level up, from its summary) is all sea, every column below level 0,
+ * taken out of the plan, so the parent's fill tile stands in for them and
+ * their heights are never asked. A parent with no summary (failed) or no
+ * data keeps its group. Changes `plan.groups`; returns the keys taken out.
+ */
+export function pruneSea(plan, summaries) {
+  const finest = plan.levels[plan.levels.length - 1];
+  const parent = plan.levels[plan.levels.length - 2];
+  const parents = summaries.get(parent);
+  const taken = [];
+  if (!parents) return taken;
+  for (const [key, { gi, gj }] of plan.groups.get(finest)) {
+    // A finest group is one chunk of the level above it: the same indices.
+    const high = parents.get(tileKey(gi, gj))?.high;
+    if (high !== null && high !== undefined && high < 0) {
+      plan.groups.get(finest).delete(key);
+      taken.push(key);
+    }
+  }
+  return taken;
 }
 
 const isWhole = (value) => Math.abs(value - Math.round(value)) < 1e-9;
@@ -712,9 +741,13 @@ export async function loadTileChunks(plan, source, tile) {
  * first pass, for the skirt floors.
  * @returns {Promise<Map<number, Map<string, object>>>}
  */
-export async function summarizeLevels(plan, source, { log = null } = {}) {
+export async function summarizeLevels(
+  plan,
+  source,
+  { log = null, levels = plan.levels } = {},
+) {
   const out = new Map();
-  for (const m of plan.levels) {
+  for (const m of levels) {
     const region = levelRegion(plan.anchor, m, plan.curved);
     const byKey = new Map();
     const groups = [...plan.groups.get(m).values()];
@@ -1504,6 +1537,23 @@ export function planLatticeTiles(plan) {
 }
 
 /**
+ * The lattice tiles the finest level's groups read: {level, tiles: [{ti,
+ * tj, box}]}, for a warm-up to fill before the build.
+ */
+export function finestReads(plan) {
+  const finest = plan.levels[plan.levels.length - 1];
+  const region = levelRegion(plan.anchor, finest, plan.curved);
+  const tiles = new Map();
+  for (const { gi, gj } of plan.groups.get(finest).values())
+    for (const { ti, tj } of latticeTilesOver(
+      groupBounds(region, gi, gj),
+      finest,
+    ))
+      tiles.set(`${ti}:${tj}`, { ti, tj, box: latticeBox(finest, ti, tj) });
+  return { level: finest, tiles: [...tiles.values()] };
+}
+
+/**
  * The height reader through the app server: source.js's values request
  * answered by GET {base}/api/raster/values. A local DEM reader takes its
  * place by answering the same request ({layer, mode, box, cells, water}
@@ -1575,7 +1625,8 @@ export async function main({
   const finestGroups = plan.groups.get(
     plan.levels[plan.levels.length - 1],
   ).size;
-  const streamed = args.stream || finestGroups > STREAM_GROUPS;
+  // Land only needs the coarser summaries first: always streamed.
+  const streamed = args.stream || args.landOnly || finestGroups > STREAM_GROUPS;
   log(
     `levels ${plan.levels.join(', ')} m${plan.curved ? ' (curved)' : ''}; ${all.length} tiles (` +
       plan.levels
@@ -1589,6 +1640,11 @@ export async function main({
       (streamed ? '; streamed tile by tile' : ''),
   );
   if (args.dryRun) return 0;
+  if (args.listReads && !args.landOnly) {
+    writeAtomic(args.listReads, JSON.stringify(finestReads(plan), null, 1));
+    log(`reads listed in ${args.listReads}`);
+    return 0;
+  }
   // Earth Engine's day as the app server counts it (other sessions' use counts too).
   const budget = async () => {
     if (fetchValues) return null;
@@ -1635,9 +1691,41 @@ export async function main({
   const structureLevels = plan.levels.filter(
     (m) => m <= STRUCTURES_MAX_BLOCK_M,
   );
-  if (streamed) {
+  if (streamed && args.landOnly) {
+    // The coarser levels first (their tiles are warm), then the finest
+    // level's groups over open sea out, then the finest level's summaries.
+    const finest = plan.levels[plan.levels.length - 1];
+    summaries = await summarizeLevels(plan, source, {
+      log,
+      levels: plan.levels.slice(0, -1),
+    });
+    const before = plan.groups.get(finest).size;
+    const taken = pruneSea(plan, summaries);
+    log(
+      `land only: ${taken.length} of ${before} groups at ${finest} m over open sea, left to the ${plan.levels[plan.levels.length - 2]} m fills`,
+    );
+    if (args.listReads) {
+      writeAtomic(args.listReads, JSON.stringify(finestReads(plan), null, 1));
+      const reads = planLatticeTiles(plan);
+      log(
+        `reads listed in ${args.listReads}: ${finest} m, ${reads.get(finest)} lattice tiles`,
+      );
+      return 0;
+    }
+    for (const [m, byKey] of await summarizeLevels(plan, source, {
+      log,
+      levels: [finest],
+    }))
+      summaries.set(m, byKey);
+    log(`summaries read in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  } else if (streamed) {
     summaries = await summarizeLevels(plan, source, { log });
     log(`summaries read in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  } else {
+    chunksByLevel = await loadChunks(plan, source);
+    log(`heights read in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  }
+  if (streamed) {
     if (args.structures && structureLevels.length)
       log('structures need the whole box held: none in a streamed build');
     variants = [
@@ -1647,9 +1735,6 @@ export async function main({
         chunksFor: (tile) => loadTileChunks(plan, source, tile),
       },
     ];
-  } else {
-    chunksByLevel = await loadChunks(plan, source);
-    log(`heights read in ${((Date.now() - started) / 1000).toFixed(1)} s`);
   }
   if (!streamed && args.structures && structureLevels.length) {
     const overpass = query ?? serverOverpass({ base: args.base });
