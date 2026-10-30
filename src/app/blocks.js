@@ -123,6 +123,8 @@ export function createApplicationBlocks({
   if (probe && typeof probe === 'object') {
     probe.controller = controller;
     probe.renderer = renderer;
+    // The mesh workers' counts: jobs taken back, jobs meshed in-thread.
+    probe.meshPool = () => sharedMeshPool().stats();
   }
   const unprovide = provideBlocksWorld(() => controller.world());
   // Personal fork: an arrival's ground while Blocks hides the globe (the

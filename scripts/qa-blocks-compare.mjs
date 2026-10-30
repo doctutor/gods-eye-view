@@ -90,8 +90,10 @@ export const VIEW = Object.freeze({
   heading: 0,
   pitch: -30,
 });
-const WIDTH = 1600;
-const HEIGHT = 900;
+// The window: 1600 × 900, or --size <w>x<h> (a pane's, say, whose pixel
+// footprint picks another level).
+let WIDTH = 1600;
+let HEIGHT = 900;
 
 // ── The synthetic heightfield ───────────────────────────────────────────
 
@@ -1436,6 +1438,8 @@ function sequenceHoldings() {
           glbStore: rs.glbStore ?? null,
         }
       : null,
+    // The mesh workers: jobs taken back (timeouts) and meshed in-thread.
+    meshPool: probe?.meshPool?.() ?? null,
     primitives: window.__godsEyeView?.viewer?.scene?.primitives?.length ?? null,
     imageryLayers: window.__godsEyeView?.viewer?.imageryLayers?.length ?? null,
   };
@@ -1811,6 +1815,8 @@ async function runSequence({
 }
 
 export async function main(argv = process.argv.slice(2)) {
+  const size = /^(\d+)x(\d+)$/.exec(argValue(argv, '--size') || '');
+  if (size) [WIDTH, HEIGHT] = [Number(size[1]), Number(size[2])];
   const out = path.resolve(argValue(argv, '--out', ''));
   if (!argValue(argv, '--out'))
     throw new Error('--out <dir outside the repository> is required');
