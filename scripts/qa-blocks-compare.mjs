@@ -1128,8 +1128,9 @@ async function shoot({
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   // --isolate reads the renderer through the app's QA probe; and
-  // --prewarm-check holds the pre-warm's Models through it.
-  if (isolate || (checkPrewarm && blocks))
+  // --prewarm-check holds the pre-warm's Models through it, and
+  // --load-frames reads the status, the tiles' hole and loads.
+  if (isolate || (checkPrewarm && blocks) || (loadFramesOn && blocks))
     await page.evaluateOnNewDocument(
       (hold) => {
         window.__gevBlocksProbe = hold ? { holdPrewarm: true } : {};
