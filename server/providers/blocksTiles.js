@@ -5,9 +5,11 @@
 //   GET /api/blocks/tiles/index.json
 //     {schema: 'blocks-tiles/1', boxes: [{name, built, anchor, curved,
 //      levelsM, finestM, variants: [{name, file}], bbox: [w, s, e, n],
-//      groups: [[gi, gj], …]}]}: each built box, its levels, the date it was
-//     written, and the finest level's groups (4 × 4 chunks each) in the
-//     build's own map, so the client can tell exactly where it covers.
+//      groups: {<level m>: [[gi, gj], …]}}]}: each built box, its levels,
+//     the date it was written, and every level's groups (4 × 4 chunks each)
+//     in the build's own map: the tiles reach the level of a point's finest
+//     group (a fill tile is a leaf of the level above), and the coarsest
+//     level's groups bound the tree.
 //   GET /api/blocks/tiles/<box>/<path>
 //     a tileset's JSON (its external subtrees too) or a tile's GLB; never
 //     the build's state or log, nothing outside the box's folder.
@@ -46,15 +48,16 @@ export function boxEntry(dir, name) {
   const blocks = tileset?.asset?.extras?.blocks;
   if (!blocks?.anchor || !Array.isArray(blocks.levelsM)) return null;
   const finestM = Math.min(...blocks.levelsM);
-  const groups = [];
+  // Every level's groups (a group's variants are one group).
+  const byLevel = new Map(blocks.levelsM.map((level) => [level, new Map()]));
   for (const [file, tile] of Object.entries(state?.tiles || {})) {
     if (tile?.stats?.kind !== 'group') continue;
-    const match = new RegExp(`^${finestM}m/g(-?\\d+)_(-?\\d+)\\.`).exec(file);
-    if (!match) continue;
-    const group = [Number(match[1]), Number(match[2])];
-    if (!groups.some(([gi, gj]) => gi === group[0] && gj === group[1]))
-      groups.push(group);
+    const match = /^(\d+(?:\.\d+)?)m\/g(-?\d+)_(-?\d+)\./.exec(file);
+    const level = match && byLevel.get(Number(match[1]));
+    if (!level) continue;
+    level.set(`${match[2]}:${match[3]}`, [Number(match[2]), Number(match[3])]);
   }
+  const groups = [...byLevel.get(finestM).values()];
   // The finest groups' corners in longitude and latitude: the box.
   const region = createRegion({
     lon0: blocks.anchor.lon0,
@@ -90,7 +93,12 @@ export function boxEntry(dir, name) {
       .filter((variant) => /^[\w.-]+\.json$/.test(variant?.file || ''))
       .map(({ file, name: variant }) => ({ file, name: variant })),
     bbox: groups.length ? [west, south, east, north] : null,
-    groups,
+    groups: Object.fromEntries(
+      [...byLevel].map(([level, found]) => [
+        String(level),
+        [...found.values()],
+      ]),
+    ),
   };
 }
 
