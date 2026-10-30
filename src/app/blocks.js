@@ -253,6 +253,9 @@ export function lazyRenderer(make) {
     keys: () => renderer?.keys?.() ?? [],
     getState: () => renderer?.getState?.() ?? null,
     pickedChunk: (picked) => renderer?.pickedChunk?.(picked) ?? null,
+    // The Models drawn and the look (the QA harness's --isolate).
+    getCollection: () => renderer?.getCollection?.() ?? null,
+    setStyle: (style) => renderer?.setStyle?.(style),
     destroy() {
       renderer?.destroy?.();
       renderer = null;

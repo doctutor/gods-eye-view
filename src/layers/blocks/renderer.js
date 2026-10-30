@@ -740,6 +740,8 @@ export function createBlocksRenderer({
         model.modelMatrix = matrixOf(place);
         entry.model = model3D(model);
         owners.set(model, owner);
+        // Whose it is, on the Model too (the QA harness isolates levels).
+        model.blocksOwner = owner;
         collection.add(model);
         if (model.ready) done();
         else model.readyEvent?.addEventListener(done);
