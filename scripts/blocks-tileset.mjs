@@ -31,22 +31,24 @@
  * (REPLACE). Sixteen children a tile is not a quadtree, so the tree is
  * explicit (tileset.json lists every tile); see TILESET_FORMAT.
  *
- * Geometry. Each tile's glTF holds its chunks' meshes merged, in the
- * tile's frame (the anchor's east-north-up moved to the tile's south-west
- * corner), y up as glTF has it (east, up, −north). Heights are mean sea
- * level on the ellipsoid (the client raises the tileset by the geoid's
- * undulation, as the live renderer's datum offset), each vertex dropped by
- * where the ellipsoid lies under the tangent plane. Attributes: POSITION,
- * NORMAL, COLOR_0 (the mesher's baked study-sun colour, alpha for water)
- * and _BLOCK_COORD (the block point: columns east and north from the
- * anchor, and the level). Two primitives: the opaque faces and the water
- * (alpha blended). Chunks mesh against their neighbours inside the tile;
+ * Geometry. Each tile's glTF holds its chunks' meshes in the tile's frame
+ * (the anchor's east-north-up moved to the tile's south-west corner),
+ * written by the shared Blocks encoder (src/layers/blocks/gltf.js: the
+ * bytes the live renderer draws, its layout and shader attributes,
+ * _BLOCKCOORD folded by chunk, one feature row a chunk), then compressed
+ * with EXT_meshopt_compression (compressGlb; Cesium decodes it). Heights
+ * are mean sea level on the ellipsoid (the client raises the tileset by
+ * the geoid's undulation, as the live renderer's datum offset), each
+ * vertex dropped by where the ellipsoid lies under the tangent plane. Two
+ * primitives: the opaque faces and the water (alpha blended). Chunks mesh
+ * against their neighbours inside the tile;
  * along a tile's border they hang skirts down to the lowest ground any
  * level has there, so a tile beside a finer or coarser one shows no gap.
  *
  * --dry-run prints the levels, tiles and lattice tiles and asks nothing.
  * The tiles are written atomically (a temporary name, then a rename).
  */
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +63,13 @@ import {
 } from '../src/layers/blocks/grid.js';
 import { latticeTilesOver } from '../src/layers/blocks/lattice.js';
 import { buildChunkMesh } from '../src/layers/blocks/mesh.js';
+import {
+  FOLD_COLUMNS,
+  encodeBlocksGlb,
+  mergeParts,
+} from '../src/layers/blocks/gltf.js';
+import { splitMesh } from '../src/layers/blocks/renderer.js';
+import { MeshoptEncoder } from 'meshoptimizer';
 import { BLOCK_PYRAMID_M, levelMFor } from '../src/layers/blocks/pyramid.js';
 import {
   CHUNK_GROUP,
@@ -68,7 +77,21 @@ import {
   createChunkSource,
   groupBounds,
 } from '../src/layers/blocks/source.js';
-import { NONE } from '../src/layers/blocks/store.js';
+import { NONE, createChunk } from '../src/layers/blocks/store.js';
+import {
+  QUERY_GAP_MS,
+  applyStructures,
+  createStructuresSource,
+  serialQuery,
+} from '../src/layers/blocks/structures.js';
+import {
+  STRUCTURES_MAX_BLOCK_M,
+  withoutBuildings,
+} from '../src/layers/blocks/index.js';
+import { createOverpassViewClient } from '../src/sources/overpassView.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+await MeshoptEncoder.ready;
 
 /** The app server the heights are read through by default (read-only GET). */
 export const DEFAULT_BASE = 'http://localhost:4173';
@@ -136,6 +159,7 @@ export function parseArgs(argv) {
     coarsestM: coarsest.m,
     out: out ?? null,
     base: value('--base') ?? DEFAULT_BASE,
+    structures: !argv.includes('--no-structures'),
     dryRun,
   };
 }
@@ -433,20 +457,6 @@ export function tileMesh(tile, chunksByLevel, region) {
     const mesh = buildChunkMesh(chunk, { neighbours, blockM, levelM, skirt });
     meshes.push({ mesh, ci, cj });
   }
-  const vertexCount = meshes.reduce(
-    (n, { mesh }) => n + mesh.positions.length / 3,
-    0,
-  );
-  const indexCount = meshes.reduce((n, { mesh }) => n + mesh.indices.length, 0);
-  const positions = new Float32Array(vertexCount * 3);
-  const normals = new Float32Array(vertexCount * 3);
-  const colors = new Uint8Array(vertexCount * 4);
-  const blockCoords = new Float32Array(vertexCount * 3);
-  const indices = new Uint32Array(indexCount);
-  const opaqueTotal = meshes.reduce(
-    (n, { mesh }) => n + mesh.opaqueIndexCount,
-    0,
-  );
   // The ellipsoid's drop under the tangent plane at region metres (x, y).
   const drops = new Map();
   const dropAt = (x, y) => {
@@ -458,211 +468,99 @@ export function tileMesh(tile, chunksByLevel, region) {
     }
     return drop;
   };
-  let vertexBase = 0;
-  let opaqueAt = 0;
-  let waterAt = opaqueTotal;
+  const placed = [];
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
   let faces = 0;
+  let vertices = 0;
+  let indices = 0;
   for (const { mesh, ci, cj } of meshes) {
     const count = mesh.positions.length / 3;
+    const positions = new Float32Array(count * 3);
     const dx = ci * chunkM;
     const dy = cj * chunkM;
     for (let v = 0; v < count; v++) {
       const x = mesh.positions[v * 3] + dx;
       const y = mesh.positions[v * 3 + 1] + dy;
-      const o = (vertexBase + v) * 3;
-      positions[o] = x - tileX;
-      positions[o + 1] = y - tileY;
-      positions[o + 2] = mesh.positions[v * 3 + 2] + dropAt(x, y);
-      blockCoords[o] = mesh.blockCoords[v * 3] + ci * CHUNK_COLUMNS;
-      blockCoords[o + 1] = mesh.blockCoords[v * 3 + 1] + cj * CHUNK_COLUMNS;
-      blockCoords[o + 2] = mesh.blockCoords[v * 3 + 2];
+      const p = [
+        x - tileX,
+        y - tileY,
+        mesh.positions[v * 3 + 2] + dropAt(x, y),
+      ];
+      for (let c = 0; c < 3; c++) {
+        positions[v * 3 + c] = p[c];
+        if (p[c] < min[c]) min[c] = p[c];
+        if (p[c] > max[c]) max[c] = p[c];
+      }
     }
-    normals.set(mesh.normals, vertexBase * 3);
-    colors.set(mesh.colors, vertexBase * 4);
-    for (let k = 0; k < mesh.indices.length; k++) {
-      const index = mesh.indices[k] + vertexBase;
-      if (k < mesh.opaqueIndexCount) indices[opaqueAt++] = index;
-      else indices[waterAt++] = index;
-    }
-    vertexBase += count;
+    placed.push({ ci, cj, mesh: { ...mesh, positions } });
     faces += mesh.faces;
+    vertices += count;
+    indices += mesh.indices.length;
   }
   return {
-    positions,
-    normals,
-    colors,
-    blockCoords,
-    indices,
-    opaqueIndexCount: opaqueTotal,
+    chunks: placed,
     faces,
+    vertices,
+    indices,
+    bounds: vertices ? { min, max } : null,
   };
-}
-
-/** East, north, up to glTF's y up: (e, u, −n) (Cesium turns it back). */
-function yUp(source) {
-  const out = new Float32Array(source.length);
-  for (let k = 0; k < source.length; k += 3) {
-    // + 0: no -0 (JSON's min and max cannot say it).
-    out[k] = source[k] + 0;
-    out[k + 1] = source[k + 2] + 0;
-    out[k + 2] = 0 - source[k + 1];
-  }
-  return out;
-}
-
-/** The min and max of each component of a VEC3 float array. */
-function bounds3(values) {
-  const min = [Infinity, Infinity, Infinity];
-  const max = [-Infinity, -Infinity, -Infinity];
-  for (let k = 0; k < values.length; k += 3)
-    for (let c = 0; c < 3; c++) {
-      min[c] = Math.min(min[c], values[k + c]);
-      max[c] = Math.max(max[c], values[k + c]);
-    }
-  return { min, max };
 }
 
 /**
- * A tile mesh as a binary glTF 2.0: one mesh, a primitive for the opaque
- * faces and one for the water (alpha blended), sharing the vertex
- * attributes POSITION, NORMAL, COLOR_0 (normalised bytes) and _BLOCK_COORD;
- * unlit materials (the colours are baked). Indices are 16-bit when the
- * vertices allow. Null when the mesh is empty.
+ * A tile mesh as a binary glTF: the shared Blocks encoder's layout (gltf.js
+ * encodeBlocksGlb, the same bytes the live renderer draws), each chunk's
+ * faces split into opaque and water (renderer.js splitMesh), its block
+ * points folded by its chunk, and one feature row a chunk (ci, cj and the
+ * block size), compressed (compressGlb) unless `compress` is false. Null
+ * when the tile has no faces.
  */
-export function encodeGlb(mesh) {
-  const vertexCount = mesh.positions.length / 3;
-  if (!vertexCount || !mesh.indices.length) return null;
-  const parts = [];
-  let byteLength = 0;
-  const bufferViews = [];
-  const add = (typed, target) => {
-    const bytes = new Uint8Array(
-      typed.buffer,
-      typed.byteOffset,
-      typed.byteLength,
-    );
-    const pad = (4 - (byteLength % 4)) % 4;
-    if (pad) {
-      parts.push(new Uint8Array(pad));
-      byteLength += pad;
-    }
-    bufferViews.push({
-      buffer: 0,
-      byteOffset: byteLength,
-      byteLength: bytes.byteLength,
-      target,
-    });
-    parts.push(bytes);
-    byteLength += bytes.byteLength;
-    return bufferViews.length - 1;
-  };
-  const ARRAY_BUFFER = 34962;
-  const ELEMENT_ARRAY_BUFFER = 34963;
-  const FLOAT = 5126;
-  const positions = yUp(mesh.positions);
-  const normals = yUp(mesh.normals);
-  const { min, max } = bounds3(positions);
-  const accessors = [
-    {
-      bufferView: add(positions, ARRAY_BUFFER),
-      componentType: FLOAT,
-      count: vertexCount,
-      type: 'VEC3',
-      min,
-      max,
-    },
-    {
-      bufferView: add(normals, ARRAY_BUFFER),
-      componentType: FLOAT,
-      count: vertexCount,
-      type: 'VEC3',
-    },
-    {
-      bufferView: add(mesh.colors, ARRAY_BUFFER),
-      componentType: 5121,
-      normalized: true,
-      count: vertexCount,
-      type: 'VEC4',
-    },
-    {
-      bufferView: add(mesh.blockCoords, ARRAY_BUFFER),
-      componentType: FLOAT,
-      count: vertexCount,
-      type: 'VEC3',
-    },
-  ];
-  const short = vertexCount <= 0xffff;
-  const indices = short ? Uint16Array.from(mesh.indices) : mesh.indices;
-  const indexView = add(indices, ELEMENT_ARRAY_BUFFER);
-  const attributes = { POSITION: 0, NORMAL: 1, COLOR_0: 2, _BLOCK_COORD: 3 };
-  const primitives = [];
-  const ranges = [
-    [0, mesh.opaqueIndexCount, 0],
-    [mesh.opaqueIndexCount, mesh.indices.length, 1],
-  ];
-  for (const [from, to, material] of ranges) {
-    if (to <= from) continue;
-    accessors.push({
-      bufferView: indexView,
-      byteOffset: from * indices.BYTES_PER_ELEMENT,
-      componentType: short ? 5123 : 5125,
-      count: to - from,
-      type: 'SCALAR',
-    });
-    primitives.push({
-      attributes,
-      indices: accessors.length - 1,
-      material,
-      mode: 4,
-    });
-  }
-  const unlit = { KHR_materials_unlit: {} };
-  const json = {
-    asset: { version: '2.0', generator: 'godseye scripts/blocks-tileset.mjs' },
-    extensionsUsed: ['KHR_materials_unlit'],
-    scene: 0,
-    scenes: [{ nodes: [0] }],
-    nodes: [{ mesh: 0 }],
-    meshes: [{ primitives }],
-    materials: [
-      {
-        name: 'blocks',
-        pbrMetallicRoughness: {
-          baseColorFactor: [1, 1, 1, 1],
-          metallicFactor: 0,
-          roughnessFactor: 1,
-        },
-        extensions: unlit,
+export function encodeTile({ chunks }, blockM, { compress = true } = {}) {
+  const opaque = [];
+  const water = [];
+  chunks.forEach(({ ci, cj, mesh }, row) => {
+    const parts = splitMesh(mesh);
+    opaque.push({ part: parts.opaque, chunk: [ci, cj], feature: row });
+    water.push({ part: parts.water, chunk: [ci, cj], feature: row });
+  });
+  const glb = encodeBlocksGlb({
+    opaque: mergeParts(opaque),
+    water: mergeParts(water),
+    features: {
+      count: chunks.length,
+      properties: {
+        ci: Int32Array.from(chunks, (chunk) => chunk.ci),
+        cj: Int32Array.from(chunks, (chunk) => chunk.cj),
+        blockM: Float32Array.from(chunks, () => blockM),
       },
-      {
-        name: 'water',
-        alphaMode: 'BLEND',
-        pbrMetallicRoughness: {
-          baseColorFactor: [1, 1, 1, 1],
-          metallicFactor: 0,
-          roughnessFactor: 1,
-        },
-        extensions: unlit,
-      },
-    ],
-    accessors,
-    bufferViews,
-    buffers: [{ byteLength }],
-  };
-  const tail = (4 - (byteLength % 4)) % 4;
-  if (tail) {
-    parts.push(new Uint8Array(tail));
-    byteLength += tail;
-  }
-  json.buffers[0].byteLength = byteLength;
+    },
+  });
+  if (!glb) return null;
+  return compress
+    ? compressGlb(glb)
+    : Buffer.from(glb.buffer, glb.byteOffset, glb.byteLength);
+}
+
+/** A GLB's JSON and its binary chunk. */
+function splitGlb(glb) {
+  const bytes = Buffer.from(glb.buffer, glb.byteOffset, glb.byteLength);
+  const jsonLength = bytes.readUInt32LE(12);
+  const json = JSON.parse(bytes.subarray(20, 20 + jsonLength).toString('utf8'));
+  const binAt = 20 + jsonLength;
+  const bin = bytes.subarray(binAt + 8, binAt + 8 + bytes.readUInt32LE(binAt));
+  return { json, bin };
+}
+
+/** A GLB from its JSON and binary chunk, each padded to four bytes. */
+function joinGlb(json, bin) {
   let text = Buffer.from(JSON.stringify(json));
   text = Buffer.concat([text, Buffer.alloc((4 - (text.length % 4)) % 4, 0x20)]);
-  const total = 12 + 8 + text.length + 8 + byteLength;
+  const body = Buffer.concat([bin, Buffer.alloc((4 - (bin.length % 4)) % 4)]);
   const header = Buffer.alloc(12);
   header.writeUInt32LE(0x46546c67, 0); // 'glTF'
   header.writeUInt32LE(2, 4);
-  header.writeUInt32LE(total, 8);
-  const chunkHeader = (length, type) => {
+  header.writeUInt32LE(12 + 8 + text.length + 8 + body.length, 8);
+  const chunk = (length, type) => {
     const out = Buffer.alloc(8);
     out.writeUInt32LE(length, 0);
     out.writeUInt32LE(type, 4);
@@ -670,13 +568,149 @@ export function encodeGlb(mesh) {
   };
   return Buffer.concat([
     header,
-    chunkHeader(text.length, 0x4e4f534a), // 'JSON'
+    chunk(text.length, 0x4e4f534a), // 'JSON'
     text,
-    chunkHeader(byteLength, 0x004e4942), // 'BIN\0'
-    ...parts.map((part) =>
-      Buffer.from(part.buffer, part.byteOffset, part.byteLength),
-    ),
+    chunk(body.length, 0x004e4942), // 'BIN\0'
+    body,
   ]);
+}
+
+const COMPONENT_BYTES = {
+  5120: 1,
+  5121: 1,
+  5122: 2,
+  5123: 2,
+  5125: 4,
+  5126: 4,
+};
+const TYPE_SIZE = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+
+/**
+ * A GLB with EXT_meshopt_compression (meshoptimizer's codecs, which
+ * Cesium's glTF loader decodes): each primitive's vertices put in the order
+ * its triangles use them (reorderMesh, as gltfpack does), then every vertex
+ * attribute view encoded as ATTRIBUTES and every index view as TRIANGLES
+ * into the GLB's buffer; the original layout stays as a fallback buffer
+ * with no data, which the extension's loaders never read, so the extension
+ * is required. Views it does not encode (the property table) are copied.
+ */
+export function compressGlb(glb) {
+  const { json, bin } = splitGlb(glb);
+  const data = Buffer.from(bin); // a copy: the reorder rewrites it
+  const view = (index) => json.bufferViews[index];
+  const accessorBytes = (accessor) => {
+    const v = view(accessor.bufferView);
+    const element =
+      COMPONENT_BYTES[accessor.componentType] * TYPE_SIZE[accessor.type];
+    const stride = v.byteStride || element;
+    const at = v.byteOffset + (accessor.byteOffset || 0);
+    return { at, stride, element };
+  };
+  // Each primitive's vertices in the order its triangles use them.
+  for (const mesh of json.meshes)
+    for (const primitive of mesh.primitives) {
+      const indexAccessor = json.accessors[primitive.indices];
+      const ia = accessorBytes(indexAccessor);
+      const Type =
+        indexAccessor.componentType === 5123 ? Uint16Array : Uint32Array;
+      const indices = Uint32Array.from(
+        new Type(data.buffer, data.byteOffset + ia.at, indexAccessor.count),
+      );
+      const [remap, unique] = MeshoptEncoder.reorderMesh(indices, true, true);
+      const target = new Type(
+        data.buffer,
+        data.byteOffset + ia.at,
+        indexAccessor.count,
+      );
+      target.set(indices);
+      for (const id of Object.values(primitive.attributes)) {
+        const accessor = json.accessors[id];
+        const { at, stride } = accessorBytes(accessor);
+        const before = Buffer.from(
+          data.subarray(at, at + accessor.count * stride),
+        );
+        for (let v = 0; v < accessor.count; v++) {
+          const to = remap[v];
+          if (to === 0xffffffff) continue;
+          before.copy(data, at + to * stride, v * stride, v * stride + stride);
+        }
+        accessor.count = unique;
+      }
+    }
+  // What each view holds: an attribute (its stride) or a primitive's indices.
+  const roles = new Map();
+  for (const mesh of json.meshes)
+    for (const primitive of mesh.primitives) {
+      for (const id of Object.values(primitive.attributes)) {
+        const accessor = json.accessors[id];
+        const { stride } = accessorBytes(accessor);
+        roles.set(accessor.bufferView, {
+          mode: 'ATTRIBUTES',
+          stride,
+          count: accessor.count,
+        });
+      }
+      const indexAccessor = json.accessors[primitive.indices];
+      roles.set(indexAccessor.bufferView, {
+        mode: 'TRIANGLES',
+        stride: COMPONENT_BYTES[indexAccessor.componentType],
+        count: indexAccessor.count,
+      });
+    }
+  const parts = [];
+  let length = 0;
+  const append = (bytes) => {
+    const pad = (4 - (length % 4)) % 4;
+    if (pad) parts.push(Buffer.alloc(pad));
+    length += pad;
+    const offset = length;
+    parts.push(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+    length += bytes.byteLength;
+    return offset;
+  };
+  json.bufferViews = json.bufferViews.map((v, index) => {
+    const raw = data.subarray(v.byteOffset, v.byteOffset + v.byteLength);
+    const role = roles.get(index);
+    if (!role || (role.mode === 'ATTRIBUTES' && role.stride % 4 !== 0)) {
+      // Not encoded: its bytes, copied as they are.
+      return { ...v, buffer: 0, byteOffset: append(raw) };
+    }
+    const source = raw.subarray(0, role.count * role.stride);
+    const encoded =
+      role.mode === 'ATTRIBUTES'
+        ? MeshoptEncoder.encodeVertexBuffer(source, role.count, role.stride)
+        : MeshoptEncoder.encodeIndexBuffer(source, role.count, role.stride);
+    const byteOffset = append(encoded);
+    return {
+      ...v,
+      buffer: 1,
+      extensions: {
+        EXT_meshopt_compression: {
+          buffer: 0,
+          byteOffset,
+          byteLength: encoded.byteLength,
+          byteStride: role.stride,
+          count: role.count,
+          mode: role.mode,
+        },
+      },
+    };
+  });
+  const body = Buffer.concat(parts);
+  json.buffers = [
+    { byteLength: body.length },
+    {
+      byteLength: bin.length,
+      extensions: { EXT_meshopt_compression: { fallback: true } },
+    },
+  ];
+  const add = (list, name) => [...new Set([...(list || []), name])];
+  json.extensionsUsed = add(json.extensionsUsed, 'EXT_meshopt_compression');
+  json.extensionsRequired = add(
+    json.extensionsRequired,
+    'EXT_meshopt_compression',
+  );
+  return joinGlb(json, body);
 }
 
 /** The anchor's east-north-up frame on the ellipsoid as a column-major 4 × 4. */
@@ -706,13 +740,13 @@ export function enuTransform({ lon0, lat0 }) {
   return [...east, 0, ...north, 0, ...up, 0, ...origin, 1];
 }
 
-/** A box bounding volume around a tile mesh's positions (its frame, z up). */
-function boxVolume(positions, side) {
-  if (!positions.length) {
+/** A box bounding volume around a tile mesh's bounds (its frame, z up). */
+function boxVolume(bounds, side) {
+  if (!bounds) {
     // An empty tile still has its ground's footprint.
     return [side / 2, side / 2, 0, side / 2, 0, 0, 0, side / 2, 0, 0, 0, 1];
   }
-  const { min, max } = bounds3(positions);
+  const { min, max } = bounds;
   const half = (c) => Math.max((max[c] - min[c]) / 2, 0.5);
   const mid = (c) => (max[c] + min[c]) / 2;
   return [mid(0), mid(1), mid(2), half(0), 0, 0, 0, half(1), 0, 0, 0, half(2)];
@@ -727,86 +761,291 @@ function writeAtomic(file, bytes) {
 }
 
 /**
- * Build the tileset: every tile's glTF and the tileset.json, under `out`.
- * @returns {{tiles: Array<{uri, level, kind, bytes, vertices, indices,
- *   faces}>, tileset: object}}
+ * The files the tile digests cover besides the inputs: the build and the
+ * mesher's (a change to either rebuilds every tile; the inputs, the
+ * heights and the structures, are in each tile's digest as data).
  */
-export function buildTileset(plan, chunksByLevel, { out, inputs = {} }) {
+const CODE_FILES = [
+  'scripts/blocks-tileset.mjs',
+  'src/layers/blocks/mesh.js',
+  'src/layers/blocks/gltf.js',
+  'src/layers/blocks/lighting.js',
+  'src/layers/blocks/store.js',
+  'src/layers/blocks/grid.js',
+];
+let codeDigest = null;
+/** The build's code, hashed once a run. */
+function buildCodeDigest() {
+  if (codeDigest) return codeDigest;
+  const hash = createHash('sha256');
+  for (const file of CODE_FILES)
+    hash.update(fs.readFileSync(path.join(ROOT, file)));
+  codeDigest = hash.digest('hex');
+  return codeDigest;
+}
+
+/** A typed array's bytes, for a digest. */
+const bytesOf = (array) =>
+  new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
+
+/**
+ * A tile's inputs' digest: the build's code, the tile, its skirt floors and
+ * every column of its chunks (heightfield, surfaces and structures). A tile
+ * already written with the same digest is not built again.
+ */
+export function tileDigest(tile, chunksByLevel) {
+  const hash = createHash('sha256');
+  hash.update(buildCodeDigest());
+  hash.update(
+    JSON.stringify({
+      level: tile.level,
+      kind: tile.kind,
+      gi: tile.gi,
+      gj: tile.gj,
+      ci: tile.ci,
+      cj: tile.cj,
+      floors: skirtFloors(tile, chunksByLevel),
+    }),
+  );
+  const chunks = chunksByLevel.get(tile.level);
+  for (const [ci, cj] of tileChunks(tile)) {
+    const chunk = chunks.get(tileKey(ci, cj));
+    hash.update(`|${ci}:${cj}|`);
+    if (!chunk) continue;
+    hash.update(bytesOf(chunk.top));
+    hash.update(bytesOf(chunk.material));
+    hash.update(bytesOf(chunk.water));
+    const structure = chunk.structure;
+    if (structure)
+      for (const array of [structure.top, structure.bottom, structure.material])
+        hash.update(bytesOf(array));
+  }
+  return hash.digest('hex').slice(0, 32);
+}
+
+/** The build's record beside the tiles: each tile's digest, box and counts. */
+export const BUILD_STATE = 'build-state.json';
+
+function readState(out) {
+  try {
+    const state = JSON.parse(
+      fs.readFileSync(path.join(out, BUILD_STATE), 'utf8'),
+    );
+    return state && typeof state.tiles === 'object' ? state : { tiles: {} };
+  } catch {
+    return { tiles: {} };
+  }
+}
+
+/**
+ * Build the tilesets: every tile's glTF, and a tileset JSON a variant, under
+ * `out`. `variants` ([{file, name, suffix, chunksByLevel}], the first the
+ * default): the same tree drawn from different chunks, a tile's file
+ * shared where a variant's chunks of its level are the first's (the coarse
+ * levels), its own (`suffix` before .glb) where not (the fine levels
+ * without their buildings). A tile whose file exists with its inputs'
+ * digest unchanged (BUILD_STATE) is kept, not built again; the state is
+ * written after each tile, so an interrupted build resumes where it
+ * stopped.
+ * @returns {{tiles: Array<{uri, level, kind, bytes, vertices, indices,
+ *   faces, kept}>, tilesets: Map<string, object>, tileset: object}}
+ */
+export function buildTileset(
+  plan,
+  chunksByLevel,
+  { out, inputs = {}, variants = null },
+) {
+  variants ??= [{ file: 'tileset.json', suffix: '', chunksByLevel }];
+  const base = variants[0].chunksByLevel;
   const roots = tileTree(plan);
   const regions = new Map(
     plan.levels.map((m) => [m, levelRegion(plan.anchor, m)]),
   );
+  const state = readState(out);
+  const writeState = () =>
+    writeAtomic(path.join(out, BUILD_STATE), JSON.stringify(state));
   const tiles = [];
-  const toJson = (tile, parent = null) => {
-    const mesh = tileMesh(tile, chunksByLevel, regions.get(tile.level));
-    const glb = encodeGlb(mesh);
-    const uri = tileUri(tile);
-    if (glb) writeAtomic(path.join(out, uri), glb);
-    tiles.push({
-      uri,
-      level: tile.level,
-      kind: tile.kind,
-      bytes: glb ? glb.length : 0,
-      vertices: mesh.positions.length / 3,
-      indices: mesh.indices.length,
-      faces: mesh.faces,
-    });
-    const { x, y, side } = tileExtent(tile);
-    const origin = parent ? { x: x - parent.x, y: y - parent.y } : { x, y };
-    const node = {
-      // Relative to the parent's frame (the root's to the anchor's).
-      transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, origin.x, origin.y, 0, 1],
-      boundingVolume: { box: boxVolume(mesh.positions, side) },
-      // The content's error is its block; a leaf is exact as far as the tree goes.
-      geometricError: tile.children.length ? tile.level : 0,
-      refine: 'REPLACE',
-      ...(glb ? { content: { uri } } : {}),
-    };
-    if (tile.children.length)
-      node.children = tile.children.map((child) => toJson(child, { x, y }));
-    return node;
+  const done = new Map(); // uri → {box, content}, this run
+  const buildTile = (tile, chunks, uri) => {
+    const known = done.get(uri);
+    if (known) return known;
+    const digest = tileDigest(tile, chunks);
+    const record = state.tiles[uri];
+    const file = path.join(out, uri);
+    let result;
+    if (
+      record?.digest === digest &&
+      (record.bytes === 0 || fs.existsSync(file))
+    ) {
+      result = { box: record.box, content: record.bytes > 0 };
+      tiles.push({ ...record.stats, uri, bytes: record.bytes, kept: true });
+    } else {
+      const mesh = tileMesh(tile, chunks, regions.get(tile.level));
+      const glb = encodeTile(mesh, tile.level);
+      if (glb) writeAtomic(file, glb);
+      const stats = {
+        level: tile.level,
+        kind: tile.kind,
+        vertices: mesh.vertices,
+        indices: mesh.indices,
+        faces: mesh.faces,
+      };
+      result = {
+        box: boxVolume(mesh.bounds, tileExtent(tile).side),
+        content: Boolean(glb),
+      };
+      const bytes = glb ? glb.length : 0;
+      state.tiles[uri] = { digest, box: result.box, bytes, stats };
+      writeState();
+      tiles.push({ ...stats, uri, bytes, kept: false });
+    }
+    done.set(uri, result);
+    return result;
   };
-  const rootNodes = roots.map((root) => toJson(root));
-  const rootFrame = enuTransform(plan.anchor);
-  const coarsest = plan.levels[0];
-  const root =
-    rootNodes.length === 1
-      ? {
-          ...rootNodes[0],
-          transform: multiplyTransform(rootFrame, rootNodes[0].transform),
-        }
-      : {
-          transform: rootFrame,
-          boundingVolume: enclosingBox(rootNodes),
-          geometricError: coarsest * CHUNK_GROUP,
-          refine: 'REPLACE',
-          children: rootNodes,
-        };
-  const tileset = {
-    asset: {
-      version: TILESET_FORMAT.version,
-      generator: 'godseye scripts/blocks-tileset.mjs',
-      extras: {
-        blocks: {
-          anchor: plan.anchor,
-          levelsM: plan.levels,
-          levelHeightsM: plan.levels.map(levelMFor),
-          chunkColumns: CHUNK_COLUMNS,
-          chunkGroup: CHUNK_GROUP,
-          format: TILESET_FORMAT,
-          attributes: {
-            _BLOCK_COORD:
-              'columns east and north of the anchor at the tile level, and the level',
+  const tilesets = new Map();
+  for (const variant of variants) {
+    const uriOf = (tile) =>
+      variant.chunksByLevel.get(tile.level) === base.get(tile.level)
+        ? tileUri(tile)
+        : tileUri(tile).replace(/\.glb$/, `${variant.suffix}.glb`);
+    const toJson = (tile, parent = null) => {
+      const uri = uriOf(tile);
+      const { box, content } = buildTile(tile, variant.chunksByLevel, uri);
+      const { x, y } = tileExtent(tile);
+      const origin = parent ? { x: x - parent.x, y: y - parent.y } : { x, y };
+      const node = {
+        // Relative to the parent's frame (the root's to the anchor's).
+        transform: [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          origin.x,
+          origin.y,
+          0,
+          1,
+        ],
+        boundingVolume: { box },
+        // The content's error is its block; a leaf is exact as far as the tree goes.
+        geometricError: tile.children.length ? tile.level : 0,
+        refine: 'REPLACE',
+        ...(content ? { content: { uri } } : {}),
+      };
+      if (tile.children.length)
+        node.children = tile.children.map((child) => toJson(child, { x, y }));
+      return node;
+    };
+    const rootNodes = roots.map((root) => toJson(root));
+    const rootFrame = enuTransform(plan.anchor);
+    const coarsest = plan.levels[0];
+    const root =
+      rootNodes.length === 1
+        ? {
+            ...rootNodes[0],
+            transform: multiplyTransform(rootFrame, rootNodes[0].transform),
+          }
+        : {
+            transform: rootFrame,
+            boundingVolume: enclosingBox(rootNodes),
+            geometricError: coarsest * CHUNK_GROUP,
+            refine: 'REPLACE',
+            children: rootNodes,
+          };
+    const tileset = {
+      asset: {
+        version: TILESET_FORMAT.version,
+        generator: 'godseye scripts/blocks-tileset.mjs',
+        extras: {
+          blocks: {
+            anchor: plan.anchor,
+            levelsM: plan.levels,
+            levelHeightsM: plan.levels.map(levelMFor),
+            chunkColumns: CHUNK_COLUMNS,
+            chunkGroup: CHUNK_GROUP,
+            format: TILESET_FORMAT,
+            // The encoder's (gltf.js): its block point folded by chunk.
+            attributes: {
+              _BLOCKCOORD: `columns east and north, the chunk's folded modulo ${FOLD_COLUMNS}, and the level`,
+              _FEATURE_ID_0: 'the chunk: property table columns ci, cj, blockM',
+            },
+            compression: 'EXT_meshopt_compression',
+            // The variant this file draws, and its siblings over the same tree.
+            variant: variant.name ?? 'default',
+            variants: variants.map(({ file, name }) => ({
+              file,
+              name: name ?? 'default',
+            })),
+            inputs,
           },
-          inputs,
         },
       },
-    },
-    geometricError: coarsest * CHUNK_GROUP * 2,
-    root,
-  };
-  writeAtomic(path.join(out, 'tileset.json'), JSON.stringify(tileset, null, 1));
-  return { tiles, tileset };
+      geometricError: coarsest * CHUNK_GROUP * 2,
+      root,
+    };
+    writeAtomic(path.join(out, variant.file), JSON.stringify(tileset, null, 1));
+    tilesets.set(variant.file, tileset);
+  }
+  return { tiles, tilesets, tileset: tilesets.get(variants[0].file) };
+}
+
+/**
+ * A chunk's copy (store.js createChunk over copies of its columns), for a
+ * variant to paint and build on without touching the source's cached one.
+ */
+const copyChunk = (chunk) =>
+  createChunk({
+    ci: chunk.ci,
+    cj: chunk.cj,
+    top: chunk.top.slice(),
+    material: chunk.material.slice(),
+    water: chunk.water.slice(),
+  });
+
+/**
+ * The OSM structures at the levels the live controller applies them
+ * (STRUCTURES_MAX_BLOCK_M and finer: land cover, roads, bridge decks and
+ * buildings by structures.js's rules), group by group through
+ * `structures` (createStructuresSource: one Overpass query a group, one at
+ * a time and paced). Two variants of those levels' chunks, as the
+ * Buildings switch has them since the land-cover fix: `built` with the
+ * buildings, `ground` without (index.js withoutBuildings: the land cover
+ * and the decks kept). Coarser levels are the heights alone, shared.
+ * @returns {Promise<{built: Map, ground: Map, levels: number[]}>} each
+ *   level → 'ci:cj' → chunk
+ */
+export async function loadStructures(plan, chunksByLevel, structures) {
+  const built = new Map(chunksByLevel);
+  const ground = new Map(chunksByLevel);
+  const levels = plan.levels.filter((m) => m <= STRUCTURES_MAX_BLOCK_M);
+  for (const m of levels) {
+    const region = levelRegion(plan.anchor, m);
+    const withBuildings = new Map();
+    const without = new Map();
+    for (const [key, chunk] of chunksByLevel.get(m)) {
+      const answer = await structures.loadChunkStructures(
+        region,
+        chunk.ci,
+        chunk.cj,
+      );
+      const a = copyChunk(chunk);
+      const b = copyChunk(chunk);
+      applyStructures(a, answer);
+      applyStructures(b, withoutBuildings(answer));
+      withBuildings.set(key, a);
+      without.set(key, b);
+    }
+    built.set(m, withBuildings);
+    ground.set(m, without);
+  }
+  return { built, ground, levels };
 }
 
 /** a × b, column-major 4 × 4. */
@@ -868,14 +1107,39 @@ export function serverHeightReader({ base = DEFAULT_BASE, fetchImpl } = {}) {
 }
 
 /**
+ * The Overpass queries through the app server's proxy (POST
+ * {base}/api/overpass, the local clone behind it), one at a time and
+ * QUERY_GAP_MS apart as the live Blocks asks them; `count()` the queries
+ * sent.
+ */
+export function serverOverpass({ base = DEFAULT_BASE, fetchImpl } = {}) {
+  let sent = 0;
+  const query = serialQuery(
+    createOverpassViewClient({
+      url: `${base}/api/overpass`,
+      minGapMs: QUERY_GAP_MS,
+      ...(fetchImpl ? { fetchImpl } : {}),
+    }),
+  );
+  const counted = (ql) => {
+    sent++;
+    return query(ql);
+  };
+  counted.count = () => sent;
+  return counted;
+}
+
+/**
  * Run: plan, read, build, report.
- * @param {{argv?: string[], fetchValues?: Function, log?: Function}} options
- *   fetchValues: the height reader (serverHeightReader's unless given).
+ * @param {{argv?: string[], fetchValues?: Function, query?: Function, log?:
+ *   Function}} options fetchValues: the height reader (serverHeightReader's
+ *   unless given); query: the Overpass query (serverOverpass's unless given).
  * @returns {Promise<number>} the exit code
  */
 export async function main({
   argv = process.argv.slice(2),
   fetchValues,
+  query,
   log = console.log,
 } = {}) {
   const args = parseArgs(argv);
@@ -901,18 +1165,61 @@ export async function main({
   if (args.dryRun) return 0;
   const reader = fetchValues ?? serverHeightReader({ base: args.base });
   const source = createChunkSource({ fetchValues: reader, maxChunks: 4096 });
-  const started = Date.now();
+  let started = Date.now();
   const chunksByLevel = await loadChunks(plan, source);
   log(`heights read in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  let variants = null;
+  const structureLevels = plan.levels.filter(
+    (m) => m <= STRUCTURES_MAX_BLOCK_M,
+  );
+  if (args.structures && structureLevels.length) {
+    const overpass = query ?? serverOverpass({ base: args.base });
+    const structures = createStructuresSource({
+      loadChunk: (region, ci, cj) => source.loadChunk(region, ci, cj),
+      query: overpass,
+    });
+    started = Date.now();
+    const { built, ground } = await loadStructures(
+      plan,
+      chunksByLevel,
+      structures,
+    );
+    const count = overpass.count?.();
+    log(
+      `structures at ${structureLevels.join(', ')} m in ${((Date.now() - started) / 1000).toFixed(1)} s` +
+        (count === undefined ? '' : `, ${count} Overpass queries`),
+    );
+    variants = [
+      {
+        file: 'tileset.json',
+        name: 'buildings',
+        suffix: '',
+        chunksByLevel: built,
+      },
+      {
+        file: 'tileset-ground.json',
+        name: 'ground',
+        suffix: '.ground',
+        chunksByLevel: ground,
+      },
+    ];
+  }
   const { tiles } = buildTileset(plan, chunksByLevel, {
     out: args.out,
+    variants,
     inputs: {
       heights: fetchValues
         ? 'a given reader'
         : `${args.base}/api/raster/values`,
-      builtAt: new Date().toISOString(),
+      structures: variants
+        ? query
+          ? 'a given query'
+          : `${args.base}/api/overpass`
+        : 'none',
     },
   });
+  const kept = tiles.filter((tile) => tile.kept).length;
+  if (kept) log(`${kept} of ${tiles.length} tiles kept (inputs unchanged)`);
   for (const m of plan.levels) {
     const here = tiles.filter((tile) => tile.level === m);
     const sum = (key) => here.reduce((n, tile) => n + tile[key], 0);

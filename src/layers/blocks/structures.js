@@ -63,7 +63,7 @@ export const DEFAULT_HEIGHT_M = 2 * LEVEL_HEIGHT_M;
 /** Groups of buildings kept in memory. */
 export const MAX_GROUPS = 64;
 /** The least time between two Overpass queries from the blocks. */
-const QUERY_GAP_MS = 700;
+export const QUERY_GAP_MS = 700;
 const FOOT_M = 0.3048;
 
 /**
@@ -913,7 +913,7 @@ export function applyStructures(chunk, levels, material = BUILDING) {
 }
 
 /** One Overpass query at a time, so the view client never aborts one for the next. */
-function serialQuery(client) {
+export function serialQuery(client) {
   let chain = Promise.resolve();
   return (query) => {
     const run = chain.then(() => client.query(query));
