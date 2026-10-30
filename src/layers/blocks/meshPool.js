@@ -23,7 +23,16 @@ export const MAX_MESH_WORKERS = 3;
  * its job, and the controller's tick, forever), the job meshed in-thread,
  * and a replacement worker started when a job next needs one.
  */
-export const MESH_JOB_TIMEOUT_MS = 10_000;
+export const MESH_JOB_TIMEOUT_MS = 60_000;
+/**
+ * A job not answered in this long is only counted slow: the worker keeps
+ * it. A busy worker cannot say it is alive (it meshes on its one thread),
+ * and on a saturated machine (a full suite and a tileset build beside the
+ * app, 2026-10-30) taking jobs back at 10 s meshed them in-thread on the
+ * same starved CPU and restarted workers, 22 times in one street view: it
+ * made the load worse. Slow, then taken back only at MESH_JOB_TIMEOUT_MS.
+ */
+export const MESH_JOB_SLOW_MS = 10_000;
 /**
  * A worker that has not said it is ready (meshWorker.js posts {ready} once
  * its modules are loaded) gets this long for its first job instead: a
@@ -56,14 +65,17 @@ function browserWorker() {
  * with postMessage, addEventListener('message' | 'error') and terminate;
  * null when none can be made), started as jobs arrive. One job a worker at
  * a time; jobs wait in order. A worker that errors is dropped and its job
- * meshed in-thread; with no workers left, every job is. A worker that
- * does not answer within `jobTimeoutMs` is terminated and its job meshed
- * in-thread; a replacement is started when a job next needs one.
+ * meshed in-thread; with no workers left, every job is. A job not
+ * answered within `slowMs` is counted slow and left with its worker; one
+ * not answered within `jobTimeoutMs` is taken back: the worker terminated,
+ * the job meshed in-thread, a replacement started when a job next needs
+ * one.
  */
 export function createMeshPool({
   size = poolSize(),
   createWorker = browserWorker,
   jobTimeoutMs = MESH_JOB_TIMEOUT_MS,
+  slowMs = MESH_JOB_SLOW_MS,
   startTimeoutMs = MESH_WORKER_START_MS,
   setTimeoutImpl = (...args) => setTimeout(...args),
   clearTimeoutImpl = (...args) => clearTimeout(...args),
@@ -78,7 +90,7 @@ export function createMeshPool({
   /** The workers that said they are ready (or answered a job). */
   const ready = new WeakSet();
   /** Jobs taken back from a worker that did not answer, and jobs meshed here. */
-  const counts = { timeouts: 0, inThread: 0 };
+  const counts = { timeouts: 0, inThread: 0, slow: 0 };
 
   // The same answer a worker gives: packed with `pack` (meshJob.js).
   const inThread = (chunk, { pack = false, ...options } = {}) =>
@@ -95,14 +107,28 @@ export function createMeshPool({
   };
 
   /**
-   * A running task's timer: the job's timeout once its worker is ready,
-   * else the worker's time to start.
+   * A running task's timer: the job's timeout once its worker is ready
+   * (counted slow at slowMs first, when that comes sooner), else the
+   * worker's time to start.
    */
   const arm = (worker, id, task) => {
     settle(task);
     const ms = ready.has(worker) ? jobTimeoutMs : startTimeoutMs;
     task.started = ready.has(worker);
-    if (ms > 0) task.timer = setTimeoutImpl(() => timedOut(worker, id), ms);
+    if (!(ms > 0)) return;
+    if (task.started && slowMs > 0 && slowMs < ms) {
+      task.timer = setTimeoutImpl(() => {
+        if (!running.has(id)) return;
+        counts.slow++;
+        task.slow = true;
+        console.warn(
+          `[Blocks] a mesh worker has not answered in ${slowMs} ms; it keeps the job until ${ms} ms (${counts.slow} slow so far)`,
+        );
+        task.timer = setTimeoutImpl(() => timedOut(worker, id), ms - slowMs);
+      }, slowMs);
+      return;
+    }
+    task.timer = setTimeoutImpl(() => timedOut(worker, id), ms);
   };
 
   /**
@@ -245,6 +271,8 @@ export function createMeshPool({
       // jobs meshed in this thread (those, a failed worker's, or no workers).
       timeouts: counts.timeouts,
       inThreadJobs: counts.inThread,
+      // Jobs a worker held past slowMs (kept, not taken back).
+      slow: counts.slow,
     }),
     destroy() {
       destroyed = true;
