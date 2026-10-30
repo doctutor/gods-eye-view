@@ -1767,6 +1767,12 @@ async function runSequence({
       )
       .then((handle) => handle.jsonValue())
       .catch(() => Date.now());
+    // Already drawn at the flight's end: the tiles shown and every one the
+    // view wants loaded (in flight, or before the step).
+    const tilesAtEnd = await page.evaluate(() => {
+      const state = window.__gevBlocksProbe?.tiles?.getState?.();
+      return Boolean(state?.shown && state.tilesLoaded);
+    });
     // Settled: past the controller's wait to anchor (2 s still, then a
     // tick), no renderer or status event for 2 s, nothing loading,
     // anchoring or flying.
@@ -1836,6 +1842,7 @@ async function runSequence({
       flightEnd,
       to,
     );
+    if (metrics.firstBlocksMs === null && tilesAtEnd) metrics.firstBlocksMs = 0;
     results.push({
       name: step.name,
       via,
