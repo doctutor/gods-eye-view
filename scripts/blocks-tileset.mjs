@@ -80,6 +80,7 @@ import {
   GROUP_COLUMNS,
   createChunkSource,
   groupBounds,
+  landFloorLevel,
 } from '../src/layers/blocks/source.js';
 import { MATERIALS, NONE, createChunk } from '../src/layers/blocks/store.js';
 import {
@@ -482,8 +483,9 @@ export function chunkSummary(chunk) {
 
 /**
  * Land only: the finest level's groups whose parent chunk (the same ground
- * one level up, from its summary) is all sea, every column below level 0,
- * taken out of the plan, so the parent's fill tile stands in for them and
+ * one level up, from its summary) is all sea, every column below the
+ * lowest land level (landFloorLevel: 0, or -1 where blocks hang), taken
+ * out of the plan, so the parent's fill tile stands in for them and
  * their heights are never asked. A parent with no summary (failed) or no
  * data keeps its group. Changes `plan.groups`; returns the keys taken out.
  */
@@ -496,7 +498,8 @@ export function pruneSea(plan, summaries) {
   for (const [key, { gi, gj }] of plan.groups.get(finest)) {
     // A finest group is one chunk of the level above it: the same indices.
     const high = parents.get(tileKey(gi, gj))?.high;
-    if (high !== null && high !== undefined && high < 0) {
+    const land = landFloorLevel(levelMFor(parent));
+    if (high !== null && high !== undefined && high < land) {
       plan.groups.get(finest).delete(key);
       taken.push(key);
     }

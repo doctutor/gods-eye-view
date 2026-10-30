@@ -334,15 +334,36 @@ export function coarseHeights(heights, size, factor, { landShare = 0 } = {}) {
 }
 
 /**
+ * From this many metres a level up (the 1,920 m blocks' 60 m and coarser),
+ * a column's block hangs below its height instead of standing on it: its
+ * top at floor(h / levelM) × levelM, never above the ground it stands for.
+ * Standing, the 30,720 m blocks' 960 m levels put the ground of a Baltimore
+ * street (about 50 m) under a block top at 960 m, and a camera at 300 m
+ * was inside it with nothing drawn below (2026-10-30). Finer levels (30 m
+ * at 480 m blocks and under) stand as before, so a 480 m column and a tile
+ * column still meet.
+ */
+export const HANGING_LEVEL_M = 60;
+
+/**
+ * The lowest top a land column has at `levelM` (columnsFromHeights): 0,
+ * or -1 where blocks hang; the sea's columns are all below it.
+ */
+export const landFloorLevel = (levelM) => (levelM >= HANGING_LEVEL_M ? -1 : 0);
+
+/**
  * Heights to the store's columns: level = floor(h / levelM) (the metres a
  * level: blockM for cubes, more for the coarse levels); at or below 0 m
  * water fills level 0 over a seabed at most level -1; nodata is NONE.
  * With `water` (each column's share of water), a column above 0 m at
  * least LAKE_SHARE water is a lake: water at its level over a bed one
- * level below, as structures.js paints an OSM lake.
+ * level below, as structures.js paints an OSM lake. At HANGING_LEVEL_M and
+ * over, every level is one lower: a top at floor(h / levelM) × levelM, the
+ * sea's water at level -1 (its top at 0 m) over a bed at most -2.
  */
 export function columnsFromHeights(heights, levelM, shares = null) {
   const count = heights.length;
+  const below = -landFloorLevel(levelM);
   const top = new Int32Array(count);
   const material = new Uint8Array(count);
   const water = new Int32Array(count);
@@ -354,11 +375,11 @@ export function columnsFromHeights(heights, levelM, shares = null) {
       material[k] = MATERIALS.AIR;
       continue;
     }
-    const level = Math.floor(h / levelM);
+    const level = Math.floor(h / levelM) - below;
     material[k] = MATERIALS.TERRAIN;
     if (h <= 0) {
-      top[k] = Math.min(level, -1);
-      water[k] = 0;
+      top[k] = Math.min(level, -1 - below);
+      water[k] = -below;
     } else if (shares && shares[k] >= LAKE_SHARE) {
       top[k] = level - 1;
       water[k] = level;
