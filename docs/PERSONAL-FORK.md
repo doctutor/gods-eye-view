@@ -2571,6 +2571,31 @@ shared. The self-hosted sources are computed in two worker threads, the
 shared tile pool's `raster-values` drawer
 (`server/providers/common/tileWorker.js`).
 
+Cells 100 m wide or wider are kept a year (`valuesTtlMs`): the Blocks
+lattice from 120 m up, which the warm-up fills
+(`npm run blocks:pyramid -- --server`) and the live fallback reads. The
+life gates only reads: nothing sweeps the folder, so an answer past its
+life stays on disk until it is asked again and rewritten. On 2026-10-30
+the Elevation cache held 9.0 GB in 45 versions, 7.6 GB of it in the
+version the Blocks tiles use (6,883 answers, about 1 MB each: a 512-cell
+tile's heights and water).
+
+**Pruning.** `npm run cache:prune` lists each layer and mode's version
+folders, each current, superseded or unknown, with its answers, size and
+newest write; `-- --delete` removes the superseded ones and nothing else
+(`scripts/cache-prune.mjs`). A folder is current when one of its answers,
+asked again as its header says (layer, mode, box, cells, water plane),
+would be kept in it today: the service's `cacheFile`, from the plan alone,
+nothing asked of Earth Engine. It is superseded when every answer in it
+would be kept in another version, and unknown (kept) when an answer cannot
+be planned (a self-hosted build not on the machine, a header that does
+not read). The first listing, 2026-10-30: 30 superseded versions, 2,377
+answers, 945 MB (29 Elevation expressions and the Wikipedia grid before
+its 2026-10-22 build). Every answer in 14 of the 16 current Elevation
+versions planned back into its own folder; the other two also hold
+answers now kept elsewhere, and are kept whole. `--root <checkout>` uses another
+checkout's `.gev-cache` and `.env`.
+
 **Earth Engine** values come from `image:computePixels` as NPY. The
 expression is the layer's own (`expressionFor`), less what only colours
 it: Elevation's √, the log10 ramps and the `atLeast` floors, so a field's 0

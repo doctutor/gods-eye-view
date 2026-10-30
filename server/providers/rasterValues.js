@@ -68,13 +68,25 @@ import {
  * VALUES_EXPERIMENTS): its answer is computed fresh, served, never read
  * from or written to the cache, and its header says `experiment`; a bad
  * value, or another layer, is a 400. Without the flag they are ignored. `?v=` is ignored. Answers are kept under
- * .gev-cache/raster-values/<layer>/<mode>/<version>/<hash of box+cells>.bin;
- * the self-hosted sources are computed in worker threads.
+ * .gev-cache/raster-values/<layer>/<mode>/<version>/<hash of box+cells>.bin,
+ * 30 days, or a year for cells of 100 m and wider (valuesTtlMs); the self-hosted sources are computed in worker threads.
  */
 
 const CACHE_DIR = path.join('.gev-cache', 'raster-values');
 /** A kept answer serves this long (Earth Engine's tiles keep 30 days too). */
 export const VALUES_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/**
+ * Cells this wide or wider are kept a year instead: the Blocks lattice from
+ * 120 m up (a lattice cell is its level or a little more), which a warm-up
+ * fills by the thousand (scripts/blocks-pyramid.mjs) and the live fallback
+ * reads. The line sits clear of the 30 m and 120 m levels.
+ */
+export const COARSE_VALUES_FROM_M = 100;
+export const COARSE_VALUES_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+
+/** How long a kept answer with this cell serves. */
+export const valuesTtlMs = (cellSizeM) =>
+  cellSizeM >= COARSE_VALUES_FROM_M ? COARSE_VALUES_TTL_MS : VALUES_TTL_MS;
 const NEEDS = {
   overture:
     'Overture buildings are not built (npm run overture:build -- --buildings)',
@@ -324,6 +336,41 @@ export function createRasterValuesService({
   /** Answers in flight by file: one computation however many ask. */
   const inflight = new Map();
 
+  /**
+   * A request's plan and the file its answer is kept in, or {status,
+   * error} as values() would answer.
+   */
+  function locate(params) {
+    const query = parseRasterValuesQuery(params);
+    if (!query.ok) return { status: query.status, error: query.error };
+    const adapter = adapters.get(query.layer);
+    if (!adapter) return { status: 404, error: 'No values for that layer' };
+    if (query.mode && !adapter.modes.includes(query.mode))
+      return { status: 404, error: 'No such mode' };
+    if (query.water && !adapter.planes?.includes('water'))
+      return { status: 404, error: 'No water plane for that layer' };
+    const experiment = experimentOf(params, query.layer);
+    if (experiment?.error) return { status: 400, error: experiment.error };
+    const plan = adapter.plan(query.mode, query.box, query.cells, {
+      water: query.water,
+      ...(experiment ? { experiment } : {}),
+    });
+    if (plan.status) return { status: plan.status, error: plan.error };
+    const name = crypto
+      .createHash('sha256')
+      .update(rasterValuesKey({ ...query, mode: plan.mode }))
+      .digest('hex')
+      .slice(0, 24);
+    const file = path.join(
+      cacheDir,
+      query.layer,
+      plan.mode || 'default',
+      plan.version,
+      `${name}.bin`,
+    );
+    return { query, plan, file };
+  }
+
   return {
     /** The layers and modes with values (for docs and tests). */
     catalog() {
@@ -334,45 +381,31 @@ export function createRasterValuesService({
     },
 
     /**
+     * The file a request's answer is kept in, from its plan alone (nothing
+     * asked or read): {file}, or {status, error} as values() would answer.
+     * For the cache prune (scripts/cache-prune.mjs).
+     */
+    cacheFile(params) {
+      const located = locate(params);
+      return located.status ? located : { file: located.file };
+    },
+
+    /**
      * One window's values.
      * @param {URLSearchParams|object} params
      * @returns {Promise<{status: number, body?: Uint8Array, error?: string,
      *   cached?: boolean}>}
      */
     async values(params) {
-      const query = parseRasterValuesQuery(params);
-      if (!query.ok) return { status: query.status, error: query.error };
-      const adapter = adapters.get(query.layer);
-      if (!adapter) return { status: 404, error: 'No values for that layer' };
-      if (query.mode && !adapter.modes.includes(query.mode))
-        return { status: 404, error: 'No such mode' };
-      if (query.water && !adapter.planes?.includes('water'))
-        return { status: 404, error: 'No water plane for that layer' };
-      const experiment = experimentOf(params, query.layer);
-      if (experiment?.error) return { status: 400, error: experiment.error };
-      const plan = adapter.plan(query.mode, query.box, query.cells, {
-        water: query.water,
-        ...(experiment ? { experiment } : {}),
-      });
-      if (plan.status) return { status: plan.status, error: plan.error };
-      const name = crypto
-        .createHash('sha256')
-        .update(rasterValuesKey({ ...query, mode: plan.mode }))
-        .digest('hex')
-        .slice(0, 24);
-      const file = path.join(
-        cacheDir,
-        query.layer,
-        plan.mode || 'default',
-        plan.version,
-        `${name}.bin`,
-      );
+      const located = locate(params);
+      if (located.status) return located;
+      const { query, plan, file } = located;
       // An experiment is computed fresh: never read from the cache, never kept.
       const fresh = Boolean(plan.experiment);
       if (!fresh)
         try {
           const stat = fs.statSync(file);
-          if (now() - stat.mtimeMs < VALUES_TTL_MS)
+          if (now() - stat.mtimeMs < valuesTtlMs(plan.cellSizeM))
             return { status: 200, body: fs.readFileSync(file), cached: true };
         } catch {
           /* not on disk */
