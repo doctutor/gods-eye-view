@@ -107,6 +107,50 @@ test('the index: each built box with its levels, date, variants, finest groups a
   assert.deepEqual(blocksTilesIndex(path.join(root, 'none')).boxes, []);
 });
 
+test('the index: a box linked under the root (a Windows junction, a symbolic link elsewhere) is a box; a dangling link or a link to a file is not', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-blocks-tiles-'));
+  const elsewhere = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-blocks-far-'));
+  await fakeBox(root, 'here');
+  const far = await fakeBox(elsewhere, 'far');
+  const gone = path.join(elsewhere, 'gone');
+  await fs.mkdir(gone);
+  const file = path.join(elsewhere, 'file.json');
+  await fs.writeFile(file, '{}');
+  try {
+    // A junction where Windows makes them (no privilege needed), a
+    // directory symbolic link elsewhere.
+    await fs.symlink(far, path.join(root, 'far'), 'junction');
+    await fs.symlink(gone, path.join(root, 'gone'), 'junction');
+    await fs.rm(gone, { recursive: true });
+  } catch (error) {
+    t.skip(`this platform refuses the link: ${error.code || error.message}`);
+    return;
+  }
+  try {
+    await fs.symlink(file, path.join(root, 'file'), 'file');
+  } catch {
+    /* a file link needs a privilege on Windows: left out */
+  }
+  const entries = await fs.readdir(root, { withFileTypes: true });
+  const far0 = entries.find((entry) => entry.name === 'far');
+  // How Windows reads a junction: a link, not a directory.
+  if (process.platform === 'win32')
+    assert.deepEqual(
+      [far0.isDirectory(), far0.isSymbolicLink()],
+      [false, true],
+    );
+  const index = blocksTilesIndex(root);
+  assert.deepEqual(
+    index.boxes.map((box) => box.name),
+    ['far', 'here'],
+  );
+  const linked = index.boxes.find((box) => box.name === 'far');
+  assert.deepEqual(linked.groups[30], [[0, 0]]);
+  // Its files are served through the link.
+  const answer = resolveBlocksTilesPath(root, '/far/tileset.json');
+  assert.ok(answer.filePath, JSON.stringify(answer));
+});
+
 test('files: a box’s JSON and GLB only, never its state or log, nothing outside it', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-blocks-tiles-'));
   await fakeBox(root, 'harbour');

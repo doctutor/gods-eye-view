@@ -104,13 +104,30 @@ export function boxEntry(dir, name) {
   };
 }
 
-/** Every built box under `root` (a folder a box), by name. */
+/**
+ * Whether a folder entry is a box's folder: a directory, or a link to one.
+ * On Windows a directory junction (a box built on another drive, linked
+ * under the root: europe-480 on E:) reads as a symbolic link, not a
+ * directory, so its target is asked.
+ */
+function isBoxFolder(root, entry) {
+  if (entry.isDirectory()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  try {
+    return fs.statSync(path.join(root, entry.name)).isDirectory();
+  } catch {
+    // A dangling link.
+    return false;
+  }
+}
+
+/** Every built box under `root` (a folder a box, or a link to one), by name. */
 export function blocksTilesIndex(root) {
   let names = [];
   try {
     names = fs
       .readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
+      .filter((entry) => isBoxFolder(root, entry))
       .map((entry) => entry.name)
       .sort();
   } catch {
