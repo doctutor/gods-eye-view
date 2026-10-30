@@ -776,3 +776,40 @@ Order: A before C's tileset work (C needs real tiles); B and C in
 parallel once A's tiny box builds. The live pipeline's fixes in flight
 (the lake mask, the drape and ring budgets, the paint bug) land first; they
 are the fallback's quality and the build's rules.
+
+### Warming the values cache for the builds (2026-10-29 and 30)
+
+The coarse trees (480 m and up over the lower 48 and Europe, 120 m over the
+lower 48) read their heights through 4173's `/api/raster/values` cache, so
+the cache was warmed first with `scripts/blocks-pyramid.mjs --server`
+(GET only, concurrency 2, between merges so 4173 did not restart under it).
+The union boxes and the 120 m list are worker1's: the tiles each build
+actually reads, overhang included. Spend is the day's Earth Engine counter
+before and after, so it includes retries.
+
+| Run     | Box and levels                                  | Asked | Fetched (cached) | Failed           | Wall    | Spend |
+| ------- | ----------------------------------------------- | ----- | ---------------- | ---------------- | ------- | ----- |
+| 1       | Lower 48 (−125, 24, −66, 50), 30,720 to 480 m   | 155   | 105 (39)         | 11, then stopped | 400 s   | 147   |
+| 1b      | the same, again                                 | 1,422 | 1,276 (146)      | 0                | 3,685 s | 1,276 |
+| 2       | worker1's lower-48 union boxes, 30,720 to 480 m | 1,714 | 276 (1,438)      | 0                | 724 s   | 282   |
+| 3       | Europe (−11, 35, 32, 71), 30,720 to 480 m       | 1,427 | 1,420 (5)        | 2                | 4,369 s | 1,722 |
+| 4       | worker1's Europe union boxes, 30,720 to 480 m   | 1,827 | 380 (1,447)      | 1, and a burst   | 1,013 s | 386   |
+| 5       | worker1's lower-48 120 m list, part 1 of 2      | 1,989 | 1,947 (38)       | 4                | 5,827 s | 2,519 |
+| 6       | the same list, part 2 of 2                      | 1,989 | 1,969 (16)       | 4                | 5,895 s | 1,987 |
+| retry   | the 8 tiles runs 5 and 6 missed                 | 8     | 8                | 0                | 44 s    | 8     |
+| recheck | run 4's 480 m box                               | 1,610 | 0 (1,610)        | 0                | 8 s     | 0     |
+
+- **Failures.** Every failure apart from the two bursts below was a lone
+  Earth Engine 503 ("memory capacity exceeded", once "please try again")
+  on a single tile, never two in a row; the next run over the same box, or
+  the retry pass, answered each. No 429s.
+- **Bursts.** Run 1 stopped on its failure window when the dev server
+  restarted itself on a server merge mid-run: from then on server changes
+  were merged only in announced gaps between runs. Run 4's first 7,680 m
+  pass met 20 "fetch failed" in a row while 4173 was healthy and cached the
+  tiles anyway (the connection dropped, not Earth Engine); the script now
+  retries a dropped connection once after a second and logs the cause, and
+  the rerun answered all 24.
+- **The day.** 8,653 of the 20,000 tiles by the end (325 before run 1).
+  Every tile on worker1's lists is cached: the recheck of the largest box
+  answered 1,610 of 1,610 from the cache in 8 s.
