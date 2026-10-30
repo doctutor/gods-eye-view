@@ -228,6 +228,30 @@ export const curvedRunCap = (cellM) =>
     ),
   );
 
+/**
+ * A flat chunk's vertices dropped onto the curve, each by its own place:
+ * the renderer lowers the chunk by its south-west corner's drop
+ * (grid.js chunkOrigin z), so each vertex goes down by the rest,
+ * dropAt(its place) − dropAt(the corner). Dropped by the corner alone a
+ * chunk was a flat slab, a step lower than its neighbour nearer the
+ * region's origin: 1.2 km at 480 m blocks half a supergroup (245 km) out,
+ * a crack through the view along every chunk seam (Lake Tahoe at 70 km,
+ * 2026-10-30). `flatDrop`: the region ({lon0, lat0, regionBlockM}) and the
+ * chunk's corner in its metres (`cornerM`).
+ * @returns {(positions: Float32Array, vertex: number) => void}
+ */
+function flatDropping({ lon0, lat0, regionBlockM, cornerM }) {
+  const region = curvedRegion({ lon0, lat0, regionBlockM });
+  const cornerX = Number(cornerM?.x) || 0;
+  const cornerY = Number(cornerM?.y) || 0;
+  const base = region.dropAt(cornerX, cornerY);
+  return (positions, vertex) => {
+    const k = vertex * 3;
+    positions[k + 2] +=
+      region.dropAt(cornerX + positions[k], cornerY + positions[k + 1]) - base;
+  };
+}
+
 /** The regions the curved placement has built, by origin and block size. */
 const curvedRegions = new Map();
 function curvedRegion({ lon0, lat0, regionBlockM }) {
@@ -328,13 +352,15 @@ export function buildChunkMesh(
     greedy = true,
     skirt = null,
     curved = null,
+    flatDrop = null,
   } = {},
 ) {
   const counts = new Float64Array(8);
   const volume = occupancyVolume(chunk, neighbours);
   // Metres per block unit along east, north and up.
   const scale = [blockM, blockM, levelM];
-  if (!volume) return writeQuads([], [], { scale, sunDir, counts, curved });
+  if (!volume)
+    return writeQuads([], [], { scale, sunDir, counts, curved, flatDrop });
   const { cells, yMin, levels, low, up } = volume;
   // Index strides along east, north and up in the volume.
   const strides = [levels, SPAN * levels, 1];
@@ -455,7 +481,13 @@ export function buildChunkMesh(
       }
     }),
   );
-  return writeQuads(opaque, water, { scale, sunDir, counts, curved });
+  return writeQuads(opaque, water, {
+    scale,
+    sunDir,
+    counts,
+    curved,
+    flatDrop,
+  });
 }
 
 /** Whether a quad's four corners are shaded alike (its AO counts in `key`). */
@@ -473,9 +505,14 @@ const evenlyShaded = (key) => {
  * across half the face (at 10 m blocks, a dark fin standing at each step
  * of a staircase, 2026-10-27).
  */
-function writeQuads(opaque, water, { scale, sunDir, counts, curved = null }) {
+function writeQuads(
+  opaque,
+  water,
+  { scale, sunDir, counts, curved = null, flatDrop = null },
+) {
   const quads = opaque.concat(water);
   const bend = curved ? curvedPlacement(curved, scale) : null;
+  const drop = !bend && flatDrop ? flatDropping(flatDrop) : null;
   const fanned = quads.filter((rect) => !evenlyShaded(rect.key)).length;
   const vertices = quads.length * 4 + fanned;
   const positions = new Float32Array(vertices * 3);
@@ -593,6 +630,7 @@ function writeQuads(opaque, water, { scale, sunDir, counts, curved = null }) {
       writeVertex(vertex, d, colorOf(material, rect.dirIndex, occlusion));
     }
     const base = n * 4;
+    if (drop) for (let c = 0; c < 4; c += 1) drop(positions, base + c);
     if (evenlyShaded(rect.key)) {
       for (let k = 0; k < 6; k += 1) indices[index++] = base + TRIANGLES[k];
       continue;
@@ -601,6 +639,7 @@ function writeQuads(opaque, water, { scale, sunDir, counts, curved = null }) {
     positions[centre * 3 + d.axis] = plane;
     positions[centre * 3 + d.u] = (u0 + u1) / 2;
     positions[centre * 3 + d.v] = (v0 + v1) / 2;
+    if (drop) drop(positions, centre);
     blockCoords[centre * 3 + d.axis] = planeB;
     blockCoords[centre * 3 + d.u] = rect.u + rect.w / 2;
     blockCoords[centre * 3 + d.v] = rect.v + rect.h / 2;

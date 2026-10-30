@@ -248,6 +248,14 @@ export function createRegion({ lon0, lat0, blockM, levelM = blockM }) {
      * ellipsoid lies below the tangent plane there (−d²/2R, about −18 m at
      * 15 km), for the renderer to drop the chunk onto the curve.
      */
+    /**
+     * Where the ellipsoid lies below the tangent plane at east and north
+     * metres (flat regions): the drop a vertex there needs to stand on the
+     * curve (mesh.js flatDrop).
+     */
+    dropAt(x, y) {
+      return ellipsoidUnder(x, y).t;
+    },
     chunkOrigin(ci, cj) {
       const x = ci * chunkM;
       const y = cj * chunkM;
