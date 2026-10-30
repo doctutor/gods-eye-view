@@ -13,6 +13,7 @@
  */
 import { buildChunkMesh } from './mesh.js';
 import { snapshotJob } from './meshJob.js';
+import { packMesh } from './packMesh.js';
 
 /** Workers at most: the machine runs other heavy things beside the app. */
 export const MAX_MESH_WORKERS = 3;
@@ -65,8 +66,12 @@ export function createMeshPool({
   let unavailable = typeof createWorker !== 'function';
   let destroyed = false;
 
-  const inThread = (chunk, options) =>
-    Promise.resolve().then(() => buildChunkMesh(chunk, options));
+  // The same answer a worker gives: packed with `pack` (meshJob.js).
+  const inThread = (chunk, { pack = false, ...options } = {}) =>
+    Promise.resolve().then(() => {
+      const mesh = buildChunkMesh(chunk, options);
+      return pack ? packMesh(mesh, { chunk: [chunk.ci, chunk.cj] }) : mesh;
+    });
 
   /** A running task's timer, stopped. */
   const settle = (task) => {
