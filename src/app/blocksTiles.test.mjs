@@ -13,6 +13,9 @@ import {
   HOLE_SIDES,
   INSIDE_HOLE_BLOCKS,
   createBlocksTilesLayer,
+  FAR_HIGH_ABOVE_M,
+  FAR_HIGH_BELOW_M,
+  cameraHigh,
   createCacheGuard,
   holePlanes,
   screenErrorFor,
@@ -58,7 +61,7 @@ const INDEX = {
   ],
 };
 
-function setup({ buildings = true } = {}) {
+function setup({ buildings = true, index = INDEX } = {}) {
   const viewer = {
     scene: {
       primitives: new Cesium.PrimitiveCollection(),
@@ -80,7 +83,7 @@ function setup({ buildings = true } = {}) {
   const switches = { buildings };
   const layer = createBlocksTilesLayer({
     viewer,
-    fetchIndex: async () => INDEX,
+    fetchIndex: async () => index,
     buildings: () => switches.buildings,
     createTileset: async (url, options) => {
       // Cesium's: setting the maximum error resets the memory-adjusted one.
@@ -490,4 +493,73 @@ test('a tileset whose finest level is 480 m or coarser refines to 8 px, a finer 
   assert.equal(tileset.maximumScreenSpaceError, FAR_SCREEN_ERROR * GUARD_STEP);
   guard.release([tileset]);
   assert.equal(tileset.maximumScreenSpaceError, FAR_SCREEN_ERROR);
+});
+
+test('a coarse tree refines to 4 px over 2,000 km and to 8 px again only under 1,500 km, so a descent does not flip it at the boundary; a fine tree stays at 4', async () => {
+  assert.equal(FAR_HIGH_ABOVE_M, 2_000_000);
+  assert.equal(FAR_HIGH_BELOW_M, 1_500_000);
+  assert.equal(cameraHigh(1_900_000, false), false);
+  assert.equal(cameraHigh(2_100_000, false), true);
+  assert.equal(cameraHigh(1_600_000, true), true, 'held on the way down');
+  assert.equal(cameraHigh(1_400_000, true), false);
+  assert.equal(screenErrorFor({ finestM: 480 }, true), TILES_SCREEN_ERROR);
+  assert.equal(screenErrorFor({ finestM: 30 }, false), TILES_SCREEN_ERROR);
+  const far = {
+    name: 'lower48-480',
+    built: '2026-10-30T05:20:00Z',
+    anchor: { lon0: -95.6, lat0: 37.09 },
+    levelsM: [30720, 7680, 1920, 480],
+    finestM: 480,
+    variants: [{ file: 'tileset.json', name: 'buildings' }],
+    groups: { 30720: [[0, 0]], 480: [[0, 0]] },
+  };
+  const { viewer, layer, made } = setup({
+    index: { schema: 'blocks-tiles/1', boxes: [far] },
+  });
+  await layer.ready;
+  const camera = viewer.scene.camera;
+  const at = (heightM) => {
+    camera.positionCartographic = Cesium.Cartographic.fromDegrees(
+      -100,
+      39,
+      heightM,
+    );
+    viewer.scene.preRender.raiseEvent();
+  };
+  camera.positionCartographic = Cesium.Cartographic.fromDegrees(
+    -100,
+    39,
+    8_400_000,
+  );
+  layer.apply({
+    state: 'tiles',
+    tiles: {
+      ...TILES,
+      mode: 'tiles',
+      box: 'lower48-480',
+      floorM: 480,
+      hole: null,
+    },
+  });
+  await settle();
+  const [tileset] = made;
+  // Made high up: 4 px from the start.
+  assert.equal(tileset.options.maximumScreenSpaceError, TILES_SCREEN_ERROR);
+  at(8_400_000);
+  assert.equal(tileset.maximumScreenSpaceError, TILES_SCREEN_ERROR);
+  // Down through 2,000 km: still 4 until under 1,500 km.
+  at(1_800_000);
+  assert.equal(tileset.maximumScreenSpaceError, TILES_SCREEN_ERROR);
+  at(1_400_000);
+  assert.equal(tileset.maximumScreenSpaceError, FAR_SCREEN_ERROR);
+  assert.equal(layer.getState().screenError, FAR_SCREEN_ERROR);
+  // Back up through 1,500 km: 8 until over 2,000 km.
+  at(1_900_000);
+  assert.equal(tileset.maximumScreenSpaceError, FAR_SCREEN_ERROR);
+  at(2_100_000);
+  assert.equal(tileset.maximumScreenSpaceError, TILES_SCREEN_ERROR);
+  // The guard steps from the error in force, and lets go back to it.
+  camera.moveStart.raiseEvent();
+  assert.equal(tileset.maximumScreenSpaceError, TILES_SCREEN_ERROR);
+  layer.destroy();
 });

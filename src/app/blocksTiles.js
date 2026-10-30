@@ -40,9 +40,23 @@ export const TILES_SCREEN_ERROR = 4;
 export const FAR_SCREEN_ERROR = 8;
 /** From this finest level up, a tileset refines to FAR_SCREEN_ERROR. */
 export const FAR_LEVEL_M = 480;
-/** The error a box's tileset refines to. */
-export const screenErrorFor = (box) =>
-  Number(box?.finestM) >= FAR_LEVEL_M ? FAR_SCREEN_ERROR : TILES_SCREEN_ERROR;
+/**
+ * Over this camera height a coarse tree refines to TILES_SCREEN_ERROR
+ * again, until the camera is back under FAR_HIGH_BELOW_M (so a descent
+ * does not flip it at the boundary): from 8,400 km the lower 48 at 8 px
+ * stayed on its 30,720 m roots (3 px a block against the live look's 2),
+ * and the tiles there are few and light.
+ */
+export const FAR_HIGH_ABOVE_M = 2_000_000;
+export const FAR_HIGH_BELOW_M = 1_500_000;
+/** Whether the camera counts as high now, given whether it did. */
+export const cameraHigh = (heightM, wasHigh = false) =>
+  wasHigh ? heightM > FAR_HIGH_BELOW_M : heightM > FAR_HIGH_ABOVE_M;
+/** The error a box's tileset refines to, the camera high or not. */
+export const screenErrorFor = (box, high = false) =>
+  Number(box?.finestM) >= FAR_LEVEL_M && !high
+    ? FAR_SCREEN_ERROR
+    : TILES_SCREEN_ERROR;
 
 /** The cache guard's step: the error's floor rises by this much at a time. */
 export const GUARD_STEP = 1.25;
@@ -256,6 +270,13 @@ export function createBlocksTilesLayer({
 
   const requestRender = () => scene.requestRender?.();
 
+  /** Whether the camera is high (cameraHigh), with hysteresis. */
+  let high = false;
+  function updateHigh() {
+    const heightM = scene.camera?.positionCartographic?.height;
+    if (Number.isFinite(heightM)) high = cameraHigh(heightM, high);
+  }
+
   /** The guards let go: every tileset refines to its own error again. */
   function releaseGuard() {
     let released = false;
@@ -270,15 +291,21 @@ export function createBlocksTilesLayer({
   function tilesetFor(url, box) {
     let entry = loaded.get(url);
     if (entry) return entry;
-    const screenError = screenErrorFor(box);
+    updateHigh();
+    const screenError = screenErrorFor(box, high);
     // Its cache guard (createCacheGuard), from its own error.
-    entry = { tileset: null, guard: createCacheGuard(screenError) };
+    entry = {
+      tileset: null,
+      box,
+      screenError,
+      guard: createCacheGuard(screenError),
+    };
     loaded.set(url, entry);
     Promise.resolve()
       .then(() =>
         createTileset(url, {
           customShader: shader,
-          maximumScreenSpaceError: screenError,
+          maximumScreenSpaceError: entry.screenError,
           // Cesium's fog term takes up to 24 px off far tiles' error: from
           // 5,000 km the lower 48's roots then never refined, at any
           // maximumScreenSpaceError (worker1, docs/BLOCKS-PLAN.md).
@@ -370,7 +397,18 @@ export function createBlocksTilesLayer({
     if (!shownUrl || !state) return;
     const shownEntry = loaded.get(shownUrl);
     const shown = shownEntry?.tileset;
-    if (shown) shownEntry.guard.update(shown);
+    if (shown) {
+      // A coarse tree's error by the camera's height (screenErrorFor).
+      updateHigh();
+      const screenError = screenErrorFor(shownEntry.box, high);
+      if (screenError !== shownEntry.screenError) {
+        shownEntry.screenError = screenError;
+        shownEntry.guard = createCacheGuard(screenError);
+        shown.maximumScreenSpaceError = screenError;
+        requestRender();
+      }
+      shownEntry.guard.update(shown);
+    }
     const at = scene.camera?.positionCartographic;
     if (at) {
       const { color } = fogColorFor(scene, {
@@ -495,6 +533,9 @@ export function createBlocksTilesLayer({
         // The cache guard: the error it holds now, and how often it held.
         tileUnloads,
         unloadTrail: unloadTrail.slice(),
+        // Cesium's counts this frame: the tiles drawn, and those with content.
+        tilesSelected: shown?.statistics?.selected ?? null,
+        tilesReady: shown?.statistics?.numberOfTilesWithContentReady ?? null,
         screenError: shown ? shown.maximumScreenSpaceError : null,
         heldError: loaded.get(shownUrl)?.guard.error ?? null,
         guardHolds: loaded.get(shownUrl)?.guard.steps ?? 0,
