@@ -26,6 +26,7 @@ export function blockSizeText(metres) {
 }
 
 let floorM = null;
+let tiles = null;
 let scene = Object.freeze({
   active: false,
   globeHidden: false,
@@ -39,6 +40,23 @@ export const blocksFloorM = () => floorM;
 /** @param {number|null} blockM */
 export function setBlocksFloorM(blockM) {
   floorM = Number(blockM) > 0 ? Number(blockM) : null;
+}
+
+/**
+ * The precomputed tiles drawing the view: {name, floorM}, the HUD's name
+ * ("Blocks tiles 2026-10 · lower 48 · 480 m") and their finest level; null
+ * when the live chunks draw it.
+ */
+export const blocksTiles = () => tiles;
+
+/** @param {{name: string, floorM: number}|null} next */
+export function setBlocksTiles(next) {
+  tiles = next?.name
+    ? Object.freeze({
+        name: String(next.name),
+        floorM: Number(next.floorM) || null,
+      })
+    : null;
 }
 
 /**

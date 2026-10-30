@@ -4131,5 +4131,8 @@
   "Reset to defaults": "Сбросить по умолчанию",
   "Controls reset to the defaults": "Управление сброшено по умолчанию",
   "{key} belongs to the browser": "{key} принадлежит браузеру",
-  "Chunk {chunk}, column {i} {j}, level {level}: {size} m blocks on {levelSize} m levels": "Чанк {chunk}, столбец {i} {j}, уровень {level}: блоки по {size} м, уровни по {levelSize} м"
+  "Chunk {chunk}, column {i} {j}, level {level}: {size} m blocks on {levelSize} m levels": "Чанк {chunk}, столбец {i} {j}, уровень {level}: блоки по {size} м, уровни по {levelSize} м",
+  "Blocks tiles {month}": "Тайлы блоков {month}",
+  "Blocks: tiles {month} · {box} · {size} and up": "Блоки: тайлы {month} · {box} · {size} и крупнее",
+  "tiles past {reach} ({box})": "тайлы дальше {reach} ({box})"
 }

@@ -20,7 +20,7 @@ import {
   needsReanchor,
   sourceName,
 } from './index.js';
-import { blocksFloorM } from './floor.js';
+import { blocksFloorM, blocksScene } from './floor.js';
 import { createRenderModeStore } from '../lego/renderMode.js';
 import { blocksStatusText } from '../lego/presentation.js';
 
@@ -786,7 +786,7 @@ test('the globe: hidden while Blocks is on over a drawn style, shown again on le
 
 test('Elevation on but draped nowhere (the globe hidden): Blocks reads the toggle, not the host, so nothing flips back', async () => {
   const { resolveImageryHost } = await import('../../maps/imageryHost.js');
-  const { subscribeBlocksScene, blocksScene } = await import('./floor.js');
+  const { subscribeBlocksScene } = await import('./floor.js');
   const { controller, viewer, layers } = setup({
     flatStyle: () => true,
     radiusBlocks: 64,
@@ -3594,5 +3594,167 @@ test('each ring past the coarse one asks at most its 3 × 3 nearest lattice tile
       `ring ${level}: ${tiles.size} tiles`,
     );
   }
+  controller.destroy();
+});
+
+/** A built box as tiles.js gives it, for the plans below. */
+const TILES_BOX = Object.freeze({
+  name: 'lower48-480',
+  label: 'lower 48',
+  month: '2026-10',
+  finestM: 480,
+});
+
+/** A controller with a tiles plan of `plan(view)`, its renderer keeping regions, holes and fogs. */
+function tilesSetup({ plan, px = 0.3, datum = null, height = 300 }) {
+  const source = pyramidSource(1);
+  const renderer = fakeRenderer();
+  renderer.sets = [];
+  renderer.holes = [];
+  renderer.fogs = [];
+  renderer.setRegions = (regions, options) =>
+    renderer.sets.push({ levels: regions.map((r) => r.blockM), options });
+  renderer.setRingHoles = (holes) => renderer.holes.push(holes);
+  renderer.setFog = (fog) => renderer.fogs.push(fog);
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  setHeight(viewer, height);
+  const view = { px };
+  const plans = [];
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    footprint: () => view.px,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    ...(datum ? { datum } : {}),
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+    tiles: {
+      plan(asked) {
+        plans.push(asked);
+        return plan(asked);
+      },
+    },
+  });
+  return { source, renderer, viewer, view, controller, plans };
+}
+
+test('tiles: where a built box draws the view, the controller anchors nothing and says so, the globe hidden and no style draped; their geoid is the camera’s', async () => {
+  const { source, renderer, viewer, view, controller, plans } = tilesSetup({
+    plan: () => ({ mode: 'tiles', box: TILES_BOX, floorM: 480 }),
+    px: 400,
+    height: 400_000,
+    datum: { flat: () => false, undulation: async () => -33.5 },
+  });
+  await drain(controller);
+  await settle();
+  const status = controller.getStatus();
+  assert.equal(status.state, 'tiles');
+  assert.equal(source.regions.length, 0, 'no region asked');
+  assert.equal(renderer.calls.length, 0, 'nothing drawn live');
+  assert.equal(viewer.scene.globe.show, false);
+  assert.equal(blocksScene().style, null);
+  assert.deepEqual(
+    {
+      mode: status.tiles.mode,
+      box: status.tiles.box,
+      floorM: status.tiles.floorM,
+      hole: status.tiles.hole,
+      datumOffsetM: status.tiles.datumOffsetM,
+    },
+    {
+      mode: 'tiles',
+      box: 'lower48-480',
+      floorM: 480,
+      hole: null,
+      datumOffsetM: -33.5,
+    },
+  );
+  assert.ok(status.tiles.fog.endM > status.tiles.fog.startM);
+  // The plan was asked with the camera's ground and the view's cell.
+  assert.equal(plans.at(-1).wantedM, 800);
+  assert.ok(Number.isFinite(plans.at(-1).lon));
+  // No ceiling: 400 km up is over the 1 m level's, and still tiles.
+  assert.notEqual(status.state, 'too-high');
+  // The HUD names them.
+  const { blocksTiles } = await import('./floor.js');
+  assert.deepEqual(blocksTiles(), {
+    name: 'Blocks tiles 2026-10 · lower 48 · 480 m',
+    floorM: 480,
+  });
+  view.px = 400;
+  controller.destroy();
+});
+
+test('tiles to hybrid: under their floor the live chunks draw, their rings and coarse ring stopping short of it, a hole of their reach and the horizon’s fog; with hysteresis on the way down', async () => {
+  const plan = ({ wantedM }) =>
+    wantedM >= 480
+      ? { mode: 'tiles', box: TILES_BOX, floorM: 480 }
+      : { mode: 'hybrid', box: TILES_BOX, floorM: 480 };
+  const { source, renderer, viewer, view, controller } = tilesSetup({
+    plan,
+    px: 400,
+    height: 400_000,
+  });
+  await drain(controller);
+  assert.equal(controller.getStatus().state, 'tiles');
+  // Down to a wanted 300 m: still over half the floor, still tiles.
+  view.px = 150;
+  controller.tick();
+  assert.equal(controller.getStatus().state, 'tiles');
+  // At street height: hybrid, the live chunks anchor at 1 m.
+  setHeight(viewer, 300);
+  view.px = 0.3;
+  viewer.camera.moveEnd.raise();
+  await drain(controller, 400);
+  const status = controller.getStatus();
+  assert.equal(status.state, 'ready');
+  assert.equal(status.blockM, 1);
+  assert.equal(source.regions.length, 1);
+  // The rings stop under the tiles' floor: 8 and 120 m, no 480 or 1,920 m.
+  assert.deepEqual(renderer.sets.at(-1).levels, [1, 8, 120]);
+  assert.deepEqual([...controller._state().rings.keys()], [8, 120]);
+  // The tiles' hole: the live reach (64 blocks of 120 m) about the camera.
+  assert.equal(status.tiles.mode, 'hybrid');
+  assert.equal(status.tiles.hole.radiusM, 64 * 120);
+  assert.ok(Math.abs(status.tiles.hole.lon - LON0) < 1e-9);
+  // One fog for both, toward the horizon; not the outermost ring's.
+  assert.equal(renderer.sets.at(-1).options.fogReachBlocks, null);
+  const fog = renderer.fogs.at(-1);
+  assert.deepEqual(fog, status.tiles.fog);
+  assert.ok(fog.endM > 64 * 120);
+  controller.destroy();
+});
+
+test('tiles: a floor or box that changes re-anchors the live region; a plan that turns off leaves the live chunks as before, the status without tiles', async () => {
+  let floorM = 480;
+  let mode = 'hybrid';
+  const { source, renderer, viewer, controller } = tilesSetup({
+    plan: () => (mode === 'off' ? { mode } : { mode, box: TILES_BOX, floorM }),
+  });
+  await drain(controller, 400);
+  assert.equal(source.regions.length, 1);
+  assert.deepEqual([...controller._state().rings.keys()], [8, 120]);
+  // The floor drops to 120 m: re-anchored, its rings now stop at 8 m.
+  floorM = 120;
+  viewer.camera.moveEnd.raise();
+  await drain(controller, 400);
+  assert.equal(source.regions.length, 2);
+  assert.deepEqual([...controller._state().rings.keys()], [8]);
+  // No tiles here: re-anchored, the rings to the horizon as before.
+  mode = 'off';
+  viewer.camera.moveEnd.raise();
+  await drain(controller, 400);
+  assert.equal(source.regions.length, 3);
+  assert.deepEqual([...controller._state().rings.keys()], [8, 120, 480, 1920]);
+  assert.equal(controller.getStatus().tiles, null);
+  assert.equal(renderer.sets.at(-1).options.fogReachBlocks, 64);
   controller.destroy();
 });

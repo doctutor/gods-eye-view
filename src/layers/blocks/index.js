@@ -16,7 +16,13 @@
 
 import { NO_RELIEF, drawnHeightM } from './relief.js';
 import { ELEVATION_LAYER_ID } from '../lego/layerSpecs.js';
-import { setBlocksFloorM, setBlocksScene } from './floor.js';
+import {
+  setBlocksFloorM,
+  setBlocksScene,
+  setBlocksTiles,
+  blockSizeText,
+} from './floor.js';
+import { tilesSourceText } from './tiles.js';
 import { BLOCK_PYRAMID_M, levelMFor, pyramidLevelM } from './pyramid.js';
 import { latticeIndex } from './lattice.js';
 import { blocksStyleLevelFor } from '../../data/blocksStyle.js';
@@ -711,6 +717,9 @@ export function createBlocksController({
     return handle;
   },
   clearSunIntervalImpl = (handle) => clearInterval(handle),
+  // The precomputed tilesets (tiles.js planTiles over the server's index):
+  // {plan({lon, lat, wantedM, samples}) → {mode, box, floorM}}, or null.
+  tiles = null,
 }) {
   let _viewer = viewer;
   let _region = null; // {region, blockM, levelM, askedM, nativeM, relief, sourceName, sun}
@@ -738,6 +747,24 @@ export function createBlocksController({
   const _rings = new Map();
   /** The ring holes last told to the renderer (syncRings), as JSON. */
   let _ringHolesKey = null;
+  /**
+   * The precomputed tiles' plan in force (tiles.js planTiles): 'tiles' (they
+   * draw the view, the live chunks none), 'hybrid' (the live levels finer
+   * than their floor, the tiles the rest outside a hole), 'off'.
+   */
+  let _tiles = { mode: 'off' };
+  /** The live chunks' reach (m) about the rings' centre: the tiles' hole. */
+  let _liveReachM = 0;
+  /** The horizon's cut (m) at the last tick: the fog's reach with tiles. */
+  let _horizonCutM = 0;
+  /** The geoid under the tiles in 'tiles' mode: {lon, lat, flat, offsetM}. */
+  let _tilesDatum = null;
+  /** What the tiles layer was last told (status.tiles), kept while the same. */
+  let _tilesStatus = null;
+  /** The live rings' centre (the camera's ground at the last tick). */
+  let _holeCentre = null;
+  /** The live renderer's fog last set for the tiles ('hybrid'), as JSON. */
+  let _tilesFogKey = null;
   /** The map an entry is kept in. */
   const heldOf = (entry) =>
     entry.ring ? entry.ring.chunks : entry.coarse ? _coarse : _chunks;
@@ -777,8 +804,19 @@ export function createBlocksController({
     structuresHere() && store.getBuildings?.() !== false;
   /** Whether the held answers were last applied with their buildings. */
   let _buildingsApplied = null;
-  /** Whether the source draws a coarse ring (loadCoarseChunk). */
-  const coarseOn = () => typeof source.loadCoarseChunk === 'function';
+  /**
+   * The finest level the tiles draw in 'hybrid' (the live chunks stay
+   * finer), else Infinity.
+   */
+  const tilesFloorM = () =>
+    _tiles.mode === 'hybrid' && _tiles.floorM > 0 ? _tiles.floorM : Infinity;
+  /**
+   * Whether the source draws a coarse ring (loadCoarseChunk), and the
+   * tiles do not draw its level (4 × the region's blocks) in 'hybrid'.
+   */
+  const coarseOn = (blockM = _region?.blockM) =>
+    typeof source.loadCoarseChunk === 'function' &&
+    !(blockM * GROUP_CHUNKS >= tilesFloorM());
   const _listeners = new Set();
   const _removers = [];
 
@@ -791,7 +829,11 @@ export function createBlocksController({
       }
     }
   };
-  const setStatus = (status) => {
+  const setStatus = (next) => {
+    // Every status carries the tiles' plan in force (null when off): the
+    // tiles layer shows them whatever the live chunks are doing.
+    const status =
+      'tiles' in next ? next : { ...next, tiles: tilesStatusNow() };
     const same =
       Object.keys(status).length === Object.keys(_status).length &&
       Object.keys(status).every((key) => status[key] === _status[key]);
@@ -799,6 +841,16 @@ export function createBlocksController({
     setBlocksFloorM(
       status.state === 'ready' && status.chunks + (status.coarse || 0) > 0
         ? status.blockM
+        : null,
+    );
+    // The tiles drawing the view are the HUD's floor: "Blocks tiles
+    // 2026-10 · lower 48 · 480 m".
+    setBlocksTiles(
+      status.state === 'tiles' && status.tiles
+        ? {
+            name: tilesSourceText(status.tiles, blockSizeText),
+            floorM: status.tiles.finestM,
+          }
         : null,
     );
     if (!same) emit();
@@ -818,6 +870,171 @@ export function createBlocksController({
       lat: place.latitude / RAD,
       height: place.height,
     };
+  }
+
+  /**
+   * The ground the view shows: the canvas's middle, corners and edges'
+   * middles where they meet the ellipsoid (the sky's are left out), as
+   * {lon, lat}; none without a camera that picks.
+   */
+  function viewSamples() {
+    const camera = _viewer?.camera;
+    const canvas = _viewer?.scene?.canvas;
+    const ellipsoid = _viewer?.scene?.globe?.ellipsoid;
+    if (!camera?.pickEllipsoid || !canvas || !ellipsoid) return [];
+    const width = canvas.clientWidth || canvas.width || 0;
+    const height = canvas.clientHeight || canvas.height || 0;
+    const out = [];
+    for (const [u, v] of [
+      [0.5, 0.5],
+      [0, 0],
+      [0.5, 0],
+      [1, 0],
+      [0, 0.5],
+      [1, 0.5],
+      [0, 1],
+      [0.5, 1],
+      [1, 1],
+    ])
+      try {
+        const hit = camera.pickEllipsoid({ x: u * width, y: v * height });
+        const at = hit && ellipsoid.cartesianToCartographic(hit);
+        if (at) out.push({ lon: at.longitude / RAD, lat: at.latitude / RAD });
+      } catch {
+        /* off the globe */
+      }
+    return out;
+  }
+
+  /**
+   * The tiles' plan for the view now (tiles.plan), with hysteresis: in
+   * 'tiles' it stays until the view wants cells under half their floor.
+   */
+  function tilesPlanNow(camera) {
+    if (!tiles?.plan || !camera) return { mode: 'off' };
+    const wantedM = wantedCellM();
+    let plan = null;
+    try {
+      plan = tiles.plan({
+        lon: camera.lon,
+        lat: camera.lat,
+        wantedM,
+        samples: viewSamples(),
+      });
+    } catch (error) {
+      console.warn('[Blocks] no tiles plan:', error?.message || error);
+    }
+    if (!plan?.mode) return { mode: 'off' };
+    if (
+      _tiles.mode === 'tiles' &&
+      plan.mode === 'hybrid' &&
+      plan.box === _tiles.box &&
+      wantedM >= plan.floorM / LEVEL_HYSTERESIS
+    )
+      return { ...plan, mode: 'tiles' };
+    return plan;
+  }
+
+  /**
+   * What the tiles layer is told (status.tiles): the box and its floor, the
+   * hole about the camera's ground the live chunks draw ('hybrid'), the
+   * geoid offset to raise them by (the region's in 'hybrid', the camera's
+   * in 'tiles': their heights are above sea level) and the fog toward the
+   * horizon; null when off. The same object while nothing changed.
+   */
+  function tilesStatusNow() {
+    if (_tiles.mode === 'off' || !_tiles.box) {
+      _tilesStatus = null;
+      return null;
+    }
+    const hybrid = _tiles.mode === 'hybrid';
+    const next = {
+      mode: _tiles.mode,
+      box: _tiles.box.name,
+      label: _tiles.box.label,
+      month: _tiles.box.month,
+      finestM: _tiles.box.finestM,
+      floorM: _tiles.floorM,
+      hole:
+        hybrid && _region && _holeCentre && _liveReachM > 0
+          ? { ..._holeCentre, radiusM: _liveReachM }
+          : null,
+      datumOffsetM: hybrid
+        ? (_region?.datumOffsetM ?? 0)
+        : (_tilesDatum?.offsetM ?? 0),
+      fog:
+        _horizonCutM > 0
+          ? { startM: FOG_START * _horizonCutM, endM: _horizonCutM }
+          : null,
+    };
+    if (JSON.stringify(next) !== JSON.stringify(_tilesStatus))
+      _tilesStatus = next;
+    return _tilesStatus;
+  }
+
+  /**
+   * The view drawn by the tiles alone: the live region, if any, goes; the
+   * globe is hidden with no style draped (the tiles are the world); the
+   * geoid under the camera raises them. Ticks only while the camera moves.
+   */
+  function enterTiles(camera, plan) {
+    const fromLive = _region || _anchoring || _chunks.size || _coarse.size;
+    _tiles = plan;
+    if (fromLive) clearAll('tiles');
+    _horizonCutM = HORIZON_MARGIN * horizonM(heightAboveGround(camera));
+    setGlobe(false);
+    setBlocksScene({ active: true, globeHidden: _globeHidden, style: null });
+    syncTilesDatum(camera);
+    setStatus({ state: 'tiles', tiles: tilesStatusNow() });
+    if (_moving) startTicking();
+    else stopTicking();
+  }
+
+  /**
+   * The geoid's undulation under the camera for the tiles alone, asked
+   * again when the camera has gone REANCHOR_M or the datum changed (0 on a
+   * flat basemap, as the live regions have it).
+   */
+  function syncTilesDatum(camera) {
+    const flat = Boolean(datum.flat());
+    const known = _tilesDatum;
+    if (
+      known &&
+      known.flat === flat &&
+      groundDistanceM(known, camera) < REANCHOR_M
+    )
+      return;
+    const asked = { lon: camera.lon, lat: camera.lat, flat, offsetM: 0 };
+    _tilesDatum = { ...asked, offsetM: known?.offsetM ?? 0 };
+    datumOffsetFor({ lon0: camera.lon, lat0: camera.lat }, flat, camera).then(
+      (offsetM) => {
+        if (_tilesDatum?.lon !== asked.lon || _tilesDatum?.lat !== asked.lat)
+          return;
+        _tilesDatum = { ...asked, offsetM };
+        if (_tiles.mode === 'tiles' && active())
+          setStatus({ state: 'tiles', tiles: tilesStatusNow() });
+      },
+    );
+  }
+
+  /**
+   * Another plan than 'tiles': the live chunks draw again. A region
+   * anchored under another plan (the tiles' floor or box changed, or they
+   * came or went) is anchored again, so its rings and coarse ring stop
+   * short of what the tiles draw.
+   */
+  function leaveTiles(plan) {
+    const was = _tiles;
+    _tiles = plan;
+    if (
+      was.mode === plan.mode &&
+      was.box === plan.box &&
+      was.floorM === plan.floorM
+    )
+      return;
+    _tilesFogKey = null;
+    if (_region || _anchoring) clearAll('anchoring');
+    else if (_status.state === 'tiles') setStatus({ state: 'anchoring' });
   }
 
   function stopTicking() {
@@ -886,6 +1103,8 @@ export function createBlocksController({
     _coarse.clear();
     _rings.clear();
     _ringHolesKey = null;
+    _tilesFogKey = null;
+    _liveReachM = 0;
     _groupBuildings.clear();
     _region = null;
     stopTicking();
@@ -952,6 +1171,8 @@ export function createBlocksController({
       buildingsOn: buildingsHere(),
       // The study sun (the real one is under 15°): said on the line.
       sunFixed: Boolean(_region.sun?.fixed),
+      // The precomputed tiles past the live chunks ('hybrid'), or null.
+      tiles: tilesStatusNow(),
     });
   }
 
@@ -1006,7 +1227,7 @@ export function createBlocksController({
           console.warn('[Blocks] region not set:', error?.message || error),
         );
         renderer.setSun?.(light.dir, { fixed: Boolean(light.fixed) });
-        renderer.setFog?.(fogFor(radiusBlocks, blockM, coarseOn()));
+        renderer.setFog?.(fogFor(radiusBlocks, blockM, coarseOn(blockM)));
         _region = {
           region,
           blockM,
@@ -1748,6 +1969,22 @@ export function createBlocksController({
       _settledAt = _still?.since ?? now();
     }
     const camera = active() ? cameraLonLat() : null;
+    // The precomputed tiles first: when they draw the view there is no
+    // anchor, no ceiling and no waiting for a flight to land. Out of
+    // Blocks, none.
+    if (!camera && _tiles.mode !== 'off') {
+      _tiles = { mode: 'off' };
+      _tilesStatus = null;
+    }
+    if (camera) {
+      const plan = tilesPlanNow(camera);
+      if (plan.mode === 'tiles') {
+        unpark();
+        enterTiles(camera, plan);
+        return;
+      }
+      leaveTiles(plan);
+    }
     const held = holdFor(camera);
     applyGlobe(held);
     if (!active()) {
@@ -1808,6 +2045,7 @@ export function createBlocksController({
     // The fine ring to R1 blocks, or to the horizon where that is nearer
     // (continental levels); everything past the horizon is left out.
     const horizonCut = HORIZON_MARGIN * horizonM(heightAboveGround(camera));
+    _horizonCutM = horizonCut;
     const radius = fineRadiusBlocks(
       radiusBlocks,
       _region.blockM,
@@ -1912,6 +2150,16 @@ export function createBlocksController({
     // The rings past the coarse one: loaded once the fine ring is in, so
     // the near ground comes first.
     const rings = syncRings(camera, horizonCut);
+    // With the tiles past the live chunks, one fog for both, toward the
+    // horizon (the live rings stop short of it).
+    if (_tiles.mode === 'hybrid') {
+      const fog = { startM: FOG_START * horizonCut, endM: horizonCut };
+      const key = JSON.stringify(fog);
+      if (key !== _tilesFogKey) {
+        _tilesFogKey = key;
+        renderer.setFog?.(fog);
+      }
+    }
     for (const { ring: outer, list } of rings)
       dropUnwanted(
         outer.chunks,
@@ -2100,13 +2348,14 @@ export function createBlocksController({
     const coarse = coarseOn();
     const innerReachM =
       radiusBlocks * (coarse ? COARSE_REACH : 1) * _region.blockM;
+    // The levels the tiles draw ('hybrid') are left to them.
     const levels = ringLevels({
       nativeM: _region.nativeM,
       innerCellM: _region.blockM * (coarse ? GROUP_CHUNKS : 1),
       innerReachM,
       radiusBlocks,
       horizonM: horizonCut,
-    });
+    }).filter((level) => level < tilesFloorM());
     let changed = false;
     for (const level of [..._rings.keys()])
       if (!levels.includes(level)) {
@@ -2183,6 +2432,10 @@ export function createBlocksController({
       out.push({ ring: outer, list });
       inner = radiusBlocks * level;
     }
+    // What the live chunks reach about the camera's ground: the tiles'
+    // hole in 'hybrid'.
+    _liveReachM = Math.min(inner, horizonCut);
+    _holeCentre = { lon: camera.lon, lat: camera.lat };
     if (changed) applyRegions();
     // Told only when they change (the camera moved, a ring came or went):
     // a still camera ticking asked the same holes every 500 ms.
@@ -2234,15 +2487,19 @@ export function createBlocksController({
       _region.region,
       ...[..._rings.values()].map((outer) => outer.region),
     ];
+    // With the tiles past the rings ('hybrid') the fog is the horizon's,
+    // set each tick; not the outermost ring's.
+    const hybrid = _tiles.mode === 'hybrid';
+    _tilesFogKey = null;
     call(() =>
       renderer.setRegions(regions, {
         datumOffsetM: drawnHeightM(_region.datumOffsetM, _region.relief),
-        fogReachBlocks: _rings.size ? radiusBlocks : null,
+        fogReachBlocks: _rings.size && !hybrid ? radiusBlocks : null,
       }),
     ).catch((error) =>
       console.warn('[Blocks] rings not set:', error?.message || error),
     );
-    if (!_rings.size)
+    if (!_rings.size && !hybrid)
       renderer.setFog?.(fogFor(radiusBlocks, _region.blockM, coarseOn()));
     requestRender('blocks-rings');
   }
