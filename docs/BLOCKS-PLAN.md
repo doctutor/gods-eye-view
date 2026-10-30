@@ -1099,3 +1099,60 @@ follow it into E:.
 | `lower48-480`                  | E:, junctioned in (3.3 GB in layout v2 without fans, rebuilt 2026-10-30; was 4.5 GB on D:) |
 | `europe-480`                   | E:, junctioned in (2.6 GB in layout v2 without fans; was 3.4 GB)                           |
 | `lower48-120`                  | E:, junctioned in (about 33 to 38 GB; waits for the warm-up and a yes)                     |
+
+### Step C, the client on the tiles (2026-10-30)
+
+The precomputed tiles draw where a built box covers the view
+(`src/app/blocksTiles.js`, a `Cesium3DTileset` with the live chunks' shader;
+the controller's plan in `src/layers/blocks/tiles.js`). The live controller
+is the fallback outside the boxes, below a box's finest level and under the
+walker; the two never draw the same ground.
+
+- **Modes.** 'tiles': the view's cell is at or over the box's floor, the
+  tiles alone (no live region, no ceiling). 'hybrid': the live chunks draw
+  the levels finer than the floor about the camera; the tiles the rest,
+  outside a hole. 'off': no box, live as before.
+- **The hole.** It opens only as far as the live chunks are drawn
+  (`drawnReachM`): closed until every chunk of the fine disc is drawn, then
+  the fine disc's reach, the coarse ring's and each ring's as it comes in,
+  so the tiles are the picture until the live chunks replace them. The
+  shader cuts the circle; an octagon of clipping planes inscribed in it
+  culls the tiles wholly inside before they load (a shader-only hole left
+  Cesium refining the tiles under the camera, the nearest and heaviest, to
+  discard them). A camera under a tile's top before the live hole opens
+  (at the street the 120 m tiles draw until the 1 m disc is in) opens a hole
+  of two floor blocks about itself the frame it is found.
+- **Refinement.** 4 px for a box finer than 480 m; 8 px for a coarse tree
+  (finest 480 m or more) below 1,500 km, 4 px over 2,000 km (hysteresis
+  between). Cesium's own cache (512 MB, 512 MB over). A cache guard steps
+  the error floor 1.25× each time the cache frees after an overflow, so a
+  view that overflows settles instead of swinging; it lets go when the camera
+  moves or stops. `dynamicScreenSpaceError` off.
+- **Look.** The live chunks and the tiles mesh alike: faces at 120 m and up
+  are two triangles split by their corners' shading (`FAN_BELOW_M`), live
+  480 m regions are curved as the tiles' 480 m level is
+  (`LIVE_CURVED_BLOCK_M`), the glTF layout v2 (28 bytes a vertex) for both.
+  Fog runs to the eye's horizon; the geoid raises the tiles as the live
+  datum does. HUD: "Blocks tiles 2026-10 · lower 48 · 480 m".
+
+Measured (five steps against adfe59ff, worker1's v2 trees, 2026-10-30): the
+two tile-only steps draw at 0 ms and settle at once (64 tiles loaded at the
+continental views, 37 to 54 MB); heap peaks a third of before (2,074 MB to
+682 MB at Lake Tahoe); long tasks down on every step; no rebuild on a level
+change; the Lake Tahoe thrash (the same 16 tiles fetched 7 times, 92 to 100
+unloads) gone at 8 px, 2 unloads, no request repeated after the flight.
+
+**Open items.**
+
+1. **The first picture where the tiles refine.** The tiles loaded during a
+   flight draw at its end (49 at Lake Tahoe, 36 at the street), but the
+   harness counts 0 ms only when every tile the view wants is in, else the
+   first new tile after the flight: 2.3 to 7.3 s at Lake Tahoe. Either the
+   harness counts the tiles drawn at the flight's end as the first picture,
+   or the refinement is made faster (fewer requests churned while the hole
+   widens: 168 requests for 53 tiles in one run).
+2. **Late live anchoring, the next performance target.** The live region is
+   set 3 to 15 s after a flight: the controller waits for the camera to be
+   still after moveEnd (moveEnd itself is unreliable), then asks the source
+   for the region (`regionFor`) on a server loaded by the builds. Until then
+   a hybrid view shows the tiles alone, and a street view the 120 m tiles.

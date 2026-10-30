@@ -20,7 +20,7 @@ import {
   needsReanchor,
   sourceName,
 } from './index.js';
-import { blocksFloorM } from './floor.js';
+import { blocksFloorM, blocksScene } from './floor.js';
 import { createRenderModeStore } from '../lego/renderMode.js';
 import { blocksStatusText } from '../lego/presentation.js';
 
@@ -786,7 +786,7 @@ test('the globe: hidden while Blocks is on over a drawn style, shown again on le
 
 test('Elevation on but draped nowhere (the globe hidden): Blocks reads the toggle, not the host, so nothing flips back', async () => {
   const { resolveImageryHost } = await import('../../maps/imageryHost.js');
-  const { subscribeBlocksScene, blocksScene } = await import('./floor.js');
+  const { subscribeBlocksScene } = await import('./floor.js');
   const { controller, viewer, layers } = setup({
     flatStyle: () => true,
     radiusBlocks: 64,
@@ -3594,5 +3594,348 @@ test('each ring past the coarse one asks at most its 3 × 3 nearest lattice tile
       `ring ${level}: ${tiles.size} tiles`,
     );
   }
+  controller.destroy();
+});
+
+/** A built box as tiles.js gives it, for the plans below. */
+const TILES_BOX = Object.freeze({
+  name: 'lower48-480',
+  label: 'lower 48',
+  month: '2026-10',
+  finestM: 480,
+});
+
+/** A controller with a tiles plan of `plan(view)`, its renderer keeping regions, holes and fogs. */
+function tilesSetup({ plan, px = 0.3, datum = null, height = 300 }) {
+  const source = pyramidSource(1);
+  const renderer = fakeRenderer();
+  renderer.sets = [];
+  renderer.holes = [];
+  renderer.fogs = [];
+  renderer.setRegions = (regions, options) =>
+    renderer.sets.push({ levels: regions.map((r) => r.blockM), options });
+  renderer.setRingHoles = (holes) => renderer.holes.push(holes);
+  renderer.setFog = (fog) => renderer.fogs.push(fog);
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  setHeight(viewer, height);
+  const view = { px };
+  const plans = [];
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    footprint: () => view.px,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    ...(datum ? { datum } : {}),
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+    tiles: {
+      plan(asked) {
+        plans.push(asked);
+        return plan(asked);
+      },
+    },
+  });
+  return { source, renderer, viewer, view, controller, plans };
+}
+
+test('tiles: where a built box draws the view, the controller anchors nothing and says so, the globe hidden and no style draped; their geoid is the camera’s', async () => {
+  const { source, renderer, viewer, view, controller, plans } = tilesSetup({
+    plan: () => ({ mode: 'tiles', box: TILES_BOX, floorM: 480 }),
+    px: 400,
+    height: 400_000,
+    datum: { flat: () => false, undulation: async () => -33.5 },
+  });
+  await drain(controller);
+  await settle();
+  const status = controller.getStatus();
+  assert.equal(status.state, 'tiles');
+  assert.equal(source.regions.length, 0, 'no region asked');
+  assert.equal(renderer.calls.length, 0, 'nothing drawn live');
+  assert.equal(viewer.scene.globe.show, false);
+  assert.equal(blocksScene().style, null);
+  assert.deepEqual(
+    {
+      mode: status.tiles.mode,
+      box: status.tiles.box,
+      floorM: status.tiles.floorM,
+      hole: status.tiles.hole,
+      datumOffsetM: status.tiles.datumOffsetM,
+    },
+    {
+      mode: 'tiles',
+      box: 'lower48-480',
+      floorM: 480,
+      hole: null,
+      datumOffsetM: -33.5,
+    },
+  );
+  assert.ok(status.tiles.fog.endM > status.tiles.fog.startM);
+  // The plan was asked with the camera's ground and the view's cell.
+  assert.equal(plans.at(-1).wantedM, 800);
+  assert.ok(Number.isFinite(plans.at(-1).lon));
+  // No ceiling: 400 km up is over the 1 m level's, and still tiles.
+  assert.notEqual(status.state, 'too-high');
+  // The HUD names them.
+  const { blocksTiles } = await import('./floor.js');
+  assert.deepEqual(blocksTiles(), {
+    name: 'Blocks tiles 2026-10 · lower 48 · 480 m',
+    floorM: 480,
+  });
+  view.px = 400;
+  controller.destroy();
+});
+
+test('tiles to hybrid: under their floor the live chunks draw, their rings and coarse ring stopping short of it, a hole of their reach and the horizon’s fog; with hysteresis on the way down', async () => {
+  const plan = ({ wantedM }) =>
+    wantedM >= 480
+      ? { mode: 'tiles', box: TILES_BOX, floorM: 480 }
+      : { mode: 'hybrid', box: TILES_BOX, floorM: 480 };
+  const { source, renderer, viewer, view, controller } = tilesSetup({
+    plan,
+    px: 400,
+    height: 400_000,
+  });
+  await drain(controller);
+  assert.equal(controller.getStatus().state, 'tiles');
+  // Down to a wanted 300 m: still over half the floor, still tiles.
+  view.px = 150;
+  controller.tick();
+  assert.equal(controller.getStatus().state, 'tiles');
+  // At street height: hybrid, the live chunks anchor at 1 m.
+  setHeight(viewer, 300);
+  view.px = 0.3;
+  viewer.camera.moveEnd.raise();
+  await drain(controller, 400);
+  const status = controller.getStatus();
+  assert.equal(status.state, 'ready');
+  assert.equal(status.blockM, 1);
+  assert.equal(source.regions.length, 1);
+  // The rings stop under the tiles' floor: 8 and 120 m, no 480 or 1,920 m.
+  assert.deepEqual(renderer.sets.at(-1).levels, [1, 8, 120]);
+  assert.deepEqual([...controller._state().rings.keys()], [8, 120]);
+  // The tiles' hole: the live reach (64 blocks of 120 m) about the camera.
+  assert.equal(status.tiles.mode, 'hybrid');
+  assert.equal(status.tiles.hole.radiusM, 64 * 120);
+  assert.ok(Math.abs(status.tiles.hole.lon - LON0) < 1e-9);
+  // One fog for both, toward the horizon; not the outermost ring's.
+  assert.equal(renderer.sets.at(-1).options.fogReachBlocks, null);
+  const fog = renderer.fogs.at(-1);
+  assert.deepEqual(fog, status.tiles.fog);
+  assert.ok(fog.endM > 64 * 120);
+  controller.destroy();
+});
+
+test('tiles: a floor or box that changes re-anchors the live region; a plan that turns off leaves the live chunks as before, the status without tiles', async () => {
+  let floorM = 480;
+  let mode = 'hybrid';
+  const { source, renderer, viewer, controller } = tilesSetup({
+    plan: () => (mode === 'off' ? { mode } : { mode, box: TILES_BOX, floorM }),
+  });
+  await drain(controller, 400);
+  assert.equal(source.regions.length, 1);
+  assert.deepEqual([...controller._state().rings.keys()], [8, 120]);
+  // The floor drops to 120 m: re-anchored, its rings now stop at 8 m.
+  floorM = 120;
+  viewer.camera.moveEnd.raise();
+  await drain(controller, 400);
+  assert.equal(source.regions.length, 2);
+  assert.deepEqual([...controller._state().rings.keys()], [8]);
+  // No tiles here: re-anchored, the rings to the horizon as before.
+  mode = 'off';
+  viewer.camera.moveEnd.raise();
+  await drain(controller, 400);
+  assert.equal(source.regions.length, 3);
+  assert.deepEqual([...controller._state().rings.keys()], [8, 120, 480, 1920]);
+  assert.equal(controller.getStatus().tiles, null);
+  assert.equal(renderer.sets.at(-1).options.fogReachBlocks, 64);
+  controller.destroy();
+});
+
+test('with the real grid, a live 480 m region is curved (grid.js LIVE_CURVED_BLOCK_M) and its chunks stand each column corner on the ellipsoid along its own vertical, as the tileset’s 480 m level does; 120 m stays flat, each vertex dropped by its place', async () => {
+  const realGrid = await import('./grid.js');
+  const { buildChunkMesh } = await import('./mesh.js');
+  const { createChunk } = await import('./store.js');
+  const { columnsFromHeights } = await import('./source.js');
+  assert.equal(realGrid.LIVE_CURVED_BLOCK_M, 480);
+  const N = realGrid.CHUNK_COLUMNS;
+  const run = async (blockM) => {
+    const source = {
+      regionFor: () =>
+        Promise.resolve({
+          blockM,
+          levelM: 30,
+          source: `Synthetic ${blockM} m`,
+        }),
+      loadChunk(region, ci, cj) {
+        // Hills of a few hundred metres, continuous across chunks.
+        const heights = new Float32Array(N * N);
+        for (let j = 0; j < N; j++)
+          for (let i = 0; i < N; i++)
+            heights[j * N + i] =
+              400 +
+              300 * Math.sin((ci * N + i) / 9) * Math.cos((cj * N + j) / 7);
+        return Promise.resolve(
+          createChunk({
+            ci,
+            cj,
+            ...columnsFromHeights(heights, region.blockM),
+          }),
+        );
+      },
+    };
+    const store = createRenderModeStore({ storage: memoryStorage() });
+    store.setMode('blocks');
+    const renderer = fakeRenderer();
+    const options = [];
+    const controller = createBlocksController({
+      viewer: fakeViewer(),
+      store,
+      layers: fakeLayers(true),
+      source,
+      renderer,
+      grid: realGrid,
+      buildChunkMesh(chunk, opts) {
+        options.push(opts);
+        return buildChunkMesh(chunk, opts);
+      },
+      radiusBlocks: 64,
+      setIntervalImpl: () => 1,
+      clearIntervalImpl: () => {},
+    });
+    await drain(controller);
+    const region = renderer.calls.find(([k]) => k === 'region')[1];
+    const shown = new Map(renderer.shown);
+    controller.destroy();
+    return { region, options, shown };
+  };
+  const curved = await run(480);
+  assert.equal(curved.region.curved, true);
+  assert.ok(curved.options.length > 0);
+  for (const opts of curved.options) {
+    assert.ok(opts.curved, 'curved placement');
+    assert.equal(opts.flatDrop, undefined);
+    assert.equal(opts.curved.regionBlockM, 480);
+  }
+  // Each block corner of a shown chunk: its column's place, at its level's
+  // height over the ellipsoid there (datum 0 on flat ground), in the
+  // region's frame: the build's rule (blocksTileset.test.mjs).
+  const region = curved.region;
+  let checked = 0;
+  let worst = 0;
+  for (const [key, mesh] of curved.shown) {
+    const [ci, cj] = key.split(':').map(Number);
+    assert.equal(mesh.curved, true, key);
+    for (let v = 0; v < mesh.positions.length / 3; v += 5) {
+      const bx = mesh.blockCoords[v * 3];
+      const by = mesh.blockCoords[v * 3 + 1];
+      const bz = mesh.blockCoords[v * 3 + 2];
+      if (!Number.isInteger(bx) || !Number.isInteger(by)) continue;
+      const place = region.toLonLat((ci * N + bx) * 480, (cj * N + by) * 480);
+      const want = region.localPoint(place.lon, place.lat, bz * 30);
+      const got = [0, 1, 2].map(
+        (c) => mesh.origin['xyz'[c]] + mesh.positions[v * 3 + c],
+      );
+      worst = Math.max(
+        worst,
+        Math.hypot(got[0] - want.x, got[1] - want.y, got[2] - want.z),
+      );
+      checked++;
+    }
+  }
+  assert.ok(checked > 1000, `${checked} corners`);
+  // Float32 positions about a chunk's own origin (30 km across): centimetres.
+  assert.ok(worst < 0.05, `${worst} m off its own vertical`);
+  // 120 m: flat, each vertex dropped by its own place.
+  const flat = await run(120);
+  assert.equal(flat.region.curved, false);
+  for (const opts of flat.options) {
+    assert.equal(opts.curved, undefined);
+    assert.equal(opts.flatDrop.regionBlockM, 120);
+  }
+});
+
+test('hybrid: the tiles’ hole opens only as far as the live chunks are drawn: closed until the fine disc is in, then the fine disc, the coarse ring and each ring in turn, out to the live reach', async () => {
+  const base = fakeSource({ blockM: 1, hold: true });
+  const source = {
+    ...base,
+    async regionFor(lon, lat, windowM, options = {}) {
+      base.regions.push({ lon, lat, windowM });
+      const { levelMFor, pyramidLevelM } = await import('./pyramid.js');
+      const blockM = pyramidLevelM(1, options.wantedM);
+      return { blockM, levelM: levelMFor(blockM), nativeM: 1, source: 'x' };
+    },
+  };
+  const renderer = fakeRenderer();
+  renderer.setRegions = () => {};
+  renderer.setRingHoles = () => {};
+  renderer.setFog = () => {};
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const controller = createBlocksController({
+    viewer: fakeViewer(),
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    footprint: () => 0.3,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+    tiles: {
+      plan: () => ({ mode: 'hybrid', box: TILES_BOX, floorM: 480 }),
+    },
+  });
+  const radii = [];
+  const note = () => {
+    const hole = controller.getStatus().tiles?.hole;
+    const r = hole ? hole.radiusM : 0;
+    if (radii.at(-1) !== r) radii.push(r);
+  };
+  await drain(controller, 50);
+  note();
+  assert.equal(controller.getStatus().state, 'loading');
+  assert.equal(controller.getStatus().tiles.hole, null, 'the tiles whole');
+  // The 1 m loads (the fine disc and its coarse ring) first, then the 8 m
+  // ring's, then the 120 m ring's: the hole after each.
+  const phase = async (blockM) => {
+    for (let round = 0; round < 200; round++) {
+      const open = base.loads.filter(
+        (l) => l.resolve && l.region.blockM === blockM,
+      );
+      for (const load of open) {
+        load.resolve();
+        delete load.resolve;
+      }
+      await settle();
+      controller.tick();
+      await settle();
+      note();
+      if (!open.length && round > 20) break;
+    }
+    return controller.getStatus().tiles.hole?.radiusM ?? 0;
+  };
+  const afterFine = await phase(1);
+  assert.ok(afterFine === 64 || afterFine === 256, `${afterFine} m`);
+  assert.equal(await phase(8), 512);
+  assert.equal(await phase(120), 7680);
+  await drain(controller, 100);
+  note();
+  assert.equal(controller.getStatus().state, 'ready');
+  // Closed, then wider each time, never narrower.
+  assert.equal(radii[0], 0);
+  for (let k = 1; k < radii.length; k++)
+    assert.ok(radii[k] > radii[k - 1], `${radii}`);
+  assert.equal(radii.at(-1), 7680);
   controller.destroy();
 });

@@ -122,6 +122,13 @@ export function blocksStatusText(status) {
       return t('Blocks needs the raster values service (/api/raster/values)');
     case 'failed':
       return t('Blocks unavailable');
+    case 'tiles':
+      // Drawn by the precomputed tiles alone (src/layers/blocks/tiles.js).
+      return t('Blocks: tiles {month} · {box} · {size} and up', {
+        month: status.tiles?.month || '',
+        box: status.tiles?.label || '',
+        size: blockSizeText(status.tiles?.finestM),
+      });
     case 'loading':
     case 'ready': {
       // "Blocks: 1 m cubes", or above the native cells, where a level is
@@ -158,6 +165,12 @@ export function blocksStatusText(status) {
       if (status.buildingsPending) text = `${text} · ${t('buildings…')}`;
       else if (status.buildings > 0)
         text = `${text} · ${tn(status.buildings, '{count} building', '{count} buildings', { count: formatNumber(status.buildings) })}`;
+      // The precomputed tiles past the live chunks: both drawn.
+      if (status.tiles?.hole?.radiusM > 0)
+        text = `${text} · ${t('tiles past {reach} ({box})', {
+          reach: blockSizeText(status.tiles.hole.radiusM),
+          box: status.tiles.label,
+        })}`;
       return status.state === 'loading'
         ? `${text} · ${t('{count} loading', { count: formatNumber(status.pending) })}`
         : text;

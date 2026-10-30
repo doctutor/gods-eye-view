@@ -56,7 +56,8 @@ export const DATA_FLOORS = Object.freeze({
  * src/maps/terrain.js gives its providers (`world`, `keyless`), or a flat
  * ellipsoid.
  * @param {{tilesetShown?: boolean, terrainId?: string|null,
- *   blocksM?: number|null, blocksStyleM?: number|null}} view blocksStyleM:
+ *   blocksM?: number|null, blocksStyleM?: number|null,
+ *   blocksTiles?: {name: string, floorM: number}|null}} view blocksStyleM:
  *   the Elevation layer's Blocks style draped, its cell ("Blocks style
  *   31 km"), when no blocks are drawn
  * @returns {{id: string, name: string, floorM: number}}
@@ -66,7 +67,16 @@ export function dataFloor({
   terrainId = null,
   blocksM = null,
   blocksStyleM = null,
+  blocksTiles = null,
 } = {}) {
+  // Blocks drawn from the precomputed tiles (src/layers/blocks/tiles.js):
+  // their name, "Blocks tiles 2026-10 · lower 48 · 480 m".
+  if (blocksTiles?.name)
+    return Object.freeze({
+      id: 'blocks-tiles',
+      name: blocksTiles.name,
+      floorM: blocksTiles.floorM || null,
+    });
   if (blocksM > 0)
     return Object.freeze({
       id: 'blocks',

@@ -4038,5 +4038,8 @@
   "Reset to defaults": "Restablecer valores predeterminados",
   "Controls reset to the defaults": "Controles restablecidos",
   "{key} belongs to the browser": "{key} es del navegador",
-  "Chunk {chunk}, column {i} {j}, level {level}: {size} m blocks on {levelSize} m levels": "Trozo {chunk}, columna {i} {j}, nivel {level}: bloques de {size} m en niveles de {levelSize} m"
+  "Chunk {chunk}, column {i} {j}, level {level}: {size} m blocks on {levelSize} m levels": "Trozo {chunk}, columna {i} {j}, nivel {level}: bloques de {size} m en niveles de {levelSize} m",
+  "Blocks tiles {month}": "Teselas de bloques {month}",
+  "Blocks: tiles {month} · {box} · {size} and up": "Bloques: teselas {month} · {box} · {size} y más",
+  "tiles past {reach} ({box})": "teselas más allá de {reach} ({box})"
 }

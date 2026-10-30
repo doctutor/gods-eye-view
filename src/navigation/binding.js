@@ -153,11 +153,15 @@ export function walkerPlace(frame, state) {
  * `toCartographic`: the place, AGL, ALT, waypoints), while what is drawn
  * follows the drawn blocks (`toWorld`: the outline, the marker) and the
  * camera stands at the eye's height over the drawn feet
- * (`cameraCartographic`, back with `cameraToLocal`).
+ * (`cameraCartographic`, back with `cameraToLocal`). A curved region
+ * (480 m and up, grid.js LIVE_CURVED_BLOCK_M) stands each column on the
+ * ellipsoid along its own vertical (mesh.js curvedPlacement): its metres
+ * go through the region's map, and a height is the ellipsoid's.
  */
 export function blocksFrameFor(first) {
   let source = first;
   const { region } = source;
+  if (region.curved === true) return curvedBlocksFrame(source);
   const geoidM = Number(source.geoidM) || 0;
   const relief = () => reliefOf(source.relief);
   const frame = Cesium.Transforms.eastNorthUpToFixedFrame(
@@ -242,6 +246,65 @@ export function blocksFrameFor(first) {
         x: local.x,
         y: local.y,
         z: trueHeightM(local.z - drop - aboveM, relief()) - geoidM + aboveM,
+      };
+    },
+  };
+}
+
+/**
+ * blocksFrameFor's frame on a curved region: a column at region metres
+ * (x, y) is the place region.toLonLat(x, y), and a block top at level y
+ * stands (y + 1)·levelM plus the geoid over the ellipsoid there, along its
+ * own vertical, as the mesher stands it (drawn under the Relief).
+ */
+function curvedBlocksFrame(first) {
+  let source = first;
+  const { region } = source;
+  const geoidM = () => Number(source.geoidM) || 0;
+  const relief = () => reliefOf(source.relief);
+  const world = createBlockWorld({
+    region,
+    chunkAt: (ci, cj) => source.chunkAt(ci, cj),
+  });
+  const at = (x, y, heightM) => {
+    const place = region.toLonLat(x, y);
+    return Cesium.Cartesian3.fromDegrees(place.lon, place.lat, heightM);
+  };
+  const placeOf = (cartographic) => {
+    const { x, y } = region.toLocal(
+      Cesium.Math.toDegrees(cartographic.longitude),
+      Cesium.Math.toDegrees(cartographic.latitude),
+    );
+    return { x, y, heightM: cartographic.height };
+  };
+  const cartographicOf = (x, y, heightM) => {
+    const place = region.toLonLat(x, y);
+    return { lon: place.lon, lat: place.lat, heightM };
+  };
+  /** The drawn height of a point `aboveM` over a true height z. */
+  const drawnM = (z, aboveM = 0) =>
+    drawnHeightM(z - aboveM + geoidM(), relief()) + aboveM;
+  return {
+    kind: 'blocks',
+    region,
+    world,
+    toWorld: (x, y, z) => at(x, y, drawnM(z)),
+    update(next) {
+      source = next;
+    },
+    toLocal(cartographic) {
+      const { x, y, heightM } = placeOf(cartographic);
+      return { x, y, z: heightM - geoidM() };
+    },
+    toCartographic: (x, y, z) => cartographicOf(x, y, z + geoidM()),
+    cameraCartographic: (x, y, z, aboveM = 0) =>
+      cartographicOf(x, y, drawnM(z, aboveM)),
+    cameraToLocal(cartographic, aboveM = 0) {
+      const { x, y, heightM } = placeOf(cartographic);
+      return {
+        x,
+        y,
+        z: trueHeightM(heightM - aboveM, relief()) - geoidM() + aboveM,
       };
     },
   };

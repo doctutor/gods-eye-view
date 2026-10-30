@@ -282,24 +282,37 @@ function curvedPlacement(curved, scale) {
   const datumM = Number(curved.datumM) || 0;
   const cornerX = Number(curved.cornerM?.x) || 0;
   const cornerY = Number(curved.cornerM?.y) || 0;
+  // Each column corner once: its place's ground on the ellipsoid and its
+  // own east, north and up in the region's axes. A point h over the
+  // ellipsoid there is the ground plus h along its up (the region's frame
+  // is linear in the Earth-fixed one), so a vertex costs no trigonometry.
   const columns = new Map();
   const column = (bx, by) => {
-    const key = `${bx},${by}`;
+    // Corners run −1 … CHUNK_COLUMNS + 1 (halves at faces' centres).
+    const key = bx * 4096 + by;
     let held = columns.get(key);
     if (!held) {
       const place = region.toLonLat(
         cornerX + bx * scale[0],
         cornerY + by * scale[1],
       );
-      held = { place, basis: region.basisAt(place.lon, place.lat) };
+      held = {
+        ground: region.localPoint(place.lon, place.lat, 0),
+        basis: region.basisAt(place.lon, place.lat),
+      };
       columns.set(key, held);
     }
     return held;
   };
   const frameAt = (bx, by, bz) => {
-    const { place } = column(bx, by);
-    const p = region.localPoint(place.lon, place.lat, datumM + bz * scale[2]);
-    return [p.x, p.y, p.z - datumM];
+    const { ground, basis } = column(bx, by);
+    const h = datumM + bz * scale[2];
+    const up = basis.up;
+    return [
+      ground.x + h * up[0],
+      ground.y + h * up[1],
+      ground.z + h * up[2] - datumM,
+    ];
   };
   const origin = frameAt(0, 0, 0);
   return {
@@ -309,13 +322,16 @@ function curvedPlacement(curved, scale) {
       const p = frameAt(bx, by, bz);
       return [p[0] - origin[0], p[1] - origin[1], p[2] - origin[2]];
     },
-    /** A direction's normal at a column corner. */
+    /**
+     * A direction's normal at a column corner: its own east, north or up
+     * (the directions are the axes), reversed for west, south and down.
+     */
     normal(d, bx, by) {
-      const { basis } = column(bx, by);
-      const [a, b, c] = d.normal;
-      return [0, 1, 2].map(
-        (k) => a * basis.east[k] + b * basis.north[k] + c * basis.up[k],
-      );
+      const held = column(bx, by);
+      const axis = [held.basis.east, held.basis.north, held.basis.up][d.axis];
+      if (d.normal[d.axis] > 0) return axis;
+      held.reversed ||= [];
+      return (held.reversed[d.axis] ||= [-axis[0], -axis[1], -axis[2]]);
     },
   };
 }
@@ -704,7 +720,9 @@ function writeQuads(
     stats,
     // A curved chunk's own origin in the renderer's frame (its positions
     // are relative to it); the flat ones use the region's chunkOrigin.
-    ...(bend ? { origin: bend.origin } : {}),
+    // `curved` tells the renderer its positions are off the block lattice
+    // (renderer.js chunkIsCurved), whatever its block size.
+    ...(bend ? { origin: bend.origin, curved: true } : {}),
   };
 }
 
