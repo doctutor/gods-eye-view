@@ -1166,6 +1166,7 @@ unloads) gone at 8 px, 2 unloads, no request repeated after the flight.
    harness's first picture is 137 ms, and the step asks 93 tile requests
    for 63 tiles, none asked again after the flight (the 7 asked twice are
    Cesium's own cancellations while the camera flies).
+
 2. **Late live anchoring, the next performance target.** The live region is
    set 3 to 15 s after a flight: the controller waits for the camera to be
    still after moveEnd (moveEnd itself is unreliable), then asks the source
