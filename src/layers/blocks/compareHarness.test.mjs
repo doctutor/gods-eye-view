@@ -24,6 +24,7 @@ import {
   heightLabel,
   parseAltitudes,
   parsePlace,
+  proxy,
   parseBlocksStatus,
   scaleViews,
   blocksStyleTile,
@@ -373,4 +374,73 @@ test('--build serves the Elevation layer’s Blocks style: flat terrain sand on 
   // Below the band (zoom 6 for 1,920 m): blank, as the server answers.
   const below = pngPixels(blocksStyleTile(1920, 6, 18, 24)).rgba;
   assert.ok(below.every((v) => v === 0));
+});
+
+test('the live proxy: a reset GET is asked once more; a failure after the shot ended is cut off, not an error, and nothing answers a closed page', async () => {
+  const fakeRequest = (method = 'GET') => {
+    const answered = [];
+    return {
+      answered,
+      headers: () => ({}),
+      method: () => method,
+      postData: () => undefined,
+      respond: async (reply) => answered.push(reply),
+    };
+  };
+  const reset = () => {
+    const error = new TypeError('fetch failed');
+    error.cause = { code: 'ECONNRESET' };
+    return error;
+  };
+  const url = new URL('http://gev-blocks.test/api/raster/values?cells=4');
+  const newLog = () => ({ live: {}, errors: [], started: Date.now() });
+  // Reset once, then answered: retried, answered, no error.
+  let calls = 0;
+  const flaky = async () => {
+    if (calls++ === 0) throw reset();
+    return new Response(new Uint8Array([1, 2]), {
+      headers: { 'content-type': 'application/octet-stream' },
+    });
+  };
+  const log = newLog();
+  const request = fakeRequest();
+  await proxy(request, url, 'http://localhost:4173', log, flaky);
+  assert.equal(calls, 2);
+  assert.equal(log.retried, 1);
+  assert.deepEqual(log.errors, []);
+  assert.equal(request.answered[0].status, 200);
+  // Another failure while the shot runs: an error with its cause, a 502.
+  const broken = newLog();
+  const failed = fakeRequest();
+  await proxy(failed, url, 'http://localhost:4173', broken, async () => {
+    const error = new TypeError('fetch failed');
+    error.cause = { code: 'ECONNREFUSED' };
+    throw error;
+  });
+  assert.equal(broken.errors.length, 1);
+  assert.match(
+    broken.errors[0],
+    /fetch failed \(ECONNREFUSED\), \d+ ms into the shot/,
+  );
+  assert.equal(failed.answered[0].status, 502);
+  // After the shot's page closed: cut off, not an error, nothing answered.
+  const ended = { ...newLog(), closedAt: Date.now() };
+  const late = fakeRequest();
+  await proxy(late, url, 'http://localhost:4173', ended, async () => {
+    throw reset();
+  });
+  assert.equal(ended.cutOff, 1);
+  assert.deepEqual(ended.errors, []);
+  assert.deepEqual(late.answered, []);
+  // An answer that comes after the close is counted, not sent.
+  const after = fakeRequest();
+  await proxy(
+    after,
+    url,
+    'http://localhost:4173',
+    ended,
+    async () => new Response(new Uint8Array([1])),
+  );
+  assert.deepEqual(after.answered, []);
+  assert.equal(ended.live['/api/raster/values'].count, 1);
 });

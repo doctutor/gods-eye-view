@@ -236,7 +236,13 @@ test('serverService: GETs the values and the budget; X-Raster-Values-Cache, else
       headers: header ? { 'x-raster-values-cache': header } : {},
     });
   };
-  const remote = serverService('http://localhost:4173', fetchImpl, () => clock);
+  const slept = [];
+  const remote = serverService(
+    'http://localhost:4173',
+    fetchImpl,
+    () => clock,
+    async (ms) => slept.push(ms),
+  );
   const query = { layer: 'ee-elevation', mode: '', cells: '256', water: '1' };
   const hit = await remote.values(query);
   assert.equal(hit.status, 200);
@@ -253,9 +259,28 @@ test('serverService: GETs the values and the budget; X-Raster-Values-Cache, else
     status: 400,
     error: 'Bad cells',
   });
+  // No answer twice (asked again once, a second later): status 0.
+  const before = urls.length;
   const lost = await remote.values({ ...query, cells: '1' });
   assert.equal(lost.status, 0);
   assert.match(lost.error, /fetch failed/);
+  assert.equal(urls.length - before, 2);
+  assert.deepEqual(slept, [1000]);
+  // A connection dropped once: the second ask answers.
+  let drops = 1;
+  const flaky = serverService(
+    'http://localhost:4173',
+    async (url) => {
+      if (drops-- > 0) throw new Error('fetch failed');
+      return fetchImpl(url);
+    },
+    () => clock,
+    async () => {},
+  );
+  header = 'hit';
+  const back = await flaky.values(query);
+  assert.equal(back.status, 200);
+  assert.equal(back.cached, true);
   assert.deepEqual(await remote.budget(), { dailyTiles: 20000, total: 7 });
 });
 

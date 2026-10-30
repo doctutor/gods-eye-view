@@ -58,6 +58,8 @@ export const DEFAULT_PACE_MS = 500;
 export const MAX_CONCURRENCY = 4;
 /** A server answer this quick without X-Raster-Values-Cache is its cache's. */
 export const CACHED_MS = 1000;
+/** How long --server waits before asking again after a dropped connection. */
+export const SERVER_RETRY_MS = 1000;
 /** The level whose tiles say where the land is, for --land-only. */
 export const LAND_FROM_M = 480;
 /** The run stops when this many of the last FAILURE_WINDOW answers failed. */
@@ -271,14 +273,26 @@ export function serverService(
   origin,
   fetchImpl = (...args) => fetch(...args),
   now = () => Date.now(),
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 ) {
+  const url = (query) =>
+    `${origin}/api/raster/values?${new URLSearchParams(query)}`;
+  // A request whose connection drops is asked once more, after a second:
+  // the server keeps computing it (a dropped tile was cached when asked
+  // again), so the second ask is often its disk's.
+  const ask = async (query) => {
+    try {
+      return await fetchImpl(url(query));
+    } catch {
+      await sleep(SERVER_RETRY_MS);
+      return fetchImpl(url(query));
+    }
+  };
   return {
     async values(query) {
       const started = now();
       try {
-        const response = await fetchImpl(
-          `${origin}/api/raster/values?${new URLSearchParams(query)}`,
-        );
+        const response = await ask(query);
         const body = new Uint8Array(await response.arrayBuffer());
         if (!response.ok) {
           let error = '';
@@ -296,7 +310,11 @@ export function serverService(
           cached: said ? said === 'hit' : now() - started < CACHED_MS,
         };
       } catch (error) {
-        return { status: 0, error: String(error?.message || error) };
+        const cause = error?.cause?.code || error?.cause?.message || '';
+        return {
+          status: 0,
+          error: `${error?.message || error}${cause ? ` (${cause})` : ''}`,
+        };
       }
     },
     async budget() {
