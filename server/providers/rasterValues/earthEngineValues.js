@@ -175,7 +175,7 @@ export const LAND_SHARE = 0.5;
  * or below 0 m, is water: 0 m, never nodata (the Blocks style's rule), so
  * the Blocks sea is one water surface at level 0.
  */
-export function meanExpression(base, nativeM) {
+export function meanExpression(base, nativeM, maxPixels = MEAN_MAX_PIXELS) {
   const reduced = (image) =>
     invoke('Image.reduceResolution', {
       image: invoke('Image.setDefaultProjection', {
@@ -185,7 +185,7 @@ export function meanExpression(base, nativeM) {
       }),
       reducer: invoke('Reducer.mean', {}),
       bestEffort: constant(true),
-      maxPixels: constant(MEAN_MAX_PIXELS),
+      maxPixels: constant(maxPixels),
     });
   const zero = invoke('Image.constant', { value: constant(0) });
   const mean = { valueReference: 'mh' };
@@ -346,6 +346,29 @@ export function stackNativeM(box, heights) {
   return sizes.length ? Math.min(...sizes) : 0;
 }
 
+/**
+ * The finest cell one band of the DEM stack has in a window (FABDEM's
+ * 30 m in the base band, GMTED's 231 m in the far band, outside the
+ * poles' sources): what that band's mosaic is made of.
+ */
+export function bandNativeM(box, bandKey, heights) {
+  const sizes = sourcesInRect(box, demBand(bandKey), { heights })
+    .map((entry) => entry.pixelM)
+    .filter((size) => size > 0);
+  return sizes.length ? Math.min(...sizes) : 0;
+}
+
+/**
+ * The values experiments (GEV_VALUES_EXPERIMENTS=1 on the server only):
+ * Elevation's mean read from at most `maxPixels` pixels a cell, and its
+ * default scale the stack's finest cell in the window (`stack`, today's)
+ * or the read band's own (`band`). Answers are served, never kept.
+ */
+export const VALUES_EXPERIMENTS = Object.freeze({
+  maxPixels: Object.freeze([16, 64, 256]),
+  scale: Object.freeze(['band', 'stack']),
+});
+
 /** One cell's centre-to-edge grid for computePixels: EPSG:4326, north row first. */
 export function pixelGrid({ west, south, east, north }, cols, rows) {
   return {
@@ -460,8 +483,12 @@ export function createEarthEngineAdapter(layer, earthEngine) {
     id: layer.id,
     modes: modes[0] === 'default' ? [''] : modes,
     planes: spec.planes || [],
-    /** `water`: the water plane too, in the same request (withWater). */
-    plan(mode, box, cells, { water = false } = {}) {
+    /**
+     * `water`: the water plane too, in the same request (withWater).
+     * `experiment`: {maxPixels, scale} (VALUES_EXPERIMENTS), the mean's
+     * reading changed for a timing; the server never keeps its answers.
+     */
+    plan(mode, box, cells, { water = false, experiment = null } = {}) {
       const modeKey = mode || modes[0];
       const lat = (box.south + box.north) / 2;
       const lon = (box.west + box.east) / 2;
@@ -476,6 +503,11 @@ export function createEarthEngineAdapter(layer, earthEngine) {
       const picture = expressionFor(plain, variant, undefined, modeKey);
       const ownM = nativeM || DEFAULT_NATIVE_M;
       const reduced = spec.reduce === 'mean' && cellSizeM >= MEAN_ABOVE * ownM;
+      const meanM =
+        experiment?.scale === 'band' && variant.stack
+          ? bandNativeM(box, variant.stack, heights) || ownM
+          : ownM;
+      const meanMax = experiment?.maxPixels || MEAN_MAX_PIXELS;
       const plane = (values, isReduced) =>
         water ? withWater(values, isReduced) : values;
       // The heights alone (no water plane): a refused plane's stand-in.
@@ -483,7 +515,7 @@ export function createEarthEngineAdapter(layer, earthEngine) {
         spec.seaIsWater ? seaExpression(picture) : picture,
       );
       const dry = reduced
-        ? valuesExpression(meanExpression(picture, ownM))
+        ? valuesExpression(meanExpression(picture, meanM, meanMax))
         : drySampled;
       const sampled = plane(drySampled, false);
       const expression = plane(dry, reduced);
@@ -511,6 +543,9 @@ export function createEarthEngineAdapter(layer, earthEngine) {
         legendMin,
         legendMax,
         ...(variant.stack ? { band: variant.stack } : {}),
+        ...(experiment
+          ? { experiment: { ...experiment, meanScaleM: meanM } }
+          : {}),
         async run() {
           const pixels = async (request, wet = water) => {
             const answer = await earthEngine.computePixels(

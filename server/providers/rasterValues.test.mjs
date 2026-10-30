@@ -391,6 +391,94 @@ test('the water plane (?water=1): MOD44W land 0, water 1, its mean over a reduce
   assert.equal((await values.values(query({ water: 'yes' }))).status, 400);
 });
 
+test('the values experiments: inert without GEV_VALUES_EXPERIMENTS; with it, maxPixels and scale change the mean, the answer is never read from or kept in the cache, bad values 400', async (t) => {
+  // Kansas, 3.5 km cells: reduced, from the far band (GMTED), where 3DEP
+  // 1 m is the stack's finest cell.
+  const kansas = {
+    west: '-100',
+    south: '38',
+    east: '-98',
+    north: '40',
+    cells: '64',
+  };
+  const binsUnder = (dir) =>
+    fs.existsSync(dir)
+      ? fs
+          .readdirSync(dir, { recursive: true })
+          .filter((name) => String(name).endsWith('.bin'))
+      : [];
+  // Without the flag: ignored, today's mean, kept.
+  const off = service(t);
+  const plain = await off.service.values(
+    query({ ...kansas, maxPixels: '16', scale: 'band' }),
+  );
+  assert.equal(plain.status, 200);
+  assert.equal(decodeRasterValues(plain.body).header.experiment, undefined);
+  const today = callsOf(off.calls[0].expression, 'Image.reduceResolution');
+  assert.ok(today.length >= 1);
+  for (const { maxPixels, image } of today) {
+    assert.equal(maxPixels.constantValue, 256);
+    assert.equal(
+      image.functionInvocationValue.arguments.scale.constantValue,
+      1,
+    );
+  }
+  // A bad value is not even read without the flag.
+  const ignored = await off.service.values(
+    query({ ...kansas, maxPixels: '7' }),
+  );
+  assert.equal(ignored.cached, true);
+  assert.equal(off.calls.length, 1);
+  // With the flag.
+  const on = service(t, { env: { GEV_VALUES_EXPERIMENTS: '1' } });
+  const cacheDir = path.join(on.root, 'raster-values');
+  const asked = query({ ...kansas, maxPixels: '16', scale: 'band' });
+  const first = await on.service.values(asked);
+  assert.equal(first.status, 200);
+  assert.equal(first.cached, undefined);
+  const { header } = decodeRasterValues(first.body);
+  assert.equal(header.experiment.maxPixels, 16);
+  assert.equal(header.experiment.scale, 'band');
+  // The far band's own cell (GMTED, about 230 m), not 3DEP's 1 m.
+  assert.ok(header.experiment.meanScaleM > 200, header.experiment.meanScaleM);
+  for (const { maxPixels, image } of callsOf(
+    on.calls[0].expression,
+    'Image.reduceResolution',
+  )) {
+    assert.equal(maxPixels.constantValue, 16);
+    assert.equal(
+      image.functionInvocationValue.arguments.scale.constantValue,
+      header.experiment.meanScaleM,
+    );
+  }
+  // Never kept, never read: nothing on disk, asked again it is computed again.
+  assert.deepEqual(binsUnder(cacheDir), []);
+  const again = await on.service.values(asked);
+  assert.equal(again.cached, undefined);
+  assert.equal(on.calls.length, 2);
+  // Today's request with the flag set is still kept as before.
+  await on.service.values(query(kansas));
+  assert.equal(binsUnder(cacheDir).length, 1);
+  assert.equal((await on.service.values(query(kansas))).cached, true);
+  // maxPixels alone keeps the stack's scale.
+  await on.service.values(query({ ...kansas, maxPixels: '64' }));
+  const [only] = callsOf(on.calls.at(-1).expression, 'Image.reduceResolution');
+  assert.equal(only.maxPixels.constantValue, 64);
+  assert.equal(
+    only.image.functionInvocationValue.arguments.scale.constantValue,
+    1,
+  );
+  // Bad values, and other layers, are 400s.
+  const status = async (extra) =>
+    (await on.service.values(query({ ...kansas, ...extra }))).status;
+  assert.equal(await status({ maxPixels: '100' }), 400);
+  assert.equal(await status({ scale: 'fine' }), 400);
+  assert.equal(
+    await status({ layer: 'ee-terrain-slope', maxPixels: '16' }),
+    400,
+  );
+});
+
 test('a water plane Earth Engine refuses: the heights alone, no plane, not kept; a 429 is not retried', async (t) => {
   const root = tempRoot(t);
   const calls = [];
