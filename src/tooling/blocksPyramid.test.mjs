@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   MAX_REQUESTS,
   landRequests,
+  listRequests,
   main,
   parseArgs,
   planRequests,
@@ -343,4 +344,50 @@ test('main --land-only: filters before the count, needs a service, and a dry run
     0,
   );
   assert.match(lines.at(-1), /all-sea tiles skipped .* 0 left/);
+});
+
+test('--tiles: a list of one level lattice tiles, asked as the source asks them, in parts; a box off the lattice is refused', () => {
+  const args = parseArgs(['--tiles', 'list.json', '--part', '2/3']);
+  assert.equal(args.tilesFile, 'list.json');
+  assert.deepEqual(args.part, { k: 2, n: 3 });
+  assert.equal(args.bbox, undefined);
+  assert.deepEqual(parseArgs(['--tiles', 'list.json']).part, { k: 1, n: 1 });
+  assert.match(
+    parseArgs(['--tiles', 'list.json', '--part', '4/3']).error,
+    /--part/,
+  );
+  assert.match(
+    parseArgs(['--tiles', 'list.json', '--concurrency', '9']).error,
+    /1 to 4/,
+  );
+  const tiles = [];
+  for (let ti = 100; ti < 105; ti++)
+    tiles.push({ ti, tj: 200, box: latticeBox(120, ti, 200) });
+  const whole = listRequests({ level: 120, tiles });
+  assert.equal(whole.requests.length, 5);
+  assert.deepEqual(whole.requests[0], {
+    level: 120,
+    query: planRequests(
+      {
+        west: tiles[0].box.west + 1e-4,
+        south: tiles[0].box.south + 1e-4,
+        east: tiles[0].box.west + 2e-4,
+        north: tiles[0].box.south + 2e-4,
+      },
+      [120],
+    )[0].query,
+  });
+  // Parts: 3, 2; each tile once.
+  const first = listRequests({ level: 120, tiles }, { k: 1, n: 2 }).requests;
+  const second = listRequests({ level: 120, tiles }, { k: 2, n: 2 }).requests;
+  assert.equal(first.length, 3);
+  assert.equal(second.length, 2);
+  assert.deepEqual([...first, ...second], whole.requests);
+  // A box from another lattice (the 512-cell 480 m one, say) is refused.
+  const moved = [{ ti: 100, tj: 200, box: { ...tiles[0].box, east: 0 } }];
+  assert.match(
+    listRequests({ level: 120, tiles: moved }).error,
+    /not its lattice box/,
+  );
+  assert.match(listRequests({ tiles }).error, /level/);
 });

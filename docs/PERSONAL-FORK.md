@@ -6517,7 +6517,10 @@ written here), `--concurrency 2` keeps two in flight, ten failures in the
 last forty answers stop the run, and `--land-only` skips the tiles finer
 than 480 m whose 480 m ground (read from the cache) is all sea. The
 server's `X-Raster-Values-Cache: hit|miss` says which answers were the
-disk's.
+disk's. `--tiles list.json [--part k/n]` asks a list of one level's
+lattice tiles instead of a box (`{level, tiles: [{ti, tj, box}]}`, as the
+Blocks tileset build lists what it reads; each box is checked against the
+lattice), in the k-th of n equal parts to stay under the cap.
 
 ### Blocks: the renderer
 

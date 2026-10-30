@@ -7,6 +7,7 @@
  *       [--pace <ms between Earth Engine requests, 500>] [--dry-run]
  *       [--server http://localhost:4173] [--concurrency 1|2|3|4]
  *       [--land-only]
+ *   npm run blocks:pyramid -- --tiles <list.json> [--part k/n] [same options]
  *
  * Asks the Elevation values of every lattice tile (src/layers/blocks/
  * lattice.js: 512 cells of the level a side, 256 at 480 and 1,920 m, the
@@ -31,6 +32,9 @@
  * answers stop the run. --land-only skips the tiles finer than
  * LAND_FROM_M whose ground is all sea in that level's tiles (asked first,
  * from the cache once that level is warm): the 120 m warm-up's open sea.
+ * --tiles asks a list of one level's lattice tiles instead of a box
+ * ({level, tiles: [{ti, tj, box}]}, each box checked against the lattice),
+ * --part k/n the k-th of n equal parts of it, under MAX_REQUESTS.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -62,7 +66,8 @@ export const FAILURE_WINDOW = 40;
 
 /**
  * The command line: {bbox: {west, south, east, north}, levels: number[],
- * paceMs, concurrency, server?, landOnly, dryRun}, or {error}.
+ * paceMs, concurrency, server?, landOnly, dryRun}, or, with --tiles,
+ * {tilesFile, part: {k, n}, …} in place of the box and levels; or {error}.
  */
 export function parseArgs(argv) {
   const value = (name) => {
@@ -74,6 +79,17 @@ export function parseArgs(argv) {
       .split(',')
       .filter(Boolean)
       .map(Number);
+  const common = commonArgs(argv, value);
+  if (common.error) return common;
+  const tilesFile = value('--tiles');
+  if (tilesFile !== undefined) {
+    const match = /^(\d+)\/(\d+)$/.exec(value('--part') ?? '1/1');
+    const k = match ? Number(match[1]) : 0;
+    const n = match ? Number(match[2]) : 0;
+    if (!(n >= 1 && k >= 1 && k <= n))
+      return { error: '--part needs k/n, 1 ≤ k ≤ n' };
+    return { tilesFile, part: { k, n }, ...common };
+  }
   const box = numbers(value('--bbox'));
   if (box.length !== 4 || !box.every(Number.isFinite))
     return { error: '--bbox west,south,east,north is required' };
@@ -89,6 +105,15 @@ export function parseArgs(argv) {
     return {
       error: `--levels must be pyramid levels (${BLOCK_PYRAMID_M.join(', ')}): not ${unknown.join(', ')}`,
     };
+  return {
+    bbox: { west, south, east, north },
+    levels: [...new Set(levels)].sort((a, b) => b - a),
+    ...common,
+  };
+}
+
+/** The options a box run and a --tiles run share. */
+function commonArgs(argv, value) {
   const pace = value('--pace');
   const paceMs = pace === undefined ? DEFAULT_PACE_MS : Number(pace);
   if (!(paceMs >= 0)) return { error: '--pace needs milliseconds ≥ 0' };
@@ -104,14 +129,38 @@ export function parseArgs(argv) {
   if (server !== undefined && !/^https?:\/\/[^/]+$/.test(server))
     return { error: '--server needs an origin, as http://localhost:4173' };
   return {
-    bbox: { west, south, east, north },
-    levels: [...new Set(levels)].sort((a, b) => b - a),
     paceMs,
     concurrency,
     ...(server ? { server } : {}),
     landOnly: argv.includes('--land-only'),
     dryRun: argv.includes('--dry-run'),
   };
+}
+
+/**
+ * A tile list ({level, tiles: [{ti, tj, box}]}, as another tool lists the
+ * lattice tiles it reads) as requests: part k of n, in the list's order.
+ * Each tile's box must be its lattice box (else the lattice has changed
+ * since the list was made): {requests} or {error}.
+ */
+export function listRequests(list, { k, n } = { k: 1, n: 1 }) {
+  const level = Number(list?.level);
+  if (!BLOCK_PYRAMID_M.includes(level) || !Array.isArray(list?.tiles))
+    return { error: 'a tile list needs {level, tiles: [{ti, tj, box}]}' };
+  const requests = [];
+  for (const { ti, tj, box } of list.tiles) {
+    const expected = latticeBox(level, ti, tj);
+    const off = ['west', 'south', 'east', 'north'].some(
+      (key) => !(Math.abs(Number(box?.[key]) - expected[key]) < 1e-6),
+    );
+    if (off)
+      return {
+        error: `tile ${ti},${tj} at ${level} m is not its lattice box: the list is from another lattice`,
+      };
+    requests.push({ level, query: tileQuery(level, ti, tj) });
+  }
+  const size = Math.ceil(requests.length / n);
+  return { requests: requests.slice((k - 1) * size, k * size) };
 }
 
 /** A lattice tile's values query, as the Blocks source asks it. */
@@ -281,7 +330,26 @@ export async function main({
     return 2;
   }
   const started = now();
-  let requests = planRequests(args.bbox, args.levels);
+  let requests;
+  if (args.tilesFile) {
+    let list;
+    try {
+      list = JSON.parse(fs.readFileSync(args.tilesFile, 'utf8'));
+    } catch (error) {
+      log(`--tiles: ${error?.message || error}`);
+      return 2;
+    }
+    const listed = listRequests(list, args.part);
+    if (listed.error) {
+      log(`--tiles: ${listed.error}`);
+      return 2;
+    }
+    requests = listed.requests;
+    args.levels = [...new Set(requests.map((entry) => entry.level))];
+    log(
+      `--tiles: part ${args.part.k} of ${args.part.n} of ${list.tiles.length} listed tiles`,
+    );
+  } else requests = planRequests(args.bbox, args.levels);
   const perLevel = () =>
     args.levels
       .map(
