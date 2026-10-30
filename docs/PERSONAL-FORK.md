@@ -8286,6 +8286,29 @@ from before Walk and Fly does.
   builds its own server, now without a watcher or a scan: 123 s to 0.9 s
   in the main checkout. Upstream has none of these folders, so the ignores
   are harmless there.
+- **Both loopback addresses** (`build/loopback.js`). `--host localhost`
+  binds the first address localhost resolves to, `[::1]:4173` here, and
+  only that one. Node's clients race localhost's two addresses (net
+  `autoSelectFamily`, 250 ms a try), so one whose event loop is busy as it
+  connects gives up on ::1 and tries 127.0.0.1, where nothing listened:
+  "fetch failed (ETIMEDOUT)" or ECONNREFUSED with the server healthy, 15 to
+  27 a Blocks tileset build (all cache hits) and a few a harness shot
+  (2026-10-30). A child busy 400 ms after each connection attempt failed 30
+  of 30 against localhost and connected 30 of 30 against ::1; steady load
+  at concurrency 2 to 32 (25,000 cached reads) and idle gaps either side
+  of the 5 s keep-alive timeout failed none. The dev and preview servers
+  now listen on the other loopback address too, with the same handler,
+  closed with the server and waiting for the port across a restart; and
+  the Blocks warm-up (`--server`), the tileset build and the harness turn
+  the race off (`connectWithoutRace`: the first address, as Vite binds
+  it). The other drops are restarts: Vite restarts the server whenever a
+  file in its config's import graph changes (353 files, the providers and
+  the `src/data`, `src/tools`, `src/sources` and some `src/layers` modules
+  they import, so a client-side merge can restart it too) and destroys
+  every open socket first, requests in flight included, whose answers the
+  server still computes and caches. Run 4's twenty failures at 7,680 m
+  (23:37 on 2026-10-29) and the Europe build's first (23:56:08) followed
+  merges that changed such files by seconds.
 - **Build stamp: a stale tab reloads itself** (`build/buildStamp.js`,
   `src/buildStamp.js`). A tab Chrome restored from its cache ran Blocks
   modules days older than the ones the server was serving (2026-10-29: a
