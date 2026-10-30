@@ -85,6 +85,8 @@
  * (its source, `() => ...`) in the page at each of those frames and keeps
  * its answer: an experiment on the scene there; it runs once more as
  * those frames start (an experiment watching every frame starts there).
+ * scripts/qa-blocks-timeline.js is one: the splash, the box drawn and
+ * pending, and each gap in the drawn tiles' cover of the view.
  *
  * --panels opens the two panels before the steps, shoots each step 1.5 s
  * into its flight (<step>-flight.png) and, after the city, opens the
@@ -2934,8 +2936,11 @@ export async function main(argv = process.argv.slice(2)) {
             loadFramesOn: argv.includes('--load-frames'),
             buildingsOff: argv.includes('--buildings-off'),
             tilesDir: argValue(argv, '--tiles-dir') || null,
+            // The function's source, without the statement's semicolon.
             frameEval: argValue(argv, '--frame-eval')
               ? readFileSync(argValue(argv, '--frame-eval'), 'utf8')
+                  .trim()
+                  .replace(/;$/, '')
               : null,
             ...shot,
           }),

@@ -13,6 +13,8 @@ import {
   HOLE_SIDES,
   INSIDE_HOLE_BLOCKS,
   createBlocksTilesLayer,
+  coversView,
+  SWITCH_WAIT_MS,
   FAR_HIGH_ABOVE_M,
   PREWARM_FRAMES,
   TILES_REQUESTS_PER_SERVER,
@@ -86,7 +88,7 @@ async function fakeModel(glb, options) {
   return model;
 }
 
-function setup({ buildings = true, index = INDEX } = {}) {
+function setup({ buildings = true, index = INDEX, clock = null } = {}) {
   const viewer = {
     scene: {
       primitives: new Cesium.PrimitiveCollection(),
@@ -114,6 +116,7 @@ function setup({ buildings = true, index = INDEX } = {}) {
     fetchIndex: async () => index,
     createModel: fakeModel,
     buildings: () => switches.buildings,
+    ...(clock ? { now: () => clock.ms } : {}),
     createTileset: async (url, options) => {
       // Cesium's: setting the maximum error resets the memory-adjusted one.
       let maximum = options.maximumScreenSpaceError;
@@ -129,6 +132,13 @@ function setup({ buildings = true, index = INDEX } = {}) {
           tileset.memoryAdjustedScreenSpaceError = value;
         },
         show: true,
+        // A root drawn whole by its first frame (coversView), unless a test
+        // says otherwise.
+        root: {
+          isVisible: true,
+          hasRenderableContent: true,
+          contentAvailable: true,
+        },
         modelMatrix: Cesium.Matrix4.IDENTITY,
         tileLoad: new Cesium.Event(),
         update() {},
@@ -176,12 +186,14 @@ test('the box the controller names: its tileset made once with the Blocks shader
   assert.equal(tileset.options.imageBasedLighting.enabled, false);
   assert.ok(viewer.scene.primitives.contains(tileset));
   assert.equal(tileset.show, true);
-  // The Buildings switch off: the ground variant, the other kept hidden.
+  // The Buildings switch off: the ground variant, drawn the next frame
+  // (it covers the view there), the other kept hidden.
   switches.buildings = false;
   layer.apply({ state: 'ready', tiles: TILES });
   await settle();
   assert.equal(made.length, 2);
   assert.equal(made[1].url, '/api/blocks/tiles/harbour-30/tileset-ground.json');
+  viewer.scene.preRender.raiseEvent();
   assert.equal(made[1].show, true);
   assert.equal(tileset.show, false);
   // Back on: the first again, not made anew.
@@ -196,6 +208,117 @@ test('the box the controller names: its tileset made once with the Blocks shader
   assert.equal(layer.getState().shown, null);
   layer.destroy();
   assert.equal(viewer.scene.primitives.length, 0);
+});
+
+test('coversView: every visible tile at the first level with content under the root has it (through empty and external tiles); a root not traversed or out of view does not cover', () => {
+  const tile = (props, children = []) => ({
+    isVisible: true,
+    hasRenderableContent: false,
+    contentAvailable: false,
+    hasTilesetContent: false,
+    children,
+    ...props,
+  });
+  const ready = () =>
+    tile({ hasRenderableContent: true, contentAvailable: true });
+  const loading = () => tile({ hasRenderableContent: true });
+  assert.equal(coversView(null), false);
+  assert.equal(
+    coversView({ root: tile({ isVisible: false }, [ready()]) }),
+    false,
+  );
+  // An empty root over four groups: each visible one must be in.
+  const groups = [
+    ready(),
+    ready(),
+    loading(),
+    tile({ isVisible: false, hasRenderableContent: true }),
+  ];
+  assert.equal(coversView({ root: tile({}, groups) }), false);
+  groups[2].contentAvailable = true;
+  assert.equal(
+    coversView({ root: tile({}, groups) }),
+    true,
+    'the one out of view does not count',
+  );
+  // An external tileset not yet read: not in; read, its root decides.
+  assert.equal(
+    coversView({ root: tile({}, [tile({ hasTilesetContent: true })]) }),
+    false,
+  );
+  assert.equal(
+    coversView({
+      root: tile({}, [tile({ hasTilesetContent: true }, [ready()])]),
+    }),
+    true,
+  );
+  // An empty leaf has nothing to draw.
+  assert.equal(coversView({ root: tile({}, [ready(), tile({})]) }), true);
+  // A root with content: itself.
+  assert.equal(coversView({ root: loading() }), false);
+  assert.equal(coversView({ root: ready() }), true);
+});
+
+test('a box switched to loads hidden while the one before stays drawn, and is drawn in the frame it covers the view (or after SWITCH_WAIT_MS); none asked: hidden at once', async () => {
+  const index = {
+    ...INDEX,
+    boxes: [
+      INDEX.boxes[0],
+      {
+        ...INDEX.boxes[0],
+        name: 'metro-30',
+        anchor: { lon0: -76.6, lat0: 39.29 },
+      },
+    ],
+  };
+  const clock = { ms: 1000 };
+  const { layer, made, viewer } = setup({ index, clock });
+  const frame = () => viewer.scene.preRender.raiseEvent();
+  await layer.ready;
+  layer.apply({ state: 'ready', tiles: TILES });
+  await settle();
+  const [first] = made;
+  assert.equal(first.show, true, 'nothing drawn before: drawn at once');
+  // The plan moves to the metro box: made, hidden and preloading.
+  layer.apply({ state: 'ready', tiles: { ...TILES, box: 'metro-30' } });
+  await settle();
+  const second = made[1];
+  second.root = {
+    isVisible: true,
+    hasRenderableContent: true,
+    contentAvailable: false,
+  };
+  frame();
+  assert.equal(first.show, true, 'the old box still drawn');
+  assert.equal(second.show, false);
+  assert.equal(second.preloadWhenHidden, true);
+  assert.equal(first.preloadWhenHidden, false);
+  assert.equal(layer.getState().shown, first.url);
+  assert.equal(layer.getState().pending, second.url);
+  // Its root in: drawn in this frame, the old one hidden, no preload.
+  second.root.contentAvailable = true;
+  frame();
+  assert.equal(second.show, true);
+  assert.equal(first.show, false);
+  assert.equal(second.preloadWhenHidden, false);
+  assert.equal(layer.getState().pending, null);
+  // Back to the harbour box, which never covers: drawn after the wait.
+  first.root = { isVisible: false };
+  layer.apply({ state: 'ready', tiles: TILES });
+  frame();
+  assert.equal(first.show, false);
+  clock.ms += SWITCH_WAIT_MS - 1;
+  frame();
+  assert.equal(first.show, false);
+  clock.ms += 1;
+  frame();
+  assert.equal(first.show, true);
+  assert.equal(second.show, false);
+  // No box asked for: hidden at once, nothing pending.
+  layer.apply({ state: 'ready', tiles: null });
+  assert.equal(first.show, false);
+  assert.equal(layer.getState().pending, null);
+  layer.destroy();
 });
 
 test('raised by the geoid along the up at the camera’s ground; the hole and the fog in the shader; each tile’s Model fogless', async () => {

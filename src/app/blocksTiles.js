@@ -77,6 +77,35 @@ export const INSIDE_CHECK_M = 9000;
 export const INSIDE_HOLE_BLOCKS = 2;
 
 /**
+ * A box switched to is drawn once it covers the view (coversView), the old
+ * one until then; past this long (ms) it is drawn whatever it has, so a
+ * box whose tiles fail never keeps the old one forever.
+ */
+export const SWITCH_WAIT_MS = 10_000;
+
+/**
+ * Whether a tileset can draw the view it was last traversed for: every
+ * visible tile at the first level with content under its root (through
+ * content-free and external tiles) has its content. From there Cesium's
+ * base traversal draws a parent until its children are ready, so the view
+ * has no gap; before it an empty root draws nothing, and switching to it
+ * lost the far ground (a page load at a Baltimore street, 2026-10-30:
+ * 1.3 to 1.5 s between the lower 48 hidden and the harbour box drawn).
+ * A root not visible (not yet traversed, or out of view) does not cover.
+ */
+export function coversView(tileset) {
+  const root = tileset?.root;
+  if (!root?.isVisible) return false;
+  const ready = (tile) => {
+    if (tile.hasRenderableContent) return Boolean(tile.contentAvailable);
+    // An external tileset not yet read has no children: not ready.
+    if (!tile.children?.length) return !tile.hasTilesetContent;
+    return tile.children.filter((child) => child.isVisible).every(ready);
+  };
+  return ready(root);
+}
+
+/**
  * The cache guard. While the tiles a view wants overflow the cache
  * (cacheBytes plus Cesium's maximumCacheOverflowBytes), Cesium raises a
  * tileset's memoryAdjustedScreenSpaceError 2 % a frame, unloads tiles, and
@@ -350,7 +379,13 @@ export function createBlocksTilesLayer({
   const imageLighting = noImageLighting();
   /** url → {tileset: Cesium3DTileset|null} */
   const loaded = new Map();
+  /** The tileset drawn: the box asked for once it covers the view. */
   let shownUrl = null;
+  /**
+   * The box's tileset asked for but not drawn yet ({url, since}): loaded
+   * hidden (preloadWhenHidden) while the one before it stays drawn.
+   */
+  let pending = null;
   /** The controller's status.tiles in force, or null. */
   let state = null;
   /** Told of each tile loaded (the QA harness times the first picture). */
@@ -513,6 +548,7 @@ export function createBlocksTilesLayer({
         // there is a hole.
         tileset.clippingPlanes = blocksClippingPlanes();
         tileset.show = url === shownUrl;
+        tileset.preloadWhenHidden = url === pending?.url;
         entry.tileset = tileset;
         clippedKey = null;
         scene?.primitives?.add(tileset);
@@ -554,6 +590,7 @@ export function createBlocksTilesLayer({
    * chunks' centre in eye coordinates.
    */
   function frame() {
+    switchWhenReady();
     if (!shownUrl || !state) return;
     const shownEntry = loaded.get(shownUrl);
     const shown = shownEntry?.tileset;
@@ -657,6 +694,52 @@ export function createBlocksTilesLayer({
   }
   const removePreRender = scene?.preRender?.addEventListener(frame);
 
+  /** Each tileset shown only if drawn, loaded hidden only if pending. */
+  function showDrawn() {
+    for (const [url, entry] of loaded)
+      if (entry.tileset) {
+        entry.tileset.show = url === shownUrl;
+        entry.tileset.preloadWhenHidden = url === pending?.url;
+      }
+  }
+
+  /**
+   * The box asked for (`url`, null for none): drawn at once when nothing
+   * is drawn or it already is; otherwise pending, the one drawn kept until
+   * it covers the view (switchWhenReady).
+   */
+  function want(url) {
+    if (
+      !url ||
+      !shownUrl ||
+      url === shownUrl ||
+      !loaded.get(shownUrl)?.tileset
+    ) {
+      shownUrl = url;
+      pending = null;
+    } else if (pending?.url !== url) pending = { url, since: now() };
+    showDrawn();
+  }
+
+  /** Before each frame: a pending box that covers the view (or waited
+   * SWITCH_WAIT_MS) is drawn in place of the old one, in this frame. */
+  function switchWhenReady() {
+    if (!pending) return;
+    const tileset = loaded.get(pending.url)?.tileset;
+    if (!tileset && now() - pending.since < SWITCH_WAIT_MS) return;
+    if (
+      tileset &&
+      !coversView(tileset) &&
+      now() - pending.since < SWITCH_WAIT_MS
+    )
+      return;
+    shownUrl = pending.url;
+    pending = null;
+    clippedKey = null;
+    showDrawn();
+    requestRender();
+  }
+
   /** The shown tiles' counts as the last frame drew them (afterFrame). */
   let drawn = { selected: null, ready: null };
   /**
@@ -702,10 +785,9 @@ export function createBlocksTilesLayer({
       if (status && status.state !== 'off') prewarmPrograms();
       state = status?.tiles || null;
       const box = state ? boxes.find((each) => each.name === state.box) : null;
-      shownUrl = box ? box.url({ buildings: buildings() !== false }) : null;
-      if (shownUrl) tilesetFor(shownUrl, box);
-      for (const [url, entry] of loaded)
-        if (entry.tileset) entry.tileset.show = url === shownUrl;
+      const url = box ? box.url({ buildings: buildings() !== false }) : null;
+      if (url) tilesetFor(url, box);
+      want(url);
       if (state?.fog) {
         shader.setUniform('u_fogStartM', state.fog.startM);
         shader.setUniform('u_fogEndM', state.fog.endM);
@@ -720,6 +802,8 @@ export function createBlocksTilesLayer({
       return {
         boxes: boxes.map((box) => box.name),
         shown: shownUrl,
+        // The box asked for, loading hidden until it covers the view.
+        pending: pending?.url ?? null,
         loaded: [...loaded.keys()],
         tiles: state,
         tileLoads,
