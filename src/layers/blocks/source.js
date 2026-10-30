@@ -415,13 +415,14 @@ export function createChunkSource({
     while (held.size > maxChunks) held.delete(held.keys().next().value);
   }
 
-  const ask = (box, cells, water = false) =>
+  const ask = (box, cells, water = false, priority = null) =>
     fetchValues({
       layer: ELEVATION_LAYER,
       mode: '',
       box,
       cells,
       ...(water ? { water: true } : {}),
+      ...(priority ? { priority } : {}),
     });
 
   const tiles = new Map(); // latticeKey → Promise<answer>, least recently used first
@@ -669,9 +670,13 @@ export function createChunkSource({
           : { ...windowOrOptions, ...options };
       let header;
       for (const side of PROBE_SIDES_M) {
+        // The region waits on it: asked ahead of the tiles queued for
+        // the same server (the browser's six sockets a host).
         ({ header } = await ask(
           probeBox(lon, lat, Math.min(side, windowM)),
           CHUNK_COLUMNS,
+          false,
+          'high',
         ));
         if (header.cols >= 2 || side >= windowM) break;
       }

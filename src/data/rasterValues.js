@@ -251,8 +251,13 @@ export function createRasterValuesClient({
   }
 
   return {
-    /** @param {{layer: string, mode?: string, box: object, cells: number}} request */
-    get({ signal, ...request }) {
+    /**
+     * @param {{layer: string, mode?: string, box: object, cells: number,
+     *   priority?: 'high'|'low'|'auto'}} request priority: the browser's
+     *   fetch priority (a probe the view waits on asks 'high', ahead of
+     *   the tiles queued for the same server's six sockets)
+     */
+    get({ signal, priority, ...request }) {
       const key = rasterValuesKey(request);
       const known = held.get(key);
       if (known) {
@@ -262,6 +267,7 @@ export function createRasterValuesClient({
       const promise = (async () => {
         const response = await fetchImpl(rasterValuesUrl(request, base), {
           signal,
+          ...(priority ? { priority } : {}),
         });
         if (!response.ok) {
           const body = await response.json().catch(() => null);

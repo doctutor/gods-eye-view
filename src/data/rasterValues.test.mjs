@@ -236,3 +236,24 @@ test('the client: one request per key, an LRU of answers, failures not kept', as
   assert.equal(asked.length, 6);
   assert.equal(rasterValuesKey(request), 'ee-elevation||7.5,45.8,8,46.2|256');
 });
+
+test('the client asks fetch at the priority given (none by default), and the priority is not part of what it holds', async () => {
+  const seen = [];
+  const body = encodeRasterValues(header(), new Float32Array(6));
+  const client = createRasterValuesClient({
+    fetchImpl: async (url, init) => {
+      seen.push(init);
+      return new Response(body, {
+        headers: { 'Content-Type': 'application/octet-stream' },
+      });
+    },
+  });
+  const box = { west: 0, south: 0, east: 1, north: 1 };
+  await client.get({ layer: 'ee-elevation', box, cells: 2, priority: 'high' });
+  assert.equal(seen[0].priority, 'high');
+  // Held under the same key as without a priority: not asked again.
+  await client.get({ layer: 'ee-elevation', box, cells: 2 });
+  assert.equal(seen.length, 1);
+  await client.get({ layer: 'ee-elevation', box, cells: 4 });
+  assert.equal('priority' in seen[1], false);
+});

@@ -14,6 +14,8 @@ import {
   INSIDE_HOLE_BLOCKS,
   createBlocksTilesLayer,
   FAR_HIGH_ABOVE_M,
+  TILES_REQUESTS_PER_SERVER,
+  reserveSockets,
   FAR_HIGH_BELOW_M,
   cameraHigh,
   createCacheGuard,
@@ -597,5 +599,28 @@ test('a viewer without a scene (the app’s data set up under a stub viewer, src
     layer.apply({ state: 'off', tiles: null });
     assert.equal(layer.getState().shown, null);
     layer.destroy();
+  }
+});
+
+test('Cesium asks the page’s own server at most 4 requests at once, so two of the browser’s six sockets stay for the app’s fetches (the values probe a region waits on); other servers keep their limits', () => {
+  assert.equal(TILES_REQUESTS_PER_SERVER, 4);
+  const byServer = Cesium.RequestScheduler.requestsByServer;
+  const before = { ...byServer };
+  try {
+    assert.equal(reserveSockets(undefined), null, 'no page: nothing');
+    const key = reserveSockets('http://localhost:4173/#lat=1');
+    assert.equal(key, 'localhost:4173');
+    assert.equal(byServer['localhost:4173'], 4);
+    // A tighter limit set elsewhere stays.
+    byServer['localhost:4173'] = 2;
+    reserveSockets('http://localhost:4173/');
+    assert.equal(byServer['localhost:4173'], 2);
+    assert.equal(
+      byServer['tile.googleapis.com:443'],
+      before['tile.googleapis.com:443'],
+    );
+  } finally {
+    for (const key of Object.keys(byServer)) delete byServer[key];
+    Object.assign(byServer, before);
   }
 });
