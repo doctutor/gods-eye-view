@@ -1372,3 +1372,59 @@ test('streamed: tile by tile from the summaries, the same tiles, skirt floors ne
   const fine = (list) => list.find((t) => t.uri === '30m/g0_0.glb');
   assert.ok(fine(tiles).vertices >= fine(held).vertices);
 });
+
+test('a streamed build whose heights fail for a tile: logged with the time, the tile left out, a rerun builds it', async () => {
+  const { bbox } = groupBox();
+  const argv = [
+    '--bbox',
+    [bbox.west, bbox.south, bbox.east, bbox.north].join(','),
+    '--levels',
+    '30',
+    '--stream',
+    '--no-structures',
+  ];
+  const out = temporary('blocks-tileset-failing-');
+  const good = syntheticReader(bbox);
+  // The 30 m lattice tiles (0.14° a side) refused, as a server's 4xx.
+  const failing = async (request) => {
+    if (request.box.east - request.box.west < 0.2) {
+      const error = new Error('refused');
+      error.status = 400;
+      throw error;
+    }
+    return good(request);
+  };
+  const lines = [];
+  const run = (fetchValues) =>
+    main({
+      argv: [...argv, '--out', out],
+      fetchValues,
+      log: (line) => lines.push(line),
+    });
+  assert.equal(await run(failing), 0);
+  assert.ok(lines.some((line) => /^values 400 at 512 cells/.test(line)));
+  assert.ok(
+    lines.some((line) => /^tile 30m\/g0_0\.glb: heights failed/.test(line)),
+  );
+  assert.ok(
+    lines.some((line) =>
+      /^1 tiles without heights, left for a rerun: 30m\/g0_0\.glb$/.test(line),
+    ),
+  );
+  assert.ok(
+    lines.some((line) => /^first failed values read at \d{4}-/.test(line)),
+  );
+  assert.ok(
+    fs
+      .readFileSync(path.join(out, 'build.log'), 'utf8')
+      .includes('heights failed'),
+  );
+  // Again with the heights: that tile built, the rest kept.
+  lines.length = 0;
+  assert.equal(await run(good), 0);
+  assert.ok(
+    lines.includes('16 of 17 tiles kept (inputs unchanged)'),
+    lines.join('\n'),
+  );
+  assert.ok(fs.existsSync(path.join(out, '30m/g0_0.glb')));
+});

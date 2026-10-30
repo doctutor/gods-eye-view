@@ -727,9 +727,19 @@ export async function summarizeLevels(plan, source, { log = null } = {}) {
         keys.push(tileKey(ci, cj));
         loads.push(source.loadChunk(region, ci, cj));
       }
-      (await Promise.all(loads)).forEach((chunk, k) =>
-        byKey.set(keys[k], chunkSummary(chunk)),
-      );
+      try {
+        (await Promise.all(loads)).forEach((chunk, k) =>
+          byKey.set(keys[k], chunkSummary(chunk)),
+        );
+      } catch (error) {
+        // Left out: its skirts read as no ground there; a rerun reads it again.
+        log?.(
+          `summaries: ${m} m group ${gi}:${gj} failed (${error?.status ?? ''} ${error?.message ?? error})`.replace(
+            /\s+/g,
+            ' ',
+          ),
+        );
+      }
       if (log && ((n + 1) % 50 === 0 || n + 1 === groups.length))
         log(`summaries: ${m} m, ${n + 1} of ${groups.length} groups read`);
     }
@@ -1108,6 +1118,7 @@ export async function buildTileset(
   const writeState = () =>
     writeAtomic(path.join(out, BUILD_STATE), JSON.stringify(state));
   const tiles = [];
+  const failed = []; // tiles whose heights did not come, left for a rerun
   const done = new Map(); // uri → {box, content}, this run
   const total = variants.length * [...walkTiles(roots)].length;
   const started = Date.now();
@@ -1116,9 +1127,21 @@ export async function buildTileset(
     visited++;
     const known = done.get(uri);
     if (known) return known;
-    const chunks = variant.chunksFor
-      ? await variant.chunksFor(tile)
-      : variant.chunksByLevel;
+    let chunks;
+    try {
+      chunks = variant.chunksFor
+        ? await variant.chunksFor(tile)
+        : variant.chunksByLevel;
+    } catch (error) {
+      failed.push(uri);
+      log?.(
+        `tile ${uri}: heights failed (${error?.status ?? ''} ${error?.message ?? error}); left for a rerun`,
+      );
+      const { side } = tileExtent(tile);
+      const result = { box: boxVolume(null, side), content: false };
+      done.set(uri, result);
+      return result;
+    }
     const digest = tileDigest(tile, chunks, summaries);
     const record = state.tiles[uri];
     const file = path.join(out, uri);
@@ -1321,6 +1344,7 @@ export async function buildTileset(
     tilesets,
     tileset: tilesets.get(variants[0].file),
     externals,
+    failed,
   };
 }
 
@@ -1563,7 +1587,30 @@ export async function main({
     }
   };
   const budgetBefore = await budget();
-  const reader = fetchValues ?? serverHeightReader({ base: args.base });
+  // The server's own word on each read (X-Raster-Values-Cache: hit or
+  // miss): a miss is an Earth Engine tile this build fetched itself.
+  const cache = { hit: 0, miss: 0, unsaid: 0 };
+  const asked =
+    fetchValues ??
+    serverHeightReader({
+      base: args.base,
+      fetchImpl: async (...request) => {
+        const answer = await fetch(...request);
+        const said = answer.headers.get('x-raster-values-cache');
+        cache[said === 'hit' || said === 'miss' ? said : 'unsaid']++;
+        return answer;
+      },
+    });
+  // Every values read that fails, logged with its time (the chunk source
+  // asks a 503 again after 5 and 20 s; a 429 is the day's budget).
+  let firstFailure = null;
+  const reader = (request) =>
+    Promise.resolve(asked(request)).catch((error) => {
+      const line = `values ${error?.status ?? '?'} at ${request.cells ?? ''} cells over ${JSON.stringify(request.box)}: ${error?.message ?? error}`;
+      firstFailure ??= new Date().toISOString();
+      log(line);
+      throw error;
+    });
   const source = createChunkSource({
     fetchValues: reader,
     maxChunks: streamed ? 512 : 4096,
@@ -1623,7 +1670,7 @@ export async function main({
       },
     ];
   }
-  const { tiles, externals } = await buildTileset(plan, chunksByLevel, {
+  const { tiles, externals, failed } = await buildTileset(plan, chunksByLevel, {
     out: args.out,
     variants,
     summaries,
@@ -1653,6 +1700,16 @@ export async function main({
     );
   }
   if (externals.length) log(`${externals.length} external tilesets`);
+  if (failed.length)
+    log(
+      `${failed.length} tiles without heights, left for a rerun: ${failed.join(', ')}`,
+    );
+  if (firstFailure) log(`first failed values read at ${firstFailure}`);
+  if (!fetchValues)
+    log(
+      `values reads: ${cache.hit} cache hits, ${cache.miss} misses (fetched from Earth Engine by this build)` +
+        (cache.unsaid ? `, ${cache.unsaid} unsaid` : ''),
+    );
   const budgetAfter = await budget();
   if (budgetBefore !== null && budgetAfter !== null)
     log(
