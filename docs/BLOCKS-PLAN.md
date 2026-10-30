@@ -1024,6 +1024,25 @@ download.
     inverted, times its own.
   - Several root groups (four around a middle anchor) hang under a root with
     no content and a bounding sphere.
+- **Coarse levels drawn a step lower (`coarseDropM`).** A column's top block
+  stands on [L·step, (L+1)·step] with L = floor(h / step), so it can stand
+  up to a step above its ground.
+  - At 30,720 m the step is 960 m: a street at 50 m stood as a block 960 m
+    tall. Until the finer tiles were in, a camera at 300 m was inside it
+    and saw sky (worker3's page-load trace, a Baltimore street).
+  - At the levels whose step is coarser than 30 m (1,920 m and up), the
+    build draws the whole level one step lower. That covers land, water,
+    lake beds and skirts. A top is then floor(h / step) × step, at or below
+    its ground, and the sea's surface is at 0 m.
+  - Skirt floors work in drawn metres, so a finer tile's skirt reaches a
+    lowered coarse neighbour.
+  - Only the drawing moves. The columns, the summaries, `--land-only`'s sea
+    test and the live mesher are as they were (a 60 m step where a live
+    1,920 m ring meets a tile edge is nothing at that scale). The mesher
+    fingerprint is unchanged; a dropped tile's digest carries the drop.
+  - The small boxes (the metro, the two harbours) are built with
+    `--coarsest 1920`, at most 60 m over the ground. The big trees take the
+    drop on their next rebuild.
 - **The chord bound, tested.** Over a synthetic curved box at 1,920 m, no
   top face runs more than `curvedRunCap` (57) cells, and the middle of every
   straight edge sags at most 235 m under its level (a pixel of an 8 px cell
@@ -1102,7 +1121,8 @@ follow it into E:.
 
 | Tree                           | Where                                                                                      |
 | ------------------------------ | ------------------------------------------------------------------------------------------ |
-| `baltimore-harbour-30`, `-120` | D: (small)                                                                                 |
+| `baltimore-harbour-30`, `-120` | D: (small; `--coarsest 1920`, 65 and 50 MB, rebuilt 2026-10-30)                            |
+| `baltimore-metro-30`           | E:, junctioned in (`--coarsest 1920`, both variants, 376 MiB, rebuilt 2026-10-30)          |
 | `lower48-480`                  | E:, junctioned in (3.3 GB in layout v2 without fans, rebuilt 2026-10-30; was 4.5 GB on D:) |
 | `europe-480`                   | E:, junctioned in (2.6 GB in layout v2 without fans; was 3.4 GB)                           |
-| `lower48-120`                  | E:, junctioned in (about 33 to 38 GB; waits for the warm-up and a yes)                     |
+| `lower48-120`                  | E:, junctioned in (`--land-only`, 18,820 tiles, 26.5 GiB, 2 h 47 min, built 2026-10-30)    |
