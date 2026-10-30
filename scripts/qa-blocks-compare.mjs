@@ -1264,11 +1264,23 @@ async function shoot({
               }
               if (!shown) return null;
               const camera = scene.camera.positionCartographic;
+              // sampleHeight's list is of objects to leave out: the
+              // others are hidden for the one call instead.
+              const hidden = [];
+              for (let i = 0; i < primitives.length; i++) {
+                const each = primitives.get(i);
+                if (each !== shown && each?.show) {
+                  each.show = false;
+                  hidden.push(each);
+                }
+              }
               let top = null;
               try {
-                top = scene.sampleHeight(camera, [shown]);
+                top = scene.sampleHeight(camera);
               } catch {
                 top = null;
+              } finally {
+                for (const each of hidden) each.show = true;
               }
               return {
                 topM: Number.isFinite(top) ? Math.round(top) : null,
