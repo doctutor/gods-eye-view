@@ -1514,9 +1514,30 @@ export function createBlocksController({
       // metres, and the drawn datum the renderer's frame sits at.
       ...(blockM >= grid.CURVED_BLOCK_M
         ? { curved: curvedOptions(entry) }
-        : {}),
+        : flatDropOptions(entry)),
     };
   };
+
+  /**
+   * A flat chunk's place on its region, for the mesher to drop each vertex
+   * onto the curve (mesh.js flatDrop): none for a region without a
+   * dropAt (a test's), whose chunks keep the corner's drop alone.
+   */
+  function flatDropOptions(entry) {
+    const region = entry.ring ? entry.ring.region : _region.region;
+    if (typeof region?.dropAt !== 'function') return {};
+    const corner = entry.coarse
+      ? region.chunkOrigin(entry.gi * GROUP_CHUNKS, entry.gj * GROUP_CHUNKS)
+      : region.chunkOrigin(entry.ci, entry.cj);
+    return {
+      flatDrop: {
+        lon0: region.lon0,
+        lat0: region.lat0,
+        regionBlockM: region.blockM,
+        cornerM: { x: corner.x, y: corner.y },
+      },
+    };
+  }
 
   /** What the mesher needs to stand a chunk's columns on the ellipsoid. */
   function curvedOptions(entry) {

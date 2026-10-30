@@ -140,6 +140,8 @@ export function createApplicationBlocks({
     probe.controller = controller;
     probe.renderer = renderer;
     probe.tiles = tiles;
+    // The mesh workers' counts: jobs taken back, jobs meshed in-thread.
+    probe.meshPool = () => sharedMeshPool().stats();
   }
   const unprovide = provideBlocksWorld(() => controller.world());
   // Personal fork: an arrival's ground while Blocks hides the globe (the
@@ -271,6 +273,9 @@ export function lazyRenderer(make) {
     keys: () => renderer?.keys?.() ?? [],
     getState: () => renderer?.getState?.() ?? null,
     pickedChunk: (picked) => renderer?.pickedChunk?.(picked) ?? null,
+    // The Models drawn and the look (the QA harness's --isolate).
+    getCollection: () => renderer?.getCollection?.() ?? null,
+    setStyle: (style) => renderer?.setStyle?.(style),
     destroy() {
       renderer?.destroy?.();
       renderer = null;

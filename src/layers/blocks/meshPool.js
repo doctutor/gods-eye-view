@@ -24,6 +24,15 @@ export const MAX_MESH_WORKERS = 3;
  * and a replacement worker started when a job next needs one.
  */
 export const MESH_JOB_TIMEOUT_MS = 10_000;
+/**
+ * A worker that has not said it is ready (meshWorker.js posts {ready} once
+ * its modules are loaded) gets this long for its first job instead: a
+ * module worker loads every module it imports first, and from a dev server
+ * on a loaded machine that took longer than a job's timeout, so a
+ * replacement timed out again loading the same modules (the pane at
+ * Lake Tahoe, 2026-10-30: 21 replacements in one view).
+ */
+export const MESH_WORKER_START_MS = 60_000;
 
 /** hardwareConcurrency − 1, at least 1, at most MAX_MESH_WORKERS. */
 export function poolSize(
@@ -55,6 +64,7 @@ export function createMeshPool({
   size = poolSize(),
   createWorker = browserWorker,
   jobTimeoutMs = MESH_JOB_TIMEOUT_MS,
+  startTimeoutMs = MESH_WORKER_START_MS,
   setTimeoutImpl = (...args) => setTimeout(...args),
   clearTimeoutImpl = (...args) => clearTimeout(...args),
 } = {}) {
@@ -65,10 +75,15 @@ export function createMeshPool({
   let nextId = 1;
   let unavailable = typeof createWorker !== 'function';
   let destroyed = false;
+  /** The workers that said they are ready (or answered a job). */
+  const ready = new WeakSet();
+  /** Jobs taken back from a worker that did not answer, and jobs meshed here. */
+  const counts = { timeouts: 0, inThread: 0 };
 
   // The same answer a worker gives: packed with `pack` (meshJob.js).
   const inThread = (chunk, { pack = false, ...options } = {}) =>
     Promise.resolve().then(() => {
+      counts.inThread++;
       const mesh = buildChunkMesh(chunk, options);
       return pack ? packMesh(mesh, { chunk: [chunk.ci, chunk.cj] }) : mesh;
     });
@@ -77,6 +92,17 @@ export function createMeshPool({
   const settle = (task) => {
     if (task.timer !== undefined) clearTimeoutImpl(task.timer);
     task.timer = undefined;
+  };
+
+  /**
+   * A running task's timer: the job's timeout once its worker is ready,
+   * else the worker's time to start.
+   */
+  const arm = (worker, id, task) => {
+    settle(task);
+    const ms = ready.has(worker) ? jobTimeoutMs : startTimeoutMs;
+    task.started = ready.has(worker);
+    if (ms > 0) task.timer = setTimeoutImpl(() => timedOut(worker, id), ms);
   };
 
   /**
@@ -114,9 +140,17 @@ export function createMeshPool({
       return null;
     }
     worker.addEventListener('message', (event) => {
-      const { id, mesh, error } = event.data || {};
+      const { id, mesh, error, ready: started } = event.data || {};
+      // Its modules are loaded: its job's own timeout from now.
+      if (started) {
+        ready.add(worker);
+        for (const [other, task] of running)
+          if (task.worker === worker && !task.started) arm(worker, other, task);
+        return;
+      }
       const task = running.get(id);
       if (!task) return;
+      ready.add(worker);
       running.delete(id);
       settle(task);
       if (error) task.reject(new Error(error));
@@ -145,8 +179,11 @@ export function createMeshPool({
     if (!task) return;
     running.delete(id);
     task.timer = undefined;
+    counts.timeouts++;
     console.warn(
-      `[Blocks] a mesh worker did not answer in ${jobTimeoutMs} ms; meshing in-thread and replacing it`,
+      task.started
+        ? `[Blocks] a mesh worker did not answer in ${jobTimeoutMs} ms; meshing in-thread and replacing it (${counts.timeouts} so far)`
+        : `[Blocks] a mesh worker did not start in ${startTimeoutMs} ms; meshing in-thread and replacing it (${counts.timeouts} so far)`,
     );
     // Its other jobs (one a worker, but to be sure) go the same way.
     for (const [other, held] of running)
@@ -177,8 +214,7 @@ export function createMeshPool({
       running.set(id, task);
       try {
         worker.postMessage({ id, job: task.job }, task.transfer);
-        if (jobTimeoutMs > 0)
-          task.timer = setTimeoutImpl(() => timedOut(worker, id), jobTimeoutMs);
+        arm(worker, id, task);
       } catch (error) {
         running.delete(id);
         task.reject(error);
@@ -205,6 +241,10 @@ export function createMeshPool({
       busy: running.size,
       waiting: queue.length,
       inThread: unavailable,
+      // Jobs taken back from a worker that did not answer or start, and
+      // jobs meshed in this thread (those, a failed worker's, or no workers).
+      timeouts: counts.timeouts,
+      inThreadJobs: counts.inThread,
     }),
     destroy() {
       destroyed = true;

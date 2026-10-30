@@ -21,6 +21,7 @@ import {
 import {
   MAX_MESH_WORKERS,
   MESH_JOB_TIMEOUT_MS,
+  MESH_WORKER_START_MS,
   createMeshPool,
   meshChunkAsync,
   poolSize,
@@ -235,11 +236,14 @@ test('the pool: the real worker under node:worker_threads, jobs spread over two 
       assertSameMesh(await pending, expected, `chunk ${k}`);
     assert.equal(made, 2);
     assert.equal(pool.stats().inThread, false);
+    // The real worker says it is ready: no job taken back, none here.
     assert.deepEqual(pool.stats(), {
       workers: 2,
       busy: 0,
       waiting: 0,
       inThread: false,
+      timeouts: 0,
+      inThreadJobs: 0,
     });
   } finally {
     pool.destroy();
@@ -345,8 +349,11 @@ test('buildings travel: the structures layer of the chunk and of its neighbours�
  * after `lateMs`); `answering` meshes the job in this process, as the real
  * worker would, and says so.
  */
-function fakeWorker({ silent = false, lateMs = null, log }) {
+function fakeWorker({ silent = false, lateMs = null, log, readyMs = null }) {
   const handlers = {};
+  // Says it is ready (its modules loaded) after readyMs, as meshWorker.js.
+  if (readyMs !== null)
+    setTimeout(() => handlers.message?.({ data: { ready: true } }), readyMs);
   const worker = {
     terminated: false,
     answered: 0,
@@ -379,6 +386,7 @@ test('a worker that never answers is terminated after the timeout, its job meshe
   const pool = createMeshPool({
     size: 1,
     jobTimeoutMs: 20,
+    startTimeoutMs: 20,
     // The first worker hangs; the replacement answers.
     createWorker: () => {
       const worker = fakeWorker({ silent: made.length === 0, log });
@@ -400,6 +408,8 @@ test('a worker that never answers is terminated after the timeout, its job meshe
       busy: 0,
       waiting: 0,
       inThread: false,
+      timeouts: 1,
+      inThreadJobs: 1,
     });
     // The next job starts the replacement, which answers.
     const next = hilly(1, 0);
@@ -457,6 +467,7 @@ test('destroy stops the timers of running jobs', async () => {
   const pool = createMeshPool({
     size: 1,
     jobTimeoutMs: 1000,
+    startTimeoutMs: 5000,
     createWorker: () => fakeWorker({ silent: true, log }),
     setTimeoutImpl: (fn, ms) => {
       const handle = { fn, ms };
@@ -466,8 +477,9 @@ test('destroy stops the timers of running jobs', async () => {
     clearTimeoutImpl: (handle) => timers.delete(handle),
   });
   const pending = pool.meshChunkAsync(hilly(0, 0), OPTIONS);
+  // Not ready yet: the worker's time to start.
   assert.equal(timers.size, 1);
-  assert.equal([...timers][0].ms, 1000);
+  assert.equal([...timers][0].ms, 5000);
   pool.destroy();
   await assert.rejects(pending, /destroyed/);
   assert.equal(timers.size, 0);
@@ -497,4 +509,71 @@ test('the block points travel: a job’s mesh carries blockCoords as the direct 
   const viaJob = runMeshJob(structuredClone(job));
   assert.deepEqual([...viaJob.blockCoords], [...direct.blockCoords]);
   assert.ok(meshTransferList(viaJob).includes(viaJob.blockCoords.buffer));
+});
+
+test('a worker is timed from when it says it is ready: a slow start (its modules loading) is not a hang', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  assert.equal(MESH_WORKER_START_MS, 60_000);
+  const log = { posted: 0, terminated: 0 };
+  // Ready after 60 ms and answering at 70 ms: past a 20 ms job timeout
+  // counted from the post (which took the job back before), inside it
+  // counted from ready.
+  const pool = createMeshPool({
+    size: 1,
+    jobTimeoutMs: 20,
+    startTimeoutMs: 1000,
+    createWorker: () =>
+      fakeWorker({ silent: true, lateMs: 70, log, readyMs: 60 }),
+  });
+  try {
+    const chunk = hilly(0, 0);
+    assertSameMesh(
+      await pool.meshChunkAsync(chunk, OPTIONS),
+      buildChunkMesh(chunk, OPTIONS),
+    );
+    assert.deepEqual(
+      [pool.stats().timeouts, pool.stats().inThreadJobs, log.terminated],
+      [0, 0, 0],
+    );
+  } finally {
+    pool.destroy();
+  }
+});
+
+test('packed (pack: true), the in-thread answer is the worker’s: with no workers, and for a job taken back', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const { packMesh } = await import('./packMesh.js');
+  const chunk = hilly(2, -1);
+  const expected = packMesh(buildChunkMesh(chunk, OPTIONS), { chunk: [2, -1] });
+  const same = (packed) => {
+    for (const kind of ['opaque', 'water'])
+      for (const name of [
+        'positions',
+        'normals',
+        'colors',
+        'blockCoords',
+        'indices',
+      ])
+        assert.deepEqual(
+          [...(packed.packedParts[kind]?.[name] || [])],
+          [...(expected.packedParts[kind]?.[name] || [])],
+          `${kind} ${name}`,
+        );
+  };
+  const none = createMeshPool({ createWorker: null });
+  same(await none.meshChunkAsync(chunk, { ...OPTIONS, pack: true }));
+  assert.equal(none.stats().inThreadJobs, 1);
+  const log = { posted: 0, terminated: 0 };
+  const hung = createMeshPool({
+    size: 1,
+    jobTimeoutMs: 10,
+    startTimeoutMs: 10,
+    createWorker: () => fakeWorker({ silent: true, log }),
+  });
+  try {
+    same(await hung.meshChunkAsync(chunk, { ...OPTIONS, pack: true }));
+    assert.equal(hung.stats().timeouts, 1);
+  } finally {
+    hung.destroy();
+  }
 });

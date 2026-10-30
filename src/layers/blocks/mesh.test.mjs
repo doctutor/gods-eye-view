@@ -1121,3 +1121,52 @@ test('blockCoords on a curved 30,720 m chunk: the far corner carries its true bl
   );
   assert.ok(off > 100_000, `off the lattice by ${Math.round(off / 1000)} km`);
 });
+
+test('flat chunks meet at their seams on the curve: each vertex dropped by its own place (flatDrop), across the region’s origin and half a supergroup out; dropped by the corner alone, a step', async () => {
+  const { createRegion: makeRegion } = await import('./grid.js');
+  const { createChunk: makeChunk } = await import('./store.js');
+  const blockM = 480;
+  const region = makeRegion({ lon0: -122.4, lat0: 37.3, blockM, levelM: 30 });
+  const chunkM = 64 * blockM;
+  const level = new Int32Array(64 * 64).fill(10);
+  // The world height of chunk (ci, cj)'s corner at its local (x, 0): the
+  // top face's vertex there, the chunk lowered by its origin's drop.
+  const cornerZ = (ci, cj, localX, drop) => {
+    const origin = region.chunkOrigin(ci, cj);
+    const mesh = buildChunkMesh(makeChunk({ ci, cj, top: level }), {
+      blockM,
+      levelM: 30,
+      ...(drop
+        ? {
+            flatDrop: {
+              lon0: region.lon0,
+              lat0: region.lat0,
+              regionBlockM: blockM,
+              cornerM: { x: origin.x, y: origin.y },
+            },
+          }
+        : {}),
+    });
+    for (let v = 0; v < mesh.positions.length / 3; v++)
+      if (
+        mesh.normals[v * 3 + 2] > 0.5 &&
+        Math.abs(mesh.positions[v * 3] - localX) < 1e-3 &&
+        Math.abs(mesh.positions[v * 3 + 1]) < 1e-3
+      )
+        return origin.z + mesh.positions[v * 3 + 2];
+    throw new Error(`no top corner at ${localX} in ${ci}:${cj}`);
+  };
+  for (const [west, east] of [
+    [-1, 0], // across the region's origin
+    [7, 8], // half a supergroup (245 km) out, where the camera stands
+  ]) {
+    const step = (drop) =>
+      Math.abs(cornerZ(west, 0, chunkM, drop) - cornerZ(east, 0, 0, drop));
+    assert.ok(step(true) < 0.05, `${west}|${east}: ${step(true)} m apart`);
+    assert.ok(step(false) > 50, `${west}|${east}: the corner's drop alone`);
+  }
+  // On the curve: a vertex's world height is the ellipsoid's drop there
+  // plus its level (10 levels of 30 m).
+  const z = cornerZ(8, 0, 0, true);
+  assert.ok(Math.abs(z - (region.dropAt(8 * chunkM, 0) + 330)) < 0.05);
+});

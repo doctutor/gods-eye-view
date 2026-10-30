@@ -94,8 +94,10 @@ export const VIEW = Object.freeze({
   heading: 0,
   pitch: -30,
 });
-const WIDTH = 1600;
-const HEIGHT = 900;
+// The window: 1600 × 900, or --size <w>x<h> (a pane's, say, whose pixel
+// footprint picks another level).
+let WIDTH = 1600;
+let HEIGHT = 900;
 
 // ── The synthetic heightfield ───────────────────────────────────────────
 
@@ -940,9 +942,15 @@ async function shoot({
   nav = null,
   viewMode = null,
   prefix = null,
+  isolate = false,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
+  // --isolate reads the renderer through the app's QA probe.
+  if (isolate)
+    await page.evaluateOnNewDocument(() => {
+      window.__gevBlocksProbe = {};
+    });
   // Third person is kept in this browser (gev.nav.view), not in the link.
   if (viewMode)
     await page.evaluateOnNewDocument((mode) => {
@@ -1066,6 +1074,47 @@ async function shoot({
   clearInterval(watch);
   const file = path.join(out, `${name}.png`);
   await page.screenshot({ path: file });
+  // --isolate: the frame again without each kind of chunk (the fine disc,
+  // the coarse ring, the rings), to see which draws what.
+  if (blocks && isolate)
+    for (const kind of ['fine', 'coarse', 'ring']) {
+      await page.evaluate((hide) => {
+        const collection = window.__gevBlocksProbe?.renderer?.getCollection?.();
+        const kindOf = (owner) => {
+          const key = owner?.key ?? owner?.build?.keys?.[0] ?? '';
+          return /^L/.test(key) ? 'ring' : /^c:/.test(key) ? 'coarse' : 'fine';
+        };
+        for (const model of collection?._primitives || [])
+          model.show = kindOf(model.blocksOwner) !== hide;
+        window.__godsEyeView.viewer.scene.requestRender();
+      }, kind);
+      await page.evaluate(
+        () => new Promise((resolve) => setTimeout(resolve, 500)),
+      );
+      await page.screenshot({ path: path.join(out, `${name}-no-${kind}.png`) });
+    }
+  if (blocks && isolate) {
+    await page.evaluate(() => {
+      const collection = window.__gevBlocksProbe?.renderer?.getCollection?.();
+      for (const model of collection?._primitives || []) model.show = true;
+      // And without the block edges and dither: the geometry alone.
+      window.__gevBlocksProbe?.renderer?.setStyle?.({
+        edges: false,
+        dither: false,
+      });
+      window.__godsEyeView.viewer.scene.requestRender();
+    });
+    await page.evaluate(
+      () => new Promise((resolve) => setTimeout(resolve, 500)),
+    );
+    await page.screenshot({ path: path.join(out, `${name}-no-edges.png`) });
+    await page.evaluate(() =>
+      window.__gevBlocksProbe?.renderer?.setStyle?.({
+        edges: true,
+        dither: true,
+      }),
+    );
+  }
   // What the shot itself cost, before the harness's own leave-Blocks probe.
   log.tilesAtShot = log.tiles;
   const scene = [await probe(page)];
@@ -1484,6 +1533,8 @@ function sequenceHoldings() {
           glbStore: rs.glbStore ?? null,
         }
       : null,
+    // The mesh workers: jobs taken back (timeouts) and meshed in-thread.
+    meshPool: probe?.meshPool?.() ?? null,
     primitives: window.__godsEyeView?.viewer?.scene?.primitives?.length ?? null,
     imageryLayers: window.__godsEyeView?.viewer?.imageryLayers?.length ?? null,
   };
@@ -1868,6 +1919,8 @@ async function runSequence({
 }
 
 export async function main(argv = process.argv.slice(2)) {
+  const size = /^(\d+)x(\d+)$/.exec(argValue(argv, '--size') || '');
+  if (size) [WIDTH, HEIGHT] = [Number(size[1]), Number(size[2])];
   const out = path.resolve(argValue(argv, '--out', ''));
   if (!argValue(argv, '--out'))
     throw new Error('--out <dir outside the repository> is required');
@@ -1970,7 +2023,16 @@ export async function main(argv = process.argv.slice(2)) {
       if (!shot) throw new Error(`unknown view ${name} (judgement, eye)`);
       for (const blocks of shot.blocksOnly ? [true] : [false, true])
         results.push(
-          await shoot({ browser, dist, field, out, blocks, live, ...shot }),
+          await shoot({
+            browser,
+            dist,
+            field,
+            out,
+            blocks,
+            live,
+            isolate: argv.includes('--isolate'),
+            ...shot,
+          }),
         );
     }
   } finally {
