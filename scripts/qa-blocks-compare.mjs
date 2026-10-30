@@ -704,6 +704,13 @@ async function proxy(request, url, live, log) {
     });
     stat.count++;
     stat.ms += Date.now() - started;
+    // Each answer when and how long (a step's warm or cold cache).
+    log.liveTimes?.push({
+      at: started,
+      path: url.pathname,
+      ms: Date.now() - started,
+      status: answer.status,
+    });
     stat.bytes += body.length;
     stat.status[answer.status] = (stat.status[answer.status] || 0) + 1;
     return request.respond({
@@ -714,6 +721,12 @@ async function proxy(request, url, live, log) {
     });
   } catch (error) {
     log.errors.push(`live ${url.pathname}: ${error?.message || error}`);
+    log.liveTimes?.push({
+      at: started,
+      path: url.pathname,
+      ms: Date.now() - started,
+      status: 'failed',
+    });
     return request.respond({
       status: 502,
       contentType: 'application/json',
@@ -1518,6 +1531,7 @@ async function runSequence({
     trail: [],
     statusTrail: [],
     requests: [],
+    liveTimes: [],
   };
   page.on('pageerror', (error) =>
     log.errors.push(String(error?.message || error)),
@@ -1701,6 +1715,26 @@ async function runSequence({
       heapSites: heapSites(heap),
       holdings,
       still,
+      // The live server's answers in the step: values mean ms (a warm cache
+      // answers in under a second), and proxied fetches that failed.
+      live: (() => {
+        const inStep = log.liveTimes.filter(
+          ({ at }) => at >= from && at <= Date.now(),
+        );
+        const values = inStep.filter(
+          ({ path: route, status }) =>
+            route === '/api/raster/values' && status !== 'failed',
+        );
+        return {
+          values: values.length,
+          valuesMeanMs: values.length
+            ? Math.round(
+                values.reduce((sum, { ms }) => sum + ms, 0) / values.length,
+              )
+            : null,
+          failed: inStep.filter(({ status }) => status === 'failed').length,
+        };
+      })(),
       valuesByCell: Object.fromEntries(
         Object.entries(
           log.requests
