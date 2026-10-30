@@ -47,6 +47,7 @@
  * --dry-run prints the levels, tiles and lattice tiles and asks nothing.
  * The tiles are written atomically (a temporary name, then a rename).
  */
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,7 +69,20 @@ import {
   createChunkSource,
   groupBounds,
 } from '../src/layers/blocks/source.js';
-import { NONE } from '../src/layers/blocks/store.js';
+import { NONE, createChunk } from '../src/layers/blocks/store.js';
+import {
+  QUERY_GAP_MS,
+  applyStructures,
+  createStructuresSource,
+  serialQuery,
+} from '../src/layers/blocks/structures.js';
+import {
+  STRUCTURES_MAX_BLOCK_M,
+  withoutBuildings,
+} from '../src/layers/blocks/index.js';
+import { createOverpassViewClient } from '../src/sources/overpassView.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** The app server the heights are read through by default (read-only GET). */
 export const DEFAULT_BASE = 'http://localhost:4173';
@@ -136,6 +150,7 @@ export function parseArgs(argv) {
     coarsestM: coarsest.m,
     out: out ?? null,
     base: value('--base') ?? DEFAULT_BASE,
+    structures: !argv.includes('--no-structures'),
     dryRun,
   };
 }
@@ -727,86 +742,288 @@ function writeAtomic(file, bytes) {
 }
 
 /**
- * Build the tileset: every tile's glTF and the tileset.json, under `out`.
- * @returns {{tiles: Array<{uri, level, kind, bytes, vertices, indices,
- *   faces}>, tileset: object}}
+ * The files the tile digests cover besides the inputs: the build and the
+ * mesher's (a change to either rebuilds every tile; the inputs, the
+ * heights and the structures, are in each tile's digest as data).
  */
-export function buildTileset(plan, chunksByLevel, { out, inputs = {} }) {
+const CODE_FILES = [
+  'scripts/blocks-tileset.mjs',
+  'src/layers/blocks/mesh.js',
+  'src/layers/blocks/lighting.js',
+  'src/layers/blocks/store.js',
+  'src/layers/blocks/grid.js',
+];
+let codeDigest = null;
+/** The build's code, hashed once a run. */
+function buildCodeDigest() {
+  if (codeDigest) return codeDigest;
+  const hash = createHash('sha256');
+  for (const file of CODE_FILES)
+    hash.update(fs.readFileSync(path.join(ROOT, file)));
+  codeDigest = hash.digest('hex');
+  return codeDigest;
+}
+
+/** A typed array's bytes, for a digest. */
+const bytesOf = (array) =>
+  new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
+
+/**
+ * A tile's inputs' digest: the build's code, the tile, its skirt floors and
+ * every column of its chunks (heightfield, surfaces and structures). A tile
+ * already written with the same digest is not built again.
+ */
+export function tileDigest(tile, chunksByLevel) {
+  const hash = createHash('sha256');
+  hash.update(buildCodeDigest());
+  hash.update(
+    JSON.stringify({
+      level: tile.level,
+      kind: tile.kind,
+      gi: tile.gi,
+      gj: tile.gj,
+      ci: tile.ci,
+      cj: tile.cj,
+      floors: skirtFloors(tile, chunksByLevel),
+    }),
+  );
+  const chunks = chunksByLevel.get(tile.level);
+  for (const [ci, cj] of tileChunks(tile)) {
+    const chunk = chunks.get(tileKey(ci, cj));
+    hash.update(`|${ci}:${cj}|`);
+    if (!chunk) continue;
+    hash.update(bytesOf(chunk.top));
+    hash.update(bytesOf(chunk.material));
+    hash.update(bytesOf(chunk.water));
+    const structure = chunk.structure;
+    if (structure)
+      for (const array of [structure.top, structure.bottom, structure.material])
+        hash.update(bytesOf(array));
+  }
+  return hash.digest('hex').slice(0, 32);
+}
+
+/** The build's record beside the tiles: each tile's digest, box and counts. */
+export const BUILD_STATE = 'build-state.json';
+
+function readState(out) {
+  try {
+    const state = JSON.parse(
+      fs.readFileSync(path.join(out, BUILD_STATE), 'utf8'),
+    );
+    return state && typeof state.tiles === 'object' ? state : { tiles: {} };
+  } catch {
+    return { tiles: {} };
+  }
+}
+
+/**
+ * Build the tilesets: every tile's glTF, and a tileset JSON a variant, under
+ * `out`. `variants` ([{file, name, suffix, chunksByLevel}], the first the
+ * default): the same tree drawn from different chunks, a tile's file
+ * shared where a variant's chunks of its level are the first's (the coarse
+ * levels), its own (`suffix` before .glb) where not (the fine levels
+ * without their buildings). A tile whose file exists with its inputs'
+ * digest unchanged (BUILD_STATE) is kept, not built again; the state is
+ * written after each tile, so an interrupted build resumes where it
+ * stopped.
+ * @returns {{tiles: Array<{uri, level, kind, bytes, vertices, indices,
+ *   faces, kept}>, tilesets: Map<string, object>, tileset: object}}
+ */
+export function buildTileset(
+  plan,
+  chunksByLevel,
+  { out, inputs = {}, variants = null },
+) {
+  variants ??= [{ file: 'tileset.json', suffix: '', chunksByLevel }];
+  const base = variants[0].chunksByLevel;
   const roots = tileTree(plan);
   const regions = new Map(
     plan.levels.map((m) => [m, levelRegion(plan.anchor, m)]),
   );
+  const state = readState(out);
+  const writeState = () =>
+    writeAtomic(path.join(out, BUILD_STATE), JSON.stringify(state));
   const tiles = [];
-  const toJson = (tile, parent = null) => {
-    const mesh = tileMesh(tile, chunksByLevel, regions.get(tile.level));
-    const glb = encodeGlb(mesh);
-    const uri = tileUri(tile);
-    if (glb) writeAtomic(path.join(out, uri), glb);
-    tiles.push({
-      uri,
-      level: tile.level,
-      kind: tile.kind,
-      bytes: glb ? glb.length : 0,
-      vertices: mesh.positions.length / 3,
-      indices: mesh.indices.length,
-      faces: mesh.faces,
-    });
-    const { x, y, side } = tileExtent(tile);
-    const origin = parent ? { x: x - parent.x, y: y - parent.y } : { x, y };
-    const node = {
-      // Relative to the parent's frame (the root's to the anchor's).
-      transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, origin.x, origin.y, 0, 1],
-      boundingVolume: { box: boxVolume(mesh.positions, side) },
-      // The content's error is its block; a leaf is exact as far as the tree goes.
-      geometricError: tile.children.length ? tile.level : 0,
-      refine: 'REPLACE',
-      ...(glb ? { content: { uri } } : {}),
-    };
-    if (tile.children.length)
-      node.children = tile.children.map((child) => toJson(child, { x, y }));
-    return node;
+  const done = new Map(); // uri → {box, content}, this run
+  const buildTile = (tile, chunks, uri) => {
+    const known = done.get(uri);
+    if (known) return known;
+    const digest = tileDigest(tile, chunks);
+    const record = state.tiles[uri];
+    const file = path.join(out, uri);
+    let result;
+    if (
+      record?.digest === digest &&
+      (record.bytes === 0 || fs.existsSync(file))
+    ) {
+      result = { box: record.box, content: record.bytes > 0 };
+      tiles.push({ ...record.stats, uri, bytes: record.bytes, kept: true });
+    } else {
+      const mesh = tileMesh(tile, chunks, regions.get(tile.level));
+      const glb = encodeGlb(mesh);
+      if (glb) writeAtomic(file, glb);
+      const stats = {
+        level: tile.level,
+        kind: tile.kind,
+        vertices: mesh.positions.length / 3,
+        indices: mesh.indices.length,
+        faces: mesh.faces,
+      };
+      result = {
+        box: boxVolume(mesh.positions, tileExtent(tile).side),
+        content: Boolean(glb),
+      };
+      const bytes = glb ? glb.length : 0;
+      state.tiles[uri] = { digest, box: result.box, bytes, stats };
+      writeState();
+      tiles.push({ ...stats, uri, bytes, kept: false });
+    }
+    done.set(uri, result);
+    return result;
   };
-  const rootNodes = roots.map((root) => toJson(root));
-  const rootFrame = enuTransform(plan.anchor);
-  const coarsest = plan.levels[0];
-  const root =
-    rootNodes.length === 1
-      ? {
-          ...rootNodes[0],
-          transform: multiplyTransform(rootFrame, rootNodes[0].transform),
-        }
-      : {
-          transform: rootFrame,
-          boundingVolume: enclosingBox(rootNodes),
-          geometricError: coarsest * CHUNK_GROUP,
-          refine: 'REPLACE',
-          children: rootNodes,
-        };
-  const tileset = {
-    asset: {
-      version: TILESET_FORMAT.version,
-      generator: 'godseye scripts/blocks-tileset.mjs',
-      extras: {
-        blocks: {
-          anchor: plan.anchor,
-          levelsM: plan.levels,
-          levelHeightsM: plan.levels.map(levelMFor),
-          chunkColumns: CHUNK_COLUMNS,
-          chunkGroup: CHUNK_GROUP,
-          format: TILESET_FORMAT,
-          attributes: {
-            _BLOCK_COORD:
-              'columns east and north of the anchor at the tile level, and the level',
+  const tilesets = new Map();
+  for (const variant of variants) {
+    const uriOf = (tile) =>
+      variant.chunksByLevel.get(tile.level) === base.get(tile.level)
+        ? tileUri(tile)
+        : tileUri(tile).replace(/\.glb$/, `${variant.suffix}.glb`);
+    const toJson = (tile, parent = null) => {
+      const uri = uriOf(tile);
+      const { box, content } = buildTile(tile, variant.chunksByLevel, uri);
+      const { x, y } = tileExtent(tile);
+      const origin = parent ? { x: x - parent.x, y: y - parent.y } : { x, y };
+      const node = {
+        // Relative to the parent's frame (the root's to the anchor's).
+        transform: [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          origin.x,
+          origin.y,
+          0,
+          1,
+        ],
+        boundingVolume: { box },
+        // The content's error is its block; a leaf is exact as far as the tree goes.
+        geometricError: tile.children.length ? tile.level : 0,
+        refine: 'REPLACE',
+        ...(content ? { content: { uri } } : {}),
+      };
+      if (tile.children.length)
+        node.children = tile.children.map((child) => toJson(child, { x, y }));
+      return node;
+    };
+    const rootNodes = roots.map((root) => toJson(root));
+    const rootFrame = enuTransform(plan.anchor);
+    const coarsest = plan.levels[0];
+    const root =
+      rootNodes.length === 1
+        ? {
+            ...rootNodes[0],
+            transform: multiplyTransform(rootFrame, rootNodes[0].transform),
+          }
+        : {
+            transform: rootFrame,
+            boundingVolume: enclosingBox(rootNodes),
+            geometricError: coarsest * CHUNK_GROUP,
+            refine: 'REPLACE',
+            children: rootNodes,
+          };
+    const tileset = {
+      asset: {
+        version: TILESET_FORMAT.version,
+        generator: 'godseye scripts/blocks-tileset.mjs',
+        extras: {
+          blocks: {
+            anchor: plan.anchor,
+            levelsM: plan.levels,
+            levelHeightsM: plan.levels.map(levelMFor),
+            chunkColumns: CHUNK_COLUMNS,
+            chunkGroup: CHUNK_GROUP,
+            format: TILESET_FORMAT,
+            attributes: {
+              _BLOCK_COORD:
+                'columns east and north of the anchor at the tile level, and the level',
+            },
+            // The variant this file draws, and its siblings over the same tree.
+            variant: variant.name ?? 'default',
+            variants: variants.map(({ file, name }) => ({
+              file,
+              name: name ?? 'default',
+            })),
+            inputs,
           },
-          inputs,
         },
       },
-    },
-    geometricError: coarsest * CHUNK_GROUP * 2,
-    root,
-  };
-  writeAtomic(path.join(out, 'tileset.json'), JSON.stringify(tileset, null, 1));
-  return { tiles, tileset };
+      geometricError: coarsest * CHUNK_GROUP * 2,
+      root,
+    };
+    writeAtomic(path.join(out, variant.file), JSON.stringify(tileset, null, 1));
+    tilesets.set(variant.file, tileset);
+  }
+  return { tiles, tilesets, tileset: tilesets.get(variants[0].file) };
+}
+
+/**
+ * A chunk's copy (store.js createChunk over copies of its columns), for a
+ * variant to paint and build on without touching the source's cached one.
+ */
+const copyChunk = (chunk) =>
+  createChunk({
+    ci: chunk.ci,
+    cj: chunk.cj,
+    top: chunk.top.slice(),
+    material: chunk.material.slice(),
+    water: chunk.water.slice(),
+  });
+
+/**
+ * The OSM structures at the levels the live controller applies them
+ * (STRUCTURES_MAX_BLOCK_M and finer: land cover, roads, bridge decks and
+ * buildings by structures.js's rules), group by group through
+ * `structures` (createStructuresSource: one Overpass query a group, one at
+ * a time and paced). Two variants of those levels' chunks, as the
+ * Buildings switch has them since the land-cover fix: `built` with the
+ * buildings, `ground` without (index.js withoutBuildings: the land cover
+ * and the decks kept). Coarser levels are the heights alone, shared.
+ * @returns {Promise<{built: Map, ground: Map, levels: number[]}>} each
+ *   level → 'ci:cj' → chunk
+ */
+export async function loadStructures(plan, chunksByLevel, structures) {
+  const built = new Map(chunksByLevel);
+  const ground = new Map(chunksByLevel);
+  const levels = plan.levels.filter((m) => m <= STRUCTURES_MAX_BLOCK_M);
+  for (const m of levels) {
+    const region = levelRegion(plan.anchor, m);
+    const withBuildings = new Map();
+    const without = new Map();
+    for (const [key, chunk] of chunksByLevel.get(m)) {
+      const answer = await structures.loadChunkStructures(
+        region,
+        chunk.ci,
+        chunk.cj,
+      );
+      const a = copyChunk(chunk);
+      const b = copyChunk(chunk);
+      applyStructures(a, answer);
+      applyStructures(b, withoutBuildings(answer));
+      withBuildings.set(key, a);
+      without.set(key, b);
+    }
+    built.set(m, withBuildings);
+    ground.set(m, without);
+  }
+  return { built, ground, levels };
 }
 
 /** a × b, column-major 4 × 4. */
@@ -868,14 +1085,39 @@ export function serverHeightReader({ base = DEFAULT_BASE, fetchImpl } = {}) {
 }
 
 /**
+ * The Overpass queries through the app server's proxy (POST
+ * {base}/api/overpass, the local clone behind it), one at a time and
+ * QUERY_GAP_MS apart as the live Blocks asks them; `count()` the queries
+ * sent.
+ */
+export function serverOverpass({ base = DEFAULT_BASE, fetchImpl } = {}) {
+  let sent = 0;
+  const query = serialQuery(
+    createOverpassViewClient({
+      url: `${base}/api/overpass`,
+      minGapMs: QUERY_GAP_MS,
+      ...(fetchImpl ? { fetchImpl } : {}),
+    }),
+  );
+  const counted = (ql) => {
+    sent++;
+    return query(ql);
+  };
+  counted.count = () => sent;
+  return counted;
+}
+
+/**
  * Run: plan, read, build, report.
- * @param {{argv?: string[], fetchValues?: Function, log?: Function}} options
- *   fetchValues: the height reader (serverHeightReader's unless given).
+ * @param {{argv?: string[], fetchValues?: Function, query?: Function, log?:
+ *   Function}} options fetchValues: the height reader (serverHeightReader's
+ *   unless given); query: the Overpass query (serverOverpass's unless given).
  * @returns {Promise<number>} the exit code
  */
 export async function main({
   argv = process.argv.slice(2),
   fetchValues,
+  query,
   log = console.log,
 } = {}) {
   const args = parseArgs(argv);
@@ -901,18 +1143,61 @@ export async function main({
   if (args.dryRun) return 0;
   const reader = fetchValues ?? serverHeightReader({ base: args.base });
   const source = createChunkSource({ fetchValues: reader, maxChunks: 4096 });
-  const started = Date.now();
+  let started = Date.now();
   const chunksByLevel = await loadChunks(plan, source);
   log(`heights read in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  let variants = null;
+  const structureLevels = plan.levels.filter(
+    (m) => m <= STRUCTURES_MAX_BLOCK_M,
+  );
+  if (args.structures && structureLevels.length) {
+    const overpass = query ?? serverOverpass({ base: args.base });
+    const structures = createStructuresSource({
+      loadChunk: (region, ci, cj) => source.loadChunk(region, ci, cj),
+      query: overpass,
+    });
+    started = Date.now();
+    const { built, ground } = await loadStructures(
+      plan,
+      chunksByLevel,
+      structures,
+    );
+    const count = overpass.count?.();
+    log(
+      `structures at ${structureLevels.join(', ')} m in ${((Date.now() - started) / 1000).toFixed(1)} s` +
+        (count === undefined ? '' : `, ${count} Overpass queries`),
+    );
+    variants = [
+      {
+        file: 'tileset.json',
+        name: 'buildings',
+        suffix: '',
+        chunksByLevel: built,
+      },
+      {
+        file: 'tileset-ground.json',
+        name: 'ground',
+        suffix: '.ground',
+        chunksByLevel: ground,
+      },
+    ];
+  }
   const { tiles } = buildTileset(plan, chunksByLevel, {
     out: args.out,
+    variants,
     inputs: {
       heights: fetchValues
         ? 'a given reader'
         : `${args.base}/api/raster/values`,
-      builtAt: new Date().toISOString(),
+      structures: variants
+        ? query
+          ? 'a given query'
+          : `${args.base}/api/overpass`
+        : 'none',
     },
   });
+  const kept = tiles.filter((tile) => tile.kept).length;
+  if (kept) log(`${kept} of ${tiles.length} tiles kept (inputs unchanged)`);
   for (const m of plan.levels) {
     const here = tiles.filter((tile) => tile.level === m);
     const sum = (key) => here.reduce((n, tile) => n + tile[key], 0);

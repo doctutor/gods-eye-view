@@ -790,8 +790,7 @@ water}`). Today that is the app server's `GET /api/raster/values` (read-only,
   any built level has there, so a tile beside a finer or coarser one shows no
   gap.
 - **Writes.** Each file is written atomically (a temporary name, then a
-  rename). A rerun rebuilds everything; skipping what exists is for the large
-  build.
+  rename). Since step B a rerun skips what exists unchanged (below).
 
 The tiny box, a 30 m group over Baltimore's harbour (sea, land, and the 120 m
 level's reservoirs as its only lakes), was built from the server's cache.
@@ -809,4 +808,105 @@ into many steps. Headroom for later:
 
 - 16-bit indices per chunk primitive;
 - quantised normals and block coordinates (`KHR_mesh_quantization`);
-- `EXT_meshopt_compression`, about three to four times smaller.
+- `EXT_meshopt_compression`, measured below.
+
+**`EXT_meshopt_compression`, measured once (2026-10-29).** Each stream of
+today's float layout went through meshoptimizer's codecs (the package
+Cesium decodes with), as built and after `reorderMesh` (gltfpack's vertex
+cache and fetch order). The decode is the best of three in Node's WASM
+decoder, which Cesium also runs, on this PC.
+
+| Tile                      | Vertices | GLB     | gzip   | meshopt | meshopt + gzip | Decode |
+| ------------------------- | -------- | ------- | ------ | ------- | -------------- | ------ |
+| 480 m root (123 km)       | 300 k    | 14.1 MB | 2.9 MB | 2.8 MB  | 1.5 MB         | 18 ms  |
+| 120 m group               | 132 k    | 6.2 MB  | 1.2 MB | 1.3 MB  | 0.7 MB         | 5 ms   |
+| 30 m group with buildings | 143 k    | 6.6 MB  | 1.3 MB | 1.3 MB  | 0.8 MB         | 4 ms   |
+
+Reordered meshopt plus the transport's gzip makes a tile about nine times
+smaller, and its decode is a few milliseconds, under one frame. gzip alone
+gets about five times, so serving the tiles compressed is the first step and
+costs nothing. The shared encoder's BYTE normals and 16-bit indices shrink
+the raw tile before either. Meshopt in the build would add meshoptimizer as
+a build-time dependency, so it waits for a yes.
+
+**Levels under 30 m: the options (for when the 1 m download is approved).**
+The native steps 1, 2, 8 and 10 m do not nest by four, and this tree needs
+each level to be four times the one under it.
+
+1. _A ×4 chain down from 30 m: 7.5 m, then 1.875 m._ Each level is resampled
+   from 3DEP 1 m (the mean over each cell, as the server's coarse levels do
+   now), with `levelM` equal to the block size: cubes.
+   - It is the same tree, the same fill leaves and the same skirts, so
+     nothing new is needed in the build or in step C.
+   - The blocks are no longer the live mode's sizes: 1.875 m against 1 or
+     2 m, 7.5 m against 8 or 10 m. The live controller's pyramid would move
+     to match, or the tiles and the fallback would differ in size where they
+     meet.
+   - It needs the DEM resampled once per level (cheap beside the meshing),
+     plus a buildings rule at 1.875 m (heights round to whole blocks, as
+     today).
+   - Storage: about 16× the 7.5 m level for the 1.875 m one. For Baltimore's
+     240 km² that is roughly 68 M columns, a few GB meshed.
+2. _Native trees joined by skirts._ The 10 m and 1 m levels each get their
+   own tree with its own anchor graticule, under a parent level that does
+   not divide them evenly. The parent's tile is replaced by the finer tree's
+   tiles that overlap it, and the seams between them are covered by skirts.
+   - The blocks keep the live mode's sizes, and nothing is resampled.
+   - But a child tile no longer lies inside one parent chunk. A refined
+     parent then either leaves slivers uncovered or overlaps its children,
+     which shows as z-fighting under REPLACE. Fixing that needs clipping
+     (per-tile clipping polygons in step C) or ADD refinement with the
+     parent's covered part cut out.
+   - It is more code in the build and in the client, for a mismatch the user
+     would see only at the seams.
+
+_Recommendation:_ the ×4 chain (option 1). It keeps the tree regular,
+reuses everything built, and the block sizes it changes (1 → 1.875 m, 8 or
+10 → 7.5 m) are a choice the live pyramid can follow. Decide with the 1 m
+download.
+
+### Step B, structures in the build (2026-10-29)
+
+- **What and where.** At the levels the live controller applies them
+  (`STRUCTURES_MAX_BLOCK_M`, 30 m and finer; nothing above), every built
+  group is read through the live source (`structures.js`
+  `createStructuresSource`, `applyStructures`). That covers the land cover
+  (roads, greens, OSM water), the bridge decks and the buildings.
+  - The queries go through the app server's `/api/overpass` (the local
+    clone), one at a time and 700 ms apart, as the live Blocks paces them.
+    There is one query per group at 30 m; above 2 m blocks a group is not
+    cut from a supergroup's query, so this matches live.
+  - The source's cached chunks are never painted: each variant works on its
+    own copies.
+- **Two tilesets over one tree, as the Buildings switch has them.**
+  - `tileset.json` draws the fine levels with their buildings.
+  - `tileset-ground.json` draws them without (index.js `withoutBuildings`:
+    the land cover and the decks are kept).
+  - The coarse tiles are one file shared by both; the fine tiles have their
+    own (`30m/g0_0.glb`, `30m/g0_0.ground.glb`).
+  - The client (step C) shows one or the other, so land cover never depends
+    on the switch.
+- **Resume.** `build-state.json` beside the tiles holds each tile's inputs'
+  digest, its bounding box and its counts. The digest covers:
+  - the build's and the mesher's code;
+  - the tile and its skirt floors;
+  - every column of its chunks: the heightfield, surfaces and structures.
+
+  A tile written with an unchanged digest is kept and not meshed again. The
+  state is written after every tile, so an interrupted build loses at most
+  one tile. The inputs are still read on a rerun, so a heights or an OSM
+  change rebuilds exactly the tiles it touches.
+
+- **The tiny box** (Baltimore's harbour, 30 m). It took one Overpass query
+  (5.8 s); the heights came from the server's cache, so no Earth Engine
+  tiles were spent.
+  - The 30 m group is 6.9 MB with buildings (143 k vertices) and 4.3 MB
+    ground only, against 1.3 MB bare: buildings' walls and land-cover
+    boundaries break the greedy merges.
+  - Frames of the tiles in the app's own Cesium, beside live Blocks at
+    30 m from the same camera (the harness, read-only against the app
+    server), are in `.claude/blocks-compare/tileset/`. The buildings,
+    roads, parks and water match column for column. The look differs (the
+    tiles carry only the baked colours; edges and dither are step C's
+    shader), and past the box the 120 m fill tiles stand without land
+    cover.

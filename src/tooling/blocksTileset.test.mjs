@@ -2,8 +2,11 @@
 // docs/BLOCKS-PLAN.md milestone 6 step A): its arguments, the tree of
 // levels and fill tiles, the quantised columns and the meshes against
 // golden values from a synthetic height reader (sea, land, a hill, a lake
-// in the water plane, a nodata patch), the glTF's layout, and the
-// tileset read by Cesium's own loader from the files written.
+// in the water plane, a nodata patch), the glTF's layout, the tileset read
+// by Cesium's own loader from the files written; step B: the structures
+// from a synthetic Overpass answer (a building, a park, a road, a bridge)
+// in two variants as the Buildings switch has them, the Overpass client's
+// pacing, and resume (a tile with unchanged inputs is kept).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -17,19 +20,23 @@ import {
   TILESET_LEVELS_M,
   anchorFor,
   boxColumns,
+  BUILD_STATE,
   buildTileset,
   encodeGlb,
   levelRegion,
   loadChunks,
+  loadStructures,
   main,
   parseArgs,
   planLatticeTiles,
   planTiles,
+  serverOverpass,
   tileTree,
   walkTiles,
 } from '../../scripts/blocks-tileset.mjs';
 import { createChunkSource } from '../layers/blocks/source.js';
-import { NONE } from '../layers/blocks/store.js';
+import { MATERIALS, NONE } from '../layers/blocks/store.js';
+import { createStructuresSource } from '../layers/blocks/structures.js';
 
 /** A synthetic place (no real ground): one 30 m group south-west of it. */
 const SEED = { lon: 10, lat: 45 };
@@ -99,6 +106,59 @@ function syntheticReader(bbox, asked = []) {
       ...(shares ? { water: shares } : {}),
     };
   };
+}
+
+/**
+ * A synthetic Overpass answer over the box (u, v: shares of its width and
+ * height): a 30 m building on the land, a park, a primary road west to
+ * east, and a road bridge over the sea. Every query gets it; `count()`
+ * the queries.
+ */
+function syntheticOverpass(bbox) {
+  const at = (u, v) => ({
+    lon: bbox.west + u * (bbox.east - bbox.west),
+    lat: bbox.south + v * (bbox.north - bbox.south),
+  });
+  const box = (u0, v0, u1, v1) => [
+    at(u0, v0),
+    at(u1, v0),
+    at(u1, v1),
+    at(u0, v1),
+    at(u0, v0),
+  ];
+  const elements = [
+    {
+      type: 'way',
+      id: 1,
+      tags: { building: 'yes', height: '30' },
+      geometry: box(0.7, 0.2, 0.74, 0.24),
+    },
+    {
+      type: 'way',
+      id: 2,
+      tags: { leisure: 'park' },
+      geometry: box(0.45, 0.6, 0.55, 0.7),
+    },
+    {
+      type: 'way',
+      id: 3,
+      tags: { highway: 'primary' },
+      geometry: [at(0.25, 0.45), at(0.95, 0.45)],
+    },
+    {
+      type: 'way',
+      id: 4,
+      tags: { highway: 'primary', bridge: 'yes' },
+      geometry: [at(0.1, 0.8), at(0.3, 0.8)],
+    },
+  ];
+  let sent = 0;
+  const query = async () => {
+    sent++;
+    return { elements };
+  };
+  query.count = () => sent;
+  return query;
 }
 
 const digest = (...arrays) => {
@@ -629,15 +689,209 @@ test('main: the plan printed, a dry run reads nothing; a run writes the tileset'
   assert.equal(asked.length, 0);
   const out = temporary('blocks-tileset-main-');
   lines.length = 0;
-  assert.equal(
-    await main({
+  const run = () =>
+    main({
       argv: [...argv, '--out', out],
       fetchValues: syntheticReader(bbox, asked),
+      query: syntheticOverpass(bbox),
       log: (line) => lines.push(line),
+    });
+  assert.equal(await run(), 0);
+  assert.ok(fs.existsSync(path.join(out, 'tileset.json')));
+  assert.ok(fs.existsSync(path.join(out, 'tileset-ground.json')));
+  assert.ok(
+    lines.some((line) =>
+      /^structures at 30 m .*, 1 Overpass queries$/.test(line),
+    ),
+    lines.join('\n'),
+  );
+  assert.ok(lines.some((line) => /^30 m: 2 tiles/.test(line)));
+  // Again: nothing changed, every tile kept.
+  lines.length = 0;
+  assert.equal(await run(), 0);
+  assert.ok(lines.includes('18 of 18 tiles kept (inputs unchanged)'));
+  // Without structures: the heights alone, one tileset.
+  const bare = temporary('blocks-tileset-bare-');
+  assert.equal(
+    await main({
+      argv: [...argv, '--out', bare, '--no-structures'],
+      fetchValues: syntheticReader(bbox, asked),
+      log: () => {},
     }),
     0,
   );
-  assert.ok(fs.existsSync(path.join(out, 'tileset.json')));
-  assert.ok(lines.some((line) => /^30 m: 1 tiles/.test(line)));
+  assert.ok(!fs.existsSync(path.join(bare, 'tileset-ground.json')));
   assert.equal(await main({ argv: ['--levels', '30'], log: () => {} }), 2);
+});
+
+/** The synthetic box's chunks with its structures, both variants. */
+async function withStructures() {
+  const { bbox } = groupBox();
+  const plan = planTiles(bbox, 30);
+  const source = createChunkSource({
+    fetchValues: syntheticReader(bbox),
+    maxChunks: 4096,
+  });
+  const chunksByLevel = await loadChunks(plan, source);
+  const query = syntheticOverpass(bbox);
+  const structures = createStructuresSource({
+    loadChunk: (region, ci, cj) => source.loadChunk(region, ci, cj),
+    query,
+  });
+  const variants = await loadStructures(plan, chunksByLevel, structures);
+  return { bbox, plan, chunksByLevel, query, ...variants };
+}
+
+/** Columns by what the structures put there, over a level's chunks. */
+function structureCensus(chunks) {
+  const counts = { building: 0, deck: 0, grass: 0, road: 0 };
+  for (const chunk of chunks.values())
+    for (let k = 0; k < chunk.top.length; k++) {
+      const material = chunk.structure?.material[k];
+      if (chunk.structure && chunk.structure.top[k] !== NONE)
+        counts[material === MATERIALS.ROAD ? 'deck' : 'building']++;
+      if (chunk.material[k] === MATERIALS.GRASS) counts.grass++;
+      if (chunk.material[k] === MATERIALS.ROAD) counts.road++;
+    }
+  return counts;
+}
+
+test('structures at 30 m (golden): the land cover and decks in both variants, the buildings in one, nothing at 120 m', async () => {
+  const { chunksByLevel, built, ground, levels, query } =
+    await withStructures();
+  assert.deepEqual(levels, [30]);
+  assert.equal(query.count(), 1, 'one Overpass query for the one 30 m group');
+  // 120 m is the heights alone, the same chunks in both variants.
+  assert.equal(built.get(120), chunksByLevel.get(120));
+  assert.equal(ground.get(120), chunksByLevel.get(120));
+  assert.deepEqual(structureCensus(chunksByLevel.get(120)), {
+    building: 0,
+    deck: 0,
+    grass: 0,
+    road: 0,
+  });
+  // The source's own chunks are not painted: each variant has copies.
+  assert.deepEqual(structureCensus(chunksByLevel.get(30)), {
+    building: 0,
+    deck: 0,
+    grass: 0,
+    road: 0,
+  });
+  const withBuildings = structureCensus(built.get(30));
+  const without = structureCensus(ground.get(30));
+  assert.ok(withBuildings.building > 0 && withBuildings.deck > 0);
+  assert.equal(without.building, 0, 'no buildings in the ground variant');
+  assert.equal(without.deck, withBuildings.deck, 'the decks kept');
+  assert.equal(without.grass, withBuildings.grass, 'the land cover kept');
+  assert.equal(without.road, withBuildings.road);
+  // Golden: change only with the structures rules (structures.js), on purpose.
+  assert.deepEqual(withBuildings, {
+    building: 105,
+    deck: 52,
+    grass: 650,
+    road: 269,
+  });
+});
+
+test('two tilesets over one tree: the fine tiles per variant, the coarse ones shared', async () => {
+  const { plan, chunksByLevel, built, ground } = await withStructures();
+  const out = temporary('blocks-tileset-variants-');
+  const { tiles, tilesets } = buildTileset(plan, chunksByLevel, {
+    out,
+    variants: [
+      {
+        file: 'tileset.json',
+        name: 'buildings',
+        suffix: '',
+        chunksByLevel: built,
+      },
+      {
+        file: 'tileset-ground.json',
+        name: 'ground',
+        suffix: '.ground',
+        chunksByLevel: ground,
+      },
+    ],
+  });
+  const uris = (tileset) => {
+    const found = [];
+    const walk = (node) => {
+      if (node.content) found.push(node.content.uri);
+      (node.children ?? []).forEach(walk);
+    };
+    walk(tileset.root);
+    return found.sort();
+  };
+  const a = uris(tilesets.get('tileset.json'));
+  const b = uris(tilesets.get('tileset-ground.json'));
+  assert.ok(a.includes('30m/g0_0.glb') && b.includes('30m/g0_0.ground.glb'));
+  assert.deepEqual(
+    a.filter((uri) => uri.startsWith('120m/')),
+    b.filter((uri) => uri.startsWith('120m/')),
+  );
+  assert.equal(tiles.length, 18, '16 at 120 m once, a 30 m tile a variant');
+  const fine = (uri) => tiles.find((tile) => tile.uri === uri);
+  assert.ok(
+    fine('30m/g0_0.ground.glb').vertices < fine('30m/g0_0.glb').vertices,
+    'a building has walls',
+  );
+  assert.equal(
+    tilesets.get('tileset-ground.json').asset.extras.blocks.variant,
+    'ground',
+  );
+});
+
+test('resume: a tile whose inputs are unchanged is kept; a changed chunk or a missing file builds again', async () => {
+  const { plan, chunksByLevel } = await withStructures();
+  const out = temporary('blocks-tileset-resume-');
+  const first = buildTileset(plan, chunksByLevel, { out });
+  assert.ok(first.tiles.every((tile) => !tile.kept));
+  assert.ok(fs.existsSync(path.join(out, BUILD_STATE)));
+  const again = buildTileset(plan, chunksByLevel, { out });
+  assert.ok(again.tiles.every((tile) => tile.kept));
+  assert.deepEqual(again.tileset.root, first.tileset.root, 'the same tree');
+  // A column of the 30 m group raised: that tile again, the rest kept.
+  const chunk = chunksByLevel.get(30).get('1:1');
+  chunk.top[100] += 3;
+  const changed = buildTileset(plan, chunksByLevel, { out });
+  assert.deepEqual(
+    changed.tiles.filter((tile) => !tile.kept).map((tile) => tile.uri),
+    ['30m/g0_0.glb'],
+  );
+  chunk.top[100] -= 3;
+  // A fill tile's file gone: that one again.
+  fs.rmSync(path.join(out, '120m/c3_3.glb'));
+  const restored = buildTileset(plan, chunksByLevel, { out });
+  assert.deepEqual(
+    restored.tiles.filter((tile) => !tile.kept).map((tile) => tile.uri),
+    ['30m/g0_0.glb', '120m/c3_3.glb'],
+  );
+});
+
+test("serverOverpass: POST to the app server's proxy, one at a time, 700 ms apart, counted", async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, at: Date.now(), method: init.method });
+    return new Response(JSON.stringify({ elements: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  const query = serverOverpass({ base: 'http://localhost:4173', fetchImpl });
+  await Promise.all([
+    query('[out:json];way(1);out;'),
+    query('[out:json];way(2);out;'),
+  ]);
+  assert.equal(query.count(), 2);
+  assert.deepEqual(
+    calls.map((call) => [call.url, call.method]),
+    [
+      ['http://localhost:4173/api/overpass', 'POST'],
+      ['http://localhost:4173/api/overpass', 'POST'],
+    ],
+  );
+  assert.ok(
+    calls[1].at - calls[0].at >= 690,
+    `${calls[1].at - calls[0].at} ms apart`,
+  );
 });
