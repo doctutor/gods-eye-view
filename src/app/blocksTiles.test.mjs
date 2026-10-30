@@ -22,6 +22,11 @@ import {
   holePlanes,
   screenErrorFor,
 } from './blocksTiles.js';
+import {
+  CLIPPING_SIDES,
+  blocksClippingPlanes,
+  parkedPlanes,
+} from '../layers/blocks/renderer.js';
 
 // Cesium's CustomShader asks whether a uniform is a canvas or an image.
 const BROWSER_GLOBALS = [
@@ -418,10 +423,20 @@ test('the tiles inside the hole are culled before they load: clipping planes on 
   // The planes' frame is the hole's east-north-up: its origin the centre.
   const origin = Cesium.Matrix4.getTranslation(world, new Cesium.Cartesian3());
   assert.ok(Cesium.Cartesian3.distance(origin, centre) < 0.01);
-  // No hole: off.
+  // No hole: still on (the same programs), parked where it clips nothing.
   layer.apply({ state: 'ready', tiles: { ...TILES, hole: null } });
   viewer.scene.preRender.raiseEvent();
-  assert.equal(clipping.enabled, false);
+  assert.equal(clipping.enabled, true);
+  assert.equal(clipping.length, HOLE_SIDES);
+  assert.equal(layer.getState().clipped, false);
+  assert.equal(
+    clipping.computeIntersectionWithBoundingVolume(
+      at(centre, 7000),
+      tileset.clippingPlanesOriginMatrix,
+    ),
+    INSIDE,
+    'nothing culled without a hole',
+  );
   layer.destroy();
 });
 
@@ -623,4 +638,52 @@ test('Cesium asks the page’s own server at most 4 requests at once, so two of 
     for (const key of Object.keys(byServer)) delete byServer[key];
     Object.assign(byServer, before);
   }
+});
+
+test('one clipping configuration for every Blocks Model and the tiles, never switched: Cesium compiles a Model’s programs with its planes’ count and state, so the tiles’ planes turning on at the hole linked four programs mid-flight', async () => {
+  // What Cesium's defines are made of: the count, the union, on or off.
+  const signature = (planes) => [
+    planes.length,
+    planes.unionClippingRegions,
+    planes.enabled,
+  ];
+  const live = blocksClippingPlanes();
+  assert.deepEqual(signature(live), [CLIPPING_SIDES, false, true]);
+  // Parked: nothing anywhere is clipped.
+  const sphere = (x, y, z, r) => ({
+    intersectPlane: (plane) =>
+      Cesium.BoundingSphere.intersectPlane(
+        new Cesium.BoundingSphere(new Cesium.Cartesian3(x, y, z), r),
+        plane,
+      ),
+  });
+  for (const [x, y, z] of [
+    [0, 0, 0],
+    [6_378_137, 0, 0],
+    [0, -6_356_752, 0],
+    [1e7, 1e7, -1e7],
+  ])
+    assert.equal(
+      live.computeIntersectionWithBoundingVolume(sphere(x, y, z, 1e6)),
+      Cesium.Intersect.INSIDE,
+    );
+  assert.equal(parkedPlanes().length, CLIPPING_SIDES);
+  // The tileset's: the same signature with and without a hole, throughout.
+  const { viewer, layer, made } = setup();
+  await layer.ready;
+  layer.apply({ state: 'ready', tiles: { ...TILES, hole: null } });
+  await settle();
+  const [tileset] = made;
+  const seen = [];
+  const look = () => {
+    viewer.scene.preRender.raiseEvent();
+    seen.push(signature(tileset.clippingPlanes));
+  };
+  look();
+  layer.apply({ state: 'ready', tiles: TILES });
+  look();
+  layer.apply({ state: 'ready', tiles: { ...TILES, hole: null } });
+  look();
+  for (const each of seen) assert.deepEqual(each, signature(live));
+  layer.destroy();
 });

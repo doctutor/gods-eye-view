@@ -310,6 +310,37 @@ const imageLightingOff = () =>
     imageBasedLightingFactor: new Cesium.Cartesian2(0, 0),
   }));
 
+/**
+ * Every Blocks Model's clipping planes: this many, the same for the live
+ * chunks and the tiles. Cesium compiles a Model's programs with its
+ * clipping planes' count and state as defines, so the tiles' planes
+ * turning on when the live hole opened linked four new programs mid-flight
+ * (Lake Tahoe, 2026-10-30: 0.8 s waiting on them); with the same planes
+ * always on, parked where they clip nothing, every Blocks Model shares one
+ * set of four programs, linked at the first Blocks draw.
+ */
+export const CLIPPING_SIDES = 8;
+
+/** Planes that clip nothing: every point lies on their kept side. */
+export const parkedPlanes = (sides = CLIPPING_SIDES) =>
+  Array.from(
+    { length: sides },
+    () => new Cesium.ClippingPlane(Cesium.Cartesian3.UNIT_Z, 1e10),
+  );
+
+/**
+ * A Blocks Model's (or tileset's) clipping planes: CLIPPING_SIDES of them,
+ * not uniting their regions (a point is clipped only outside every plane),
+ * always on, parked unless given.
+ */
+export const blocksClippingPlanes = (planes = parkedPlanes()) =>
+  new Cesium.ClippingPlaneCollection({
+    planes,
+    unionClippingRegions: false,
+    enabled: true,
+    edgeWidth: 0,
+  });
+
 /** Each Blocks Model's own base path (createBlocksModel). */
 let glbSerial = 0;
 
@@ -336,6 +367,8 @@ export function createBlocksModel(glb, { modelMatrix, customShader }) {
     forwardAxis: Cesium.Axis.X,
     modelMatrix,
     customShader,
+    // The tiles' planes, parked: the same programs as every Blocks Model.
+    clippingPlanes: blocksClippingPlanes(),
     asynchronous: false,
     releaseGltfJson: true,
     enableVerticalExaggeration: false,

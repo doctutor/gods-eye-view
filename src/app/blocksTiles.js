@@ -12,7 +12,10 @@
 import * as Cesium from 'cesium';
 import { sunPosition } from '../data/solarDaylight.js';
 import {
+  CLIPPING_SIDES,
   DITHER_DEFAULTS,
+  blocksClippingPlanes,
+  parkedPlanes,
   EDGE_DEFAULTS,
   blocksShader,
   fogColorFor,
@@ -130,8 +133,12 @@ export function createCacheGuard(baseError = TILES_SCREEN_ERROR) {
   };
 }
 
-/** The sides of the polygon inscribed in the hole whose tiles are culled. */
-export const HOLE_SIDES = 8;
+/**
+ * The sides of the polygon inscribed in the hole whose tiles are culled:
+ * every Blocks Model's planes (renderer.js CLIPPING_SIDES), so the tiles
+ * and the live chunks share their programs.
+ */
+export const HOLE_SIDES = CLIPPING_SIDES;
 
 /**
  * The clipping planes that cull the tiles inside the hole: HOLE_SIDES
@@ -374,12 +381,7 @@ export function createBlocksTilesLayer({
         });
         // Culling the tiles under the live chunks (holePlanes), off until
         // there is a hole.
-        tileset.clippingPlanes = new Cesium.ClippingPlaneCollection({
-          planes: holePlanes(1),
-          unionClippingRegions: false,
-          enabled: false,
-          edgeWidth: 0,
-        });
+        tileset.clippingPlanes = blocksClippingPlanes();
         tileset.show = url === shownUrl;
         entry.tileset = tileset;
         clippedKey = null;
@@ -498,11 +500,13 @@ export function createBlocksTilesLayer({
       : null;
     if (key === clippedKey) return;
     clippedKey = key;
+    // No hole: parked, not off (turning them on and off links new programs).
+    planes.removeAll();
     if (!hole) {
-      planes.enabled = false;
+      for (const plane of parkedPlanes()) planes.add(plane);
+      planes.modelMatrix = Cesium.Matrix4.clone(Cesium.Matrix4.IDENTITY);
       return;
     }
-    planes.removeAll();
     for (const plane of holePlanes(hole.radiusM)) planes.add(plane);
     const centre = Cesium.Transforms.eastNorthUpToFixedFrame(
       Cesium.Cartesian3.fromDegrees(
@@ -519,7 +523,6 @@ export function createBlocksTilesLayer({
       centre,
       new Cesium.Matrix4(),
     );
-    planes.enabled = true;
   }
   const removePreRender = scene?.preRender?.addEventListener(frame);
 
@@ -571,7 +574,7 @@ export function createBlocksTilesLayer({
         inside,
         insideOpens,
         // The hole's clipping planes on (the tiles inside it culled).
-        clipped: Boolean(shown?.clippingPlanes?.enabled),
+        clipped: clippedKey !== null,
         memoryMB: shown?.totalMemoryUsageInBytes
           ? Math.round(shown.totalMemoryUsageInBytes / 1e6)
           : null,
