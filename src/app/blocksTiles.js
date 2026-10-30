@@ -34,25 +34,92 @@ export const TILES_SCREEN_ERROR = 4;
 /** The tiles kept in memory at most (Cesium's cache; its default is 512 MB). */
 export const TILES_CACHE_BYTES = 256 * 1024 * 1024;
 
+/** The cache guard's step: the error's floor rises by this much at a time. */
+export const GUARD_STEP = 1.25;
+
 /**
  * The cache guard. While the tiles a view wants overflow the cache
  * (cacheBytes plus Cesium's maximumCacheOverflowBytes), Cesium raises a
- * tileset's memoryAdjustedScreenSpaceError, unloads tiles, and lowers it
- * again once under cacheBytes, so the finer tiles load again: at Lake
- * Tahoe the lower 48's 480 m tiles (60 MB each decoded) and their 1,920 m
- * parents swapped every 4 s, 207 requests and the main thread decoding
- * (2026-10-30). The guard holds the raised error as the tileset's
- * maximumScreenSpaceError, under which Cesium never lowers it, so the
- * coarser level stays until the camera next moves or stops; then the tiles
- * may refine again, and the guard holds wherever the cache overflows.
- * @returns {number|null} the error now held, or null when none is
+ * tileset's memoryAdjustedScreenSpaceError 2 % a frame, unloads tiles, and
+ * lowers it again once under cacheBytes, down to maximumScreenSpaceError,
+ * so the finer tiles load again: at Lake Tahoe the lower 48's 480 m tiles
+ * (60 MB each decoded) and their 1,920 m parents swapped every 4 s, 207
+ * requests and the main thread decoding (2026-10-30). Each time the cache
+ * frees after an overflow, the guard raises the floor (the tileset's
+ * maximumScreenSpaceError, which Cesium never goes under) by GUARD_STEP,
+ * so the tiles settle at the finest step that fits instead of swinging;
+ * held at the peak, the floor stuck at 43 px (the unloads lag the raise).
+ * `release` (the camera moved or stopped) lets the tiles refine again.
  */
-export function guardTilesCache(tileset, baseError = TILES_SCREEN_ERROR) {
-  const adjusted = Number(tileset?.memoryAdjustedScreenSpaceError);
-  const maximum = Number(tileset?.maximumScreenSpaceError);
-  if (!(adjusted > maximum + 1e-9)) return maximum > baseError ? maximum : null;
-  tileset.maximumScreenSpaceError = adjusted;
-  return adjusted;
+export function createCacheGuard(baseError = TILES_SCREEN_ERROR) {
+  let floor = baseError;
+  let overflowing = false;
+  let last = null;
+  let steps = 0;
+  return {
+    /** Each frame, with the shown tileset. */
+    update(tileset) {
+      const adjusted = Number(tileset?.memoryAdjustedScreenSpaceError);
+      if (!Number.isFinite(adjusted)) return;
+      if (last !== null && adjusted > last && adjusted > floor * (1 + 1e-9))
+        overflowing = true;
+      else if (overflowing && last !== null && adjusted < last) {
+        // The cache freed: hold one step above where it overflowed.
+        overflowing = false;
+        floor *= GUARD_STEP;
+        steps++;
+        tileset.maximumScreenSpaceError = floor;
+        last = floor;
+        return;
+      }
+      last = adjusted;
+    },
+    /** Back to the base error on `tilesets` (the camera moved). */
+    release(tilesets = []) {
+      const held = floor > baseError;
+      floor = baseError;
+      overflowing = false;
+      last = null;
+      if (held)
+        for (const tileset of tilesets)
+          if (tileset) tileset.maximumScreenSpaceError = baseError;
+      return held;
+    },
+    /** The floor held above the base, or null. */
+    get error() {
+      return floor > baseError ? floor : null;
+    },
+    /** How many steps it has taken since it was made. */
+    get steps() {
+      return steps;
+    },
+  };
+}
+
+/** The sides of the polygon inscribed in the hole whose tiles are culled. */
+export const HOLE_SIDES = 8;
+
+/**
+ * The clipping planes that cull the tiles inside the hole: HOLE_SIDES
+ * vertical planes about the hole's centre (east, north, up there), each
+ * facing out at the inscribed polygon's apothem, so a point inside the
+ * polygon is outside every plane, which is what a collection not uniting
+ * its regions clips; a tile wholly inside is culled before it loads
+ * (Cesium3DTile.visibility). The shader still cuts the hole's circle.
+ */
+export function holePlanes(radiusM, sides = HOLE_SIDES) {
+  const apothem = radiusM * Math.cos(Math.PI / sides);
+  const planes = [];
+  for (let k = 0; k < sides; k++) {
+    const angle = (2 * Math.PI * k) / sides;
+    planes.push(
+      new Cesium.ClippingPlane(
+        new Cesium.Cartesian3(Math.cos(angle), Math.sin(angle), 0),
+        -apothem,
+      ),
+    );
+  }
+  return planes;
 }
 
 /** The server's index of built boxes, or none. */
@@ -111,20 +178,17 @@ export function createBlocksTilesLayer({
   /** Told of each tile loaded (the QA harness times the first picture). */
   const tileLoadListeners = new Set();
   let tileLoads = 0;
-  /** The screen-space error the cache guard holds (guardTilesCache), or null. */
-  let heldError = null;
-  let guardHolds = 0;
+  /** The cache guard on the shown tileset (createCacheGuard). */
+  const guard = createCacheGuard();
+  /** The hole the clipping planes were last set for, as JSON. */
+  let clippedKey = null;
 
   const requestRender = () => scene.requestRender?.();
 
   /** The guard lets go: every tileset refines to TILES_SCREEN_ERROR again. */
   function releaseGuard() {
-    if (heldError === null) return;
-    heldError = null;
-    for (const entry of loaded.values())
-      if (entry.tileset)
-        entry.tileset.maximumScreenSpaceError = TILES_SCREEN_ERROR;
-    requestRender();
+    if (guard.release([...loaded.values()].map((entry) => entry.tileset)))
+      requestRender();
   }
   const removeMoveStart =
     scene.camera?.moveStart?.addEventListener(releaseGuard);
@@ -167,8 +231,17 @@ export function createBlocksTilesLayer({
           tileLoads++;
           for (const listener of tileLoadListeners) listener(tile);
         });
+        // Culling the tiles under the live chunks (holePlanes), off until
+        // there is a hole.
+        tileset.clippingPlanes = new Cesium.ClippingPlaneCollection({
+          planes: holePlanes(1),
+          unionClippingRegions: false,
+          enabled: false,
+          edgeWidth: 0,
+        });
         tileset.show = url === shownUrl;
         entry.tileset = tileset;
+        clippedKey = null;
         scene.primitives.add(tileset);
         place();
         requestRender();
@@ -210,13 +283,7 @@ export function createBlocksTilesLayer({
   function frame() {
     if (!shownUrl || !state) return;
     const shown = loaded.get(shownUrl)?.tileset;
-    if (shown) {
-      const held = guardTilesCache(shown);
-      if (held !== null && held !== heldError) {
-        if (heldError === null) guardHolds++;
-        heldError = held;
-      }
-    }
+    if (shown) guard.update(shown);
     const at = scene.camera?.positionCartographic;
     if (at) {
       const { color } = fogColorFor(scene, {
@@ -254,6 +321,50 @@ export function createBlocksTilesLayer({
       );
       shader.setUniform('u_holeRadiusM', hole.radiusM);
     } else shader.setUniform('u_holeRadiusM', 0);
+    if (shown) clip(shown, hole?.radiusM > 0 ? hole : null);
+  }
+
+  /**
+   * The shown tileset's clipping planes set about the hole (holePlanes),
+   * in its clipping origin's frame, or off with none; set again only when
+   * the hole, the datum or the tileset changes.
+   */
+  function clip(tileset, hole) {
+    const planes = tileset.clippingPlanes;
+    if (!planes) return;
+    const key = hole
+      ? JSON.stringify([
+          shownUrl,
+          hole.lon,
+          hole.lat,
+          hole.radiusM,
+          Number(state?.datumOffsetM) || 0,
+        ])
+      : null;
+    if (key === clippedKey) return;
+    clippedKey = key;
+    if (!hole) {
+      planes.enabled = false;
+      return;
+    }
+    planes.removeAll();
+    for (const plane of holePlanes(hole.radiusM)) planes.add(plane);
+    const centre = Cesium.Transforms.eastNorthUpToFixedFrame(
+      Cesium.Cartesian3.fromDegrees(
+        hole.lon,
+        hole.lat,
+        Number(state?.datumOffsetM) || 0,
+      ),
+    );
+    planes.modelMatrix = Cesium.Matrix4.multiply(
+      Cesium.Matrix4.inverseTransformation(
+        tileset.clippingPlanesOriginMatrix ?? Cesium.Matrix4.IDENTITY,
+        new Cesium.Matrix4(),
+      ),
+      centre,
+      new Cesium.Matrix4(),
+    );
+    planes.enabled = true;
   }
   const removePreRender = scene.preRender?.addEventListener(frame);
 
@@ -293,8 +404,10 @@ export function createBlocksTilesLayer({
         // The shown tileset has every tile the view wants (Cesium's own).
         tilesLoaded: shown ? Boolean(shown.tilesLoaded) : null,
         // The cache guard: the error it holds now, and how often it held.
-        heldError,
-        guardHolds,
+        heldError: guard.error,
+        guardHolds: guard.steps,
+        // The hole's clipping planes on (the tiles inside it culled).
+        clipped: Boolean(shown?.clippingPlanes?.enabled),
         memoryMB: shown?.totalMemoryUsageInBytes
           ? Math.round(shown.totalMemoryUsageInBytes / 1e6)
           : null,

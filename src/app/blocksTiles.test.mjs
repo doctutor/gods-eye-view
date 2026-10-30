@@ -9,8 +9,11 @@ import * as Cesium from 'cesium';
 import {
   TILES_CACHE_BYTES,
   TILES_SCREEN_ERROR,
+  GUARD_STEP,
+  HOLE_SIDES,
   createBlocksTilesLayer,
-  guardTilesCache,
+  createCacheGuard,
+  holePlanes,
 } from './blocksTiles.js';
 
 // Cesium's CustomShader asks whether a uniform is a canvas or an image.
@@ -232,52 +235,184 @@ test('no index (the server has none): no boxes, nothing made, the plan off', asy
   }
 });
 
-test('the cache guard: when the view overflows the cache Cesium raises the error; the guard holds it as the maximum, so the coarser level stays instead of swapping back, until the camera moves or stops', async () => {
-  // On its own: nothing raised, nothing held.
-  const plain = {
-    maximumScreenSpaceError: 4,
-    memoryAdjustedScreenSpaceError: 4,
+/** Cesium's memory-adjusted error over frames (Cesium3DTileset processTiles). */
+function cesiumErrorTileset(maximum = TILES_SCREEN_ERROR) {
+  let max = maximum;
+  const tileset = {
+    memoryAdjustedScreenSpaceError: max,
+    get maximumScreenSpaceError() {
+      return max;
+    },
+    set maximumScreenSpaceError(value) {
+      max = value;
+      tileset.memoryAdjustedScreenSpaceError = value;
+    },
+    raise() {
+      tileset.memoryAdjustedScreenSpaceError *= 1.02;
+    },
+    lower() {
+      tileset.memoryAdjustedScreenSpaceError = Math.max(
+        tileset.memoryAdjustedScreenSpaceError / 1.02,
+        max,
+      );
+    },
   };
-  assert.equal(guardTilesCache(plain), null);
+  return tileset;
+}
+
+test('the cache guard: each time the cache frees after an overflow the floor steps up 1.25×, so the tiles settle at the finest step that fits instead of swinging back; the camera moving lets go', () => {
+  assert.equal(GUARD_STEP, 1.25);
+  const guard = createCacheGuard();
+  const tileset = cesiumErrorTileset();
+  // A view whose tiles fit below 6 px: over the cache under that.
+  const fits = () => tileset.maximumScreenSpaceError >= 6;
+  let swings = 0;
+  for (let frame = 0; frame < 2000; frame++) {
+    guard.update(tileset);
+    if (fits()) continue;
+    // Overflowing for 60 frames (the unloads lag), then freed below.
+    const phase = frame % 120;
+    if (phase < 60) tileset.raise();
+    else {
+      if (phase === 60) swings++;
+      tileset.lower();
+    }
+  }
+  // 4 → 5 → 6.25: two swings, then held.
+  assert.equal(guard.steps, 2);
+  assert.ok(Math.abs(guard.error - 6.25) < 1e-9);
+  assert.equal(tileset.maximumScreenSpaceError, guard.error);
+  assert.ok(swings <= 2, `${swings} swings`);
+  // Lowered by Cesium: never under the floor.
+  tileset.lower();
+  assert.ok(Math.abs(tileset.memoryAdjustedScreenSpaceError - 6.25) < 1e-9);
+  // The camera moves: back to the base.
+  assert.equal(guard.release([tileset]), true);
+  assert.equal(tileset.maximumScreenSpaceError, TILES_SCREEN_ERROR);
+  assert.equal(guard.error, null);
+  assert.equal(guard.release([tileset]), false, 'nothing held');
+});
+
+test('in the layer: the guard on the shown tileset, released by the camera moving or stopping', async () => {
   const { viewer, layer, made } = setup();
   await layer.ready;
   layer.apply({ state: 'ready', tiles: TILES });
   await settle();
   const [tileset] = made;
-  assert.equal(tileset.maximumScreenSpaceError, TILES_SCREEN_ERROR);
-  // Cesium, over cacheBytes + its overflow: the error up 2 % a frame.
-  for (let n = 0; n < 30; n++) tileset.memoryAdjustedScreenSpaceError *= 1.02;
-  const raised = tileset.memoryAdjustedScreenSpaceError;
-  viewer.scene.preRender.raiseEvent();
-  assert.equal(tileset.maximumScreenSpaceError, raised);
-  assert.equal(layer.getState().heldError, raised);
-  assert.equal(layer.getState().guardHolds, 1);
-  // The tiles unloaded and under cacheBytes: Cesium lowers the error, but
-  // never below the maximum, so the finer tiles are not asked for again.
-  tileset.memoryAdjustedScreenSpaceError = Math.max(
-    tileset.memoryAdjustedScreenSpaceError / 1.02,
+  const frame = () => viewer.scene.preRender.raiseEvent();
+  frame();
+  for (let n = 0; n < 30; n++) {
+    tileset.memoryAdjustedScreenSpaceError *= 1.02;
+    frame();
+  }
+  tileset.memoryAdjustedScreenSpaceError /= 1.02;
+  frame();
+  assert.equal(
     tileset.maximumScreenSpaceError,
+    TILES_SCREEN_ERROR * GUARD_STEP,
   );
-  viewer.scene.preRender.raiseEvent();
-  assert.equal(tileset.memoryAdjustedScreenSpaceError, raised);
-  assert.equal(layer.getState().heldError, raised);
-  // Overflowing further: held higher, still one hold.
-  tileset.memoryAdjustedScreenSpaceError *= 1.02;
-  viewer.scene.preRender.raiseEvent();
-  assert.ok(layer.getState().heldError > raised);
+  assert.equal(layer.getState().heldError, TILES_SCREEN_ERROR * GUARD_STEP);
   assert.equal(layer.getState().guardHolds, 1);
-  // The camera moves: let go, the tiles refine to 4 px again.
   viewer.scene.camera.moveStart.raiseEvent();
   assert.equal(tileset.maximumScreenSpaceError, TILES_SCREEN_ERROR);
   assert.equal(layer.getState().heldError, null);
+  layer.destroy();
+});
+
+test('the tiles inside the hole are culled before they load: clipping planes on an octagon inscribed in the hole, on with a hole, off without', async () => {
+  // The planes alone, in the hole's own east-north-up frame.
+  const planes = new Cesium.ClippingPlaneCollection({
+    planes: holePlanes(10_000),
+    unionClippingRegions: false,
+  });
+  assert.equal(planes.length, HOLE_SIDES);
+  const sphere = (x, y, r) => ({
+    intersectPlane: (plane) =>
+      Cesium.BoundingSphere.intersectPlane(
+        new Cesium.BoundingSphere(new Cesium.Cartesian3(x, y, 0), r),
+        plane,
+      ),
+  });
+  const { OUTSIDE, INSIDE, INTERSECTING } = Cesium.Intersect;
+  // Wholly inside the inscribed octagon (apothem 9,239 m): clipped, culled.
+  assert.equal(
+    planes.computeIntersectionWithBoundingVolume(sphere(0, 0, 9000)),
+    OUTSIDE,
+  );
+  assert.equal(
+    planes.computeIntersectionWithBoundingVolume(sphere(3000, -2000, 5000)),
+    OUTSIDE,
+  );
+  // Across its edge: drawn, the shader cutting the circle.
+  assert.equal(
+    planes.computeIntersectionWithBoundingVolume(sphere(9000, 0, 2000)),
+    INTERSECTING,
+  );
+  // Out past it: untouched.
+  assert.equal(
+    planes.computeIntersectionWithBoundingVolume(sphere(20_000, 0, 5000)),
+    INSIDE,
+  );
+  // In the layer: the shown tileset's planes about the hole in its frame.
+  const { viewer, layer, made } = setup();
+  await layer.ready;
+  layer.apply({ state: 'ready', tiles: TILES });
+  await settle();
+  const [tileset] = made;
+  tileset.clippingPlanesOriginMatrix =
+    Cesium.Transforms.eastNorthUpToFixedFrame(
+      Cesium.Cartesian3.fromDegrees(-76.5, 39.3),
+    );
+  // Set again for the tileset's own clipping origin.
+  layer.apply({ state: 'ready', tiles: { ...TILES, hole: null } });
+  layer.apply({ state: 'ready', tiles: TILES });
+  const clipping = tileset.clippingPlanes;
+  assert.equal(clipping.enabled, true);
+  assert.equal(clipping.unionClippingRegions, false);
+  assert.equal(layer.getState().clipped, true);
+  // The hole's centre (at the datum) is inside every plane, in world terms.
+  const centre = Cesium.Cartesian3.fromDegrees(
+    TILES.hole.lon,
+    TILES.hole.lat,
+    TILES.datumOffsetM,
+  );
+  const world = Cesium.Matrix4.multiply(
+    tileset.clippingPlanesOriginMatrix,
+    clipping.modelMatrix,
+    new Cesium.Matrix4(),
+  );
+  const at = (x, y) => ({
+    intersectPlane: (plane) =>
+      Cesium.BoundingSphere.intersectPlane(
+        new Cesium.BoundingSphere(x, y),
+        plane,
+      ),
+  });
+  assert.equal(
+    clipping.computeIntersectionWithBoundingVolume(
+      at(centre, 7000),
+      tileset.clippingPlanesOriginMatrix,
+    ),
+    OUTSIDE,
+  );
+  const far = Cesium.Cartesian3.fromDegrees(
+    TILES.hole.lon + 0.5,
+    TILES.hole.lat,
+    0,
+  );
+  assert.equal(
+    clipping.computeIntersectionWithBoundingVolume(
+      at(far, 1000),
+      tileset.clippingPlanesOriginMatrix,
+    ),
+    INSIDE,
+  );
+  // The planes' frame is the hole's east-north-up: its origin the centre.
+  const origin = Cesium.Matrix4.getTranslation(world, new Cesium.Cartesian3());
+  assert.ok(Cesium.Cartesian3.distance(origin, centre) < 0.01);
+  // No hole: off.
+  layer.apply({ state: 'ready', tiles: { ...TILES, hole: null } });
   viewer.scene.preRender.raiseEvent();
-  assert.equal(layer.getState().heldError, null);
-  // It overflows again where the camera stopped: held again.
-  tileset.memoryAdjustedScreenSpaceError = 6;
-  viewer.scene.preRender.raiseEvent();
-  assert.equal(layer.getState().heldError, 6);
-  assert.equal(layer.getState().guardHolds, 2);
-  viewer.scene.camera.moveEnd.raiseEvent();
-  assert.equal(tileset.maximumScreenSpaceError, TILES_SCREEN_ERROR);
+  assert.equal(clipping.enabled, false);
   layer.destroy();
 });
