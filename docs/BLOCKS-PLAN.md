@@ -736,3 +736,77 @@ Order: A before C's tileset work (C needs real tiles); B and C in
 parallel once A's tiny box builds. The live pipeline's fixes in flight
 (the lake mask, the drape and ring budgets, the paint bug) land first; they
 are the fallback's quality and the build's rules.
+
+### Step A, the first cut (2026-10-29)
+
+`npm run blocks:tileset -- --bbox <w,s,e,n> --levels <finest m> --out <dir>`
+(`scripts/blocks-tileset.mjs`; `--coarsest`, `--base`, `--dry-run`). Heights
+and water only; structures are step B.
+
+- **Inputs.** The live source itself (`source.js` `createChunkSource`) reads
+  every level: the lattice tiles, `columnsFromHeights`, the sea at 0 m, the
+  water plane's lakes above 30 m. Its height reader is anything that answers
+  the values request (`{layer, mode, box, cells, water}` → `{header, values,
+water}`). Today that is the app server's `GET /api/raster/values` (read-only,
+  its 30-day cache). A local DEM reader slots in by answering the same request
+  once decision 5's downloads are approved.
+- **Levels.** The ×4 flat chain only: 30, 120 and 480 m, each on `levelMFor`
+  levels (30 m for all three). Curved levels (1,920 m and up) and the native
+  steps under 30 m (1, 2, 8, 10 m do not nest by 4) are later cuts. By
+  default the build runs from the finest level up to the first level whose
+  one group holds the box.
+- **One frame.** Every level shares one anchor: the box's south-west corner
+  on the coarsest level's graticule. A group of one level (4 × 4 chunks, 256
+  columns) is then exactly one chunk of the next level up.
+- **The tree is explicit.** A tile's 16 children are the finer groups under
+  its 16 chunks. A child the box does not reach is that chunk of the parent
+  level alone (a fill tile, a leaf), so a REPLACE refinement never leaves a
+  hole. Sixteen children is not a quadtree. Implicit tiling would need a
+  content-free depth between every two levels and availability bitstreams;
+  at this size (17 tiles, a 9 KB tileset.json) that costs more than it
+  saves. A country build splits the tree into external tilesets per coarse
+  tile instead. The depth is the pyramid level, coarsest at 0.
+  `geometricError` is the tile's block size (0 at the leaves); the tileset's
+  is eight times the coarsest block.
+- **Tile frame and glTF.** The root's transform is the anchor's east-north-up
+  frame on the ellipsoid. Each tile's transform moves it to its south-west
+  corner. Positions are y up as glTF has them (east, up, −north; Cesium's
+  `Y_UP_TO_Z_UP` turns them back). Heights are mean sea level, each vertex
+  dropped onto the ellipsoid's curve under the tangent plane. The client
+  raises the tileset by the geoid's undulation, as the live datum offset does.
+  Attributes, shared by both primitives:
+  - `POSITION` (float);
+  - `NORMAL` (float);
+  - `COLOR_0` (normalised bytes, the mesher's study-sun colour; alpha for water);
+  - `_BLOCK_COORD` (float: columns east and north of the anchor at the tile's
+    level, and the level; whole at corners, halves at shaded face centres;
+    the CustomShader sees it as `block_coord`).
+
+  The opaque primitive comes first, then the water (`alphaMode: BLEND`), both
+  `KHR_materials_unlit`. Indices are 16-bit when the vertices allow.
+
+- **Seams.** Inside a tile, chunks mesh against their neighbours. Along a
+  tile's border, they hang skirts (`mesh.js` `skirt`) down to the lowest ground
+  any built level has there, so a tile beside a finer or coarser one shows no
+  gap.
+- **Writes.** Each file is written atomically (a temporary name, then a
+  rename). A rerun rebuilds everything; skipping what exists is for the large
+  build.
+
+The tiny box, a 30 m group over Baltimore's harbour (sea, land, and the 120 m
+level's reservoirs as its only lakes), was built from the server's cache.
+Results:
+
+| Build                                                 | Tiles | Size  | Vertices | Largest tile             |
+| ----------------------------------------------------- | ----- | ----- | -------- | ------------------------ |
+| `--levels 30` (120 m root, one 30 m group, 15 fill)   | 17    | 13 MB | 288 k    | 6.3 MB (the 120 m group) |
+| `--levels 120` (480 m root, one 120 m group, 15 fill) | 17    | 33 MB | 712 k    | 14 MB (the 480 m group)  |
+
+The 30 m group over the flat harbour is 1.3 MB.
+
+Coarse tiles are the heavy ones: 30 m levels terrace 123 km of rolling ground
+into many steps. Headroom for later:
+
+- 16-bit indices per chunk primitive;
+- quantised normals and block coordinates (`KHR_mesh_quantization`);
+- `EXT_meshopt_compression`, about three to four times smaller.
