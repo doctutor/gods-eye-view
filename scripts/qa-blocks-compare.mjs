@@ -1331,6 +1331,94 @@ function sequencePageProbe() {
     if (performance.memory)
       qa.heap.push([Date.now(), performance.memory.usedJSHeapSize]);
   }, 500);
+  // The shader programs linked: how many, how many are the Blocks shader's
+  // (its blocks_inHole), how many distinct, and the main thread's time in
+  // linkProgram and in getProgramParameter (where it waits for the link).
+  const programs = {
+    links: 0,
+    blocksLinks: 0,
+    linkMs: 0,
+    waitMs: 0,
+    waits: 0,
+    sources: new Set(),
+    blocksSources: new Set(),
+    byKind: {},
+    kindOf: new WeakMap(),
+  };
+  qa.programs = programs;
+  for (const Context of [
+    window.WebGL2RenderingContext,
+    window.WebGLRenderingContext,
+  ]) {
+    if (!Context) continue;
+    const link = Context.prototype.linkProgram;
+    const parameter = Context.prototype.getProgramParameter;
+    Context.prototype.linkProgram = function (program) {
+      let source = '';
+      try {
+        source = (this.getAttachedShaders(program) || [])
+          .map((shader) => this.getShaderSource(shader) || '')
+          .join('|');
+      } catch {
+        source = '';
+      }
+      // A cheap key for the pair's text: its length and a rolling hash.
+      let hash = 0;
+      for (let k = 0; k < source.length; k += 7)
+        hash = (hash * 31 + source.charCodeAt(k)) | 0;
+      const key = `${source.length}:${hash}`;
+      const blocks = source.includes('blocks_inHole');
+      // What the program draws, by names its source carries.
+      const kind = blocks
+        ? 'blocks'
+        : source.includes('czm_modelMaterial')
+          ? 'model'
+          : source.includes('u_dayTextureTranslationAndScale') ||
+              source.includes('u_initialColor')
+            ? 'globe'
+            : source.includes('computeAtmosphereColor') ||
+                source.includes('czm_skyAtmosphere')
+              ? 'atmosphere'
+              : source.includes('a_positionHighAndScale') ||
+                  source.includes('a_compressedAttribute')
+                ? 'billboard'
+                : source.includes('colorTexture')
+                  ? 'post-process'
+                  : 'other';
+      const pick = source.includes('czm_pickColor') ? ' pick' : '';
+      // A Blocks variant cut by clipping planes (the tiles about the hole).
+      const clip = blocks && /clippingPlane/i.test(source) ? ' clip' : '';
+      const tag = `${kind}${clip}${pick}`;
+      const byKind = (programs.byKind[tag] ||= {
+        links: 0,
+        sources: new Set(),
+        waitMs: 0,
+      });
+      byKind.links++;
+      byKind.sources.add(key);
+      programs.kindOf.set(program, tag);
+      programs.links++;
+      programs.sources.add(key);
+      if (blocks) {
+        programs.blocksLinks++;
+        programs.blocksSources.add(key);
+      }
+      const start = performance.now();
+      const result = link.call(this, program);
+      programs.linkMs += performance.now() - start;
+      return result;
+    };
+    Context.prototype.getProgramParameter = function (...args) {
+      const start = performance.now();
+      const result = parameter.apply(this, args);
+      const ms = performance.now() - start;
+      programs.waitMs += ms;
+      programs.waits++;
+      const tag = programs.kindOf.get(args[0]);
+      if (tag && programs.byKind[tag]) programs.byKind[tag].waitMs += ms;
+      return result;
+    };
+  }
 }
 
 /** Wrap the Blocks renderer and controller, and the camera, to log events. */
@@ -1442,6 +1530,41 @@ function sequenceReadout() {
         .map(([key, count]) => ({ key, count }))
     : null;
   counted?.clear();
+  // The shader programs linked since the last step's readout.
+  const linked = window.__qa?.programs;
+  const programs = linked
+    ? {
+        links: linked.links,
+        blocksLinks: linked.blocksLinks,
+        distinct: linked.sources.size,
+        blocksDistinct: linked.blocksSources.size,
+        linkMs: Math.round(linked.linkMs),
+        waitMs: Math.round(linked.waitMs),
+        waits: linked.waits,
+        cached:
+          gev.viewer?.scene?.context?.shaderCache?.numberOfShaders ?? null,
+        byKind: Object.fromEntries(
+          Object.entries(linked.byKind).map(([tag, held]) => [
+            tag,
+            {
+              links: held.links,
+              distinct: held.sources.size,
+              waitMs: Math.round(held.waitMs),
+            },
+          ]),
+        ),
+      }
+    : null;
+  if (linked) {
+    linked.links = 0;
+    linked.blocksLinks = 0;
+    linked.linkMs = 0;
+    linked.waitMs = 0;
+    linked.waits = 0;
+    linked.sources.clear();
+    linked.blocksSources.clear();
+    linked.byKind = {};
+  }
   const carto = gev.viewer.camera.positionCartographic;
   const text = (id) => document.getElementById(id)?.textContent?.trim() || '';
   let floor = '';
@@ -1465,6 +1588,7 @@ function sequenceReadout() {
     globeShown: gev.viewer.scene.globe.show,
     drapes: gev.viewer.imageryLayers.length,
     mutations,
+    programs,
     // The precomputed tiles: the controller's plan and what is shown.
     tiles: (() => {
       const probe = window.__gevBlocksProbe;
