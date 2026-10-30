@@ -98,7 +98,7 @@ test('build helper does not discover environment values or construct local provi
     );
     assert.deepEqual(
       config.plugins.slice(3).map((plugin) => plugin.name),
-      ['embed-framing', 'panel-build', 'build-stamp'],
+      ['embed-framing', 'panel-build', 'build-stamp', 'both-loopbacks'],
     );
   } finally {
     if (before === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
@@ -111,17 +111,18 @@ test('root config retains existing named exports and standalone provider order',
     assert.equal(compatibility[name], value, name);
   const config = standaloneConfig({ mode: 'test' });
   assert.deepEqual(
-    config.plugins.slice(3, -5).map((plugin) => plugin.name),
+    config.plugins.slice(3, -6).map((plugin) => plugin.name),
     providers.localProviderPlugins().map((plugin) => plugin.name),
   );
-  assert.equal(config.plugins.at(-6).name, 'gev-key-setup');
+  assert.equal(config.plugins.at(-7).name, 'gev-key-setup');
   // The local MCP route follows every provider and precedes the API fallback.
-  assert.equal(config.plugins.at(-5).name, 'local-mcp');
-  assert.equal(config.plugins.at(-4).name, 'api-not-found');
-  assert.equal(config.plugins.at(-3).name, 'embed-framing');
-  assert.equal(config.plugins.at(-2).name, 'panel-build');
-  // Personal fork: the build stamp, last.
-  assert.equal(config.plugins.at(-1).name, 'build-stamp');
+  assert.equal(config.plugins.at(-6).name, 'local-mcp');
+  assert.equal(config.plugins.at(-5).name, 'api-not-found');
+  assert.equal(config.plugins.at(-4).name, 'embed-framing');
+  assert.equal(config.plugins.at(-3).name, 'panel-build');
+  // Personal fork: the build stamp, then both loopback addresses, last.
+  assert.equal(config.plugins.at(-2).name, 'build-stamp');
+  assert.equal(config.plugins.at(-1).name, 'both-loopbacks');
 });
 
 test('build export resolves in Node and has no browser fallback', async () => {

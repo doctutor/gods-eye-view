@@ -4,6 +4,7 @@ import { DEFAULT_ALLOWED_HOSTS, hostCheckPlugin } from './allowedHosts.js';
 import { embedFramingPlugin } from './embed-framing.js';
 import { panelBuildPlugin } from './panel.js';
 import { buildStampPlugin } from './buildStamp.js';
+import { loopbackPlugin } from './loopback.js';
 
 /**
  * Content-Security-Policy for every document the dev/preview server serves.
@@ -100,6 +101,9 @@ export function createBrowserViteConfig({
       // Personal fork: the build stamp, so a page left open across a server
       // restart or a merge reloads itself for the code the server now serves.
       buildStampPlugin(),
+      // Personal fork: both loopback addresses, so a Node client racing
+      // localhost's (net autoSelectFamily) never lands where none listens.
+      loopbackPlugin(),
     ],
     ...(publicDir === undefined ? {} : { publicDir }),
     // A production build must not clean the dependency cache a running dev
