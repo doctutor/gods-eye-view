@@ -80,6 +80,10 @@ import { chromeExecutablePath } from './qa-chrome.mjs';
 import { blocksStyleZoomBand } from '../src/data/blocksStyle.js';
 import { MATERIAL_COLORS } from '../src/layers/blocks/lighting.js';
 import { MATERIALS } from '../src/layers/blocks/store.js';
+import {
+  BLOCKS_TILES_ROUTE,
+  resolveBlocksTilesPath,
+} from '../server/providers/blocksTiles.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const ORIGIN = 'http://gev-blocks.test';
@@ -806,7 +810,7 @@ function countRequest(url, log) {
 }
 
 /** Answer one intercepted request. */
-function respond(request, { dist, field, log, live }) {
+function respond(request, { dist, field, log, live, tilesDir = null }) {
   const url = new URL(request.url());
   if (url.origin !== ORIGIN) return request.abort('blockedbyclient');
   if (log.requests && url.pathname.startsWith('/api/')) {
@@ -821,6 +825,26 @@ function respond(request, { dist, field, log, live }) {
       }
     }
     log.requests.push(entry);
+  }
+  // --tiles-dir: the precomputed Blocks tilesets from disk, read-only, by
+  // the server's own rules (server/providers/blocksTiles.js), until the
+  // app server serves them.
+  if (tilesDir && url.pathname.startsWith(`${BLOCKS_TILES_ROUTE}/`)) {
+    const answer = resolveBlocksTilesPath(
+      tilesDir,
+      url.pathname.slice(BLOCKS_TILES_ROUTE.length),
+    );
+    if (answer.filePath)
+      return request.respond({
+        status: 200,
+        contentType: answer.contentType,
+        body: readFileSync(answer.filePath),
+      });
+    return request.respond({
+      status: answer.status,
+      contentType: 'application/json',
+      body: JSON.stringify(answer.json || { error: answer.error }),
+    });
   }
   if (live && isLiveRoute(url.pathname)) {
     countRequest(url, log);
@@ -1220,6 +1244,8 @@ function sequenceInstrument() {
       return original.apply(this, args);
     };
   }
+  // The precomputed tiles' loads (src/app/blocksTiles.js), when any.
+  probe.tiles?.onTileLoad?.(() => ev.push([Date.now(), 'tileLoad']));
   probe.controller.subscribe((st) =>
     ev.push([
       Date.now(),
@@ -1269,6 +1295,22 @@ function sequenceReadout() {
     },
     globeShown: gev.viewer.scene.globe.show,
     drapes: gev.viewer.imageryLayers.length,
+    // The precomputed tiles: the controller's plan and what is shown.
+    tiles: (() => {
+      const probe = window.__gevBlocksProbe;
+      const plan = probe?.controller?.getStatus?.()?.tiles;
+      const state = probe?.tiles?.getState?.();
+      return plan
+        ? {
+            mode: plan.mode,
+            box: plan.box,
+            floorM: plan.floorM,
+            holeM: plan.hole?.radiusM ?? null,
+            tileLoads: state?.tileLoads ?? null,
+            tilesLoaded: state?.tilesLoaded ?? null,
+          }
+        : { mode: 'off' };
+    })(),
   };
 }
 
@@ -1298,7 +1340,11 @@ export function stepMetrics(
   const after = (at) => at >= flightEnd && at <= to;
   const evs = events.filter(([at]) => inStep(at));
   const upserts = evs.filter((e) => e[1] === 'upsert');
-  const firstAfter = upserts.find(([at]) => at >= flightEnd);
+  const tileLoads = evs.filter((e) => e[1] === 'tileLoad');
+  // The first picture: a live chunk drawn or a tile loaded.
+  const firstAfter = [...upserts, ...tileLoads]
+    .filter(([at]) => at >= flightEnd)
+    .sort((a, b) => a[0] - b[0])[0];
   const statuses = evs.filter((e) => e[1] === 'status');
   const levels = [];
   for (const st of statuses)
@@ -1316,6 +1362,7 @@ export function stepMetrics(
     levels,
     levelChanges: Math.max(0, levels.length - 1),
     upserts: upserts.length,
+    tileLoads: tileLoads.length,
     upsertKeys: new Set(upserts.map((e) => e[2])).size,
     removes: evs.filter((e) => e[1] === 'remove').length,
     anchors: statuses.filter((e) => e[2] === 'anchoring').length,
@@ -1337,6 +1384,7 @@ export function stepMetrics(
           !path.startsWith('/api/earth-engine/tile/ee-elevation/'),
       ),
       overpass: kind((path) => path === '/api/overpass'),
+      blocksTiles: kind((path) => path.startsWith('/api/blocks/tiles/')),
       search: kind(
         (path) => path === '/api/geocode' || path.startsWith('/api/google/'),
       ),
@@ -1516,6 +1564,7 @@ async function runSequence({
   streetQuery,
   only = null,
   heapChurn = false,
+  tilesDir = null,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
@@ -1548,9 +1597,9 @@ async function runSequence({
   await page.setRequestInterception(true);
   const field = syntheticField();
   page.on('request', (request) => {
-    Promise.resolve(respond(request, { dist, field, log, live })).catch(
-      (error) => log.errors.push(`respond: ${error?.message || error}`),
-    );
+    Promise.resolve(
+      respond(request, { dist, field, log, live, tilesDir }),
+    ).catch((error) => log.errors.push(`respond: ${error?.message || error}`));
   });
   await page.goto(`${ORIGIN}/${sequenceHash()}`, {
     waitUntil: 'domcontentloaded',
@@ -1682,11 +1731,15 @@ async function runSequence({
             'setRegion',
             'setRegions',
             'setRingHoles',
+            'tileLoad',
           ]);
           const last = ev.filter((e) => quiet.has(e[1])).at(-1)?.[0] ?? 0;
           const text =
             document.querySelector('.lego-render-status')?.textContent || '';
-          const busy = /loading|finding|waiting|buildings…/.test(text);
+          const tiles = window.__gevBlocksProbe?.tiles?.getState?.();
+          const busy =
+            /loading|finding|waiting|buildings…/.test(text) ||
+            tiles?.tilesLoaded === false;
           return !busy && Date.now() - last > 2000;
         },
         { timeout: 240_000, polling: 250 },
@@ -1700,9 +1753,13 @@ async function runSequence({
       frames: window.__qa.frames,
       heap: window.__qa.heap,
     }));
+    // The last chunk drawn or tile loaded: when the view was whole.
     const lastUpsert =
       qa.events
-        .filter((e) => e[1] === 'upsert' && e[0] >= flightEnd)
+        .filter(
+          (e) =>
+            (e[1] === 'upsert' || e[1] === 'tileLoad') && e[0] >= flightEnd,
+        )
         .at(-1)?.[0] ?? flightEnd;
     const to = settled ? lastUpsert : Date.now();
     const readout = await page.evaluate(sequenceReadout);
@@ -1872,6 +1929,8 @@ export async function main(argv = process.argv.slice(2)) {
         out,
         streetQuery: argValue(argv, '--street-query'),
         heapChurn: argv.includes('--heap-churn'),
+        // The precomputed Blocks tilesets served from this folder.
+        tilesDir: argValue(argv, '--tiles-dir') || null,
         only:
           argValue(argv, '--steps')
             ?.split(',')
@@ -1884,7 +1943,7 @@ export async function main(argv = process.argv.slice(2)) {
       );
       for (const step of run.results)
         console.log(
-          `${step.name} (${step.via}${step.settled ? '' : ', not settled'}): first blocks ${step.firstBlocksMs} ms, settled ${step.settledMs} ms, levels ${step.levels.join(' → ')}, upserts ${step.upserts}, anchors ${step.anchors}, values ${step.requests.values}, budget ${step.budget}, long tasks ${step.longTasks.count}/${step.longTasks.totalMs} ms, ${step.fps} fps, heap ${step.heapMaxMB} MB (JS ${step.heapPeaksMB?.jsHeap}, buffers ${step.heapPeaksMB?.backingStores}); still ${step.still?.fps} fps, render ${step.still?.renderMs?.median}/${step.still?.renderMs?.p95} ms, ${step.still?.commands} commands, pick ${step.still?.pick?.chunk ? `${step.still.pick.chunk.key}${step.still.pick.chunk.water ? ' water' : ''}` : 'none'}${step.still?.pick?.expected === false ? ' (NOT as expected)' : ''}`,
+          `${step.name} (${step.via}${step.settled ? '' : ', not settled'}): first blocks ${step.firstBlocksMs} ms, settled ${step.settledMs} ms, levels ${step.levels.join(' → ')}, upserts ${step.upserts}, tiles ${step.readout?.tiles?.mode ?? 'off'}${step.readout?.tiles?.box ? ` ${step.readout.tiles.box} from ${step.readout.tiles.floorM} m${step.readout.tiles.holeM ? `, hole ${Math.round(step.readout.tiles.holeM)} m` : ''}` : ''} (${step.tileLoads} loads, ${step.requests.blocksTiles} requests), anchors ${step.anchors}, values ${step.requests.values}, budget ${step.budget}, long tasks ${step.longTasks.count}/${step.longTasks.totalMs} ms, ${step.fps} fps, heap ${step.heapMaxMB} MB (JS ${step.heapPeaksMB?.jsHeap}, buffers ${step.heapPeaksMB?.backingStores}); still ${step.still?.fps} fps, render ${step.still?.renderMs?.median}/${step.still?.renderMs?.p95} ms, ${step.still?.commands} commands, pick ${step.still?.pick?.chunk ? `${step.still.pick.chunk.key}${step.still.pick.chunk.water ? ' water' : ''}` : 'none'}${step.still?.pick?.expected === false ? ' (NOT as expected)' : ''}`,
         );
       console.log(`sequence: ${path.join(out, 'sequence.json')}`);
       return run;

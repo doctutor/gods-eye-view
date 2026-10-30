@@ -86,6 +86,9 @@ export function createBlocksTilesLayer({
   let shownUrl = null;
   /** The controller's status.tiles in force, or null. */
   let state = null;
+  /** Told of each tile loaded (the QA harness times the first picture). */
+  const tileLoadListeners = new Set();
+  let tileLoads = 0;
 
   const requestRender = () => scene.requestRender?.();
 
@@ -119,6 +122,8 @@ export function createBlocksTilesLayer({
             model3D(model);
             model.blocks3D = true;
           }
+          tileLoads++;
+          for (const listener of tileLoadListeners) listener(tile);
         });
         tileset.show = url === shownUrl;
         entry.tileset = tileset;
@@ -227,12 +232,23 @@ export function createBlocksTilesLayer({
       requestRender();
     },
     /** What is shown: the box's tileset URL, and the tilesets loaded. */
-    getState: () => ({
-      boxes: boxes.map((box) => box.name),
-      shown: shownUrl,
-      loaded: [...loaded.keys()],
-      tiles: state,
-    }),
+    getState: () => {
+      const shown = shownUrl ? loaded.get(shownUrl)?.tileset : null;
+      return {
+        boxes: boxes.map((box) => box.name),
+        shown: shownUrl,
+        loaded: [...loaded.keys()],
+        tiles: state,
+        tileLoads,
+        // The shown tileset has every tile the view wants (Cesium's own).
+        tilesLoaded: shown ? Boolean(shown.tilesLoaded) : null,
+      };
+    },
+    /** Hear each tile loaded; returns the remover. */
+    onTileLoad(listener) {
+      tileLoadListeners.add(listener);
+      return () => tileLoadListeners.delete(listener);
+    },
     /** The tiles' shader (for tests and the harness). */
     shader,
     destroy() {
