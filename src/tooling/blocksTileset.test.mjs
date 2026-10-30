@@ -38,11 +38,16 @@ import {
   summarizeLevels,
   loadTileChunks,
   tileFrame,
+  enuTransform,
   tileMesh,
   tileTree,
   walkTiles,
 } from '../../scripts/blocks-tileset.mjs';
-import { CURVED_CELL_PX, curvedRunCap } from '../layers/blocks/mesh.js';
+import {
+  CURVED_CELL_PX,
+  buildChunkMesh,
+  curvedRunCap,
+} from '../layers/blocks/mesh.js';
 import {
   FOLD_COLUMNS,
   foldColumns,
@@ -1512,4 +1517,83 @@ test('land only: the finest groups over open sea are not built or read, their pa
     fs.existsSync(path.join(out, '7680m/c-1_0.glb')),
     'a sea chunk drawn by its 7,680 m fill',
   );
+});
+
+test("the build's flat placement is the live mesher's: a vertex at its levels plus dropAt at its own place, to the millimetre", async () => {
+  const { plan, chunksByLevel } = await built();
+  const region = levelRegion(plan.anchor, 30);
+  const chunk = chunksByLevel.get(30).get('1:1');
+  const chunkM = 64 * 30;
+  // The live mesher (since 3e4568a1): each vertex dropped by the rest of
+  // the curve, the chunk lowered by its corner's drop.
+  const live = buildChunkMesh(chunk, {
+    blockM: 30,
+    levelM: 30,
+    flatDrop: {
+      lon0: region.lon0,
+      lat0: region.lat0,
+      regionBlockM: 30,
+      cornerM: { x: chunkM, y: chunkM },
+    },
+  });
+  const plain = buildChunkMesh(chunk, { blockM: 30, levelM: 30 });
+  const corner = region.chunkOrigin(1, 1).z;
+  let worst = 0;
+  for (let v = 0; v < plain.positions.length / 3; v++) {
+    const x = plain.positions[v * 3] + chunkM;
+    const y = plain.positions[v * 3 + 1] + chunkM;
+    // The build: its levels plus the drop at its own place (tileMesh).
+    const build =
+      plain.positions[v * 3 + 2] + region.chunkOrigin(x / chunkM, y / chunkM).z;
+    const shown = live.positions[v * 3 + 2] + corner;
+    worst = Math.max(worst, Math.abs(build - shown));
+  }
+  assert.ok(worst < 0.01, `${worst} m apart`);
+  assert.ok(plain.positions.length > 300);
+});
+
+test("curved placement against the live flat rule: the same within a flat region's reach, apart by h(1 − cos θ) and a lean far out", (t) => {
+  // A live flat region at 480 m and a column `d` east of its anchor at
+  // height h: the live rule stands it on the ellipsoid under the tangent
+  // plane and raises it along the anchor's up; the curved one (the
+  // tileset's) raises it along its own place's vertical.
+  const anchor = { lon0: 10, lat0: 45 };
+  const region = levelRegion(anchor, 480);
+  const world = enuTransform({ lon0: region.lon0, lat0: region.lat0 });
+  const geodetic = (p) =>
+    Cesium.Cartographic.fromCartesian(
+      new Cesium.Cartesian3(
+        ...[0, 1, 2].map(
+          (c) =>
+            world[c] * p[0] +
+            world[4 + c] * p[1] +
+            world[8 + c] * p[2] +
+            world[12 + c],
+        ),
+      ),
+    );
+  const apart = (d, h) => {
+    const t0 = region.dropAt(d, 0);
+    const ground = geodetic([d, 0, t0]);
+    const shown = geodetic([d, 0, t0 + h]);
+    const lean = Cesium.Cartesian3.distance(
+      Cesium.Cartesian3.fromRadians(ground.longitude, ground.latitude, 0),
+      Cesium.Cartesian3.fromRadians(shown.longitude, shown.latitude, 0),
+    );
+    return { dh: h - shown.height, lean };
+  };
+  const near = apart(20_000, 300);
+  const far = apart(245_000, 1000);
+  const mountain = apart(245_000, 3000);
+  t.diagnostic(
+    `20 km, 300 m: ${near.dh.toFixed(4)} m lower, ${near.lean.toFixed(2)} m lean; ` +
+      `245 km, 1,000 m: ${far.dh.toFixed(2)} m, ${far.lean.toFixed(1)} m; ` +
+      `245 km, 3,000 m: ${mountain.dh.toFixed(2)} m, ${mountain.lean.toFixed(1)} m`,
+  );
+  // Within a flat region's reach (20 km) the two agree to millimetres.
+  assert.ok(Math.abs(near.dh) < 0.005);
+  // Far out the live column sits lower by h(1 − cos θ), θ = d / R, and leans by h sin θ.
+  const theta = 245_000 / 6_371_000;
+  assert.ok(Math.abs(far.dh - 1000 * (1 - Math.cos(theta))) < 0.1);
+  assert.ok(Math.abs(far.lean - 1000 * Math.sin(theta)) < 2);
 });
