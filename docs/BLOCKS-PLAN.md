@@ -1031,3 +1031,41 @@ download.
     shallower) where a coarser level's chunks straddle it.
   - Memory is a few hundred chunks, whatever the box. Every line also goes
     to `build.log`, and the run reports Earth Engine's day before and after.
+
+### The lower 48 at 480 m, and 120 m measured (2026-10-30)
+
+- **Built:** `-125,24,-66,50` at 480 m and up (curved, streamed), into
+  `D:\gev-cache\blocks-tiles\lower48-480\`. It is 1,508 tiles and 4.5 GB, with
+  82 external tilesets and a 170 KB tileset.json. It took 18 minutes, every
+  read a hit in the server's cache.
+  - The 480 m level holds 4.06 GB of it: a 2.4 MB median tile, and up to
+    22 MB in the Rockies, where 30 m levels terrace the relief.
+  - Frames of the tiles beside live Blocks from a continental camera and over
+    the Front Range are in `.claude/blocks-compare/tileset/lower48-*`.
+- **For the client (step C):** Cesium's `dynamicScreenSpaceError` (on by
+  default) subtracts a fog term of up to 24 px from far tiles' error. From
+  5,000 km that drives the root's error negative, and the tileset never
+  refines past its coarsest level. Set it off on the Blocks tileset. A
+  `maximumScreenSpaceError` of 4 matches the live mode's block size at both
+  cameras (7,680 m continental, 1,920 m from 500 km).
+- **120 m, measured** (one 480 m group of the lower-48 plan, 16 groups at
+  120 m, over each area):
+
+  | Sample      | Size at 120 m | A group               | Its 480 m tile | Ratio | Meshing |
+  | ----------- | ------------- | --------------------- | -------------- | ----- | ------- |
+  | Front Range | 63.8 MB       | 4.0 MB (largest 8.6)  | 8.4 MB         | 7.6×  | 13 s    |
+  | Kansas      | 14.7 MB       | 0.92 MB (largest 1.7) | 2.2 MB         | 6.8×  | 3.5 s   |
+
+  The 120 m size follows its 480 m tile closely, so the lower 48 at 120 m
+  (16,427 groups, 5,333 lattice tiles at 512 cells) is estimated from the
+  480 m build, each tile's ratio interpolated by its density:
+  - the 120 m level is **28 to 33 GB**, about 30 GB;
+  - with the levels above it, the tree is **33 to 38 GB**. That would not
+    fit D:, so it goes to E: or is trimmed (the user's call).
+  - Uniform densities would bound it at 15 GB (all plains) to 66 GB (all
+    mountains); 70 % of the 480 m bytes are in 296 rugged groups.
+
+  Time: about 0.19 s of meshing a MB, so roughly 1.6 h, plus two cached read
+  passes (about 35 minutes): **2 to 2.5 hours once the cache is warm**.
+  Warming the 5,333 lattice tiles first takes about 4 to 5 hours at the
+  warm-up's 2.9 s a tile, and 5,333 of Earth Engine's 20,000-tile day.
