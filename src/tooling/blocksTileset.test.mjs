@@ -37,6 +37,7 @@ import {
   skirtFloors,
   summarizeLevels,
   loadTileChunks,
+  streamedVariants,
   tileFrame,
   tileRunCap,
   TILE_CELL_PX,
@@ -1757,5 +1758,93 @@ test("the build's own settings shape the digest by value: land only, the split d
       null,
       { fingerprint: 'f' },
     ),
+  );
+});
+
+test('streamed structures: a streamed build with buildings and land cover writes the very tiles a held one does, one Overpass query a group', async () => {
+  const { bbox } = groupBox();
+  const plan = planTiles(bbox, 30);
+  const source = createChunkSource({
+    fetchValues: syntheticReader(bbox),
+    maxChunks: 4096,
+  });
+  const chunksByLevel = await loadChunks(plan, source);
+  // The same skirt floors for both: the streamed build's summaries.
+  const summaries = await summarizeLevels(plan, source);
+  const heldQuery = syntheticOverpass(bbox);
+  const held = await loadStructures(
+    plan,
+    chunksByLevel,
+    createStructuresSource({
+      loadChunk: (region, ci, cj) => source.loadChunk(region, ci, cj),
+      query: heldQuery,
+    }),
+  );
+  const heldOut = temporary('blocks-tileset-held-');
+  const a = await buildTileset(plan, chunksByLevel, {
+    out: heldOut,
+    summaries,
+    variants: [
+      {
+        file: 'tileset.json',
+        name: 'buildings',
+        suffix: '',
+        chunksByLevel: held.built,
+      },
+      {
+        file: 'tileset-ground.json',
+        name: 'ground',
+        suffix: '.ground',
+        chunksByLevel: held.ground,
+      },
+    ],
+  });
+  const streamQuery = syntheticOverpass(bbox);
+  const streamSource = createChunkSource({
+    fetchValues: syntheticReader(bbox),
+    maxChunks: 64,
+  });
+  const streamOut = temporary('blocks-tileset-streamed-structures-');
+  const b = await buildTileset(plan, null, {
+    out: streamOut,
+    summaries,
+    variants: streamedVariants(
+      plan,
+      streamSource,
+      createStructuresSource({
+        loadChunk: (region, ci, cj) => streamSource.loadChunk(region, ci, cj),
+        query: streamQuery,
+      }),
+    ),
+  });
+  assert.equal(
+    streamQuery.count(),
+    1,
+    'one query for the one 30 m group, both variants',
+  );
+  const uris = (result) => result.tiles.map((tile) => tile.uri).sort();
+  assert.deepEqual(uris(b), uris(a));
+  assert.ok(
+    uris(a).includes('30m/g0_0.ground.glb') &&
+      !uris(a).some((u) => u.startsWith('120m/') && u.includes('.ground')),
+  );
+  for (const uri of uris(a))
+    assert.ok(
+      fs
+        .readFileSync(path.join(streamOut, uri))
+        .equals(fs.readFileSync(path.join(heldOut, uri))),
+      `${uri} differs`,
+    );
+  for (const file of ['tileset.json', 'tileset-ground.json'])
+    assert.deepEqual(
+      b.tilesets.get(file).root,
+      a.tilesets.get(file).root,
+      file,
+    );
+  // --hold keeps a box in memory past the streaming threshold.
+  assert.equal(
+    parseArgs(['--bbox', '1,1,2,2', '--levels', '30', '--hold', '--dry-run'])
+      .hold,
+    true,
   );
 });

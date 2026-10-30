@@ -193,6 +193,7 @@ export function parseArgs(argv) {
     base: value('--base') ?? DEFAULT_BASE,
     structures: !argv.includes('--no-structures'),
     stream: argv.includes('--stream'),
+    hold: argv.includes('--hold'),
     landOnly: argv.includes('--land-only'),
     listReads: value('--list-reads') ?? null,
     splitDepth,
@@ -755,6 +756,81 @@ export async function loadTileChunks(plan, source, tile) {
 }
 
 /**
+ * A streamed build's variants: each tile's chunks read when it is built
+ * (loadTileChunks). With `structures` (createStructuresSource), at the
+ * levels the live controller applies them (STRUCTURES_MAX_BLOCK_M and
+ * finer) each chunk gets its group's Overpass answer (one query a group,
+ * as paced by the source's query) and two copies are made, as loadStructures
+ * makes them: `buildings` with them, `ground` without (withoutBuildings).
+ * A tile's two variants share one read: the last tile's answer is kept for
+ * the other. Coarser levels are the heights alone, one file for both.
+ */
+export function streamedVariants(plan, source, structures = null) {
+  if (!structures)
+    return [
+      {
+        file: 'tileset.json',
+        suffix: '',
+        chunksFor: (tile) => loadTileChunks(plan, source, tile),
+      },
+    ];
+  const own = new Set(plan.levels.filter((m) => m <= STRUCTURES_MAX_BLOCK_M));
+  let last = null;
+  const both = (tile) => {
+    if (last?.tile === tile) return last.promise;
+    const promise = (async () => {
+      const plain = await loadTileChunks(plan, source, tile);
+      if (!own.has(tile.level)) return { built: plain, ground: plain };
+      const region = levelRegion(plan.anchor, tile.level, plan.curved);
+      const built = new Map();
+      const ground = new Map();
+      for (const [key, chunk] of plain.get(tile.level)) {
+        let answer;
+        try {
+          answer = await structures.loadChunkStructures(
+            region,
+            chunk.ci,
+            chunk.cj,
+          );
+        } catch (error) {
+          throw Object.assign(error ?? new Error('structures'), {
+            structures: true,
+          });
+        }
+        const a = copyChunk(chunk);
+        const b = copyChunk(chunk);
+        applyStructures(a, answer);
+        applyStructures(b, withoutBuildings(answer));
+        built.set(key, a);
+        ground.set(key, b);
+      }
+      return {
+        built: new Map([[tile.level, built]]),
+        ground: new Map([[tile.level, ground]]),
+      };
+    })();
+    last = { tile, promise };
+    return promise;
+  };
+  return [
+    {
+      file: 'tileset.json',
+      name: 'buildings',
+      suffix: '',
+      ownLevels: own,
+      chunksFor: (tile) => both(tile).then((variants) => variants.built),
+    },
+    {
+      file: 'tileset-ground.json',
+      name: 'ground',
+      suffix: '.ground',
+      ownLevels: own,
+      chunksFor: (tile) => both(tile).then((variants) => variants.ground),
+    },
+  ];
+}
+
+/**
  * Every built chunk's summary (chunkSummary), level by level, group by
  * group through `source`, holding none of the chunks: a streamed build's
  * first pass, for the skirt floors.
@@ -1262,13 +1338,26 @@ export async function buildTileset(
   const tiles = [];
   const failed = []; // tiles whose heights did not come, left for a rerun
   const done = new Map(); // uri → {box, content}, this run
-  const total = variants.length * [...walkTiles(roots)].length;
+  // A variant's own file for a tile, or the first's where they share it
+  // (held: the same chunks at its level; streamed: a level it does not own).
+  const uriOf = (variant, tile) =>
+    variants.length === 1 ||
+    (variant.chunksFor
+      ? !variant.ownLevels?.has(tile.level)
+      : variant.chunksByLevel?.get(tile.level) === base?.get(tile.level))
+      ? tileUri(tile)
+      : tileUri(tile).replace(/\.glb$/, `${variant.suffix}.glb`);
+  const total = new Set(
+    [...walkTiles(roots)].flatMap((tile) =>
+      variants.map((variant) => uriOf(variant, tile)),
+    ),
+  ).size;
   const started = Date.now();
   let visited = 0;
   const buildTile = async (tile, variant, uri) => {
-    visited++;
     const known = done.get(uri);
     if (known) return known;
+    visited++;
     let chunks;
     try {
       chunks = variant.chunksFor
@@ -1277,7 +1366,10 @@ export async function buildTileset(
     } catch (error) {
       failed.push(uri);
       log?.(
-        `tile ${uri}: heights failed (${error?.status ?? ''} ${error?.message ?? error}); left for a rerun`,
+        `tile ${uri}: heights failed (${error?.status ?? ''} ${error?.message ?? error}); left for a rerun`.replace(
+          'heights failed',
+          error?.structures ? 'structures failed' : 'heights failed',
+        ),
       );
       const { side } = tileExtent(tile);
       const result = { box: boxVolume(null, side), content: false };
@@ -1332,16 +1424,16 @@ export async function buildTileset(
     }
     return result;
   };
+  // Every tile first, each tile's variants together (a streamed build reads
+  // its inputs, its Overpass answer among them, once for all of them).
+  for (const tile of walkTiles(roots))
+    for (const variant of variants)
+      await buildTile(tile, variant, uriOf(variant, tile));
   const tilesets = new Map();
   const externals = [];
   for (const variant of variants) {
-    const uriOf = (tile) =>
-      variants.length === 1 ||
-      variant.chunksByLevel?.get(tile.level) === base?.get(tile.level)
-        ? tileUri(tile)
-        : tileUri(tile).replace(/\.glb$/, `${variant.suffix}.glb`);
     const toJson = async (tile, parent, depth) => {
-      const uri = uriOf(tile);
+      const uri = uriOf(variant, tile);
       const { box, content } = await buildTile(tile, variant, uri);
       const { x, y } = tileExtent(tile);
       let transform;
@@ -1739,7 +1831,11 @@ export async function main({
     plan.levels[plan.levels.length - 1],
   ).size;
   // Land only needs the coarser summaries first: always streamed.
-  const streamed = args.stream || args.landOnly || finestGroups > STREAM_GROUPS;
+  // --hold keeps a box past STREAM_GROUPS in memory (land only needs streaming).
+  const streamed =
+    args.stream ||
+    args.landOnly ||
+    (finestGroups > STREAM_GROUPS && !args.hold);
   log(
     `levels ${plan.levels.join(', ')} m${plan.curved ? ' (curved)' : ''}; ${all.length} tiles (` +
       plan.levels
@@ -1838,16 +1934,17 @@ export async function main({
     chunksByLevel = await loadChunks(plan, source);
     log(`heights read in ${((Date.now() - started) / 1000).toFixed(1)} s`);
   }
+  let streamedOverpass = null;
   if (streamed) {
-    if (args.structures && structureLevels.length)
-      log('structures need the whole box held: none in a streamed build');
-    variants = [
-      {
-        file: 'tileset.json',
-        suffix: '',
-        chunksFor: (tile) => loadTileChunks(plan, source, tile),
-      },
-    ];
+    let structures = null;
+    if (args.structures && structureLevels.length) {
+      streamedOverpass = query ?? serverOverpass({ base: args.base });
+      structures = createStructuresSource({
+        loadChunk: (region, ci, cj) => source.loadChunk(region, ci, cj),
+        query: streamedOverpass,
+      });
+    }
+    variants = streamedVariants(plan, source, structures);
   }
   if (!streamed && args.structures && structureLevels.length) {
     const overpass = query ?? serverOverpass({ base: args.base });
@@ -1912,6 +2009,10 @@ export async function main({
     );
   }
   if (externals.length) log(`${externals.length} external tilesets`);
+  if (streamedOverpass?.count)
+    log(
+      `structures at ${structureLevels.join(', ')} m: ${streamedOverpass.count()} Overpass queries`,
+    );
   if (failed.length)
     log(
       `${failed.length} tiles without heights, left for a rerun: ${failed.join(', ')}`,
