@@ -257,10 +257,18 @@ export function createBlocksTilesLayer({
     const modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
       Cesium.Cartesian3.fromRadians(at.longitude, at.latitude, -100),
     );
-    const glb = prewarmBlocksGlb();
+    // The live chunks always carry the planes; the tiles with and without.
     Promise.all(
-      [true, false].map((clipped) =>
-        createModel(glb, { modelMatrix, customShader: shader, clipped }),
+      [
+        ['live', true],
+        ['tile', true],
+        ['tile', false],
+      ].map(([schema, clipped]) =>
+        createModel(prewarmBlocksGlb(schema), {
+          modelMatrix,
+          customShader: shader,
+          clipped,
+        }),
       ),
     )
       .then((models) => {

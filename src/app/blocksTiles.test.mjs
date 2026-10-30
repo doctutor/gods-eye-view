@@ -707,7 +707,7 @@ test('one clipping configuration for every Blocks Model and the tiles, never swi
   layer.destroy();
 });
 
-test('the first Blocks status links its programs before any flight: two centimetre Models of ground and water under the camera, with the parked planes and without, drawn and then removed; once a session', async () => {
+test('the first Blocks status links its programs before any flight: three centimetre Models of ground and water under the camera (a live batch’s table with the parked planes, a tile’s with them and without), drawn and then removed; once a session', async () => {
   assert.equal(PREWARM_FRAMES, 300);
   fakeModels.length = 0;
   const { viewer, layer } = setup();
@@ -719,10 +719,10 @@ test('the first Blocks status links its programs before any flight: two centimet
   // On: two Models, clipped and not, with the tiles' Blocks shader.
   layer.apply({ state: 'loading', tiles: null });
   await settle();
-  assert.equal(fakeModels.length, 2);
+  assert.equal(fakeModels.length, 3);
   assert.deepEqual(
     fakeModels.map((model) => model.options.clipped),
-    [true, false],
+    [true, true, false],
   );
   for (const model of fakeModels) {
     assert.equal(model.options.customShader, layer.shader);
@@ -744,6 +744,18 @@ test('the first Blocks status links its programs before any flight: two centimet
   // Once a session.
   layer.apply({ state: 'ready', tiles: TILES });
   await settle();
-  assert.equal(fakeModels.length, 2);
+  assert.equal(fakeModels.length, 3);
   layer.destroy();
+});
+
+test('the pre-warm GLBs carry a live batch’s feature table or a tile’s: Cesium compiles the metadata into the programs, so each table is a set of its own', async () => {
+  const { prewarmBlocksGlb } = await import('../layers/blocks/renderer.js');
+  const { readBlocksGlb } = await import('../layers/blocks/gltf.js');
+  const names = (glb) =>
+    Object.keys(
+      readBlocksGlb(glb).json.extensions.EXT_structural_metadata.schema.classes
+        .chunk.properties,
+    ).sort();
+  assert.deepEqual(names(prewarmBlocksGlb('live')), ['ci', 'cj', 'water']);
+  assert.deepEqual(names(prewarmBlocksGlb('tile')), ['blockM', 'ci', 'cj']);
 });
