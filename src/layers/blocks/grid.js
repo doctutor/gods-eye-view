@@ -99,9 +99,18 @@ export const columnIndex = (i, j) => j * CHUNK_COLUMNS + i;
 /**
  * A region around a place. `lon0`, `lat0` are snapped to the graticule of
  * `blockM` (snapOrigin); the frame sits on the ellipsoid there. `levelM`,
- * the metres a level, is `blockM` unless given.
+ * the metres a level, is `blockM` unless given. `curved`, the azimuthal
+ * map (CURVED_BLOCK_M and up unless given): the tileset build lays every
+ * level of a country-wide box out on it, so a finer level nests in the
+ * curved ones above it (scripts/blocks-tileset.mjs).
  */
-export function createRegion({ lon0, lat0, blockM, levelM = blockM }) {
+export function createRegion({
+  lon0,
+  lat0,
+  blockM,
+  levelM = blockM,
+  curved: curvedAsked = null,
+}) {
   if (!(blockM > 0)) throw new RangeError('blockM must be positive');
   if (!(levelM > 0)) throw new RangeError('levelM must be positive');
   if (!Number.isFinite(lon0) || !Number.isFinite(lat0))
@@ -123,7 +132,8 @@ export function createRegion({ lon0, lat0, blockM, levelM = blockM }) {
   ];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const chunkM = CHUNK_COLUMNS * blockM;
-  const curved = blockM >= CURVED_BLOCK_M;
+  const curved =
+    typeof curvedAsked === 'boolean' ? curvedAsked : blockM >= CURVED_BLOCK_M;
   // The curved regions' map is drawn on the sphere of the Gaussian mean
   // radius at the origin (its places then stood on the ellipsoid).
   const sinLat0 = Math.sin(lat);

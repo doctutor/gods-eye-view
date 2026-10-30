@@ -235,7 +235,9 @@ function curvedRegion({ lon0, lat0, regionBlockM }) {
   let region = curvedRegions.get(key);
   if (!region) {
     if (curvedRegions.size > 32) curvedRegions.clear();
-    region = createRegion({ lon0, lat0, blockM: regionBlockM });
+    // Always the azimuthal map, whatever the block (the tileset build
+    // places its 480 m levels this way too).
+    region = createRegion({ lon0, lat0, blockM: regionBlockM, curved: true });
     curvedRegions.set(key, region);
   }
   return region;
