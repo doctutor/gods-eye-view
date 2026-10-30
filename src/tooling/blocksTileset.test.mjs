@@ -38,6 +38,8 @@ import {
   summarizeLevels,
   loadTileChunks,
   tileFrame,
+  tileRunCap,
+  TILE_CELL_PX,
   canaryChunk,
   meshFingerprint,
   buildFingerprint,
@@ -47,11 +49,7 @@ import {
   tileTree,
   walkTiles,
 } from '../../scripts/blocks-tileset.mjs';
-import {
-  CURVED_CELL_PX,
-  buildChunkMesh,
-  curvedRunCap,
-} from '../layers/blocks/mesh.js';
+import { buildChunkMesh, curvedRunCap } from '../layers/blocks/mesh.js';
 import {
   FOLD_COLUMNS,
   foldColumns,
@@ -1132,10 +1130,10 @@ test('curved placement: each vertex is its block corner on the ellipsoid, at its
   assert.ok(checked > 1000, `${checked} vertices checked`);
 });
 
-test('curved greedy runs: no top face longer than curvedRunCap cells, each straight edge chord under a pixel of its cell', async (t) => {
+test('curved greedy runs: no top face longer than the tileset run cap, each straight edge chord under a pixel of its cell', async (t) => {
   const { plan, out, tiles } = await curvedBuilt();
   const region = levelRegion(plan.anchor, 1920, true);
-  const cap = curvedRunCap(1920);
+  const cap = tileRunCap(1920);
   let longest = 0;
   let deepestEdge = 0;
   let deepestMiddle = 0;
@@ -1197,19 +1195,21 @@ test('curved greedy runs: no top face longer than curvedRunCap cells, each strai
       }
   }
   t.diagnostic(
-    `longest run ${longest} cells; edge chord ${deepestEdge.toFixed(0)} m, face middle ${deepestMiddle.toFixed(0)} m (a pixel: ${1920 / CURVED_CELL_PX} m)`,
+    `longest run ${longest} cells; edge chord ${deepestEdge.toFixed(0)} m, face middle ${deepestMiddle.toFixed(0)} m (a pixel: ${1920 / TILE_CELL_PX} m)`,
   );
   assert.ok(longest <= cap, `a run of ${longest} cells, cap ${cap}`);
-  assert.equal(longest, cap, 'the open sea merges up to the cap');
+  // The open sea merges up to the cap, or to the chunk's 64 columns when the cap is wider.
+  assert.equal(longest, Math.min(cap, 64));
+  assert.equal(cap, 81, 'longer than the live 8 px rule (57)');
+  assert.equal(curvedRunCap(1920), 57);
   assert.ok(
-    deepestEdge <= 1920 / CURVED_CELL_PX,
+    deepestEdge <= 1920 / TILE_CELL_PX,
     `an edge's chord sags ${deepestEdge} m`,
   );
   // A face capped both ways sags about twice an edge at its middle (the
   // cap bounds runs, not faces): 1.7 px of an 8 px cell here.
   assert.ok(
-    deepestMiddle > deepestEdge &&
-      deepestMiddle < (2.5 * 1920) / CURVED_CELL_PX,
+    deepestMiddle > deepestEdge && deepestMiddle < (2.5 * 1920) / TILE_CELL_PX,
     `inside ${deepestMiddle} m`,
   );
 });

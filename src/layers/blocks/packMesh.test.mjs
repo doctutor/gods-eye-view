@@ -35,9 +35,10 @@ test('packMesh: opaque and water parts packed with the chunk’s columns folded 
     opaque.indices.length + water.indices.length,
     mesh.indices.length,
   );
-  // Folded: chunk 3 east is 192 columns, −2 north is 3968.
-  assert.ok(opaque.blockCoords[0] >= 192 && opaque.blockCoords[0] <= 256);
-  assert.ok(opaque.blockCoords[1] >= 3968);
+  // Folded: chunk 3 east is 192 columns, −2 north is 3968 (stored in
+  // half blocks, four shorts a vertex).
+  assert.ok(opaque.blockCoords[0] >= 384 && opaque.blockCoords[0] <= 512);
+  assert.ok(opaque.blockCoords[1] >= 7936);
   assert.ok(packedMeshHasFaces(packed));
   assert.equal(packedMeshBuffers(packed).length, 10);
   // A batch GLB of it reads back with both kinds.

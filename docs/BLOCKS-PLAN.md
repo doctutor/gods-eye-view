@@ -816,17 +816,21 @@ water}`). Today that is the app server's `GET /api/raster/values` (read-only,
   raises the tileset by the geoid's undulation, as the live datum offset does.
   Since step B the GLB is the shared Blocks encoder's (`src/layers/blocks/gltf.js`,
   worker3's): the same bytes the live renderer draws, for the same shader.
-  - `POSITION` (float);
-  - `NORMAL` (BYTE, `KHR_mesh_quantization`);
+  Layout v2 (2026-10-30), 28 bytes a vertex where v1 took 36:
+  - `POSITION` (float, kept: 16 bits over a 123 km tile would step 1.9 m);
+  - `NORMAL` (BYTE, `KHR_mesh_quantization`) on a 4-byte stride, its fourth
+    byte `_FEATURE_ID_0` (UNSIGNED_BYTE): one row a chunk in an
+    `EXT_structural_metadata` table (`ci`, `cj`, `blockM`);
   - `COLOR_0` (normalised bytes, the mesher's study-sun colour; alpha for water);
-  - `_BLOCKCOORD` (float: the block point, the chunk's columns folded modulo
-    4,096);
-  - `_FEATURE_ID_0`, with one row a chunk in an `EXT_structural_metadata`
-    table (`ci`, `cj`, `blockM`).
+  - `_BLOCKCOORD` (SHORT on an 8-byte stride: the block point in half blocks,
+    the chunk's columns folded modulo 4,096; the shader reads it × 0.5).
 
-  The opaque primitive comes first, then the water (`alphaMode: BLEND`), each
-  with its own vertices, both `KHR_materials_unlit`. Indices are 16-bit when
-  a primitive's vertices allow. Then `EXT_meshopt_compression` (below).
+  The opaque primitives come first, then the water's (`alphaMode: BLEND`),
+  all `KHR_materials_unlit`. Indices are always 16-bit: a kind past 65,535
+  vertices is split into several primitives by its triangles, each with
+  its own vertices. Then `EXT_meshopt_compression` (below). On the curved
+  levels the tiles' greedy runs are capped for a 4 px cell (the tileset's
+  `maximumScreenSpaceError`), √2 longer than the live 8 px rule.
 
 - **Seams.** Inside a tile, chunks mesh against their neighbours. Along a
   tile's border, they hang skirts (`mesh.js` `skirt`) down to the lowest ground

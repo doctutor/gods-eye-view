@@ -109,6 +109,20 @@ export const DEFAULT_BASE = 'http://localhost:4173';
 export const TILESET_LEVELS_M = Object.freeze(
   BLOCK_PYRAMID_M.filter((m) => m >= 30),
 );
+/**
+ * The widest a tile's block shows before its children take over, in
+ * pixels: Cesium refines a tile once its geometric error (its block) passes
+ * the tileset's maximumScreenSpaceError, 4 for the Blocks tileset.
+ */
+export const TILE_CELL_PX = 4;
+/**
+ * The longest greedy run on a curved level of the tileset: its chord L²/8R
+ * under a pixel of a cell TILE_CELL_PX wide (mesh.js curvedRunCap, whose
+ * live rule assumes 8 px), so √2 longer: 81 cells at 1,920 m, 40 at 7,680 m.
+ */
+export const tileRunCap = (blockM) =>
+  Math.max(1, Math.floor(Math.sqrt((8 * 6_371_000) / (TILE_CELL_PX * blockM))));
+
 /** External tilesets: a subtree in its own JSON every this many levels below the root. */
 export const SPLIT_DEPTH = 2;
 /**
@@ -621,6 +635,7 @@ export function tileMesh(
       skirt,
       ...(region.curved
         ? {
+            runCap: tileRunCap(blockM),
             curved: {
               lon0: region.lon0,
               lat0: region.lat0,
@@ -901,18 +916,24 @@ export function compressGlb(glb) {
         indexAccessor.count,
       );
       target.set(indices);
+      // Each view once: two attributes may share one (the feature id is
+      // the normals' fourth byte), its whole stride moved per vertex.
+      const moved = new Set();
       for (const id of Object.values(primitive.attributes)) {
         const accessor = json.accessors[id];
-        const { at, stride } = accessorBytes(accessor);
-        const before = Buffer.from(
-          data.subarray(at, at + accessor.count * stride),
-        );
-        for (let v = 0; v < accessor.count; v++) {
-          const to = remap[v];
-          if (to === 0xffffffff) continue;
-          before.copy(data, at + to * stride, v * stride, v * stride + stride);
-        }
+        const count = accessor.count;
         accessor.count = unique;
+        if (moved.has(accessor.bufferView)) continue;
+        moved.add(accessor.bufferView);
+        const v = view(accessor.bufferView);
+        const { stride } = accessorBytes(accessor);
+        const at = v.byteOffset;
+        const before = Buffer.from(data.subarray(at, at + count * stride));
+        for (let w = 0; w < count; w++) {
+          const to = remap[w];
+          if (to === 0xffffffff) continue;
+          before.copy(data, at + to * stride, w * stride, w * stride + stride);
+        }
       }
     }
   // What each view holds: an attribute (its stride) or a primitive's indices.

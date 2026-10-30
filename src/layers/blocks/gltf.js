@@ -6,27 +6,31 @@
 // (BLOCKS_CUSTOM_SHADER_* in renderer.js). Pure JavaScript, no Cesium: it
 // runs in Node, the page and a web worker.
 //
-// The layout:
+// The layout (v2, 2026-10-30: 28 bytes a vertex, was 36):
 // - glTF's Y-up: a vertex at (east, north, up) of the origin is stored at
 //   (east, up, −north); Cesium's default Y-up to Z-up turns it back, for a
 //   Model and a 3D Tiles tile alike. No node matrix: the Model's
 //   modelMatrix, or the tile's transform, places the origin.
 // - POSITION: FLOAT VEC3, with min and max.
-// - NORMAL: BYTE normalized VEC3, a 4-byte stride (KHR_mesh_quantization);
-//   the faces' normals are axis unit vectors, so exact.
+// - NORMAL: BYTE normalized VEC3 on a 4-byte stride (KHR_mesh_quantization);
+//   the faces' normals are axis unit vectors, so exact. Its fourth byte is
+//   _FEATURE_ID_0: UNSIGNED_BYTE SCALAR, the vertex's row of the property
+//   table (EXT_mesh_features; at most 255 rows: a tile has 16, a live
+//   batch 32), the same view at byte offset 3. The table
+//   (EXT_structural_metadata, class 'chunk') is what makes Cesium pick
+//   features one by one.
 // - COLOR_0: UNSIGNED_BYTE normalized VEC4, mesh.js's baked shade as it
 //   wrote it (the shader reads it raw). Water alone is below 255 alpha.
-// - _BLOCKCOORD: FLOAT VEC3, mesh.js's block point (columns east, north,
-//   the level), with the chunk's columns folded in modulo FOLD_COLUMNS so
-//   the dither's per-block hash runs on across chunks: whole numbers stay
-//   whole and float stays exact.
-// - _FEATURE_ID_0: FLOAT SCALAR, the vertex's row of the property table
-//   (EXT_mesh_features); the table (EXT_structural_metadata, class
-//   'chunk') is what makes Cesium pick features one by one.
-// - Indices UNSIGNED_SHORT under 65,536 vertices a primitive, else
-//   UNSIGNED_INT.
-// - One mesh: the opaque faces' primitive (material 0, OPAQUE), then the
-//   water's (material 1, BLEND), both unlit (KHR_materials_unlit) and
+// - _BLOCKCOORD: SHORT VEC3 on an 8-byte stride, mesh.js's block point
+//   (columns east, north, the level) in half blocks (× 2, so a shaded
+//   face's centre is whole), with the chunk's columns folded in modulo
+//   FOLD_COLUMNS so the dither's per-block hash runs on across chunks. The
+//   shader reads it × 0.5. Folded columns reach 8,192 half blocks, levels
+//   ±16,383 (Everest at 1 m blocks is 17,696: a RangeError, not a wrap).
+// - Indices UNSIGNED_SHORT: a kind past 65,535 vertices is split into
+//   several primitives by its triangles, each gathering its own vertices.
+// - One mesh: the opaque faces' primitives (material 0, OPAQUE), then the
+//   water's (material 1, BLEND), all unlit (KHR_materials_unlit) and
 //   double-sided, so any glTF viewer shows the baked colours.
 
 import { CHUNK_COLUMNS } from './grid.js';
@@ -36,9 +40,13 @@ export const FOLD_COLUMNS = 4096;
 
 const FOLD_CHUNKS = FOLD_COLUMNS / CHUNK_COLUMNS;
 
+/** The most vertices one primitive holds (its indices 16-bit). */
+export const PRIMITIVE_VERTICES = 65535;
+
 const GL = Object.freeze({
   BYTE: 5120,
   UNSIGNED_BYTE: 5121,
+  SHORT: 5122,
   UNSIGNED_SHORT: 5123,
   UNSIGNED_INT: 5125,
   FLOAT: 5126,
@@ -64,16 +72,27 @@ export const foldColumns = (index) =>
   ((((Math.trunc(index) || 0) % FOLD_CHUNKS) + FOLD_CHUNKS) % FOLD_CHUNKS) *
   CHUNK_COLUMNS;
 
+/** A block point's coordinate in half blocks, checked against SHORT. */
+function halfBlocks(value) {
+  const half = Math.round(value * 2);
+  if (half < -32768 || half > 32767)
+    throw new RangeError(
+      `block coordinate ${value} is past a SHORT's half blocks`,
+    );
+  return half;
+}
+
 /**
  * One chunk's part (one kind of its faces) in the layout above, its own
  * vertices from 0: positions turned Y-up, normals as bytes on a 4-byte
- * stride, colours as given, block points moved by its columns
- * (`blockOffset` as given, else its chunk (ci, cj) folded), indices 16-bit.
- * What a batch copies from (encodeBatchGlb): computed once a chunk, in the
- * mesh worker. Positions are taken as they are (a tile's may be dropped
- * onto the curve); min and max are theirs, as stored.
+ * stride (the fourth byte left for the feature id), colours as given,
+ * block points in half blocks on an 8-byte stride moved by its columns
+ * (`blockOffset` as given, else its chunk (ci, cj) folded), indices 16-bit
+ * where they fit. What a batch copies from (encodeBatchGlb): computed once
+ * a chunk, in the mesh worker. Positions are taken as they are (a tile's
+ * may be dropped onto the curve); min and max are theirs, as stored.
  * @param {object|null} part {positions, normals, colors, blockCoords?,
- *   indices}, as mesh.js and splitMesh give it.
+ *   indices}, as mesh.js and splitMesh give it (block points in blocks).
  * @returns {object|null} {packed: true, positions, normals, colors,
  *   blockCoords, indices, min, max, vertexCount}, or null with no faces.
  */
@@ -84,7 +103,7 @@ export function packPart(part, { chunk, blockOffset } = {}) {
   const positions = new Float32Array(n * 3);
   const normals = new Int8Array(n * 4);
   const colors = new Uint8Array(n * 4);
-  const blockCoords = new Float32Array(n * 3);
+  const blockCoords = new Int16Array(n * 4);
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
   const fx = blockOffset ? blockOffset[0] || 0 : foldColumns(chunk?.[0]);
@@ -106,9 +125,9 @@ export function packPart(part, { chunk, blockOffset } = {}) {
     normals[q + 1] = Math.round(part.normals[k + 2] * scale);
     normals[q + 2] = Math.round(-part.normals[k + 1] * scale);
     if (part.blockCoords) {
-      blockCoords[k] = part.blockCoords[k] + fx;
-      blockCoords[k + 1] = part.blockCoords[k + 1] + fy;
-      blockCoords[k + 2] = part.blockCoords[k + 2];
+      blockCoords[q] = halfBlocks(part.blockCoords[k] + fx);
+      blockCoords[q + 1] = halfBlocks(part.blockCoords[k + 1] + fy);
+      blockCoords[q + 2] = halfBlocks(part.blockCoords[k + 2]);
     }
   }
   colors.set(part.colors.subarray(0, n * 4));
@@ -149,11 +168,21 @@ export const packedBytes = (packed) =>
       packed.indices.byteLength
     : 0;
 
+/** A primitive's arrays of `n` vertices and `indexCount` indices (in the layout). */
+const newArrays = (n, indexCount, big = false) => ({
+  positions: new Float32Array(n * 3),
+  normals: new Int8Array(n * 4),
+  colors: new Uint8Array(n * 4),
+  blockCoords: new Int16Array(n * 4),
+  indices: big ? new Uint32Array(indexCount) : new Uint16Array(indexCount),
+});
+
 /**
  * Packed parts of one kind side by side: each moved by its offset (m,
- * east, north and up of the origin), tagged with its feature row, indices
- * renumbered. Writes into `out` (the GLB's views, encodeBatchGlb) or
- * returns new arrays (mergeParts).
+ * east, north and up of the origin), its feature row in each normal's
+ * fourth byte, indices renumbered. Writes into `out` (the GLB's views,
+ * encodeBatchGlb, under 65,536 vertices) or returns new arrays, with
+ * 32-bit indices past that for splitPrimitives to cut.
  */
 function joinPacked(entries, out = null) {
   let vertexCount = 0;
@@ -164,21 +193,21 @@ function joinPacked(entries, out = null) {
       indexCount += packed.indices.length;
     }
   if (!indexCount) return null;
-  const big = vertexCount >= 65536;
-  const target = out || {
-    positions: new Float32Array(vertexCount * 3),
-    normals: new Int8Array(vertexCount * 4),
-    colors: new Uint8Array(vertexCount * 4),
-    blockCoords: new Float32Array(vertexCount * 3),
-    featureIds: new Float32Array(vertexCount),
-    indices: big ? new Uint32Array(indexCount) : new Uint16Array(indexCount),
-  };
+  const target =
+    out || newArrays(vertexCount, indexCount, vertexCount >= 65536);
+  const featureBytes = new Uint8Array(
+    target.normals.buffer,
+    target.normals.byteOffset,
+    target.normals.byteLength,
+  );
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
   let base = 0;
   let at = 0;
   for (const { packed, offset, feature } of entries) {
     if (!packed) continue;
+    if (!(feature >= 0 && feature <= 255))
+      throw new RangeError(`feature ${feature} is past an UNSIGNED_BYTE`);
     // In the stored frame: east, up, −north.
     const shift = [offset?.x || 0, offset?.z || 0, 0 - (offset?.y || 0)];
     const n = packed.vertexCount;
@@ -195,9 +224,9 @@ function joinPacked(entries, out = null) {
       max[a] = Math.max(max[a], Math.fround(packed.max[a] + shift[a]));
     }
     target.normals.set(packed.normals, base * 4);
+    for (let v = 0; v < n; v++) featureBytes[(base + v) * 4 + 3] = feature;
     target.colors.set(packed.colors, base * 4);
-    target.blockCoords.set(packed.blockCoords, base * 3);
-    target.featureIds.fill(feature, base, base + n);
+    target.blockCoords.set(packed.blockCoords, base * 4);
     const { indices } = packed;
     if (base === 0) target.indices.set(indices, at);
     else
@@ -209,25 +238,102 @@ function joinPacked(entries, out = null) {
   return { ...target, min, max, vertexCount };
 }
 
+/** The feature row of each vertex, from its normal's fourth byte. */
+const featureIdsOf = ({ normals, vertexCount }) => {
+  const bytes = new Uint8Array(
+    normals.buffer,
+    normals.byteOffset,
+    normals.byteLength,
+  );
+  return Uint8Array.from({ length: vertexCount }, (_, v) => bytes[v * 4 + 3]);
+};
+
 /**
- * The chunks of one kind ('opaque' or 'water') merged into one primitive's
+ * One kind's joined arrays as primitives of at most PRIMITIVE_VERTICES
+ * vertices, 16-bit indices each: cut by its triangles in order (a fan's
+ * centre vertex is not beside its face's corners), each primitive gathering
+ * the vertices its triangles use, renumbered. Under 65,536 vertices: one.
+ */
+export function splitPrimitives(merged) {
+  if (!merged) return [];
+  if (merged.vertexCount <= PRIMITIVE_VERTICES)
+    return [
+      {
+        ...merged,
+        indices:
+          merged.indices instanceof Uint16Array
+            ? merged.indices
+            : Uint16Array.from(merged.indices),
+      },
+    ];
+  const source = merged.indices;
+  const remap = new Int32Array(merged.vertexCount).fill(-1);
+  const out = [];
+  for (let from = 0; from < source.length;) {
+    const used = [];
+    let to = from;
+    for (; to < source.length; to += 3) {
+      let fresh = 0;
+      for (let c = 0; c < 3; c++) {
+        const v = source[to + c];
+        if (remap[v] < 0 && source.indexOf(v, to) === to + c) fresh++;
+      }
+      if (used.length + fresh > PRIMITIVE_VERTICES) break;
+      for (let c = 0; c < 3; c++) {
+        const v = source[to + c];
+        if (remap[v] < 0) {
+          remap[v] = used.length;
+          used.push(v);
+        }
+      }
+    }
+    const n = used.length;
+    const part = newArrays(n, to - from);
+    const min = [Infinity, Infinity, Infinity];
+    const max = [-Infinity, -Infinity, -Infinity];
+    used.forEach((v, w) => {
+      for (let a = 0; a < 3; a++) {
+        const value = merged.positions[v * 3 + a];
+        part.positions[w * 3 + a] = value;
+        if (value < min[a]) min[a] = value;
+        if (value > max[a]) max[a] = value;
+      }
+      for (let a = 0; a < 4; a++) {
+        part.normals[w * 4 + a] = merged.normals[v * 4 + a];
+        part.colors[w * 4 + a] = merged.colors[v * 4 + a];
+        part.blockCoords[w * 4 + a] = merged.blockCoords[v * 4 + a];
+      }
+    });
+    for (let k = from; k < to; k++) part.indices[k - from] = remap[source[k]];
+    for (const v of used) remap[v] = -1;
+    out.push({ ...part, min, max, vertexCount: n });
+    from = to;
+  }
+  return out;
+}
+
+/**
+ * The chunks of one kind ('opaque' or 'water') merged into one kind's
  * arrays, in the layout above: each chunk's part packed (packPart: its
  * block points moved by `blockOffset`, else its chunk folded), moved by
  * its offset (m, east, north and up of the origin), every vertex tagged
- * with its feature row. A part already packed is taken as it is.
+ * with its feature row. A part already packed is taken as it is. Past
+ * 65,535 vertices the indices are 32-bit, for encodeBlocksGlb to split.
  * @param {Array<{part: object|null, offset?: {x, y, z}, chunk?: number[],
  *   blockOffset?: number[], feature: number}>} chunks
  * @returns {object|null} {positions, normals, colors, blockCoords,
- *   featureIds, indices, min, max, vertexCount}, or null with no faces.
+ *   featureIds, indices, min, max, vertexCount}, or null with no faces
+ *   (featureIds: the rows again, one byte a vertex, for reading).
  */
 export function mergeParts(chunks) {
-  return joinPacked(
+  const merged = joinPacked(
     chunks.map(({ part, offset, chunk, blockOffset, feature }) => ({
       packed: packPart(part, { chunk, blockOffset }),
       offset,
       feature,
     })),
   );
+  return merged ? { ...merged, featureIds: featureIdsOf(merged) } : null;
 }
 
 const pad4 = (n) => (n + 3) & ~3;
@@ -260,7 +366,7 @@ function tableColumns(features) {
  * Every view starts on 8 bytes (a FLOAT64 column's alignment, and more
  * than any vertex attribute needs).
  */
-function glbLayout(kinds, table) {
+function glbLayout(primitives, table) {
   let length = 0;
   const bufferViews = [];
   const accessors = [];
@@ -281,15 +387,14 @@ function glbLayout(kinds, table) {
     return accessors.length - 1;
   };
   const at = [];
-  const primitives = kinds.map(
-    ({ kind, vertexCount: n, indexCount, min, max, big }) => {
+  const meshPrimitives = primitives.map(
+    ({ kind, vertexCount: n, indexCount, min, max }) => {
       const views = {
         positions: view(n * 12, GL.ARRAY_BUFFER),
         normals: view(n * 4, GL.ARRAY_BUFFER, 4),
         colors: view(n * 4, GL.ARRAY_BUFFER),
-        blockCoords: view(n * 12, GL.ARRAY_BUFFER),
-        featureIds: view(n * 4, GL.ARRAY_BUFFER),
-        indices: view(indexCount * (big ? 4 : 2), GL.ELEMENT_ARRAY_BUFFER),
+        blockCoords: view(n * 8, GL.ARRAY_BUFFER, 8),
+        indices: view(indexCount * 2, GL.ELEMENT_ARRAY_BUFFER),
       };
       at.push(
         Object.fromEntries(
@@ -311,12 +416,21 @@ function glbLayout(kinds, table) {
           COLOR_0: accessor(views.colors, GL.UNSIGNED_BYTE, n, 'VEC4', {
             normalized: true,
           }),
-          _BLOCKCOORD: accessor(views.blockCoords, GL.FLOAT, n, 'VEC3'),
-          _FEATURE_ID_0: accessor(views.featureIds, GL.FLOAT, n, 'SCALAR'),
+          _BLOCKCOORD: accessor(views.blockCoords, GL.SHORT, n, 'VEC3'),
+          // The normals' fourth byte.
+          _FEATURE_ID_0: accessor(
+            views.normals,
+            GL.UNSIGNED_BYTE,
+            n,
+            'SCALAR',
+            {
+              byteOffset: 3,
+            },
+          ),
         },
         indices: accessor(
           views.indices,
-          big ? GL.UNSIGNED_INT : GL.UNSIGNED_SHORT,
+          GL.UNSIGNED_SHORT,
           indexCount,
           'SCALAR',
         ),
@@ -363,7 +477,7 @@ function glbLayout(kinds, table) {
     scene: 0,
     scenes: [{ nodes: [0] }],
     nodes: [{ mesh: 0 }],
-    meshes: [{ primitives }],
+    meshes: [{ primitives: meshPrimitives }],
     materials: [material('blocks', 'OPAQUE'), material('water', 'BLEND')],
     accessors,
     bufferViews,
@@ -387,7 +501,7 @@ function glbLayout(kinds, table) {
  * A GLB of the layout's size, its header and JSON written: the binary
  * chunk's start, and views over the GLB for each primitive's arrays.
  */
-function glbShell(layout, kinds) {
+function glbShell(layout, primitives) {
   const jsonBytes = new TextEncoder().encode(JSON.stringify(layout.json));
   const jsonLength = pad4(jsonBytes.byteLength);
   const total = 12 + 8 + jsonLength + 8 + layout.binLength;
@@ -404,17 +518,14 @@ function glbShell(layout, kinds) {
   view.setUint32(bin, layout.binLength, true);
   view.setUint32(bin + 4, 0x004e4942, true); // 'BIN\0'
   const start = bin + 8;
-  const targets = kinds.map(({ vertexCount: n, indexCount, big }, k) => {
+  const targets = primitives.map(({ vertexCount: n, indexCount }, k) => {
     const at = layout.at[k];
     return {
       positions: new Float32Array(glb.buffer, start + at.positions, n * 3),
       normals: new Int8Array(glb.buffer, start + at.normals, n * 4),
       colors: new Uint8Array(glb.buffer, start + at.colors, n * 4),
-      blockCoords: new Float32Array(glb.buffer, start + at.blockCoords, n * 3),
-      featureIds: new Float32Array(glb.buffer, start + at.featureIds, n),
-      indices: big
-        ? new Uint32Array(glb.buffer, start + at.indices, indexCount)
-        : new Uint16Array(glb.buffer, start + at.indices, indexCount),
+      blockCoords: new Int16Array(glb.buffer, start + at.blockCoords, n * 4),
+      indices: new Uint16Array(glb.buffer, start + at.indices, indexCount),
     };
   });
   return { glb, start, targets };
@@ -430,55 +541,63 @@ function writeColumns(glb, start, layout, table) {
   );
 }
 
+/** A primitive's description for the layout, from its arrays. */
+const primitiveOf = (kind, arrays) => ({
+  kind,
+  arrays,
+  vertexCount: arrays.vertexCount,
+  indexCount: arrays.indices.length,
+  min: arrays.min.map(Math.fround),
+  max: arrays.max.map(Math.fround),
+});
+
+/** Write primitives' arrays into their views. */
+function writePrimitives(targets, primitives) {
+  primitives.forEach(({ arrays }, k) => {
+    for (const name of [
+      'positions',
+      'normals',
+      'colors',
+      'blockCoords',
+      'indices',
+    ])
+      targets[k][name].set(arrays[name]);
+  });
+}
+
 /**
- * A GLB of one mesh: the opaque primitive, then the water one, each merged
- * from its chunks (mergeParts), with a property table of `features.count`
- * rows (class 'chunk') whose columns are `features.properties`.
+ * A GLB of one mesh: the opaque primitives, then the water ones, each kind
+ * merged from its chunks (mergeParts) and split at 65,535 vertices
+ * (splitPrimitives), with a property table of `features.count` rows (class
+ * 'chunk') whose columns are `features.properties`.
  * @param {{opaque?: object|null, water?: object|null,
  *   features: {count: number, properties: Object<string, ArrayLike>}}} input
  *   opaque, water: mergeParts' output (null for none).
  * @returns {Uint8Array|null} null when neither kind has faces.
  */
 export function encodeBlocksGlb({ opaque = null, water = null, features }) {
-  const kinds = [
+  const primitives = [
     ['opaque', opaque],
     ['water', water],
-  ]
-    .filter(([, merged]) => merged)
-    .map(([kind, merged]) => ({
-      kind,
-      merged,
-      vertexCount: merged.vertexCount,
-      indexCount: merged.indices.length,
-      min: merged.min.map(Math.fround),
-      max: merged.max.map(Math.fround),
-      big: merged.indices instanceof Uint32Array,
-    }));
-  if (!kinds.length) return null;
+  ].flatMap(([kind, merged]) =>
+    splitPrimitives(merged).map((arrays) => primitiveOf(kind, arrays)),
+  );
+  if (!primitives.length) return null;
   const table = tableColumns(features);
-  const layout = glbLayout(kinds, table);
-  const { glb, start, targets } = glbShell(layout, kinds);
-  kinds.forEach(({ merged }, k) => {
-    for (const name of [
-      'positions',
-      'normals',
-      'colors',
-      'blockCoords',
-      'featureIds',
-      'indices',
-    ])
-      targets[k][name].set(merged[name]);
-  });
+  const layout = glbLayout(primitives, table);
+  const { glb, start, targets } = glbShell(layout, primitives);
+  writePrimitives(targets, primitives);
   writeColumns(glb, start, layout, table);
   return glb;
 }
 
 /**
- * A batch's GLB straight from its chunks' packed parts (packPart), in one
- * allocation: each chunk's opaque faces feature `features.opaque` (else
- * its index s), its water `features.water` (else n + s), moved by its
- * offset (m, east, north and up of the GLB's origin). The same bytes as
- * encodeBlocksGlb of mergeParts of the same chunks.
+ * A batch's GLB straight from its chunks' packed parts (packPart): a kind
+ * under 65,536 vertices joined straight into the GLB's views, one past it
+ * joined and split (splitPrimitives). Each chunk's opaque faces feature
+ * `features.opaque` (else its index s), its water `features.water` (else
+ * n + s), moved by its offset (m, east, north and up of the GLB's origin).
+ * The same bytes as encodeBlocksGlb of mergeParts of the same chunks.
  * @param {{chunks: Array<{opaque?: object|null, water?: object|null,
  *   offset?: {x, y, z}, features?: {opaque?: number, water?: number}}>,
  *   features: {count: number, properties: Object<string, ArrayLike>}}} input
@@ -492,7 +611,7 @@ export function encodeBatchGlb({ chunks, features }) {
       offset: chunk.offset,
       feature: chunk.features?.[kind] ?? (kind === 'water' ? n + s : s),
     }));
-  const kinds = [];
+  const primitives = [];
   for (const kind of ['opaque', 'water']) {
     const entries = entriesOf(kind);
     let vertexCount = 0;
@@ -509,22 +628,21 @@ export function encodeBatchGlb({ chunks, features }) {
         max[a] = Math.max(max[a], Math.fround(packed.max[a] + shift[a]));
       }
     }
-    if (indexCount)
-      kinds.push({
-        kind,
-        entries,
-        vertexCount,
-        indexCount,
-        min,
-        max,
-        big: vertexCount >= 65536,
-      });
+    if (!indexCount) continue;
+    if (vertexCount <= PRIMITIVE_VERTICES)
+      primitives.push({ kind, entries, vertexCount, indexCount, min, max });
+    else
+      for (const arrays of splitPrimitives(joinPacked(entries)))
+        primitives.push(primitiveOf(kind, arrays));
   }
-  if (!kinds.length) return null;
+  if (!primitives.length) return null;
   const table = tableColumns(features);
-  const layout = glbLayout(kinds, table);
-  const { glb, start, targets } = glbShell(layout, kinds);
-  kinds.forEach(({ entries }, k) => joinPacked(entries, targets[k]));
+  const layout = glbLayout(primitives, table);
+  const { glb, start, targets } = glbShell(layout, primitives);
+  primitives.forEach((primitive, k) => {
+    if (primitive.entries) joinPacked(primitive.entries, targets[k]);
+    else writePrimitives([targets[k]], [primitive]);
+  });
   writeColumns(glb, start, layout, table);
   return glb;
 }
@@ -546,6 +664,7 @@ export function readGlb(glb) {
 const COMPONENTS = {
   5120: Int8Array,
   5121: Uint8Array,
+  5122: Int16Array,
   5123: Uint16Array,
   5125: Uint32Array,
   5126: Float32Array,
@@ -564,7 +683,9 @@ export function accessorValues(json, bin, index) {
   const all = new Type(
     bin.buffer,
     bin.byteOffset + view.byteOffset + (accessor.byteOffset || 0),
-    (view.byteLength - (accessor.byteOffset || 0)) / Type.BYTES_PER_ELEMENT,
+    Math.floor(
+      (view.byteLength - (accessor.byteOffset || 0)) / Type.BYTES_PER_ELEMENT,
+    ),
   );
   const out = new Type(accessor.count * size);
   for (let k = 0; k < accessor.count; k++)
@@ -574,10 +695,11 @@ export function accessorValues(json, bin, index) {
 
 /**
  * A Blocks GLB read back (encodeBlocksGlb's inverse, for tests and tools):
- * each primitive's kind ('opaque' or 'water' by its material's alpha mode),
- * positions in (east, north, up) again, normals as stored (Y-up bytes),
- * colours, block points, feature ids and indices; the property table's
- * columns by name and its row count.
+ * each primitive's kind ('opaque' or 'water' by its material's alpha mode;
+ * a kind past 65,535 vertices comes as several), positions in (east,
+ * north, up) again, normals as stored (Y-up bytes), colours, block points
+ * in blocks again (the stored half blocks × 0.5), feature ids and indices;
+ * the property table's columns by name and its row count.
  */
 export function readBlocksGlb(glb) {
   const { json, bin } = readGlb(glb);
@@ -607,6 +729,7 @@ export function readBlocksGlb(glb) {
       positions[k + 1] = 0 - yUp[k + 2];
       positions[k + 2] = yUp[k + 1];
     }
+    const half = accessorValues(json, bin, attributes._BLOCKCOORD);
     return {
       kind:
         json.materials[primitive.material].alphaMode === 'BLEND'
@@ -615,7 +738,7 @@ export function readBlocksGlb(glb) {
       positions,
       normals: accessorValues(json, bin, attributes.NORMAL),
       colors: accessorValues(json, bin, attributes.COLOR_0),
-      blockCoords: accessorValues(json, bin, attributes._BLOCKCOORD),
+      blockCoords: Float32Array.from(half, (value) => value / 2),
       featureIds: accessorValues(json, bin, attributes._FEATURE_ID_0),
       indices: accessorValues(json, bin, primitive.indices),
     };
