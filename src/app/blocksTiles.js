@@ -188,6 +188,8 @@ export function createBlocksTilesLayer({
   /** Told of each tile loaded (the QA harness times the first picture). */
   const tileLoadListeners = new Set();
   let tileLoads = 0;
+  let tileUnloads = 0;
+  const unloadTrail = [];
   /** The cache guard on the shown tileset (createCacheGuard). */
   const guard = createCacheGuard();
   /** The hole the clipping planes were last set for, as JSON. */
@@ -291,6 +293,17 @@ export function createBlocksTilesLayer({
           }
           tileLoads++;
           for (const listener of tileLoadListeners) listener(tile);
+        });
+        // Each tile unloaded (Cesium's cache trimming): counted, the last
+        // few with the memory and error then, for the QA harness.
+        tileset.tileUnload?.addEventListener(() => {
+          tileUnloads++;
+          unloadTrail.push({
+            at: Math.round(now()),
+            memoryMB: Math.round((tileset.totalMemoryUsageInBytes || 0) / 1e6),
+            error: Number(tileset.memoryAdjustedScreenSpaceError) || null,
+          });
+          if (unloadTrail.length > 40) unloadTrail.shift();
         });
         // Culling the tiles under the live chunks (holePlanes), off until
         // there is a hole.
@@ -467,6 +480,8 @@ export function createBlocksTilesLayer({
         // The shown tileset has every tile the view wants (Cesium's own).
         tilesLoaded: shown ? Boolean(shown.tilesLoaded) : null,
         // The cache guard: the error it holds now, and how often it held.
+        tileUnloads,
+        unloadTrail: unloadTrail.slice(),
         heldError: guard.error,
         guardHolds: guard.steps,
         // The hole about a camera inside a tile, and how often it opened.
