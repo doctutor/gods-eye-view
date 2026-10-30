@@ -774,16 +774,19 @@ water}`). Today that is the app server's `GET /api/raster/values` (read-only,
   `Y_UP_TO_Z_UP` turns them back). Heights are mean sea level, each vertex
   dropped onto the ellipsoid's curve under the tangent plane. The client
   raises the tileset by the geoid's undulation, as the live datum offset does.
-  Attributes, shared by both primitives:
+  Since step B the GLB is the shared Blocks encoder's (`src/layers/blocks/gltf.js`,
+  worker3's): the same bytes the live renderer draws, for the same shader.
   - `POSITION` (float);
-  - `NORMAL` (float);
+  - `NORMAL` (BYTE, `KHR_mesh_quantization`);
   - `COLOR_0` (normalised bytes, the mesher's study-sun colour; alpha for water);
-  - `_BLOCK_COORD` (float: columns east and north of the anchor at the tile's
-    level, and the level; whole at corners, halves at shaded face centres;
-    the CustomShader sees it as `block_coord`).
+  - `_BLOCKCOORD` (float: the block point, the chunk's columns folded modulo
+    4,096);
+  - `_FEATURE_ID_0`, with one row a chunk in an `EXT_structural_metadata`
+    table (`ci`, `cj`, `blockM`).
 
-  The opaque primitive comes first, then the water (`alphaMode: BLEND`), both
-  `KHR_materials_unlit`. Indices are 16-bit when the vertices allow.
+  The opaque primitive comes first, then the water (`alphaMode: BLEND`), each
+  with its own vertices, both `KHR_materials_unlit`. Indices are 16-bit when
+  a primitive's vertices allow. Then `EXT_meshopt_compression` (below).
 
 - **Seams.** Inside a tile, chunks mesh against their neighbours. Along a
   tile's border, they hang skirts (`mesh.js` `skirt`) down to the lowest ground
@@ -826,8 +829,39 @@ Reordered meshopt plus the transport's gzip makes a tile about nine times
 smaller, and its decode is a few milliseconds, under one frame. gzip alone
 gets about five times, so serving the tiles compressed is the first step and
 costs nothing. The shared encoder's BYTE normals and 16-bit indices shrink
-the raw tile before either. Meshopt in the build would add meshoptimizer as
-a build-time dependency, so it waits for a yes.
+the raw tile before either.
+
+Applied since step B (with the manager's yes; `meshoptimizer` 1.0.1 is a
+pinned devDependency, the version Cesium's own engine depends on). Every
+tile the build writes is compressed (`compressGlb`):
+
+- each primitive's vertices are reordered as its triangles use them;
+- the vertex attributes are encoded as ATTRIBUTES and the indices as
+  TRIANGLES into the GLB's buffer;
+- the uncompressed layout stays as a fallback buffer with no data, so the
+  extension is required.
+
+The app's own Cesium decodes it with no addition: a test runs Cesium's
+`GltfLoader` and buffer view loader on a tile and gets the encoder's
+triangles back exactly, and the frames below are meshopt tiles drawn in the
+app.
+
+Cesium calls the decoder without waiting for its WASM, which instantiates
+when Cesium loads. In a page that is long done before a tile arrives; a
+Node test has to wait for it.
+
+The tiny box with the shared encoder and meshopt:
+
+| Tile                        | Float layout (step A/B) | Shared encoder + meshopt |
+| --------------------------- | ----------------------- | ------------------------ |
+| 480 m root (`--levels 120`) | 14.1 MB                 | 2.9 MB                   |
+| 120 m group                 | 6.2 MB                  | 1.3 MB                   |
+| 30 m group with buildings   | 6.6 MB                  | 1.3 MB                   |
+| 30 m group, ground only     | 4.1 MB                  | 0.8 MB                   |
+| Box at 30 m, all 18 tiles   | 22.2 MB                 | 4.8 MB                   |
+| Box at 120 m, all 17 tiles  | 33 MB                   | 7.0 MB                   |
+
+That is about 4.7 times smaller on disk, before the transport's gzip.
 
 **Levels under 30 m: the options (for when the 1 m download is approved).**
 The native steps 1, 2, 8 and 10 m do not nest by four, and this tree needs
@@ -897,12 +931,12 @@ download.
   one tile. The inputs are still read on a rerun, so a heights or an OSM
   change rebuilds exactly the tiles it touches.
 
-- **The tiny box** (Baltimore's harbour, 30 m). It took one Overpass query
-  (5.8 s); the heights came from the server's cache, so no Earth Engine
-  tiles were spent.
-  - The 30 m group is 6.9 MB with buildings (143 k vertices) and 4.3 MB
-    ground only, against 1.3 MB bare: buildings' walls and land-cover
-    boundaries break the greedy merges.
+- **The tiny box** (Baltimore's harbour, 30 m). It takes one Overpass query
+  a run (1 to 6 s); the heights come from the server's cache.
+  - Before meshopt, the 30 m group was 6.9 MB with buildings (143 k
+    vertices) and 4.3 MB ground only, against 1.3 MB bare: buildings' walls
+    and land-cover boundaries break the greedy merges. With the shared
+    encoder and meshopt it is 1.36 MB and 0.83 MB (the table above).
   - Frames of the tiles in the app's own Cesium, beside live Blocks at
     30 m from the same camera (the harness, read-only against the app
     server), are in `.claude/blocks-compare/tileset/`. The buildings,

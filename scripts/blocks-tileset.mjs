@@ -31,16 +31,17 @@
  * (REPLACE). Sixteen children a tile is not a quadtree, so the tree is
  * explicit (tileset.json lists every tile); see TILESET_FORMAT.
  *
- * Geometry. Each tile's glTF holds its chunks' meshes merged, in the
- * tile's frame (the anchor's east-north-up moved to the tile's south-west
- * corner), y up as glTF has it (east, up, −north). Heights are mean sea
- * level on the ellipsoid (the client raises the tileset by the geoid's
- * undulation, as the live renderer's datum offset), each vertex dropped by
- * where the ellipsoid lies under the tangent plane. Attributes: POSITION,
- * NORMAL, COLOR_0 (the mesher's baked study-sun colour, alpha for water)
- * and _BLOCK_COORD (the block point: columns east and north from the
- * anchor, and the level). Two primitives: the opaque faces and the water
- * (alpha blended). Chunks mesh against their neighbours inside the tile;
+ * Geometry. Each tile's glTF holds its chunks' meshes in the tile's frame
+ * (the anchor's east-north-up moved to the tile's south-west corner),
+ * written by the shared Blocks encoder (src/layers/blocks/gltf.js: the
+ * bytes the live renderer draws, its layout and shader attributes,
+ * _BLOCKCOORD folded by chunk, one feature row a chunk), then compressed
+ * with EXT_meshopt_compression (compressGlb; Cesium decodes it). Heights
+ * are mean sea level on the ellipsoid (the client raises the tileset by
+ * the geoid's undulation, as the live renderer's datum offset), each
+ * vertex dropped by where the ellipsoid lies under the tangent plane. Two
+ * primitives: the opaque faces and the water (alpha blended). Chunks mesh
+ * against their neighbours inside the tile;
  * along a tile's border they hang skirts down to the lowest ground any
  * level has there, so a tile beside a finer or coarser one shows no gap.
  *
@@ -62,6 +63,13 @@ import {
 } from '../src/layers/blocks/grid.js';
 import { latticeTilesOver } from '../src/layers/blocks/lattice.js';
 import { buildChunkMesh } from '../src/layers/blocks/mesh.js';
+import {
+  FOLD_COLUMNS,
+  encodeBlocksGlb,
+  mergeParts,
+} from '../src/layers/blocks/gltf.js';
+import { splitMesh } from '../src/layers/blocks/renderer.js';
+import { MeshoptEncoder } from 'meshoptimizer';
 import { BLOCK_PYRAMID_M, levelMFor } from '../src/layers/blocks/pyramid.js';
 import {
   CHUNK_GROUP,
@@ -83,6 +91,7 @@ import {
 import { createOverpassViewClient } from '../src/sources/overpassView.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+await MeshoptEncoder.ready;
 
 /** The app server the heights are read through by default (read-only GET). */
 export const DEFAULT_BASE = 'http://localhost:4173';
@@ -448,20 +457,6 @@ export function tileMesh(tile, chunksByLevel, region) {
     const mesh = buildChunkMesh(chunk, { neighbours, blockM, levelM, skirt });
     meshes.push({ mesh, ci, cj });
   }
-  const vertexCount = meshes.reduce(
-    (n, { mesh }) => n + mesh.positions.length / 3,
-    0,
-  );
-  const indexCount = meshes.reduce((n, { mesh }) => n + mesh.indices.length, 0);
-  const positions = new Float32Array(vertexCount * 3);
-  const normals = new Float32Array(vertexCount * 3);
-  const colors = new Uint8Array(vertexCount * 4);
-  const blockCoords = new Float32Array(vertexCount * 3);
-  const indices = new Uint32Array(indexCount);
-  const opaqueTotal = meshes.reduce(
-    (n, { mesh }) => n + mesh.opaqueIndexCount,
-    0,
-  );
   // The ellipsoid's drop under the tangent plane at region metres (x, y).
   const drops = new Map();
   const dropAt = (x, y) => {
@@ -473,211 +468,99 @@ export function tileMesh(tile, chunksByLevel, region) {
     }
     return drop;
   };
-  let vertexBase = 0;
-  let opaqueAt = 0;
-  let waterAt = opaqueTotal;
+  const placed = [];
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
   let faces = 0;
+  let vertices = 0;
+  let indices = 0;
   for (const { mesh, ci, cj } of meshes) {
     const count = mesh.positions.length / 3;
+    const positions = new Float32Array(count * 3);
     const dx = ci * chunkM;
     const dy = cj * chunkM;
     for (let v = 0; v < count; v++) {
       const x = mesh.positions[v * 3] + dx;
       const y = mesh.positions[v * 3 + 1] + dy;
-      const o = (vertexBase + v) * 3;
-      positions[o] = x - tileX;
-      positions[o + 1] = y - tileY;
-      positions[o + 2] = mesh.positions[v * 3 + 2] + dropAt(x, y);
-      blockCoords[o] = mesh.blockCoords[v * 3] + ci * CHUNK_COLUMNS;
-      blockCoords[o + 1] = mesh.blockCoords[v * 3 + 1] + cj * CHUNK_COLUMNS;
-      blockCoords[o + 2] = mesh.blockCoords[v * 3 + 2];
+      const p = [
+        x - tileX,
+        y - tileY,
+        mesh.positions[v * 3 + 2] + dropAt(x, y),
+      ];
+      for (let c = 0; c < 3; c++) {
+        positions[v * 3 + c] = p[c];
+        if (p[c] < min[c]) min[c] = p[c];
+        if (p[c] > max[c]) max[c] = p[c];
+      }
     }
-    normals.set(mesh.normals, vertexBase * 3);
-    colors.set(mesh.colors, vertexBase * 4);
-    for (let k = 0; k < mesh.indices.length; k++) {
-      const index = mesh.indices[k] + vertexBase;
-      if (k < mesh.opaqueIndexCount) indices[opaqueAt++] = index;
-      else indices[waterAt++] = index;
-    }
-    vertexBase += count;
+    placed.push({ ci, cj, mesh: { ...mesh, positions } });
     faces += mesh.faces;
+    vertices += count;
+    indices += mesh.indices.length;
   }
   return {
-    positions,
-    normals,
-    colors,
-    blockCoords,
-    indices,
-    opaqueIndexCount: opaqueTotal,
+    chunks: placed,
     faces,
+    vertices,
+    indices,
+    bounds: vertices ? { min, max } : null,
   };
-}
-
-/** East, north, up to glTF's y up: (e, u, −n) (Cesium turns it back). */
-function yUp(source) {
-  const out = new Float32Array(source.length);
-  for (let k = 0; k < source.length; k += 3) {
-    // + 0: no -0 (JSON's min and max cannot say it).
-    out[k] = source[k] + 0;
-    out[k + 1] = source[k + 2] + 0;
-    out[k + 2] = 0 - source[k + 1];
-  }
-  return out;
-}
-
-/** The min and max of each component of a VEC3 float array. */
-function bounds3(values) {
-  const min = [Infinity, Infinity, Infinity];
-  const max = [-Infinity, -Infinity, -Infinity];
-  for (let k = 0; k < values.length; k += 3)
-    for (let c = 0; c < 3; c++) {
-      min[c] = Math.min(min[c], values[k + c]);
-      max[c] = Math.max(max[c], values[k + c]);
-    }
-  return { min, max };
 }
 
 /**
- * A tile mesh as a binary glTF 2.0: one mesh, a primitive for the opaque
- * faces and one for the water (alpha blended), sharing the vertex
- * attributes POSITION, NORMAL, COLOR_0 (normalised bytes) and _BLOCK_COORD;
- * unlit materials (the colours are baked). Indices are 16-bit when the
- * vertices allow. Null when the mesh is empty.
+ * A tile mesh as a binary glTF: the shared Blocks encoder's layout (gltf.js
+ * encodeBlocksGlb, the same bytes the live renderer draws), each chunk's
+ * faces split into opaque and water (renderer.js splitMesh), its block
+ * points folded by its chunk, and one feature row a chunk (ci, cj and the
+ * block size), compressed (compressGlb) unless `compress` is false. Null
+ * when the tile has no faces.
  */
-export function encodeGlb(mesh) {
-  const vertexCount = mesh.positions.length / 3;
-  if (!vertexCount || !mesh.indices.length) return null;
-  const parts = [];
-  let byteLength = 0;
-  const bufferViews = [];
-  const add = (typed, target) => {
-    const bytes = new Uint8Array(
-      typed.buffer,
-      typed.byteOffset,
-      typed.byteLength,
-    );
-    const pad = (4 - (byteLength % 4)) % 4;
-    if (pad) {
-      parts.push(new Uint8Array(pad));
-      byteLength += pad;
-    }
-    bufferViews.push({
-      buffer: 0,
-      byteOffset: byteLength,
-      byteLength: bytes.byteLength,
-      target,
-    });
-    parts.push(bytes);
-    byteLength += bytes.byteLength;
-    return bufferViews.length - 1;
-  };
-  const ARRAY_BUFFER = 34962;
-  const ELEMENT_ARRAY_BUFFER = 34963;
-  const FLOAT = 5126;
-  const positions = yUp(mesh.positions);
-  const normals = yUp(mesh.normals);
-  const { min, max } = bounds3(positions);
-  const accessors = [
-    {
-      bufferView: add(positions, ARRAY_BUFFER),
-      componentType: FLOAT,
-      count: vertexCount,
-      type: 'VEC3',
-      min,
-      max,
-    },
-    {
-      bufferView: add(normals, ARRAY_BUFFER),
-      componentType: FLOAT,
-      count: vertexCount,
-      type: 'VEC3',
-    },
-    {
-      bufferView: add(mesh.colors, ARRAY_BUFFER),
-      componentType: 5121,
-      normalized: true,
-      count: vertexCount,
-      type: 'VEC4',
-    },
-    {
-      bufferView: add(mesh.blockCoords, ARRAY_BUFFER),
-      componentType: FLOAT,
-      count: vertexCount,
-      type: 'VEC3',
-    },
-  ];
-  const short = vertexCount <= 0xffff;
-  const indices = short ? Uint16Array.from(mesh.indices) : mesh.indices;
-  const indexView = add(indices, ELEMENT_ARRAY_BUFFER);
-  const attributes = { POSITION: 0, NORMAL: 1, COLOR_0: 2, _BLOCK_COORD: 3 };
-  const primitives = [];
-  const ranges = [
-    [0, mesh.opaqueIndexCount, 0],
-    [mesh.opaqueIndexCount, mesh.indices.length, 1],
-  ];
-  for (const [from, to, material] of ranges) {
-    if (to <= from) continue;
-    accessors.push({
-      bufferView: indexView,
-      byteOffset: from * indices.BYTES_PER_ELEMENT,
-      componentType: short ? 5123 : 5125,
-      count: to - from,
-      type: 'SCALAR',
-    });
-    primitives.push({
-      attributes,
-      indices: accessors.length - 1,
-      material,
-      mode: 4,
-    });
-  }
-  const unlit = { KHR_materials_unlit: {} };
-  const json = {
-    asset: { version: '2.0', generator: 'godseye scripts/blocks-tileset.mjs' },
-    extensionsUsed: ['KHR_materials_unlit'],
-    scene: 0,
-    scenes: [{ nodes: [0] }],
-    nodes: [{ mesh: 0 }],
-    meshes: [{ primitives }],
-    materials: [
-      {
-        name: 'blocks',
-        pbrMetallicRoughness: {
-          baseColorFactor: [1, 1, 1, 1],
-          metallicFactor: 0,
-          roughnessFactor: 1,
-        },
-        extensions: unlit,
+export function encodeTile({ chunks }, blockM, { compress = true } = {}) {
+  const opaque = [];
+  const water = [];
+  chunks.forEach(({ ci, cj, mesh }, row) => {
+    const parts = splitMesh(mesh);
+    opaque.push({ part: parts.opaque, chunk: [ci, cj], feature: row });
+    water.push({ part: parts.water, chunk: [ci, cj], feature: row });
+  });
+  const glb = encodeBlocksGlb({
+    opaque: mergeParts(opaque),
+    water: mergeParts(water),
+    features: {
+      count: chunks.length,
+      properties: {
+        ci: Int32Array.from(chunks, (chunk) => chunk.ci),
+        cj: Int32Array.from(chunks, (chunk) => chunk.cj),
+        blockM: Float32Array.from(chunks, () => blockM),
       },
-      {
-        name: 'water',
-        alphaMode: 'BLEND',
-        pbrMetallicRoughness: {
-          baseColorFactor: [1, 1, 1, 1],
-          metallicFactor: 0,
-          roughnessFactor: 1,
-        },
-        extensions: unlit,
-      },
-    ],
-    accessors,
-    bufferViews,
-    buffers: [{ byteLength }],
-  };
-  const tail = (4 - (byteLength % 4)) % 4;
-  if (tail) {
-    parts.push(new Uint8Array(tail));
-    byteLength += tail;
-  }
-  json.buffers[0].byteLength = byteLength;
+    },
+  });
+  if (!glb) return null;
+  return compress
+    ? compressGlb(glb)
+    : Buffer.from(glb.buffer, glb.byteOffset, glb.byteLength);
+}
+
+/** A GLB's JSON and its binary chunk. */
+function splitGlb(glb) {
+  const bytes = Buffer.from(glb.buffer, glb.byteOffset, glb.byteLength);
+  const jsonLength = bytes.readUInt32LE(12);
+  const json = JSON.parse(bytes.subarray(20, 20 + jsonLength).toString('utf8'));
+  const binAt = 20 + jsonLength;
+  const bin = bytes.subarray(binAt + 8, binAt + 8 + bytes.readUInt32LE(binAt));
+  return { json, bin };
+}
+
+/** A GLB from its JSON and binary chunk, each padded to four bytes. */
+function joinGlb(json, bin) {
   let text = Buffer.from(JSON.stringify(json));
   text = Buffer.concat([text, Buffer.alloc((4 - (text.length % 4)) % 4, 0x20)]);
-  const total = 12 + 8 + text.length + 8 + byteLength;
+  const body = Buffer.concat([bin, Buffer.alloc((4 - (bin.length % 4)) % 4)]);
   const header = Buffer.alloc(12);
   header.writeUInt32LE(0x46546c67, 0); // 'glTF'
   header.writeUInt32LE(2, 4);
-  header.writeUInt32LE(total, 8);
-  const chunkHeader = (length, type) => {
+  header.writeUInt32LE(12 + 8 + text.length + 8 + body.length, 8);
+  const chunk = (length, type) => {
     const out = Buffer.alloc(8);
     out.writeUInt32LE(length, 0);
     out.writeUInt32LE(type, 4);
@@ -685,13 +568,149 @@ export function encodeGlb(mesh) {
   };
   return Buffer.concat([
     header,
-    chunkHeader(text.length, 0x4e4f534a), // 'JSON'
+    chunk(text.length, 0x4e4f534a), // 'JSON'
     text,
-    chunkHeader(byteLength, 0x004e4942), // 'BIN\0'
-    ...parts.map((part) =>
-      Buffer.from(part.buffer, part.byteOffset, part.byteLength),
-    ),
+    chunk(body.length, 0x004e4942), // 'BIN\0'
+    body,
   ]);
+}
+
+const COMPONENT_BYTES = {
+  5120: 1,
+  5121: 1,
+  5122: 2,
+  5123: 2,
+  5125: 4,
+  5126: 4,
+};
+const TYPE_SIZE = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+
+/**
+ * A GLB with EXT_meshopt_compression (meshoptimizer's codecs, which
+ * Cesium's glTF loader decodes): each primitive's vertices put in the order
+ * its triangles use them (reorderMesh, as gltfpack does), then every vertex
+ * attribute view encoded as ATTRIBUTES and every index view as TRIANGLES
+ * into the GLB's buffer; the original layout stays as a fallback buffer
+ * with no data, which the extension's loaders never read, so the extension
+ * is required. Views it does not encode (the property table) are copied.
+ */
+export function compressGlb(glb) {
+  const { json, bin } = splitGlb(glb);
+  const data = Buffer.from(bin); // a copy: the reorder rewrites it
+  const view = (index) => json.bufferViews[index];
+  const accessorBytes = (accessor) => {
+    const v = view(accessor.bufferView);
+    const element =
+      COMPONENT_BYTES[accessor.componentType] * TYPE_SIZE[accessor.type];
+    const stride = v.byteStride || element;
+    const at = v.byteOffset + (accessor.byteOffset || 0);
+    return { at, stride, element };
+  };
+  // Each primitive's vertices in the order its triangles use them.
+  for (const mesh of json.meshes)
+    for (const primitive of mesh.primitives) {
+      const indexAccessor = json.accessors[primitive.indices];
+      const ia = accessorBytes(indexAccessor);
+      const Type =
+        indexAccessor.componentType === 5123 ? Uint16Array : Uint32Array;
+      const indices = Uint32Array.from(
+        new Type(data.buffer, data.byteOffset + ia.at, indexAccessor.count),
+      );
+      const [remap, unique] = MeshoptEncoder.reorderMesh(indices, true, true);
+      const target = new Type(
+        data.buffer,
+        data.byteOffset + ia.at,
+        indexAccessor.count,
+      );
+      target.set(indices);
+      for (const id of Object.values(primitive.attributes)) {
+        const accessor = json.accessors[id];
+        const { at, stride } = accessorBytes(accessor);
+        const before = Buffer.from(
+          data.subarray(at, at + accessor.count * stride),
+        );
+        for (let v = 0; v < accessor.count; v++) {
+          const to = remap[v];
+          if (to === 0xffffffff) continue;
+          before.copy(data, at + to * stride, v * stride, v * stride + stride);
+        }
+        accessor.count = unique;
+      }
+    }
+  // What each view holds: an attribute (its stride) or a primitive's indices.
+  const roles = new Map();
+  for (const mesh of json.meshes)
+    for (const primitive of mesh.primitives) {
+      for (const id of Object.values(primitive.attributes)) {
+        const accessor = json.accessors[id];
+        const { stride } = accessorBytes(accessor);
+        roles.set(accessor.bufferView, {
+          mode: 'ATTRIBUTES',
+          stride,
+          count: accessor.count,
+        });
+      }
+      const indexAccessor = json.accessors[primitive.indices];
+      roles.set(indexAccessor.bufferView, {
+        mode: 'TRIANGLES',
+        stride: COMPONENT_BYTES[indexAccessor.componentType],
+        count: indexAccessor.count,
+      });
+    }
+  const parts = [];
+  let length = 0;
+  const append = (bytes) => {
+    const pad = (4 - (length % 4)) % 4;
+    if (pad) parts.push(Buffer.alloc(pad));
+    length += pad;
+    const offset = length;
+    parts.push(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+    length += bytes.byteLength;
+    return offset;
+  };
+  json.bufferViews = json.bufferViews.map((v, index) => {
+    const raw = data.subarray(v.byteOffset, v.byteOffset + v.byteLength);
+    const role = roles.get(index);
+    if (!role || (role.mode === 'ATTRIBUTES' && role.stride % 4 !== 0)) {
+      // Not encoded: its bytes, copied as they are.
+      return { ...v, buffer: 0, byteOffset: append(raw) };
+    }
+    const source = raw.subarray(0, role.count * role.stride);
+    const encoded =
+      role.mode === 'ATTRIBUTES'
+        ? MeshoptEncoder.encodeVertexBuffer(source, role.count, role.stride)
+        : MeshoptEncoder.encodeIndexBuffer(source, role.count, role.stride);
+    const byteOffset = append(encoded);
+    return {
+      ...v,
+      buffer: 1,
+      extensions: {
+        EXT_meshopt_compression: {
+          buffer: 0,
+          byteOffset,
+          byteLength: encoded.byteLength,
+          byteStride: role.stride,
+          count: role.count,
+          mode: role.mode,
+        },
+      },
+    };
+  });
+  const body = Buffer.concat(parts);
+  json.buffers = [
+    { byteLength: body.length },
+    {
+      byteLength: bin.length,
+      extensions: { EXT_meshopt_compression: { fallback: true } },
+    },
+  ];
+  const add = (list, name) => [...new Set([...(list || []), name])];
+  json.extensionsUsed = add(json.extensionsUsed, 'EXT_meshopt_compression');
+  json.extensionsRequired = add(
+    json.extensionsRequired,
+    'EXT_meshopt_compression',
+  );
+  return joinGlb(json, body);
 }
 
 /** The anchor's east-north-up frame on the ellipsoid as a column-major 4 × 4. */
@@ -721,13 +740,13 @@ export function enuTransform({ lon0, lat0 }) {
   return [...east, 0, ...north, 0, ...up, 0, ...origin, 1];
 }
 
-/** A box bounding volume around a tile mesh's positions (its frame, z up). */
-function boxVolume(positions, side) {
-  if (!positions.length) {
+/** A box bounding volume around a tile mesh's bounds (its frame, z up). */
+function boxVolume(bounds, side) {
+  if (!bounds) {
     // An empty tile still has its ground's footprint.
     return [side / 2, side / 2, 0, side / 2, 0, 0, 0, side / 2, 0, 0, 0, 1];
   }
-  const { min, max } = bounds3(positions);
+  const { min, max } = bounds;
   const half = (c) => Math.max((max[c] - min[c]) / 2, 0.5);
   const mid = (c) => (max[c] + min[c]) / 2;
   return [mid(0), mid(1), mid(2), half(0), 0, 0, 0, half(1), 0, 0, 0, half(2)];
@@ -749,6 +768,7 @@ function writeAtomic(file, bytes) {
 const CODE_FILES = [
   'scripts/blocks-tileset.mjs',
   'src/layers/blocks/mesh.js',
+  'src/layers/blocks/gltf.js',
   'src/layers/blocks/lighting.js',
   'src/layers/blocks/store.js',
   'src/layers/blocks/grid.js',
@@ -861,17 +881,17 @@ export function buildTileset(
       tiles.push({ ...record.stats, uri, bytes: record.bytes, kept: true });
     } else {
       const mesh = tileMesh(tile, chunks, regions.get(tile.level));
-      const glb = encodeGlb(mesh);
+      const glb = encodeTile(mesh, tile.level);
       if (glb) writeAtomic(file, glb);
       const stats = {
         level: tile.level,
         kind: tile.kind,
-        vertices: mesh.positions.length / 3,
-        indices: mesh.indices.length,
+        vertices: mesh.vertices,
+        indices: mesh.indices,
         faces: mesh.faces,
       };
       result = {
-        box: boxVolume(mesh.positions, tileExtent(tile).side),
+        box: boxVolume(mesh.bounds, tileExtent(tile).side),
         content: Boolean(glb),
       };
       const bytes = glb ? glb.length : 0;
@@ -951,10 +971,12 @@ export function buildTileset(
             chunkColumns: CHUNK_COLUMNS,
             chunkGroup: CHUNK_GROUP,
             format: TILESET_FORMAT,
+            // The encoder's (gltf.js): its block point folded by chunk.
             attributes: {
-              _BLOCK_COORD:
-                'columns east and north of the anchor at the tile level, and the level',
+              _BLOCKCOORD: `columns east and north, the chunk's folded modulo ${FOLD_COLUMNS}, and the level`,
+              _FEATURE_ID_0: 'the chunk: property table columns ci, cj, blockM',
             },
+            compression: 'EXT_meshopt_compression',
             // The variant this file draws, and its siblings over the same tree.
             variant: variant.name ?? 'default',
             variants: variants.map(({ file, name }) => ({
