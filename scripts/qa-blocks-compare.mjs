@@ -1433,6 +1433,7 @@ function sequenceHoldings() {
           stats: rs.stats ?? null,
           // Models made and not drawn yet (the Model renderer).
           loadingModels: rs.loadingModels ?? null,
+          glbStore: rs.glbStore ?? null,
         }
       : null,
     primitives: window.__godsEyeView?.viewer?.scene?.primitives?.length ?? null,
@@ -1534,6 +1535,12 @@ async function runSequence({
     requests: [],
     liveTimes: [],
   };
+  // The page's Blocks warnings (a Model or a mesh that failed).
+  page.on('console', (message) => {
+    const text = message.text();
+    if (/\[blocks\]|\[Blocks\]/.test(text))
+      log.errors.push(`console ${message.type()}: ${text.slice(0, 300)}`);
+  });
   page.on('pageerror', (error) =>
     log.errors.push(String(error?.message || error)),
   );
