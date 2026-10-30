@@ -76,6 +76,7 @@
     "overpass:recover": "node scripts/overpass-status.mjs --recover",
     "blocks:pyramid": "node scripts/blocks-pyramid.mjs",
     "blocks:tileset": "node scripts/blocks-tileset.mjs",
+    "cache:prune": "node scripts/cache-prune.mjs",
     "overpass:backup": "node scripts/overpass-backup.mjs",
     "overpass:restore": "node scripts/overpass-backup.mjs restore",
     "msfs:deploy": "node tools/msfs-renderer/msfs.mjs deploy",

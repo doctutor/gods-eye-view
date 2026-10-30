@@ -336,6 +336,41 @@ export function createRasterValuesService({
   /** Answers in flight by file: one computation however many ask. */
   const inflight = new Map();
 
+  /**
+   * A request's plan and the file its answer is kept in, or {status,
+   * error} as values() would answer.
+   */
+  function locate(params) {
+    const query = parseRasterValuesQuery(params);
+    if (!query.ok) return { status: query.status, error: query.error };
+    const adapter = adapters.get(query.layer);
+    if (!adapter) return { status: 404, error: 'No values for that layer' };
+    if (query.mode && !adapter.modes.includes(query.mode))
+      return { status: 404, error: 'No such mode' };
+    if (query.water && !adapter.planes?.includes('water'))
+      return { status: 404, error: 'No water plane for that layer' };
+    const experiment = experimentOf(params, query.layer);
+    if (experiment?.error) return { status: 400, error: experiment.error };
+    const plan = adapter.plan(query.mode, query.box, query.cells, {
+      water: query.water,
+      ...(experiment ? { experiment } : {}),
+    });
+    if (plan.status) return { status: plan.status, error: plan.error };
+    const name = crypto
+      .createHash('sha256')
+      .update(rasterValuesKey({ ...query, mode: plan.mode }))
+      .digest('hex')
+      .slice(0, 24);
+    const file = path.join(
+      cacheDir,
+      query.layer,
+      plan.mode || 'default',
+      plan.version,
+      `${name}.bin`,
+    );
+    return { query, plan, file };
+  }
+
   return {
     /** The layers and modes with values (for docs and tests). */
     catalog() {
@@ -346,39 +381,25 @@ export function createRasterValuesService({
     },
 
     /**
+     * The file a request's answer is kept in, from its plan alone (nothing
+     * asked or read): {file}, or {status, error} as values() would answer.
+     * For the cache prune (scripts/cache-prune.mjs).
+     */
+    cacheFile(params) {
+      const located = locate(params);
+      return located.status ? located : { file: located.file };
+    },
+
+    /**
      * One window's values.
      * @param {URLSearchParams|object} params
      * @returns {Promise<{status: number, body?: Uint8Array, error?: string,
      *   cached?: boolean}>}
      */
     async values(params) {
-      const query = parseRasterValuesQuery(params);
-      if (!query.ok) return { status: query.status, error: query.error };
-      const adapter = adapters.get(query.layer);
-      if (!adapter) return { status: 404, error: 'No values for that layer' };
-      if (query.mode && !adapter.modes.includes(query.mode))
-        return { status: 404, error: 'No such mode' };
-      if (query.water && !adapter.planes?.includes('water'))
-        return { status: 404, error: 'No water plane for that layer' };
-      const experiment = experimentOf(params, query.layer);
-      if (experiment?.error) return { status: 400, error: experiment.error };
-      const plan = adapter.plan(query.mode, query.box, query.cells, {
-        water: query.water,
-        ...(experiment ? { experiment } : {}),
-      });
-      if (plan.status) return { status: plan.status, error: plan.error };
-      const name = crypto
-        .createHash('sha256')
-        .update(rasterValuesKey({ ...query, mode: plan.mode }))
-        .digest('hex')
-        .slice(0, 24);
-      const file = path.join(
-        cacheDir,
-        query.layer,
-        plan.mode || 'default',
-        plan.version,
-        `${name}.bin`,
-      );
+      const located = locate(params);
+      if (located.status) return located;
+      const { query, plan, file } = located;
       // An experiment is computed fresh: never read from the cache, never kept.
       const fresh = Boolean(plan.experiment);
       if (!fresh)
