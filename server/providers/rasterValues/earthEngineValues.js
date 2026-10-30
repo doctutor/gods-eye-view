@@ -361,8 +361,9 @@ export function bandNativeM(box, bandKey, heights) {
 /**
  * The values experiments (GEV_VALUES_EXPERIMENTS=1 on the server only):
  * Elevation's mean read from at most `maxPixels` pixels a cell, and its
- * default scale the stack's finest cell in the window (`stack`, today's)
- * or the read band's own (`band`). Answers are served, never kept.
+ * default scale the read band's own cell (`band`, the default) or the
+ * stack's finest in the window (`stack`, the reading before 2026-10-30).
+ * Answers are served, never kept.
  */
 export const VALUES_EXPERIMENTS = Object.freeze({
   maxPixels: Object.freeze([16, 64, 256]),
@@ -503,8 +504,15 @@ export function createEarthEngineAdapter(layer, earthEngine) {
       const picture = expressionFor(plain, variant, undefined, modeKey);
       const ownM = nativeM || DEFAULT_NATIVE_M;
       const reduced = spec.reduce === 'mean' && cellSizeM >= MEAN_ABOVE * ownM;
+      // The mean's default scale: the read band's own cell (FABDEM 30 m,
+      // GMTED 231 m), not the stack's finest in the window. 3DEP's 1 m made
+      // a 120 m cell over the US read FABDEM at 7.5 m, 16 × the pixels for
+      // the same mean (18–20 s a fresh tile, 4 s at 30 m; means within
+      // 0.05 m on average). `ownM` still decides mean or sample and the
+      // grid, so no cell changes between them. The experiment's `stack`
+      // is the old reading, for timing.
       const meanM =
-        experiment?.scale === 'band' && variant.stack
+        experiment?.scale !== 'stack' && variant.stack
           ? bandNativeM(box, variant.stack, heights) || ownM
           : ownM;
       const meanMax = experiment?.maxPixels || MEAN_MAX_PIXELS;

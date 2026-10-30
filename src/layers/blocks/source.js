@@ -13,13 +13,15 @@
 // Milestone 5, blocks at any scale: a region's blockM is a level of the
 // pyramid (pyramid.js, regionFor), and every level is served alike. The
 // values are asked in tiles of a global lattice of the level (lattice.js:
-// 512 cells of blockM a side, the same box for every view), each column
+// 512 cells of blockM a side, 256 at 480 and 1,920 m, the same box for
+// every view), each column
 // read from the tile cell under its centre, so the server's 30-day cache
 // answers any view at that level and a warm-up can fill it; a level
 // coarser than the source's own cell is the mean over each cell (the
 // server reduces). Each Earth Engine answer counts a tile against the
-// day's budget: at most 18 for a fresh view at any level (3 × 3 tiles for
-// the fine disc, 3 × 3 for its coarse ring). Heights are mean sea level as
+// day's budget: at most 18 for a fresh view at a level of 512-cell tiles
+// (3 × 3 tiles for the fine disc, 3 × 3 for its coarse ring), about four
+// times that where the disc or the ring is at 480 or 1,920 m. Heights are mean sea level as
 // the DEM stack reports them; a column at or below 0 m is the sea, water at
 // level 0 over a seabed below it. Above the finest levels (whose lakes and
 // rivers are OSM's, structures.js) each tile carries the water plane too,
@@ -38,8 +40,9 @@ import { CHUNK_COLUMNS, columnIndex } from './grid.js';
 import { MATERIALS, NONE, createChunk as storeChunk } from './store.js';
 import { levelMFor, pyramidLevelM } from './pyramid.js';
 import {
-  LATTICE_CELLS,
   latticeBox,
+  latticeCells,
+  latticeWeight,
   latticeIndex,
   latticeKey,
 } from './lattice.js';
@@ -66,7 +69,11 @@ export const OSM_WATER_MAX_M = 30;
 export const asksWater = (blockM) => blockM > OSM_WATER_MAX_M;
 /** Chunks kept in memory, fine and coarse. */
 export const MAX_CHUNKS = 1024;
-/** Lattice tiles' answers kept in memory (about 1 MB each). */
+/**
+ * Lattice tiles' answers kept in memory, in 512-cell tiles (about 1 MB
+ * each, 2 with the water plane): a 256-cell tile counts a quarter
+ * (lattice.js latticeWeight).
+ */
 export const MAX_TILES = 24;
 /**
  * A lattice tile that fails is asked again after these delays, ms: the
@@ -418,13 +425,14 @@ export function createChunkSource({
     });
 
   const tiles = new Map(); // latticeKey → Promise<answer>, least recently used first
+  const weights = new Map(); // latticeKey → its share of a 512-cell tile
   /** A tile's answer, asked again after each of `retryMs` while retryable. */
   async function askTile(blockM, ti, tj) {
     for (let attempt = 0; ; attempt++) {
       try {
         return await ask(
           latticeBox(blockM, ti, tj),
-          LATTICE_CELLS,
+          latticeCells(blockM),
           asksWater(blockM),
         );
       } catch (error) {
@@ -447,11 +455,22 @@ export function createChunkSource({
     else {
       promise = askTile(blockM, ti, tj);
       promise.catch(() => {
-        if (tiles.get(key) === promise) tiles.delete(key);
+        if (tiles.get(key) === promise) {
+          tiles.delete(key);
+          weights.delete(key);
+        }
       });
     }
     tiles.set(key, promise);
-    while (tiles.size > maxTiles) tiles.delete(tiles.keys().next().value);
+    weights.set(key, latticeWeight(blockM));
+    let held = 0;
+    for (const weight of weights.values()) held += weight;
+    while (held > maxTiles && tiles.size > 1) {
+      const oldest = tiles.keys().next().value;
+      held -= weights.get(oldest) ?? 1;
+      tiles.delete(oldest);
+      weights.delete(oldest);
+    }
     return promise;
   }
 
@@ -698,6 +717,7 @@ export function createChunkSource({
     clear() {
       held.clear();
       tiles.clear();
+      weights.clear();
     },
   };
 }

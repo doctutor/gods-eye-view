@@ -6420,8 +6420,10 @@ fine and coarse at one levelM and matches them one to one at the skirts
 
 **The lattice.** The values are asked in tiles of a global equal-angle
 lattice a level (`src/layers/blocks/lattice.js`): 512 cells of the level
-a side, `blockM` of latitude a cell, from 180° W and 90° S, cut at the
-antimeridian and the poles. A tile's box is the same for every view,
+a side (256 at 480 and 1,920 m, `latticeCells`: a fresh 512-cell tile
+there took 55 to 111 s and at times passed the server's 120 s, a quarter
+of one 6 to 12 s), `blockM` of latitude a cell, from 180° W and 90° S,
+cut at the antimeridian and the poles. A tile's box is the same for every view,
 however the camera anchored the region, so the server's 30-day cache
 answers any region at that level and `npm run blocks:pyramid` can fill
 it ahead of time. A group reads its columns from the tiles under them
@@ -6471,8 +6473,12 @@ the controller's retry asks again (only the tile that failed). The
 server keeps the answers 30 days on disk.
 
 **Coarse cells are means.** The server makes an Elevation cell coarser
-than 1.5 × the source's own the mean over it: the DEM stack given its
-cells as a default projection, then `Image.reduceResolution` with a
+than 1.5 × the source's own the mean over it: the band read (FABDEM 30 m
+in the base band, GMTED 231 m in the far one) given its own cells as a
+default projection, not the stack's finest in the window (3DEP's 1 m had
+a 120 m cell over the US read FABDEM at 7.5 m: 16 × the pixels for the
+same mean, 18–20 s a fresh tile against 4 s), then
+`Image.reduceResolution` with a
 mean (`bestEffort`, at most 256 pixels a cell, so a 30 km cell is the
 mean of 16 × 16 pixels of a 1.9 km pyramid level), and says `mean` in
 the header's `aggregation`. A reduction Earth Engine refuses (not a 429

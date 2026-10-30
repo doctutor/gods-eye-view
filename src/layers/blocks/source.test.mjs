@@ -36,6 +36,7 @@ import {
 import {
   LATTICE_CELLS,
   latticeBox,
+  latticeCells,
   latticeIndex,
   latticeSideDeg,
 } from './lattice.js';
@@ -97,12 +98,13 @@ function fakeValues({
 
 const createChunk = (spec) => ({ ...spec, stub: true });
 
-/** Every call a lattice tile of `blockM` (512 cells, its exact box), none asked twice. */
+/** Every call a lattice tile of `blockM` (latticeCells, its exact box), none asked twice. */
 function assertLatticeCalls(calls, blockM) {
   const seen = new Set();
   for (const call of calls) {
     assert.equal(call.layer, ELEVATION_LAYER);
-    assert.equal(call.cells, LATTICE_CELLS);
+    assert.equal(call.cells, latticeCells(blockM));
+    assert.ok(call.cells <= LATTICE_CELLS);
     const { ti, tj } = latticeIndex(
       blockM,
       (call.box.west + call.box.east) / 2,
@@ -967,6 +969,71 @@ test('a chunk across a lattice seam is stitched from both tiles: east-west, nort
         );
       }
   }
+});
+
+test('at 480 m the tiles are 256 cells: a chunk across their seams is stitched from all four', async () => {
+  const quads = [
+    [-1, -1],
+    [0, -1],
+    [-1, 0],
+    [0, 0],
+  ];
+  const { region } = seamRegion(480);
+  // A gentle ramp east (1 %) on 1,000 m, plus 600 m north of the anchor.
+  const mPerLon = M_PER_DEG * Math.cos((39.3 * Math.PI) / 180);
+  const heightAt = (lon, lat) =>
+    1000 + (lon - region.lon0) * mPerLon * 0.01 + (lat > region.lat0 ? 600 : 0);
+  const { fetchValues, calls } = fakeValues({ nativeM: 30, heightAt });
+  const source = createChunkSource({ fetchValues, createChunk });
+  const chunks = await Promise.all(
+    quads.map(([ci, cj]) => source.loadChunk(region, ci, cj)),
+  );
+  assertLatticeCalls(calls, 480);
+  assert.ok(calls.length >= 4);
+  assert.ok(calls.every((call) => call.cells === 256));
+  for (const [k, [ci, cj]] of quads.entries())
+    for (const i of [0, 63])
+      for (const j of [0, 63]) {
+        const place = region.columnCentre(ci * 64 + i, cj * 64 + j);
+        const top = chunks[k].top[columnIndex(i, j)];
+        assert.notEqual(top, NONE, `chunk ${ci},${cj} column ${i},${j}`);
+        assert.ok(
+          Math.abs(top - Math.floor(heightAt(place.lon, place.lat) / 480)) <= 1,
+          `chunk ${ci},${cj} column ${i},${j}: ${top}`,
+        );
+      }
+});
+
+test('the tile cache counts a 256-cell tile as a quarter of a 512-cell one', async () => {
+  // A group built, its chunks evicted (one chunk held), then built again:
+  // the tiles asked again are those the cache could not hold.
+  const rebuild = async (blockM, maxTiles) => {
+    const { region } = seamRegion(blockM);
+    const { fetchValues, calls } = fakeValues({
+      nativeM: 30,
+      heightAt: () => 900,
+    });
+    const source = createChunkSource({
+      fetchValues,
+      createChunk,
+      maxChunks: 1,
+      maxTiles,
+    });
+    await source.loadChunk(region, 0, 0);
+    const first = calls.length;
+    await source.loadChunk(region, 0, 0);
+    return { first, again: calls.length - first };
+  };
+  // How many tiles a group needs at each level, with room for all.
+  const quarter = (await rebuild(480, 100)).first;
+  const whole = (await rebuild(30, 100)).first;
+  assert.ok(quarter >= 1 && whole >= 1);
+  // Exactly room for them: a quarter a 480 m tile, one a 30 m tile.
+  assert.equal((await rebuild(480, quarter / 4)).again, 0);
+  assert.equal((await rebuild(30, whole)).again, 0);
+  // A quarter less: one is asked again.
+  if (quarter > 1) assert.ok((await rebuild(480, (quarter - 1) / 4)).again > 0);
+  if (whole > 1) assert.ok((await rebuild(30, whole - 1)).again > 0);
 });
 
 test('a seam tile that fails once is retried, and the chunk across the seam is whole', async () => {
