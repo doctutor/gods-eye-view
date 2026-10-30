@@ -7,7 +7,12 @@ import assert from 'node:assert/strict';
 
 import { CHUNK_COLUMNS, columnIndex } from './grid.js';
 import { MATERIALS, NONE, createChunk } from './store.js';
-import { CURVED_CELL_PX, buildChunkMesh, curvedRunCap } from './mesh.js';
+import {
+  CURVED_CELL_PX,
+  FAN_BELOW_M,
+  buildChunkMesh,
+  curvedRunCap,
+} from './mesh.js';
 import {
   AO,
   FACE_SHADE,
@@ -1241,4 +1246,90 @@ test('runCap replaces curvedRunCap on a curved level', () => {
   });
   assert.equal(run(capped), curvedRunCap(7680));
   assert.equal(run(longer), 64);
+});
+
+test('the fan by default below 120 m blocks only (FAN_BELOW_M), flat and curved alike; without it an uneven face takes the diagonal between its brighter corners', () => {
+  assert.equal(FAN_BELOW_M, 120);
+  // Stairs: shaded corners at every step.
+  const tops = [];
+  for (let j = 0; j < N; j++)
+    for (let i = 0; i < N; i++)
+      tops.push([i, j, 3 + Math.floor(i / 5) + (j % 7 === 0 ? 1 : 0)]);
+  const chunk = chunkAt(3, { tops });
+  const centres = (mesh) => mesh.blockCoords.some((v) => !Number.isInteger(v));
+  const curved = {
+    lon0: -95.6,
+    lat0: 37.09,
+    regionBlockM: 480,
+    cornerM: { x: 0, y: 0 },
+    datumM: 0,
+  };
+  const meshes = {
+    30: buildChunkMesh(chunk, { blockM: 30, levelM: 30 }),
+    60: buildChunkMesh(chunk, { blockM: 60, levelM: 30 }),
+    120: buildChunkMesh(chunk, { blockM: 120, levelM: 30 }),
+    480: buildChunkMesh(chunk, { blockM: 480, levelM: 30, curved }),
+    1920: buildChunkMesh(chunk, {
+      blockM: 1920,
+      levelM: 60,
+      curved: { ...curved, regionBlockM: 1920 },
+    }),
+  };
+  assert.ok(centres(meshes[30]) && centres(meshes[60]), 'fans below 120 m');
+  for (const blockM of [120, 480, 1920]) {
+    const mesh = meshes[blockM];
+    assert.ok(!centres(mesh), `no fan at ${blockM} m`);
+    assert.equal(mesh.positions.length / 3, mesh.faces * 4, `${blockM} m`);
+    assert.equal(mesh.indices.length, mesh.faces * 6, `${blockM} m`);
+  }
+  // The diagonal: the two triangles of a quad share two corners. The
+  // corners' occluder counts come back from their baked light (one base
+  // colour a quad, times AO[count]); the split runs between the opposite
+  // pair with the fewer occluders in all (corners 0 and 2 on a tie).
+  const light = (mesh, v) =>
+    mesh.colors[v * 4] + mesh.colors[v * 4 + 1] + mesh.colors[v * 4 + 2];
+  /** The counts that explain a quad's lights, or null if not one way. */
+  const countsOf = (l) => {
+    const found = [];
+    const top = Math.max(...l);
+    for (let k0 = 0; k0 < AO.length; k0++) {
+      const base = top / AO[k0];
+      const counts = l.map((v) => {
+        const k = AO.findIndex((ao) => Math.abs(base * ao - v) <= 4);
+        return k;
+      });
+      if (counts.every((k) => k >= 0)) found.push(counts);
+    }
+    const sides = new Set(
+      found.map((k) => Math.sign(k[0] + k[2] - (k[1] + k[3]))),
+    );
+    return sides.size === 1 ? found[0] : null;
+  };
+  for (const blockM of [120, 480]) {
+    const mesh = meshes[blockM];
+    let judged = 0;
+    for (let q = 0; q < mesh.faces; q++) {
+      const base = q * 4;
+      const l = [0, 1, 2, 3].map((c) => light(mesh, base + c));
+      if (new Set(l).size === 1) continue;
+      const counts = countsOf(l);
+      if (!counts) continue;
+      const tri = [...mesh.indices.slice(q * 6, q * 6 + 6)];
+      const first = new Set(tri.slice(0, 3));
+      const shared = tri
+        .slice(3)
+        .filter((v) => first.has(v))
+        .map((v) => v - base)
+        .sort();
+      const want =
+        counts[0] + counts[2] > counts[1] + counts[3] ? [1, 3] : [0, 2];
+      assert.deepEqual(shared, want, `${blockM} m quad ${q}: ${l} → ${counts}`);
+      judged++;
+    }
+    assert.ok(judged > 100, `${judged} faces judged at ${blockM} m`);
+  }
+  // Asked for, the fan still comes at any block size.
+  assert.ok(
+    centres(buildChunkMesh(chunk, { blockM: 480, levelM: 30, fan: true })),
+  );
 });

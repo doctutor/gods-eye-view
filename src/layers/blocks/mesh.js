@@ -337,6 +337,18 @@ function curvedPlacement(curved, scale) {
 }
 
 /**
+ * Below this block size an unevenly shaded face is a fan of four triangles
+ * about a centre at its corners' mean shading (buildChunkMesh's `fan`);
+ * from it up, two (splitOf). The fan keeps a dark corner from running
+ * across a face (dark fins on staircases at 10 m blocks); at 120 m and
+ * coarser a face spans 120 m or more and is seen from tens of kilometres,
+ * and the fans were 90 % of a curved 480 m tile's vertices and 93 % of its
+ * triangles (worker1, lower48-480 g-17_1, 61 → 47 MB decoded without).
+ * The build passes nothing, so tiles and live chunks of a level match.
+ */
+export const FAN_BELOW_M = 120;
+
+/**
  * Mesh a chunk. `blockM` scales columns to metres east and north,
  * `levelM` (`blockM` unless given) levels to metres up; `sunDir` is the
  * unit vector to the sun, {east, north, up} in the region's frame (the
@@ -346,8 +358,10 @@ function curvedPlacement(curved, scale) {
  * triangles too, split along the diagonal between its two brighter corners
  * (the usual voxel rule), rather than four around a centre at the corners'
  * mean: a quarter fewer vertices and half the triangles of such a quad, for
- * levels seen from far off (the tileset at 480 m and up); the fan stays the
- * default. `runCap` replaces curvedRunCap's longest run on a curved level.
+ * levels seen from far off. The default: the fan below FAN_BELOW_M (120 m)
+ * blocks, two triangles from it up, for the tileset build and the live
+ * renderer alike. `runCap` replaces curvedRunCap's longest run on a curved
+ * level.
  * `skirt: {n, s, e, w}`, each a floor level or null: along a border whose
  * neighbour is absent, every solid block of each edge column from its top
  * down to and including the floor level gets a side face (shaded as a
@@ -377,7 +391,7 @@ export function buildChunkMesh(
     skirt = null,
     curved = null,
     flatDrop = null,
-    fan = true,
+    fan = blockM < FAN_BELOW_M,
     runCap: runCapGiven = null,
   } = {},
 ) {

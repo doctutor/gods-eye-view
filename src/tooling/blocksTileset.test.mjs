@@ -49,6 +49,7 @@ import {
 } from '../../scripts/blocks-tileset.mjs';
 import {
   CURVED_CELL_PX,
+  FAN_BELOW_M,
   buildChunkMesh,
   curvedRunCap,
 } from '../layers/blocks/mesh.js';
@@ -561,26 +562,27 @@ test('meshes (golden): tile sizes and geometry, opaque then water, in the tile f
     `deepest drop ${deepestDropM} m`,
   );
   // Golden: change only with the mesher (mesh.js) or this layout, on purpose.
+  // The 120 m tiles without the fan since FAN_BELOW_M (two triangles a face).
   assert.deepEqual(summary, [
-    '120m/g0_0.glb 5378 4024',
+    '120m/g0_0.glb 4488 2244',
     '30m/g0_0.glb 16046 11950',
-    '120m/c1_0.glb 129 84',
-    '120m/c2_0.glb 86 52',
-    '120m/c3_0.glb 175 116',
-    '120m/c0_1.glb 137 88',
-    '120m/c1_1.glb 172 116',
-    '120m/c2_1.glb 86 52',
-    '120m/c3_1.glb 108 66',
-    '120m/c0_2.glb 140 88',
-    '120m/c1_2.glb 86 52',
-    '120m/c2_2.glb 172 116',
-    '120m/c3_2.glb 108 66',
-    '120m/c0_3.glb 116 70',
-    '120m/c1_3.glb 86 52',
-    '120m/c2_3.glb 129 84',
-    '120m/c3_3.glb 280 194',
+    '120m/c1_0.glb 116 58',
+    '120m/c2_0.glb 80 40',
+    '120m/c3_0.glb 156 78',
+    '120m/c0_1.glb 124 62',
+    '120m/c1_1.glb 152 76',
+    '120m/c2_1.glb 80 40',
+    '120m/c3_1.glb 100 50',
+    '120m/c0_2.glb 128 64',
+    '120m/c1_2.glb 80 40',
+    '120m/c2_2.glb 152 76',
+    '120m/c3_2.glb 100 50',
+    '120m/c0_3.glb 108 54',
+    '120m/c1_3.glb 80 40',
+    '120m/c2_3.glb 116 58',
+    '120m/c3_3.glb 244 122',
   ]);
-  assert.equal(geometry.digest('hex').slice(0, 16), '3830fc216647ba67');
+  assert.equal(geometry.digest('hex').slice(0, 16), 'c4edfa737de162f1');
 });
 
 test("glTF layout: the shared encoder's, meshopt required, a feature a chunk, water blended, indices in range", async () => {
@@ -1758,10 +1760,13 @@ test('the mesher fingerprint: two synthetic tiles carrying every kind of input, 
     );
     assert.ok(stats.skirt > 0, 'skirts on the borders');
     assert.ok(stats.water > 0, 'water faces');
+    // Shaded corners: a fan's centre below FAN_BELOW_M (30 m), two
+    // triangles split by the shading from it up (1,920 m): both paths.
     const coords = mesh.chunks[0].mesh.blockCoords;
-    assert.ok(
+    assert.equal(
       coords.some((v) => !Number.isInteger(v)),
-      'a shaded face centre (ambient occlusion)',
+      blockM < FAN_BELOW_M,
+      'a shaded face centre (ambient occlusion) below 120 m only',
     );
     assert.equal(region.curved, curved);
   }
