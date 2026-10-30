@@ -467,9 +467,14 @@ test('a camera inside a tile (under its top, before the live chunks’ hole open
   const scene = viewer.scene;
   let top = 4000;
   let samples = 0;
+  // A live chunk beside the tiles: the sample sees the tiles alone.
+  const live = { show: true, update() {}, destroy() {} };
+  scene.primitives.add(live);
+  const seen = [];
   scene.sampleHeightSupported = true;
-  scene.sampleHeight = () => {
+  scene.sampleHeight = (place, exclude) => {
     samples++;
+    seen.push({ live: live.show, exclude });
     return top;
   };
   const u = (name) => layer.shader.uniforms[name].value;
@@ -481,6 +486,10 @@ test('a camera inside a tile (under its top, before the live chunks’ hole open
   frame();
   assert.equal(u('u_holeRadiusM'), 0);
   assert.equal(layer.getState().inside, null);
+  // Sampled with the others hidden and nothing left out (sampleHeight's
+  // list is of objects to exclude), then shown again.
+  assert.deepEqual(seen.at(-1), { live: false, exclude: undefined });
+  assert.equal(live.show, true);
   // Under it: a hole of two floor blocks about the camera, at once.
   top = 5100;
   frame();

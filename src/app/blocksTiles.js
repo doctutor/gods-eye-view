@@ -393,15 +393,10 @@ export function createBlocksTilesLayer({
       typeof scene?.sampleHeight !== 'function'
     )
       return null;
-    let top;
-    try {
-      top = scene.sampleHeight(
-        new Cesium.Cartographic(at.longitude, at.latitude),
-        [tileset],
-      );
-    } catch {
-      top = undefined;
-    }
+    const top = tilesetTopAt(
+      tileset,
+      new Cesium.Cartographic(at.longitude, at.latitude),
+    );
     if (!(Number.isFinite(top) && at.height < top)) return null;
     insideOpens++;
     inside = {
@@ -410,6 +405,32 @@ export function createBlocksTilesLayer({
       radiusM: INSIDE_HOLE_BLOCKS * (Number(state.floorM) || 0),
     };
     return inside;
+  }
+
+  /**
+   * The tileset's drawn top under a place (m), or undefined: Cesium's
+   * sampleHeight with every other primitive hidden for the one call. Its
+   * list is of objects to leave out, so sampleHeight(place, [tileset])
+   * measured all but the tiles (the live ground at 45 m at a Baltimore
+   * street, under a 30,720 m tile top at 813 m, 2026-10-30).
+   */
+  function tilesetTopAt(tileset, place) {
+    const primitives = scene.primitives;
+    const hidden = [];
+    for (let i = 0; i < (primitives?.length || 0); i++) {
+      const each = primitives.get(i);
+      if (each !== tileset && each?.show) {
+        each.show = false;
+        hidden.push(each);
+      }
+    }
+    try {
+      return scene.sampleHeight(place);
+    } catch {
+      return undefined;
+    } finally {
+      for (const each of hidden) each.show = true;
+    }
   }
 
   const requestRender = () => scene?.requestRender?.();
