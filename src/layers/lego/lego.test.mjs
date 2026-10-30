@@ -669,6 +669,52 @@ test('the heading drop-down reads Colour | Lego | Blocks, and in Blocks the line
   }
 });
 
+test('the heading control writes a control’s hidden only when it changes: each write is a mutation the panel rails hear, and a Blocks flight brings hundreds of statuses', async () => {
+  const { createLegoHeadingControl } = await import('./presentation.js');
+  const doc = fakeDocument();
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const lego = {
+    getMode: () => store.getMode(),
+    setMode: (mode) => store.setMode(mode),
+    getExaggeration: () => 1,
+    setExaggeration: () => {},
+    getStatus: () => ({ state: 'no-layer' }),
+    subscribe: (listener) => store.subscribe(listener),
+  };
+  const blocksListeners = new Set();
+  let chunks = 0;
+  const blocks = {
+    getStatus: () => ({ state: 'loading', blockM: 30, chunks, source: 'x' }),
+    subscribe(listener) {
+      blocksListeners.add(listener);
+      return () => blocksListeners.delete(listener);
+    },
+  };
+  const control = createLegoHeadingControl(doc, lego, null, blocks);
+  const exaggeration = control.element.children[1];
+  let writes = 0;
+  let hidden = exaggeration.hidden;
+  Object.defineProperty(exaggeration, 'hidden', {
+    get: () => hidden,
+    set: (value) => {
+      writes++;
+      hidden = value;
+    },
+  });
+  for (chunks = 1; chunks <= 300; chunks++)
+    for (const listener of blocksListeners) listener();
+  assert.equal(writes, 0, 'no writes while it stays hidden');
+  assert.equal(exaggeration.hidden, true);
+  // A change of mode: one write, then none.
+  store.setMode('lego');
+  assert.equal(exaggeration.hidden, false);
+  assert.equal(writes, 1);
+  for (const listener of blocksListeners) listener();
+  assert.equal(writes, 1);
+  control.destroy();
+});
+
 /** Enough of a document for the heading control. */
 function fakeDocument() {
   const element = (tag) => {

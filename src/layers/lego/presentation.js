@@ -300,10 +300,16 @@ export function createLegoHeadingControl(
   }
   wrap.append(status);
 
+  // Written only when it changes: each write is a mutation the panel
+  // layout hears, and sync runs at every Blocks status (hundreds a flight).
+  const show = (element, shown) => {
+    const hidden = !shown;
+    if (element.hidden !== hidden) element.hidden = hidden;
+  };
   const sync = () => {
     if (buildings) {
       const available = blocks.buildingsAvailable?.() !== false;
-      buildingsLabel.hidden = lego.getMode() !== 'blocks';
+      show(buildingsLabel, lego.getMode() === 'blocks');
       buildings.checked = Boolean(blocks.getBuildings());
       buildings.disabled = !available;
       buildingsLabel.title = available
@@ -312,7 +318,7 @@ export function createLegoHeadingControl(
     }
     mode.value = lego.getMode();
     exaggeration.value = String(lego.getExaggeration());
-    exaggeration.hidden = lego.getMode() !== 'lego';
+    show(exaggeration, lego.getMode() === 'lego');
     let text =
       lego.getMode() === 'lego'
         ? legoStatusText(lego.getStatus())
@@ -323,11 +329,11 @@ export function createLegoHeadingControl(
       const state = photoreal.getState();
       relief.value = String(state.relief);
       bricks.checked = state.bricks;
-      bricksLabel.hidden = lego.getMode() !== 'lego';
+      show(bricksLabel, lego.getMode() === 'lego');
       brickMode.value = state.mode || 'auto';
       sides.value = state.sides || 'tint';
-      brickMode.hidden = bricksLabel.hidden || !state.bricks;
-      sides.hidden = brickMode.hidden || state.mode === 'lift';
+      show(brickMode, !bricksLabel.hidden && state.bricks);
+      show(sides, !brickMode.hidden && state.mode !== 'lift');
       const waiting =
         lego.getMode() === 'lego'
           ? photorealStatusText(photoreal.getStatus())

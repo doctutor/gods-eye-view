@@ -61,6 +61,33 @@ const RIGHT_STACK_OBSTACLE_SELECTOR = [
   '#command-dock',
   '#gev-voice-control',
 ].join(', ');
+/**
+ * Whether a mutation the rails' observers hear can move the layout without
+ * changing a size the ResizeObservers watch: panels added to or taken from
+ * the stack, or the class, hidden or variant of the stack, a panel, the
+ * HUD itself or an obstacle. Text and the panels' insides change sizes, and
+ * those arrive through the ResizeObservers (each panel and its content are
+ * observed). Heard as they were, the Display panel's status line and the
+ * controls it re-hid at every Blocks status ran both rails' layout hundreds
+ * of times a step, 1 to 2 s of querySelectorAll and getBoundingClientRect
+ * (the five steps, 2026-10-30).
+ * @param {MutationRecord} record
+ * @param {{stack: Element, hud?: Element|null, obstacleSelector?: string}} scope
+ */
+export function isLayoutMutation(
+  record,
+  { stack, hud = null, obstacleSelector = '' },
+) {
+  const target = record?.target;
+  if (!target) return false;
+  if (record.type === 'characterData') return false;
+  if (record.type === 'childList') return target === stack;
+  if (record.type !== 'attributes') return false;
+  if (target === stack || target === hud) return true;
+  if (target.parentElement === stack) return true;
+  return Boolean(obstacleSelector && target.matches?.(obstacleSelector));
+}
+
 export class PanelLayoutController {
   constructor({
     readHud,
@@ -233,6 +260,15 @@ export class PanelLayoutController {
         this._scheduleRightPanelLayout();
       });
       this._rightStackResizeObserver.observe(stack);
+      // Each panel's content too: a panel the rail holds to a height keeps
+      // its box when its content grows (isLayoutMutation leaves that to
+      // the sizes).
+      stack.querySelectorAll(':scope > [data-panel-id]').forEach((panel) => {
+        const inner = [...panel.children].find(
+          (child) => !child.classList.contains('panel-glow'),
+        );
+        if (inner) this._rightStackResizeObserver.observe(inner);
+      });
       for (const panel of [
         this._ppToggles,
         this._cctvPanel,
@@ -254,8 +290,15 @@ export class PanelLayoutController {
     }
 
     if (typeof MutationObserver !== 'undefined') {
-      this._rightStackMutationObserver = new MutationObserver(() => {
-        this._scheduleRightPanelLayout();
+      const hudNode = document.getElementById('intel-hud');
+      this._rightStackMutationObserver = new MutationObserver((records) => {
+        const scope = {
+          stack,
+          hud: hudNode,
+          obstacleSelector: RIGHT_STACK_OBSTACLE_SELECTOR,
+        };
+        if (records.some((record) => isLayoutMutation(record, scope)))
+          this._scheduleRightPanelLayout();
       });
       this._rightStackMutationObserver.observe(stack, {
         subtree: true,
@@ -355,8 +398,23 @@ export class PanelLayoutController {
     }
 
     if (typeof MutationObserver !== 'undefined') {
-      this._leftStackMutationObserver = new MutationObserver(() => {
-        this._scheduleLeftPanelLayout();
+      const hudNode = document.getElementById('intel-hud');
+      const creditsNode = document.getElementById('cesium-credits');
+      this._leftStackMutationObserver = new MutationObserver((records) => {
+        const scope = {
+          stack,
+          hud: hudNode,
+          obstacleSelector: LEFT_STACK_OBSTACLE_SELECTOR,
+        };
+        // The credits' list (it moves the lane's bottom), else as the rule says.
+        if (
+          records.some(
+            (record) =>
+              (creditsNode && creditsNode.contains(record.target)) ||
+              isLayoutMutation(record, scope),
+          )
+        )
+          this._scheduleLeftPanelLayout();
       });
       this._leftStackMutationObserver.observe(stack, {
         subtree: true,
