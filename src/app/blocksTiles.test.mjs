@@ -14,6 +14,7 @@ import {
   INSIDE_HOLE_BLOCKS,
   createBlocksTilesLayer,
   FAR_HIGH_ABOVE_M,
+  PREWARM_FRAMES,
   TILES_REQUESTS_PER_SERVER,
   reserveSockets,
   FAR_HIGH_BELOW_M,
@@ -68,6 +69,23 @@ const INDEX = {
   ],
 };
 
+/** A pre-warm Model as the layer sees one (createModel's fake). */
+const fakeModels = [];
+async function fakeModel(glb, options) {
+  const model = {
+    glb,
+    options,
+    ready: true,
+    update() {},
+    destroy() {
+      model.destroyed = true;
+    },
+    isDestroyed: () => Boolean(model.destroyed),
+  };
+  fakeModels.push(model);
+  return model;
+}
+
 function setup({ buildings = true, index = INDEX } = {}) {
   const viewer = {
     scene: {
@@ -91,6 +109,7 @@ function setup({ buildings = true, index = INDEX } = {}) {
   const layer = createBlocksTilesLayer({
     viewer,
     fetchIndex: async () => index,
+    createModel: fakeModel,
     buildings: () => switches.buildings,
     createTileset: async (url, options) => {
       // Cesium's: setting the maximum error resets the memory-adjusted one.
@@ -685,5 +704,46 @@ test('one clipping configuration for every Blocks Model and the tiles, never swi
   layer.apply({ state: 'ready', tiles: { ...TILES, hole: null } });
   look();
   for (const each of seen) assert.deepEqual(each, signature(live));
+  layer.destroy();
+});
+
+test('the first Blocks status links its programs before any flight: two centimetre Models of ground and water under the camera, with the parked planes and without, drawn and then removed; once a session', async () => {
+  assert.equal(PREWARM_FRAMES, 300);
+  fakeModels.length = 0;
+  const { viewer, layer } = setup();
+  await layer.ready;
+  // Blocks off: nothing.
+  layer.apply({ state: 'off', tiles: null });
+  await settle();
+  assert.equal(fakeModels.length, 0);
+  // On: two Models, clipped and not, with the tiles' Blocks shader.
+  layer.apply({ state: 'loading', tiles: null });
+  await settle();
+  assert.equal(fakeModels.length, 2);
+  assert.deepEqual(
+    fakeModels.map((model) => model.options.clipped),
+    [true, false],
+  );
+  for (const model of fakeModels) {
+    assert.equal(model.options.customShader, layer.shader);
+    assert.ok(model.glb.byteLength > 0, 'a GLB of ground and water');
+    assert.ok(viewer.scene.primitives.contains(model), 'drawn');
+  }
+  // Under the camera, 100 m below the ellipsoid.
+  const origin = Cesium.Matrix4.getTranslation(
+    fakeModels[0].options.modelMatrix,
+    new Cesium.Cartesian3(),
+  );
+  assert.ok(
+    Math.abs(Cesium.Cartographic.fromCartesian(origin).height + 100) < 1e-3,
+  );
+  // Removed once drawn (ready a few frames).
+  for (let frame = 0; frame < 4; frame++) viewer.scene.preRender.raiseEvent();
+  for (const model of fakeModels)
+    assert.equal(viewer.scene.primitives.contains(model), false, 'removed');
+  // Once a session.
+  layer.apply({ state: 'ready', tiles: TILES });
+  await settle();
+  assert.equal(fakeModels.length, 2);
   layer.destroy();
 });

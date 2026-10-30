@@ -24,6 +24,7 @@ import * as Cesium from 'cesium';
 import { solarParameters, sunPosition } from '../../data/solarDaylight.js';
 import { CHUNK_COLUMNS, CURVED_BLOCK_M, parseChunkKey } from './grid.js';
 import { createGlbService } from './glbService.js';
+import { encodeBatchGlb, packPart } from './gltf.js';
 import { packMesh, packedMeshHasFaces } from './packMesh.js';
 import { STUDY_SUN, STUDY_SUN_DIR, sunDirection } from './lighting.js';
 
@@ -341,6 +342,45 @@ export const blocksClippingPlanes = (planes = parkedPlanes()) =>
     edgeWidth: 0,
   });
 
+/**
+ * The pre-warm's GLB (blocksTiles.js prewarmPrograms): one ground quad and
+ * one water quad, a centimetre across, enough for a Blocks Model's opaque
+ * and translucent programs to be linked when it is drawn.
+ */
+export function prewarmBlocksGlb() {
+  const quad = (z, rgba) => ({
+    positions: Float32Array.from([
+      0,
+      0,
+      z,
+      0.01,
+      0,
+      z,
+      0.01,
+      0.01,
+      z,
+      0,
+      0.01,
+      z,
+    ]),
+    normals: Int8Array.from([0, 0, 127, 0, 0, 127, 0, 0, 127, 0, 0, 127]),
+    colors: Uint8Array.from([...rgba, ...rgba, ...rgba, ...rgba]),
+    blockCoords: Float32Array.from([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]),
+    indices: Uint32Array.from([0, 1, 2, 0, 2, 3]),
+  });
+  return encodeBatchGlb({
+    chunks: [
+      {
+        opaque: packPart(quad(0, [200, 194, 176, 255])),
+        water: packPart(quad(0.005, [70, 120, 200, 160])),
+        offset: { x: 0, y: 0, z: 0 },
+        features: { opaque: 0, water: 1 },
+      },
+    ],
+    features: { count: 2 },
+  });
+}
+
 /** Each Blocks Model's own base path (createBlocksModel). */
 let glbSerial = 0;
 
@@ -351,7 +391,10 @@ let glbSerial = 0;
  * its axes a 3D Tiles tile's.
  * @returns {Promise<Cesium.Model>}
  */
-export function createBlocksModel(glb, { modelMatrix, customShader }) {
+export function createBlocksModel(
+  glb,
+  { modelMatrix, customShader, clipped = true },
+) {
   return Cesium.Model.fromGltfAsync({
     gltf: glb,
     // Cesium caches a glTF's JSON and buffers by its address; an in-memory
@@ -368,7 +411,7 @@ export function createBlocksModel(glb, { modelMatrix, customShader }) {
     modelMatrix,
     customShader,
     // The tiles' planes, parked: the same programs as every Blocks Model.
-    clippingPlanes: blocksClippingPlanes(),
+    ...(clipped ? { clippingPlanes: blocksClippingPlanes() } : {}),
     asynchronous: false,
     releaseGltfJson: true,
     enableVerticalExaggeration: false,

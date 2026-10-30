@@ -15,7 +15,9 @@ import {
   CLIPPING_SIDES,
   DITHER_DEFAULTS,
   blocksClippingPlanes,
+  createBlocksModel,
   parkedPlanes,
+  prewarmBlocksGlb,
   EDGE_DEFAULTS,
   blocksShader,
   fogColorFor,
@@ -140,6 +142,9 @@ export function createCacheGuard(baseError = TILES_SCREEN_ERROR) {
  */
 export const HOLE_SIDES = CLIPPING_SIDES;
 
+/** The pre-warm's Models are removed after this many frames at most. */
+export const PREWARM_FRAMES = 300;
+
 /**
  * The clipping planes that cull the tiles inside the hole: HOLE_SIDES
  * vertical planes about the hole's centre (east, north, up there), each
@@ -216,9 +221,73 @@ export function createBlocksTilesLayer({
     Cesium.Cesium3DTileset.fromUrl(url, options),
   buildings = () => true,
   now = () => Date.now(),
+  createModel = createBlocksModel,
 }) {
   const scene = viewer?.scene;
   reserveSockets();
+  /** The pre-warm (prewarmPrograms): not yet, under way, or done. */
+  let prewarm = 'not yet';
+  /** Its Models while drawn, and their frame listener's remover. */
+  let prewarmModels = [];
+  let removePrewarmFrames = null;
+  const endPrewarm = () => {
+    removePrewarmFrames?.();
+    removePrewarmFrames = null;
+    for (const model of prewarmModels) scene?.primitives?.remove(model);
+    prewarmModels = [];
+    prewarm = 'done';
+  };
+
+  /**
+   * Every Blocks program linked before the first flight: Cesium links a
+   * Model's programs the first frame it draws, and waits for each link on
+   * the main thread (getProgramParameter: 0.8 s at Lake Tahoe, 2026-10-30),
+   * with one set for a Model its clipping planes cut (the live chunks, the
+   * tiles about the hole) and one for the rest (the tiles the hole does not
+   * reach). So at the first Blocks status, two Models of a centimetre's
+   * ground and water are drawn 100 m under the ground below the camera,
+   * one with the parked planes and one without, and removed once they have
+   * drawn (two frames after both are ready, or after PREWARM_FRAMES).
+   */
+  function prewarmPrograms() {
+    if (prewarm !== 'not yet' || !scene?.primitives?.add) return;
+    const at = scene.camera?.positionCartographic;
+    if (!at) return;
+    prewarm = 'under way';
+    const modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
+      Cesium.Cartesian3.fromRadians(at.longitude, at.latitude, -100),
+    );
+    const glb = prewarmBlocksGlb();
+    Promise.all(
+      [true, false].map((clipped) =>
+        createModel(glb, { modelMatrix, customShader: shader, clipped }),
+      ),
+    )
+      .then((models) => {
+        if (destroyed) {
+          for (const model of models) model.destroy?.();
+          return;
+        }
+        for (const model of models) scene.primitives.add(model);
+        prewarmModels = models;
+        let frames = 0;
+        let readyFrames = 0;
+        removePrewarmFrames = scene.preRender?.addEventListener(() => {
+          frames++;
+          if (models.every((model) => model.ready !== false)) readyFrames++;
+          requestRender();
+          if (readyFrames >= 3 || frames >= PREWARM_FRAMES) endPrewarm();
+        });
+        requestRender();
+      })
+      .catch((error) => {
+        prewarm = 'done';
+        console.warn(
+          '[Blocks] programs not pre-warmed:',
+          error?.message || error,
+        );
+      });
+  }
   let boxes = [];
   let destroyed = false;
   const ready = Promise.resolve()
@@ -536,6 +605,8 @@ export function createBlocksTilesLayer({
      * only while Blocks draws), the others hidden but kept.
      */
     apply(status) {
+      // Blocks on (live or tiles): its programs linked before any flight.
+      if (status && status.state !== 'off') prewarmPrograms();
       state = status?.tiles || null;
       const box = state ? boxes.find((each) => each.name === state.box) : null;
       shownUrl = box ? box.url({ buildings: buildings() !== false }) : null;
@@ -590,6 +661,7 @@ export function createBlocksTilesLayer({
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      endPrewarm();
       removePreRender?.();
       removeMoveStart?.();
       removeMoveEnd?.();
