@@ -797,6 +797,12 @@ test('main: the plan printed, a dry run reads nothing; a run writes the tileset'
   assert.equal(await run(), 0);
   assert.ok(fs.existsSync(path.join(out, 'tileset.json')));
   assert.ok(fs.existsSync(path.join(out, 'tileset-ground.json')));
+  // The box asked for and the finest level, in the tileset's extras.
+  const extras = JSON.parse(
+    fs.readFileSync(path.join(out, 'tileset.json'), 'utf8'),
+  ).asset.extras.blocks;
+  assert.deepEqual(extras.bbox, [bbox.west, bbox.south, bbox.east, bbox.north]);
+  assert.equal(extras.finestM, 30);
   assert.ok(
     lines.some((line) =>
       /^structures at 30 m .*, 1 Overpass queries$/.test(line),

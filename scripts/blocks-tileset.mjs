@@ -269,7 +269,7 @@ const meetsBox = (a, b) =>
  * A curved build (coarsest level CURVED_BLOCK_M or more) anchors at the
  * box's middle (middleAnchorFor), every level on the curved map.
  * @returns {{anchor: {lon0, lat0}, levels: number[], groups: Map<number,
- *   Map<string, {gi, gj}>>, curved: boolean}}
+ *   Map<string, {gi, gj}>>, curved: boolean, bbox: object}}
  */
 export function planTiles(bbox, finestM, coarsestM = null) {
   const chain = TILESET_LEVELS_M.filter((m) => m >= finestM);
@@ -324,7 +324,7 @@ export function planTiles(bbox, finestM, coarsestM = null) {
     groups.set(m, here);
     finer = here;
   }
-  return { anchor, levels, groups, curved };
+  return { anchor, levels, groups, curved, bbox };
 }
 
 /**
@@ -1312,6 +1312,19 @@ export async function buildTileset(
           blocks: {
             anchor: plan.anchor,
             curved: plan.curved,
+            // The box asked for ([west, south, east, north]) and the finest
+            // level, so a reader need not derive them from the files.
+            ...(plan.bbox
+              ? {
+                  bbox: [
+                    plan.bbox.west,
+                    plan.bbox.south,
+                    plan.bbox.east,
+                    plan.bbox.north,
+                  ],
+                }
+              : {}),
+            finestM: plan.levels[plan.levels.length - 1],
             levelsM: plan.levels,
             levelHeightsM: plan.levels.map(levelMFor),
             chunkColumns: CHUNK_COLUMNS,
