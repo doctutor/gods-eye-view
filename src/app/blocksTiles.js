@@ -244,18 +244,26 @@ export function createBlocksTilesLayer({
    * the main thread (getProgramParameter: 0.8 s at Lake Tahoe, 2026-10-30),
    * with one set for a Model its clipping planes cut (the live chunks, the
    * tiles about the hole) and one for the rest (the tiles the hole does not
-   * reach). So at the first Blocks status, two Models of a centimetre's
-   * ground and water are drawn 100 m under the ground below the camera,
-   * one with the parked planes and one without, and removed once they have
-   * drawn (two frames after both are ready, or after PREWARM_FRAMES).
+   * reach), and the live batches' feature table and the tiles' apart. So at
+   * the first Blocks status, three Models of a millimetre's ground and water
+   * are drawn 10 m in front of the eye, and removed once they have drawn
+   * (two frames after all are ready, or after PREWARM_FRAMES).
    */
   function prewarmPrograms() {
     if (prewarm !== 'not yet' || !scene?.primitives?.add) return;
-    const at = scene.camera?.positionCartographic;
-    if (!at) return;
+    const eye = scene.camera?.positionWC;
+    const ahead = scene.camera?.directionWC;
+    if (!eye || !ahead) return;
     prewarm = 'under way';
+    // 10 m in front of the eye: in the frustum and above the ground, so
+    // nothing culls the draw (under the ground the globe occluded it, and
+    // nothing was linked), and a millimetre there is a tenth of a pixel.
     const modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
-      Cesium.Cartesian3.fromRadians(at.longitude, at.latitude, -100),
+      Cesium.Cartesian3.add(
+        eye,
+        Cesium.Cartesian3.multiplyByScalar(ahead, 10, new Cesium.Cartesian3()),
+        new Cesium.Cartesian3(),
+      ),
     );
     // The live chunks always carry the planes; the tiles with and without.
     Promise.all(

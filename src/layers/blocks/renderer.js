@@ -344,7 +344,7 @@ export const blocksClippingPlanes = (planes = parkedPlanes()) =>
 
 /**
  * The pre-warm's GLB (blocksTiles.js prewarmPrograms): one ground quad and
- * one water quad, a centimetre across, enough for a Blocks Model's opaque
+ * one water quad, a millimetre across, enough for a Blocks Model's opaque
  * and translucent programs to be linked when it is drawn, with the feature
  * table of a live batch (glbStore.js: ci, cj, water) or of a tile (the
  * build's: ci, cj, blockM). Cesium compiles a Model's metadata into its
@@ -368,14 +368,14 @@ export function prewarmBlocksGlb(schema = 'live') {
       0,
       0,
       z,
-      0.01,
+      0.001,
       0,
       z,
-      0.01,
-      0.01,
+      0.001,
+      0.001,
       z,
       0,
-      0.01,
+      0.001,
       z,
     ]),
     normals: Int8Array.from([0, 0, 127, 0, 0, 127, 0, 0, 127, 0, 0, 127]),
@@ -387,7 +387,7 @@ export function prewarmBlocksGlb(schema = 'live') {
     chunks: [
       {
         opaque: packPart(quad(0, [200, 194, 176, 255])),
-        water: packPart(quad(0.005, [70, 120, 200, 160])),
+        water: packPart(quad(0.0005, [70, 120, 200, 160])),
         offset: { x: 0, y: 0, z: 0 },
         features: { opaque: 0, water: 1 },
       },

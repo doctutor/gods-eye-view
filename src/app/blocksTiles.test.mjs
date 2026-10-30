@@ -99,6 +99,8 @@ function setup({ buildings = true, index = INDEX } = {}) {
           5000,
         ),
         viewMatrix: Cesium.Matrix4.IDENTITY,
+        positionWC: Cesium.Cartesian3.fromDegrees(-76.6, 39.27, 5000),
+        directionWC: new Cesium.Cartesian3(0, 0, -1),
         moveStart: new Cesium.Event(),
         moveEnd: new Cesium.Event(),
       },
@@ -729,13 +731,15 @@ test('the first Blocks status links its programs before any flight: three centim
     assert.ok(model.glb.byteLength > 0, 'a GLB of ground and water');
     assert.ok(viewer.scene.primitives.contains(model), 'drawn');
   }
-  // Under the camera, 100 m below the ellipsoid.
+  // 10 m in front of the eye (nothing culls it there).
   const origin = Cesium.Matrix4.getTranslation(
     fakeModels[0].options.modelMatrix,
     new Cesium.Cartesian3(),
   );
   assert.ok(
-    Math.abs(Cesium.Cartographic.fromCartesian(origin).height + 100) < 1e-3,
+    Math.abs(
+      Cesium.Cartesian3.distance(origin, viewer.scene.camera.positionWC) - 10,
+    ) < 1e-6,
   );
   // Removed once drawn (ready a few frames).
   for (let frame = 0; frame < 4; frame++) viewer.scene.preRender.raiseEvent();
