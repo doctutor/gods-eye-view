@@ -50,6 +50,8 @@ async function fakeBox(
     };
   }
   tiles['120m/g0_0.glb'] = { stats: { level: 120, kind: 'group' } };
+  // A group the build left without content: not covered.
+  tiles['30m/g9_9.glb'] = { bytes: 0, stats: { level: 30, kind: 'group' } };
   tiles['30m/f9_9.glb'] = { stats: { level: 30, kind: 'fill' } };
   await fs.writeFile(
     path.join(dir, 'build-state.json'),
