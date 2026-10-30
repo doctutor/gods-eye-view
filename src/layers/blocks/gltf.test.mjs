@@ -15,6 +15,8 @@ import {
   readBlocksGlb,
   readGlb,
 } from './gltf.js';
+import { buildChunkMesh } from './mesh.js';
+import { createChunk } from './store.js';
 
 /** An accessor's values as a plain array. */
 const accessorValues = (json, bin, index) => [...typedValues(json, bin, index)];
@@ -262,4 +264,110 @@ test('readBlocksGlb: the GLB read back, kinds, positions in (east, north, up), f
   assert.deepEqual([...sea.colors.slice(0, 4)], [58, 112, 190, 170]);
   assert.deepEqual([...land.normals.slice(0, 3)], [0, 127, 0]);
   assert.deepEqual([...land.blockCoords.slice(0, 3)], [64, 128, 1]);
+});
+
+// The shader's per-block functions in float32 (renderer.js
+// BLOCKS_SHADER_FRAGMENT's blocks_hash, and blocks_line's distance to the
+// nearest whole number), to compare the folded block points with the
+// renderer before the fold.
+const f32 = Math.fround;
+const fract = (x) => f32(x - Math.floor(x));
+function blocksHash(px, py) {
+  let [x, y, z] = [px, py, px].map((v) => fract(f32(v * f32(0.1031))));
+  const d = f32(
+    f32(x * f32(y + f32(33.33))) +
+      f32(f32(y * f32(z + f32(33.33))) + f32(z * f32(x + f32(33.33)))),
+  );
+  x = f32(x + d);
+  y = f32(y + d);
+  z = f32(z + d);
+  return fract(f32(f32(x + y) * z));
+}
+const lineDistance = (f) => Math.abs(f - Math.floor(f + 0.5));
+
+test('the fold at a chunk seam: edges on whole numbers both sides, and the dither the renderer drew before it, column for column, within 4096 of the origin; past it the same hash a fold of 4096 away, never repeating across a seam', () => {
+  // Two chunks side by side east, as a batch merges them: a top quad on
+  // the last column of the first and the first column of the second.
+  const seam = (ci) =>
+    mergeParts([
+      {
+        part: quad(63, 5, 2),
+        chunk: [ci, 7],
+        feature: 0,
+      },
+      {
+        part: quad(0, 5, 2),
+        offset: { x: 64, y: 0, z: 0 },
+        chunk: [ci + 1, 7],
+        feature: 1,
+      },
+    ]);
+  // Before the fold the renderer's column was chunk × 64 + floor(f.xy).
+  const before = (ci, x) => ci * 64 + x;
+  for (const ci of [0, 5, 62, 63, -1, -64, 200]) {
+    const { blockCoords } = seam(ci);
+    // The east edge of the first quad and the west edge of the second sit
+    // on the seam: both whole numbers, so the edge line falls on it.
+    const westEast = blockCoords[1 * 3]; // first quad, corner (1, 0)
+    const eastWest = blockCoords[4 * 3]; // second quad, corner (0, 0)
+    assert.equal(lineDistance(westEast), 0);
+    assert.equal(lineDistance(eastWest), 0);
+    // The two blocks either side of the seam: their columns.
+    const left = Math.floor(blockCoords[0]);
+    const right = Math.floor(eastWest);
+    assert.equal(right, (left + 1) % FOLD_COLUMNS, 'next column, folded');
+    assert.notEqual(
+      blocksHash(left, 7 * 64 + 5),
+      blocksHash(right, 7 * 64 + 5),
+    );
+    const unfolded = [before(ci, 63), before(ci + 1, 0)];
+    if (unfolded.every((c) => c >= 0 && c < FOLD_COLUMNS))
+      // Within the fold: the very columns, so the very tones.
+      assert.deepEqual([left, right], unfolded);
+    else
+      // Past it: the same columns a whole number of folds away.
+      assert.deepEqual(
+        [left, right].map(
+          (c, k) =>
+            (((unfolded[k] - c) % FOLD_COLUMNS) + FOLD_COLUMNS) % FOLD_COLUMNS,
+        ),
+        [0, 0],
+      );
+  }
+  // Across the fold's own boundary (chunk 63 to 64): column 4095 then 0,
+  // two different tones, the edge on the seam.
+  const { blockCoords } = seam(63);
+  assert.equal(Math.floor(blockCoords[0]), 4095);
+  assert.equal(blockCoords[4 * 3], 4096 % FOLD_COLUMNS);
+});
+
+test('a real chunk round-trips: the mesher’s faces, positions, colours and block points back from the GLB', () => {
+  const top = new Int32Array(64 * 64).map((_, k) => (k % 64) >> 3);
+  const mesh = buildChunkMesh(createChunk({ ci: 2, cj: -1, top }), {
+    blockM: 1,
+  });
+  const glb = encodeBlocksGlb({
+    opaque: mergeParts([{ part: mesh, chunk: [2, -1], feature: 0 }]),
+    features: { count: 1, properties: { ci: Int32Array.of(2) } },
+  });
+  const [land] = readBlocksGlb(glb).primitives;
+  assert.equal(land.indices.length, mesh.indices.length);
+  assert.deepEqual([...land.indices], [...mesh.indices]);
+  assert.deepEqual([...land.positions], [...mesh.positions]);
+  assert.deepEqual([...land.colors], [...mesh.colors]);
+  const fold = [foldColumns(2), foldColumns(-1), 0];
+  assert.deepEqual(
+    [...land.blockCoords],
+    [...mesh.blockCoords].map((v, k) => v + fold[k % 3]),
+  );
+  // Byte normals, Y-up: (east, north, up) n → (n.e, n.u, −n.n) × 127.
+  for (let v = 0; v < mesh.normals.length / 3; v++) {
+    const [e, n, u] = mesh.normals.slice(v * 3, v * 3 + 3);
+    assert.deepEqual(
+      [...land.normals.slice(v * 3, v * 3 + 3)],
+      [Math.round(e * 127), Math.round(u * 127), Math.round(-n * 127)].map(
+        (x) => x + 0,
+      ),
+    );
+  }
 });
