@@ -1587,7 +1587,20 @@ export async function main({
     }
   };
   const budgetBefore = await budget();
-  const asked = fetchValues ?? serverHeightReader({ base: args.base });
+  // The server's own word on each read (X-Raster-Values-Cache: hit or
+  // miss): a miss is an Earth Engine tile this build fetched itself.
+  const cache = { hit: 0, miss: 0, unsaid: 0 };
+  const asked =
+    fetchValues ??
+    serverHeightReader({
+      base: args.base,
+      fetchImpl: async (...request) => {
+        const answer = await fetch(...request);
+        const said = answer.headers.get('x-raster-values-cache');
+        cache[said === 'hit' || said === 'miss' ? said : 'unsaid']++;
+        return answer;
+      },
+    });
   // Every values read that fails, logged with its time (the chunk source
   // asks a 503 again after 5 and 20 s; a 429 is the day's budget).
   let firstFailure = null;
@@ -1692,6 +1705,11 @@ export async function main({
       `${failed.length} tiles without heights, left for a rerun: ${failed.join(', ')}`,
     );
   if (firstFailure) log(`first failed values read at ${firstFailure}`);
+  if (!fetchValues)
+    log(
+      `values reads: ${cache.hit} cache hits, ${cache.miss} misses (fetched from Earth Engine by this build)` +
+        (cache.unsaid ? `, ${cache.unsaid} unsaid` : ''),
+    );
   const budgetAfter = await budget();
   if (budgetBefore !== null && budgetAfter !== null)
     log(
