@@ -117,6 +117,8 @@ test('the box the controller names: its tileset made once with the Blocks shader
   assert.equal(tileset.url, '/api/blocks/tiles/harbour-30/tileset.json');
   assert.equal(tileset.options.customShader, layer.shader);
   assert.equal(tileset.options.maximumScreenSpaceError, TILES_SCREEN_ERROR);
+  assert.equal(TILES_SCREEN_ERROR, 4);
+  assert.equal(tileset.options.dynamicScreenSpaceError, false);
   assert.equal(tileset.options.cacheBytes, TILES_CACHE_BYTES);
   assert.equal(tileset.options.shadows, Cesium.ShadowMode.DISABLED);
   assert.equal(tileset.options.environmentMapOptions.enabled, false);

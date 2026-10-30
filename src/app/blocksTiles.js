@@ -25,11 +25,12 @@ import {
 } from '../layers/blocks/tiles.js';
 
 /**
- * The screen-space error the tiles refine to: a block about two pixels
- * across, as the live controller asks its level (index.js
- * FOOTPRINT_BLOCKS).
+ * The screen-space error the tiles refine to: 4 px matched the live
+ * controller's block size (two pixels a cell, index.js FOOTPRINT_BLOCKS)
+ * from 5,000 km and from 500 km at pitch −45 (worker1's frames of the
+ * lower-48 tileset, docs/BLOCKS-PLAN.md).
  */
-export const TILES_SCREEN_ERROR = 2;
+export const TILES_SCREEN_ERROR = 4;
 /** The tiles kept in memory at most (Cesium's cache; its default is 512 MB). */
 export const TILES_CACHE_BYTES = 256 * 1024 * 1024;
 
@@ -102,6 +103,10 @@ export function createBlocksTilesLayer({
         createTileset(url, {
           customShader: shader,
           maximumScreenSpaceError: TILES_SCREEN_ERROR,
+          // Cesium's fog term takes up to 24 px off far tiles' error: from
+          // 5,000 km the lower 48's roots then never refined, at any
+          // maximumScreenSpaceError (worker1, docs/BLOCKS-PLAN.md).
+          dynamicScreenSpaceError: false,
           cacheBytes: TILES_CACHE_BYTES,
           shadows: Cesium.ShadowMode.DISABLED,
           imageBasedLighting: imageLighting,

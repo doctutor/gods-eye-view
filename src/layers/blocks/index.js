@@ -755,8 +755,15 @@ export function createBlocksController({
   let _tiles = { mode: 'off' };
   /** The live chunks' reach (m) about the rings' centre: the tiles' hole. */
   let _liveReachM = 0;
-  /** The horizon's cut (m) at the last tick: the fog's reach with tiles. */
+  /**
+   * The fog's reach with tiles (m): the eye's straight line to the horizon
+   * (the shader fogs by distance from the eye), with HORIZON_MARGIN.
+   */
   let _horizonCutM = 0;
+  const eyeHorizonM = (heightM) => {
+    const h = Math.max(1, Number(heightM) || 0);
+    return HORIZON_MARGIN * Math.sqrt(h * (2 * EARTH_RADIUS_M + h));
+  };
   /** The geoid under the tiles in 'tiles' mode: {lon, lat, flat, offsetM}. */
   let _tilesDatum = null;
   /** What the tiles layer was last told (status.tiles), kept while the same. */
@@ -981,7 +988,7 @@ export function createBlocksController({
     const fromLive = _region || _anchoring || _chunks.size || _coarse.size;
     _tiles = plan;
     if (fromLive) clearAll('tiles');
-    _horizonCutM = HORIZON_MARGIN * horizonM(heightAboveGround(camera));
+    _horizonCutM = eyeHorizonM(heightAboveGround(camera));
     setGlobe(false);
     setBlocksScene({ active: true, globeHidden: _globeHidden, style: null });
     syncTilesDatum(camera);
@@ -2066,7 +2073,7 @@ export function createBlocksController({
     // The fine ring to R1 blocks, or to the horizon where that is nearer
     // (continental levels); everything past the horizon is left out.
     const horizonCut = HORIZON_MARGIN * horizonM(heightAboveGround(camera));
-    _horizonCutM = horizonCut;
+    _horizonCutM = eyeHorizonM(heightAboveGround(camera));
     const radius = fineRadiusBlocks(
       radiusBlocks,
       _region.blockM,
@@ -2174,7 +2181,7 @@ export function createBlocksController({
     // With the tiles past the live chunks, one fog for both, toward the
     // horizon (the live rings stop short of it).
     if (_tiles.mode === 'hybrid') {
-      const fog = { startM: FOG_START * horizonCut, endM: horizonCut };
+      const fog = { startM: FOG_START * _horizonCutM, endM: _horizonCutM };
       const key = JSON.stringify(fog);
       if (key !== _tilesFogKey) {
         _tilesFogKey = key;
