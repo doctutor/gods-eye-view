@@ -1188,3 +1188,45 @@ unloads) gone at 8 px, 2 unloads, no request repeated after the flight.
    first picture is under a second on every step. A probe asked ahead at
    the flight's target would save at most its own round trip (0.3 to
    0.5 s): not done.
+
+### Walk and Fly on the tiles (scoping, 2026-10-30)
+
+Decision 3 keeps the walker on live chunks: Walk and Fly read the column
+store (`src/navigation/worlds.js` `createBlockWorld`: `surfaceBelow`,
+`blocked`, `waterAt` and the ray walk for targeting), which only the live
+controller fills. Standing on the tiles directly would need that store, or
+its answers, from a tile. Three ways, with what each costs:
+
+1. **Cesium's own picking on the tiles** (`enableCollision`, then
+   `Cesium3DTileset.getHeight` and `pick` against the loaded tiles' CPU
+   geometry). Footing from `getHeight` under the feet; targeting from a pick
+   (its feature row names the chunk, its position snapped to a block by the
+   tile's level and the region's map, curved or flat). Cost: Cesium keeps
+   every loaded tile's geometry on the CPU as well (Lake Tahoe's 886 MB of
+   tiles would roughly double in memory); a pick per query, and `blocked`
+   (walls ahead) needs several a step; nothing knows water from land
+   without reading the water primitive. A day's work, a large memory bill.
+2. **Decoding the tile under the walker into the column store.** The GLB is
+   in the browser's cache: decode it in a worker (`readBlocksGlb`, layout
+   v2), take each column's top from its top faces' half-block points and
+   its water from the water primitive, and fill 64 × 64 chunks as the live
+   source does; `createBlockWorld` then works unchanged. Cost: 100 to 300 ms
+   a 13 to 17 MB tile in a worker, 2 to 3 days (the decode, the curved
+   placement's inverse for the column grid, the buildings variant's
+   structures, tests), and a second reader to keep in step with the build's
+   format. It stands on the floor's blocks: 30 m in a city box, 120 m to
+   480 m elsewhere, coarser than anything one walks on.
+3. **A small live disc under the walker, as now.** Walking means being at
+   the ground, where the view wants blocks finer than any box's floor, so
+   the plan is 'hybrid' and the live fine disc is already drawn around the
+   camera; since the flight's end anchors the region (0 to 0.5 s) it is
+   there almost at once. Cost: none beyond what is built; the walker
+   stands on exactly the blocks drawn at its scale. The gap is entering Walk
+   high over a tile-only view: the live region anchors as the camera comes
+   down, and until then the surface frame (the globe's height) carries the
+   walker, as it does today.
+
+**Recommendation: 3.** It costs nothing, matches what is drawn, and the
+tile levels the other two would stand on are too coarse to walk on. Revisit
+2 only if a box's floor reaches walking scale (1 to 2 m city tiles), where a
+decoded tile would save the live values requests under the walker.
