@@ -54,6 +54,8 @@ import { mdParcelsProxy } from './mdParcels.js';
 import { worldHistoryProxy } from './worldHistory.js';
 // Personal fork: raster values (numbers, not tiles) for the Lego mode.
 import { rasterValuesProxy } from './rasterValues.js';
+// Personal fork: the precomputed Blocks tilesets (milestone 6), read-only.
+import { blocksTilesProxy } from './blocksTiles.js';
 import { keySetupEndpoint } from '../standalone/key-setup.js';
 import { weatherProxy } from './weather.js';
 import { firePerimetersProxy } from './firePerimeters.js';
@@ -109,6 +111,7 @@ function localProviderPlugins({ realtime } = {}) {
     overtureRoadsProxy({ sourceRoot: defaultSourceRoot }),
     propertyProxy({ sourceRoot: defaultSourceRoot }),
     rasterValuesProxy({ sourceRoot: defaultSourceRoot }),
+    blocksTilesProxy({ sourceRoot: defaultSourceRoot }),
     mdParcelsProxy({ sourceRoot: defaultSourceRoot }),
     worldHistoryProxy({ sourceRoot: defaultSourceRoot }),
     firePerimetersProxy(),
