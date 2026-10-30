@@ -1514,6 +1514,7 @@ async function runSequence({
   out,
   streetQuery,
   only = null,
+  heapChurn = false,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
@@ -1568,7 +1569,28 @@ async function runSequence({
   await cdp.send('Profiler.enable');
   await cdp.send('Profiler.setSamplingInterval', { interval: 1000 });
   await cdp.send('HeapProfiler.enable');
-  await cdp.send('HeapProfiler.startSampling', { samplingInterval: 65_536 });
+  // --heap-churn: the sampling profile keeps what the collector took too,
+  // so its sites are where the heap's peak came from, not what stayed.
+  await cdp.send('HeapProfiler.startSampling', {
+    samplingInterval: 65_536,
+    ...(heapChurn
+      ? {
+          includeObjectsCollectedByMajorGC: true,
+          includeObjectsCollectedByMinorGC: true,
+        }
+      : {}),
+  });
+  // The JS heap and the ArrayBuffers' backing stores apart, every 500 ms:
+  // performance.memory gives one number and does not say which.
+  const heapPolls = [];
+  const heapPoller = setInterval(() => {
+    cdp
+      .send('Runtime.getHeapUsage')
+      .then(({ usedSize, backingStorageSize }) =>
+        heapPolls.push([Date.now(), usedSize, backingStorageSize ?? null]),
+      )
+      .catch(() => {});
+  }, 500);
   // The opening view settles before the first step.
   await page.evaluate(
     () => new Promise((resolve) => setTimeout(resolve, 8000)),
@@ -1715,6 +1737,16 @@ async function runSequence({
       heapSites: heapSites(heap),
       holdings,
       still,
+      // Peaks in the step: the JS heap and the ArrayBuffers' backing stores.
+      heapPeaksMB: (() => {
+        const inStep = heapPolls.filter(([at]) => at >= from);
+        const peak = (k) =>
+          inStep.length
+            ? Math.round(Math.max(...inStep.map((row) => row[k] ?? 0)) / 1e5) /
+              10
+            : null;
+        return { jsHeap: peak(1), backingStores: peak(2) };
+      })(),
       // The live server's answers in the step: values mean ms (a warm cache
       // answers in under a second), and proxied fetches that failed.
       live: (() => {
@@ -1757,6 +1789,7 @@ async function runSequence({
     events: window.__qa.events,
     heap: window.__qa.heap,
   }));
+  clearInterval(heapPoller);
   await context.close();
   return {
     results,
@@ -1831,6 +1864,7 @@ export async function main(argv = process.argv.slice(2)) {
         live,
         out,
         streetQuery: argValue(argv, '--street-query'),
+        heapChurn: argv.includes('--heap-churn'),
         only:
           argValue(argv, '--steps')
             ?.split(',')
@@ -1843,7 +1877,7 @@ export async function main(argv = process.argv.slice(2)) {
       );
       for (const step of run.results)
         console.log(
-          `${step.name} (${step.via}${step.settled ? '' : ', not settled'}): first blocks ${step.firstBlocksMs} ms, settled ${step.settledMs} ms, levels ${step.levels.join(' → ')}, upserts ${step.upserts}, anchors ${step.anchors}, values ${step.requests.values}, budget ${step.budget}, long tasks ${step.longTasks.count}/${step.longTasks.totalMs} ms, ${step.fps} fps, heap ${step.heapMaxMB} MB; still ${step.still?.fps} fps, render ${step.still?.renderMs?.median}/${step.still?.renderMs?.p95} ms, ${step.still?.commands} commands, pick ${step.still?.pick?.chunk ? `${step.still.pick.chunk.key}${step.still.pick.chunk.water ? ' water' : ''}` : 'none'}${step.still?.pick?.expected === false ? ' (NOT as expected)' : ''}`,
+          `${step.name} (${step.via}${step.settled ? '' : ', not settled'}): first blocks ${step.firstBlocksMs} ms, settled ${step.settledMs} ms, levels ${step.levels.join(' → ')}, upserts ${step.upserts}, anchors ${step.anchors}, values ${step.requests.values}, budget ${step.budget}, long tasks ${step.longTasks.count}/${step.longTasks.totalMs} ms, ${step.fps} fps, heap ${step.heapMaxMB} MB (JS ${step.heapPeaksMB?.jsHeap}, buffers ${step.heapPeaksMB?.backingStores}); still ${step.still?.fps} fps, render ${step.still?.renderMs?.median}/${step.still?.renderMs?.p95} ms, ${step.still?.commands} commands, pick ${step.still?.pick?.chunk ? `${step.still.pick.chunk.key}${step.still.pick.chunk.water ? ' water' : ''}` : 'none'}${step.still?.pick?.expected === false ? ' (NOT as expected)' : ''}`,
         );
       console.log(`sequence: ${path.join(out, 'sequence.json')}`);
       return run;
