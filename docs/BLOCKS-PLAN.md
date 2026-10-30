@@ -1296,25 +1296,31 @@ decoded tile would save the live values requests under the walker.
 
 ### Warming the values cache for the builds (2026-10-29 and 30)
 
-The coarse trees (480 m and up over the lower 48 and Europe, 120 m over the
-lower 48) read their heights through 4173's `/api/raster/values` cache, so
-the cache was warmed first with `scripts/blocks-pyramid.mjs --server`
-(GET only, concurrency 2, between merges so 4173 did not restart under it).
-The union boxes and the 120 m list are worker1's: the tiles each build
-actually reads, overhang included. Spend is the day's Earth Engine counter
-before and after, so it includes retries.
+The coarse trees (480 m and up over the lower 48 and Europe, 120 m over
+both, 30 m over Baltimore's metro) read their heights through 4173's
+`/api/raster/values` cache, so the cache was warmed first with
+`scripts/blocks-pyramid.mjs --server` (GET only, concurrency 2, between
+merges so 4173 did not restart under it). The union boxes and the lists
+are worker1's: the tiles each build actually reads, overhang included, the
+120 m ones land only. Spend is the day's Earth Engine counter before and
+after, so it includes retries (and anything else 4173 asked meanwhile).
 
-| Run     | Box and levels                                  | Asked | Fetched (cached) | Failed           | Wall    | Spend |
-| ------- | ----------------------------------------------- | ----- | ---------------- | ---------------- | ------- | ----- |
-| 1       | Lower 48 (−125, 24, −66, 50), 30,720 to 480 m   | 155   | 105 (39)         | 11, then stopped | 400 s   | 147   |
-| 1b      | the same, again                                 | 1,422 | 1,276 (146)      | 0                | 3,685 s | 1,276 |
-| 2       | worker1's lower-48 union boxes, 30,720 to 480 m | 1,714 | 276 (1,438)      | 0                | 724 s   | 282   |
-| 3       | Europe (−11, 35, 32, 71), 30,720 to 480 m       | 1,427 | 1,420 (5)        | 2                | 4,369 s | 1,722 |
-| 4       | worker1's Europe union boxes, 30,720 to 480 m   | 1,827 | 380 (1,447)      | 1, and a burst   | 1,013 s | 386   |
-| 5       | worker1's lower-48 120 m list, part 1 of 2      | 1,989 | 1,947 (38)       | 4                | 5,827 s | 2,519 |
-| 6       | the same list, part 2 of 2                      | 1,989 | 1,969 (16)       | 4                | 5,895 s | 1,987 |
-| retry   | the 8 tiles runs 5 and 6 missed                 | 8     | 8                | 0                | 44 s    | 8     |
-| recheck | run 4's 480 m box                               | 1,610 | 0 (1,610)        | 0                | 8 s     | 0     |
+| Run     | Box and levels                                  | Asked | Fetched (cached) | Failed           | Wall     | Spend |
+| ------- | ----------------------------------------------- | ----- | ---------------- | ---------------- | -------- | ----- |
+| 1       | Lower 48 (−125, 24, −66, 50), 30,720 to 480 m   | 155   | 105 (39)         | 11, then stopped | 400 s    | 147   |
+| 1b      | the same, again                                 | 1,422 | 1,276 (146)      | 0                | 3,685 s  | 1,276 |
+| 2       | worker1's lower-48 union boxes, 30,720 to 480 m | 1,714 | 276 (1,438)      | 0                | 724 s    | 282   |
+| 3       | Europe (−11, 35, 32, 71), 30,720 to 480 m       | 1,427 | 1,420 (5)        | 2                | 4,369 s  | 1,722 |
+| 4       | worker1's Europe union boxes, 30,720 to 480 m   | 1,827 | 380 (1,447)      | 1, and a burst   | 1,013 s  | 386   |
+| 5       | worker1's lower-48 120 m list, part 1 of 2      | 1,989 | 1,947 (38)       | 4                | 5,827 s  | 2,519 |
+| 6       | the same list, part 2 of 2                      | 1,989 | 1,969 (16)       | 4                | 5,895 s  | 1,987 |
+| retry   | the 8 tiles runs 5 and 6 missed                 | 8     | 8                | 0                | 44 s     | 8     |
+| recheck | run 4's 480 m box                               | 1,610 | 0 (1,610)        | 0                | 8 s      | 0     |
+| 7       | worker1's Baltimore metro list, 30,720 to 30 m  | 107   | 54 (53)          | 0                | 50 s     | 54    |
+| 8a      | worker1's Europe 120 m list, 30,720 to 480 m    | 1,713 | 0 (1,713)        | 0                | 9 s      | 0     |
+| 8b      | its 120 m tiles, part 1 of 2 (34 to 52° N)      | 1,873 | 1,871 (0)        | 2                | 5,527 s  | 1,875 |
+| 8c      | part 2 of 2 (50 to 72° N)                       | 1,873 | 1,873 (0)        | 0                | 17,365 s | 1,892 |
+| retry   | the 2 tiles run 8b missed                       | 2     | 2                | 0                | 15 s     | 2     |
 
 - **Failures.** Every failure apart from the two bursts below was a lone
   Earth Engine 503 ("memory capacity exceeded", once "please try again")
@@ -1327,9 +1333,20 @@ before and after, so it includes retries.
   tiles anyway (the connection dropped, not Earth Engine); the script now
   retries a dropped connection once after a second and logs the cause, and
   the rerun answered all 24.
-- **The day.** 8,653 of the 20,000 tiles by the end (325 before run 1).
-  Every tile on worker1's lists is cached: the recheck of the largest box
-  answered 1,610 of 1,610 from the cache in 8 s.
+- **Pace by latitude.** A fresh 120 m tile took about 3 s of the run's
+  wall time at concurrency 2 (about 1,200 tiles an hour, and as many
+  Earth Engine tiles) over the lower 48 and Europe to 57° N, then 13 to
+  17 s north of it (about 215 to 270 an hour): run 8c's tiles 1 to 900
+  (to 58° N) 3.1 s, 900 to 1,100 (to 62° N) 13.4 s, to 64° N 16.7 s, to
+  67° N 15.4 s, to 72° N 14.3 s; no failures, 4173 answering at once, so
+  Earth Engine itself was slower. The cause is not measured (the lakes,
+  fjords and coasts under the mean and the water plane, or worker3's
+  timing run beside it). A northern box's estimate takes 15 to 19 s a
+  tile beyond 57° N: run 8c took 4.8 hours for what 8b did in 1.5.
+- **The day.** 8,653 of the 20,000 tiles by run 6 (325 before run 1),
+  12,488 after Europe's 120 m list. Every tile on worker1's lists is
+  cached: the recheck of the largest box answered 1,610 of 1,610 from the
+  cache in 8 s, run 8a 1,713 of 1,713 in 9 s.
 
 ### The record, and where it stands (2026-10-30)
 
