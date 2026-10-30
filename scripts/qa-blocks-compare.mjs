@@ -68,6 +68,11 @@
  * another harness or a vite build runs (CONCURRENT_JOBS); a step timed
  * beside one all the same names it (`concurrent`). --no-wait skips that.
  *
+ * --prewarm-check (with --altitudes) holds the Blocks pre-warm's Models
+ * at the first Blocks status and counts the pixels they change at the
+ * canvas's centre, read back from the scene itself: none, if they never
+ * show.
+ *
  * --panels opens the two panels before the steps, shoots each step 1.5 s
  * into its flight (<step>-flight.png) and, after the city, opens the
  * Elevation row's colour scale (<step>-grown.png), keeping the panels'
@@ -1000,6 +1005,95 @@ function argValue(argv, name, fallback = null) {
   return at >= 0 ? argv[at + 1] : fallback;
 }
 
+/**
+ * --prewarm-check: the Blocks pre-warm's Models (src/app/blocksTiles.js
+ * prewarmPrograms), held by the probe at the first Blocks status, must not
+ * show: the same frame rendered with them hidden and shown, the pixels
+ * that differ counted in a 64 px box at the centre (where they stand, 10 m
+ * ahead) and over the whole canvas; both frames kept.
+ */
+async function prewarmCheck(page, out, name) {
+  const found = await page
+    .waitForFunction(
+      () => {
+        const now = window.__gevBlocksProbe?.tiles?.prewarmNow?.();
+        return (
+          now?.state === 'under way' &&
+          now.models.length > 0 &&
+          now.models.every((model) => model.ready)
+        );
+      },
+      { timeout: 60_000, polling: 50 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  if (!found) {
+    await page.evaluate(() => {
+      window.__gevBlocksProbe.holdPrewarm = false;
+    });
+    return { found: false };
+  }
+  // The scene itself, not the page (the loading splash animates over it):
+  // rendered and read back in one task, a 64 px box at the canvas's
+  // centre, hidden, shown and hidden again (the scene's own change).
+  const result = await page.evaluate(() => {
+    const viewer = window.__godsEyeView.viewer;
+    const scene = viewer.scene;
+    const gl = scene.context._gl;
+    const models = window.__gevBlocksProbe.tiles.prewarmNow().models;
+    const w = gl.drawingBufferWidth;
+    const h = gl.drawingBufferHeight;
+    const read = (shown) => {
+      for (const model of models) model.show = shown;
+      scene.render();
+      const pixels = new Uint8Array(64 * 64 * 4);
+      gl.readPixels(
+        Math.floor(w / 2) - 32,
+        Math.floor(h / 2) - 32,
+        64,
+        64,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        pixels,
+      );
+      return pixels;
+    };
+    const differ = (a, b) => {
+      let n = 0;
+      for (let k = 0; k < a.length; k += 4)
+        if (
+          Math.abs(a[k] - b[k]) > 2 ||
+          Math.abs(a[k + 1] - b[k + 1]) > 2 ||
+          Math.abs(a[k + 2] - b[k + 2]) > 2
+        )
+          n++;
+      return n;
+    };
+    const hidden = read(false);
+    const shown = read(true);
+    const again = read(false);
+    // The control: the same Models scaled to 100 m must show.
+    for (const model of models) model.scale = 1e5;
+    const large = read(true);
+    for (const model of models) model.scale = 1;
+    for (const model of models) model.show = true;
+    let light = 0;
+    for (let k = 0; k < hidden.length; k += 4)
+      light += hidden[k] + hidden[k + 1] + hidden[k + 2];
+    return {
+      centre: differ(hidden, shown),
+      scene: differ(hidden, again),
+      control: differ(hidden, large),
+      meanLight: Math.round(light / (hidden.length / 4) / 3),
+      models: models.length,
+    };
+  });
+  await page.evaluate(() => {
+    window.__gevBlocksProbe.holdPrewarm = false;
+  });
+  return { found: true, ...result };
+}
+
 async function shoot({
   browser,
   dist,
@@ -1014,14 +1108,19 @@ async function shoot({
   prefix = null,
   isolate = false,
   tilesDir = null,
+  checkPrewarm = false,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
-  // --isolate reads the renderer through the app's QA probe.
-  if (isolate)
-    await page.evaluateOnNewDocument(() => {
-      window.__gevBlocksProbe = {};
-    });
+  // --isolate reads the renderer through the app's QA probe; and
+  // --prewarm-check holds the pre-warm's Models through it.
+  if (isolate || (checkPrewarm && blocks))
+    await page.evaluateOnNewDocument(
+      (hold) => {
+        window.__gevBlocksProbe = hold ? { holdPrewarm: true } : {};
+      },
+      Boolean(checkPrewarm && blocks),
+    );
   // Third person is kept in this browser (gev.nav.view), not in the link.
   if (viewMode)
     await page.evaluateOnNewDocument((mode) => {
@@ -1077,6 +1176,8 @@ async function shoot({
     () => window.__godsEyeView.dataManager.isEnabled('ee-elevation') === true,
     { timeout: 60_000 },
   );
+  const prewarm =
+    checkPrewarm && blocks ? await prewarmCheck(page, out, name) : null;
   // The fresh ring's time: from Elevation on (Blocks may start) until the
   // status line says nothing is loading any more.
   const ringStarted = Date.now();
@@ -1204,7 +1305,15 @@ async function shoot({
   }
   log.closedAt = Date.now();
   await context.close();
-  return { name, file, status, scene, ...log, missing: [...log.missing] };
+  return {
+    name,
+    file,
+    status,
+    scene,
+    ...log,
+    missing: [...log.missing],
+    ...(prewarm ? { prewarm } : {}),
+  };
 }
 
 /**
@@ -2618,6 +2727,7 @@ export async function main(argv = process.argv.slice(2)) {
             blocks,
             live,
             isolate: argv.includes('--isolate'),
+            checkPrewarm: argv.includes('--prewarm-check'),
             tilesDir: argValue(argv, '--tiles-dir') || null,
             ...shot,
           }),
@@ -2629,6 +2739,10 @@ export async function main(argv = process.argv.slice(2)) {
   for (const result of results) {
     console.log(`${result.name}: ${result.file}`);
     console.log(`  status line: ${result.status || '(none)'}`);
+    if (result.prewarm)
+      console.log(
+        `  pre-warm: ${result.prewarm.found ? `${result.prewarm.models} Models, ${result.prewarm.centre} of 4,096 px differ at the centre shown against hidden (${result.prewarm.scene} hidden against hidden; scaled to 100 m, ${result.prewarm.control}; mean light ${result.prewarm.meanLight})` : 'not caught'}`,
+      );
     if (result.name.endsWith('blocks'))
       console.log(
         `  level: ${JSON.stringify(parseBlocksStatus(result.status))}`,

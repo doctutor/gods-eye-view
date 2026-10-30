@@ -222,6 +222,7 @@ export function createBlocksTilesLayer({
   buildings = () => true,
   now = () => Date.now(),
   createModel = createBlocksModel,
+  holdPrewarm = () => false,
 }) {
   const scene = viewer?.scene;
   reserveSockets();
@@ -246,25 +247,42 @@ export function createBlocksTilesLayer({
    * tiles about the hole) and one for the rest (the tiles the hole does not
    * reach), and the live batches' feature table and the tiles' apart. So at
    * the first Blocks status, three Models of a millimetre's ground and water
-   * are drawn 10 m in front of the eye, and removed once they have drawn
+   * are drawn ahead of the eye (aheadOfEye), and removed once they have drawn
    * (two frames after all are ready, or after PREWARM_FRAMES).
    */
-  function prewarmPrograms() {
-    if (prewarm !== 'not yet' || !scene?.primitives?.add) return;
-    const eye = scene.camera?.positionWC;
-    const ahead = scene.camera?.directionWC;
-    if (!eye || !ahead) return;
-    prewarm = 'under way';
-    // 10 m in front of the eye: in the frustum and above the ground, so
-    // nothing culls the draw (under the ground the globe occluded it, and
-    // nothing was linked), and a millimetre there is a tenth of a pixel.
-    const modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
+  /**
+   * Where the pre-warm's Models stand: ahead of the eye, in the frustum
+   * and above the ground (under it the globe occluded them, Cesium culled
+   * the draw and nothing was linked), half the camera's height out (10 m
+   * to 100 km), where a millimetre is far under a pixel and the nearest
+   * thing drawn is no nearer than the ground (10 m out at 5,000 km it
+   * shifted 12 pixels' edges for the frames it stood).
+   */
+  function aheadOfEye() {
+    const camera = scene?.camera;
+    const eye = camera?.positionWC;
+    const ahead = camera?.directionWC;
+    if (!eye || !ahead) return null;
+    const height = Number(camera.positionCartographic?.height) || 0;
+    const distance = Math.min(1e5, Math.max(10, height / 2));
+    return Cesium.Transforms.eastNorthUpToFixedFrame(
       Cesium.Cartesian3.add(
         eye,
-        Cesium.Cartesian3.multiplyByScalar(ahead, 10, new Cesium.Cartesian3()),
+        Cesium.Cartesian3.multiplyByScalar(
+          ahead,
+          distance,
+          new Cesium.Cartesian3(),
+        ),
         new Cesium.Cartesian3(),
       ),
     );
+  }
+
+  function prewarmPrograms() {
+    if (prewarm !== 'not yet' || !scene?.primitives?.add) return;
+    if (!scene.camera?.positionWC || !scene.camera?.directionWC) return;
+    prewarm = 'under way';
+    const modelMatrix = aheadOfEye();
     // The live chunks always carry the planes; the tiles with and without.
     Promise.all(
       [
@@ -290,8 +308,14 @@ export function createBlocksTilesLayer({
         let readyFrames = 0;
         removePrewarmFrames = scene.preRender?.addEventListener(() => {
           frames++;
+          // Kept ahead of the eye as it moves (a shared link's flight
+          // starts as the app opens): a Model ready only after the camera
+          // has left it would never be drawn, and link nothing.
+          const matrix = aheadOfEye();
+          if (matrix) for (const model of models) model.modelMatrix = matrix;
           if (models.every((model) => model.ready !== false)) readyFrames++;
           requestRender();
+          if (holdPrewarm()) return;
           if (readyFrames >= 3 || frames >= PREWARM_FRAMES) endPrewarm();
         });
         requestRender();
@@ -674,6 +698,8 @@ export function createBlocksTilesLayer({
     },
     /** The tiles' shader (for tests and the harness). */
     shader,
+    /** The pre-warm: its state and its Models while drawn (the harness). */
+    prewarmNow: () => ({ state: prewarm, models: prewarmModels }),
     destroy() {
       if (destroyed) return;
       destroyed = true;
