@@ -49,7 +49,7 @@ import {
   readBlocksGlb,
 } from '../layers/blocks/gltf.js';
 import { MeshoptDecoder } from 'meshoptimizer';
-import { createChunkSource } from '../layers/blocks/source.js';
+import { createChunkSource, groupBounds } from '../layers/blocks/source.js';
 import { MATERIALS, NONE } from '../layers/blocks/store.js';
 import { createStructuresSource } from '../layers/blocks/structures.js';
 
@@ -1039,6 +1039,32 @@ test('a curved build: the box middle on the coarsest graticule, every level on t
   );
   // The flat builds are as they were.
   assert.equal(planTiles(groupBox().bbox, 30).curved, false);
+});
+
+test('a curved plan keeps the groups whose ground meets the box, not the bowed rectangle around it', () => {
+  // The lower 48 at 480 m and up (no reads: the plan alone).
+  const box = { west: -125, south: 24, east: -66, north: 50 };
+  const plan = planTiles(box, 480);
+  assert.deepEqual(plan.levels, [30720, 7680, 1920, 480]);
+  const region = levelRegion(plan.anchor, 480, true);
+  const fine = [...plan.groups.get(480).values()];
+  for (const { gi, gj } of fine) {
+    const b = groupBounds(region, gi, gj);
+    assert.ok(
+      b.west < box.east &&
+        b.east > box.west &&
+        b.south < box.north &&
+        b.north > box.south,
+      `group ${gi}:${gj} off the box`,
+    );
+  }
+  // The rectangle around the box's image would be 1,350 groups.
+  assert.equal(fine.length, 1082);
+  // Every finer group's parent is built.
+  for (const { gi, gj } of fine)
+    assert.ok(
+      plan.groups.get(1920).has(`${Math.floor(gi / 4)}:${Math.floor(gj / 4)}`),
+    );
 });
 
 test('curved placement: each vertex is its block corner on the ellipsoid, at its level above it', async () => {

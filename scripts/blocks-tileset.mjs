@@ -258,6 +258,10 @@ export const middleAnchorFor = (bbox, blockM) =>
 
 const tileKey = (gi, gj) => `${gi}:${gj}`;
 
+/** Whether two boxes in degrees overlap. */
+const meetsBox = (a, b) =>
+  a.west < b.east && a.east > b.west && a.south < b.north && a.north > b.south;
+
 /**
  * The tiles for a box: the levels (coarsest first, each ×4 the next), the
  * anchor, and per level the groups built. A level's groups are those the
@@ -292,7 +296,8 @@ export function planTiles(bbox, finestM, coarsestM = null) {
   let finer = null;
   for (const m of [...levels].reverse()) {
     const here = new Map();
-    const c = boxColumns(levelRegion(anchor, m, curved), bbox);
+    const region = levelRegion(anchor, m, curved);
+    const c = boxColumns(region, bbox);
     for (
       let gj = Math.floor(c.j0 / GROUP_COLUMNS);
       gj <= Math.floor(c.j1 / GROUP_COLUMNS);
@@ -303,7 +308,11 @@ export function planTiles(bbox, finestM, coarsestM = null) {
         gi <= Math.floor(c.i1 / GROUP_COLUMNS);
         gi++
       )
-        here.set(tileKey(gi, gj), { gi, gj });
+        // On the curved map the box is a bowed shape whose bounding
+        // rectangle reaches far past its corners: only groups whose ground
+        // meets the box (the box around the group's own corners).
+        if (!curved || meetsBox(groupBounds(region, gi, gj), bbox))
+          here.set(tileKey(gi, gj), { gi, gj });
     if (finer)
       for (const { gi, gj } of finer.values()) {
         const parent = {
