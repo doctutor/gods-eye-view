@@ -797,6 +797,12 @@ test('main: the plan printed, a dry run reads nothing; a run writes the tileset'
   assert.equal(await run(), 0);
   assert.ok(fs.existsSync(path.join(out, 'tileset.json')));
   assert.ok(fs.existsSync(path.join(out, 'tileset-ground.json')));
+  // The box asked for and the finest level, in the tileset's extras.
+  const extras = JSON.parse(
+    fs.readFileSync(path.join(out, 'tileset.json'), 'utf8'),
+  ).asset.extras.blocks;
+  assert.deepEqual(extras.bbox, [bbox.west, bbox.south, bbox.east, bbox.north]);
+  assert.equal(extras.finestM, 30);
   assert.ok(
     lines.some((line) =>
       /^structures at 30 m .*, 1 Overpass queries$/.test(line),
@@ -1427,4 +1433,83 @@ test('a streamed build whose heights fail for a tile: logged with the time, the 
     lines.join('\n'),
   );
   assert.ok(fs.existsSync(path.join(out, '30m/g0_0.glb')));
+});
+
+test('land only: the finest groups over open sea are not built or read, their parents stand in, and the reads are listed', async () => {
+  // Open sea west of 10° E (0 m), land east (100 m), around the curved box.
+  const reader = async ({ box, cells, water }) => {
+    const values = new Float32Array(cells * cells);
+    for (let row = 0; row < cells; row++)
+      for (let col = 0; col < cells; col++) {
+        const lon = box.west + ((col + 0.5) / cells) * (box.east - box.west);
+        values[row * cells + col] = lon < 10 ? 0 : 100;
+      }
+    return {
+      header: { ...box, cols: cells, rows: cells, source: 'synthetic' },
+      values,
+      ...(water ? { water: new Float32Array(cells * cells) } : {}),
+    };
+  };
+  const asked = [];
+  const counted = (request) => {
+    asked.push(request);
+    return reader(request);
+  };
+  const argv = [
+    '--bbox',
+    '7.5,43,12.5,47',
+    '--levels',
+    '1920',
+    '--coarsest',
+    '7680',
+    '--land-only',
+  ];
+  const lines = [];
+  const list = path.join(temporary('blocks-tileset-reads-'), 'reads.json');
+  assert.equal(
+    await main({
+      argv: [
+        ...argv,
+        '--out',
+        temporary('blocks-tileset-list-'),
+        '--list-reads',
+        list,
+      ],
+      fetchValues: counted,
+      log: (line) => lines.push(line),
+    }),
+    0,
+  );
+  assert.ok(
+    lines.includes(
+      'land only: 2 of 4 groups at 1920 m over open sea, left to the 7680 m fills',
+    ),
+    lines.join('\n'),
+  );
+  const reads = JSON.parse(fs.readFileSync(list, 'utf8'));
+  assert.equal(reads.level, 1920);
+  assert.ok(
+    reads.tiles.length > 0 && reads.tiles.every((t) => t.box.east > 10 - 5),
+  );
+  // Listing reads nothing at the finest level (1,920 m lattice tiles are 256 cells).
+  const finestSide = (256 * 1920) / 111_319.49;
+  assert.ok(
+    asked.every((r) => Math.abs(r.box.east - r.box.west - finestSide) > 1e-6),
+  );
+  // The build: the sea groups are 7,680 m fills, the land ones 1,920 m groups.
+  const out = temporary('blocks-tileset-land-');
+  assert.equal(
+    await main({
+      argv: [...argv, '--out', out, '--stream'],
+      fetchValues: reader,
+      log: () => {},
+    }),
+    0,
+  );
+  const fine = fs.readdirSync(path.join(out, '1920m')).sort();
+  assert.deepEqual(fine, ['g0_-1.glb', 'g0_0.glb']);
+  assert.ok(
+    fs.existsSync(path.join(out, '7680m/c-1_0.glb')),
+    'a sea chunk drawn by its 7,680 m fill',
+  );
 });

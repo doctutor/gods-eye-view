@@ -1069,3 +1069,21 @@ download.
   passes (about 35 minutes): **2 to 2.5 hours once the cache is warm**.
   Warming the 5,333 lattice tiles first takes about 4 to 5 hours at the
   warm-up's 2.9 s a tile, and 5,333 of Earth Engine's 20,000-tile day.
+
+### Where the trees live (2026-10-30)
+
+A tree over a few GB lives on E: under `E:\gev-data\blocks-tiles\<name>\`,
+written there by the build (`--out E:/gev-data/blocks-tiles/<name>`). The
+build writes each file once, in turn, so the spinning external's
+single-stream rule holds. It is joined into the served root by a directory
+junction, `mklink /J D:\gev-cache\blocks-tiles\<name> E:\gev-data\blocks-tiles\<name>`,
+so the server's tiles route finds every tree under one root. A junction is
+removed with `rmdir` on the link, never a recursive delete, which would
+follow it into E:.
+
+| Tree                           | Where                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| `baltimore-harbour-30`, `-120` | D: (small)                                                             |
+| `lower48-480`                  | D: (4.5 GB)                                                            |
+| `europe-480`                   | E:, junctioned in                                                      |
+| `lower48-120`                  | E:, junctioned in (about 33 to 38 GB; waits for the warm-up and a yes) |
