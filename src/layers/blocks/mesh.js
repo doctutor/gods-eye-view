@@ -326,6 +326,12 @@ function curvedPlacement(curved, scale) {
  * unit vector to the sun, {east, north, up} in the region's frame (the
  * study sun when not given);
  * `greedy: false` keeps one quad per block face (for counting faces).
+ * `fan: false` draws a quad whose corners are shaded unevenly as two
+ * triangles too, split along the diagonal between its two brighter corners
+ * (the usual voxel rule), rather than four around a centre at the corners'
+ * mean: a quarter fewer vertices and half the triangles of such a quad, for
+ * levels seen from far off (the tileset at 480 m and up); the fan stays the
+ * default. `runCap` replaces curvedRunCap's longest run on a curved level.
  * `skirt: {n, s, e, w}`, each a floor level or null: along a border whose
  * neighbour is absent, every solid block of each edge column from its top
  * down to and including the floor level gets a side face (shaded as a
@@ -355,6 +361,8 @@ export function buildChunkMesh(
     skirt = null,
     curved = null,
     flatDrop = null,
+    fan = true,
+    runCap: runCapGiven = null,
   } = {},
 ) {
   const counts = new Float64Array(8);
@@ -362,7 +370,14 @@ export function buildChunkMesh(
   // Metres per block unit along east, north and up.
   const scale = [blockM, blockM, levelM];
   if (!volume)
-    return writeQuads([], [], { scale, sunDir, counts, curved, flatDrop });
+    return writeQuads([], [], {
+      scale,
+      sunDir,
+      counts,
+      curved,
+      flatDrop,
+      fan,
+    });
   const { cells, yMin, levels, low, up } = volume;
   // Index strides along east, north and up in the volume.
   const strides = [levels, SPAN * levels, 1];
@@ -467,7 +482,7 @@ export function buildChunkMesh(
   // (levels up a side stay straight, along the local up).
   const opaque = [];
   const water = [];
-  const runCap = curved ? curvedRunCap(blockM) : Infinity;
+  const runCap = curved ? (runCapGiven ?? curvedRunCap(blockM)) : Infinity;
   planes.forEach((byPlane, dirIndex) =>
     byPlane.forEach((cellsOfPlane, slot) => {
       const slice = slot - planeOffset[dirIndex];
@@ -489,6 +504,7 @@ export function buildChunkMesh(
     counts,
     curved,
     flatDrop,
+    fan,
   });
 }
 
@@ -510,12 +526,14 @@ const evenlyShaded = (key) => {
 function writeQuads(
   opaque,
   water,
-  { scale, sunDir, counts, curved = null, flatDrop = null },
+  { scale, sunDir, counts, curved = null, flatDrop = null, fan = true },
 ) {
   const quads = opaque.concat(water);
   const bend = curved ? curvedPlacement(curved, scale) : null;
   const drop = !bend && flatDrop ? flatDropping(flatDrop) : null;
-  const fanned = quads.filter((rect) => !evenlyShaded(rect.key)).length;
+  const fanned = fan
+    ? quads.filter((rect) => !evenlyShaded(rect.key)).length
+    : 0;
   const vertices = quads.length * 4 + fanned;
   const positions = new Float32Array(vertices * 3);
   const normals = new Float32Array(vertices * 3);
@@ -588,8 +606,9 @@ function writeQuads(
         );
       }
       const base = n * 4;
-      if (evenlyShaded(rect.key)) {
-        for (let k = 0; k < 6; k += 1) indices[index++] = base + TRIANGLES[k];
+      if (!fan || evenlyShaded(rect.key)) {
+        const split = splitOf(rect.key);
+        for (let k = 0; k < 6; k += 1) indices[index++] = base + split[k];
         continue;
       }
       const b = blockPoint(d, planeB, (uB[0] + uB[1]) / 2, (vB[0] + vB[1]) / 2);
@@ -633,8 +652,9 @@ function writeQuads(
     }
     const base = n * 4;
     if (drop) for (let c = 0; c < 4; c += 1) drop(positions, base + c);
-    if (evenlyShaded(rect.key)) {
-      for (let k = 0; k < 6; k += 1) indices[index++] = base + TRIANGLES[k];
+    if (!fan || evenlyShaded(rect.key)) {
+      const split = splitOf(rect.key);
+      for (let k = 0; k < 6; k += 1) indices[index++] = base + split[k];
       continue;
     }
     // Four triangles around the centre, at the corners' mean shading.
@@ -675,6 +695,20 @@ function writeQuads(
 }
 
 const TRIANGLES = [0, 1, 2, 0, 2, 3];
+/** The same quad split along its other diagonal (corners 1 and 3). */
+const TRIANGLES_FLIPPED = [0, 1, 3, 1, 2, 3];
+
+/**
+ * A quad's two triangles: along the diagonal between its brighter corners
+ * (the fewer occluders, `key`'s AO counts), so a dark corner is not drawn
+ * across the face; corners 0 and 2 when even.
+ */
+const splitOf = (key) => {
+  const count = (c) => (key >> (6 - 2 * c)) & 3;
+  return count(0) + count(2) > count(1) + count(3)
+    ? TRIANGLES_FLIPPED
+    : TRIANGLES;
+};
 
 /**
  * Greedy rectangles over one plane's cells ([u, v, key] triples), on a

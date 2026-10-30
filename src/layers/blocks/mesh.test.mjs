@@ -1170,3 +1170,75 @@ test('flat chunks meet at their seams on the curve: each vertex dropped by its o
   const z = cornerZ(8, 0, 0, true);
   assert.ok(Math.abs(z - (region.dropAt(8 * chunkM, 0) + 330)) < 0.05);
 });
+
+test('fan: false draws an unevenly shaded quad as two triangles along its brighter diagonal, no centre vertex', () => {
+  // A step: the lower columns' tops are shaded unevenly against the wall.
+  const tops = [];
+  for (let j = 0; j < N; j++) for (let i = 32; i < N; i++) tops.push([i, j, 6]);
+  const chunk = chunkAt(3, { tops });
+  const fanned = buildChunkMesh(chunk);
+  const plain = buildChunkMesh(chunk, { fan: false });
+  const halves = (mesh) => mesh.blockCoords.some((v) => !Number.isInteger(v));
+  assert.ok(
+    halves(fanned),
+    'the default fans an uneven quad around its centre',
+  );
+  assert.ok(!halves(plain), 'no centre vertices');
+  assert.equal(
+    plain.positions.length / 3,
+    (plain.indices.length / 6) * 4,
+    'four corners and two triangles a quad',
+  );
+  assert.ok(plain.indices.length < fanned.indices.length);
+  assert.equal(plain.faces, fanned.faces, 'the same faces');
+  // Each triangle's corners are three of its quad's four, in order.
+  for (let k = 0; k < plain.indices.length; k += 3) {
+    const quad = Math.floor(plain.indices[k] / 4);
+    for (let c = 1; c < 3; c++)
+      assert.equal(Math.floor(plain.indices[k + c] / 4), quad);
+  }
+  // The default is unchanged.
+  assert.deepEqual(
+    buildChunkMesh(chunk, { fan: true }).indices,
+    fanned.indices,
+  );
+});
+
+test('runCap replaces curvedRunCap on a curved level', () => {
+  const chunk = chunkAt(0);
+  const curved = {
+    lon0: 10,
+    lat0: 45,
+    regionBlockM: 7680,
+    cornerM: { x: 0, y: 0 },
+    datumM: 0,
+  };
+  const run = (mesh) => {
+    let longest = 0;
+    for (let q = 0; q < mesh.indices.length / 6; q++) {
+      const at = (c) =>
+        mesh.blockCoords.slice((q * 4 + c) * 3, (q * 4 + c) * 3 + 3);
+      longest = Math.max(
+        longest,
+        Math.abs(at(2)[0] - at(0)[0]),
+        Math.abs(at(2)[1] - at(0)[1]),
+      );
+    }
+    return longest;
+  };
+  const capped = buildChunkMesh(chunk, {
+    blockM: 7680,
+    levelM: 240,
+    curved,
+    fan: false,
+  });
+  const longer = buildChunkMesh(chunk, {
+    blockM: 7680,
+    levelM: 240,
+    curved,
+    fan: false,
+    runCap: 64,
+  });
+  assert.equal(run(capped), curvedRunCap(7680));
+  assert.equal(run(longer), 64);
+});
