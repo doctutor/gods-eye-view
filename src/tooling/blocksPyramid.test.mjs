@@ -13,6 +13,7 @@ import {
 import {
   LATTICE_CELLS,
   latticeBox,
+  latticeCells,
   latticeIndex,
 } from '../layers/blocks/lattice.js';
 
@@ -42,12 +43,14 @@ test('planRequests: the lattice tiles over the box, the boxes the Blocks source 
     { west: -80, south: 36, east: -74, north: 41 },
     [1920],
   );
-  // 1,920 m tiles are 8.83° a side: the box lies in one or two each way.
-  assert.ok(requests.length >= 1 && requests.length <= 4);
+  // 1,920 m tiles are 256 cells, 4.42° a side: the box lies in two or
+  // three each way.
+  assert.ok(requests.length >= 4 && requests.length <= 9);
   for (const { level, query } of requests) {
     assert.equal(level, 1920);
     assert.equal(query.layer, 'ee-elevation');
-    assert.equal(query.cells, String(LATTICE_CELLS));
+    assert.equal(query.cells, String(latticeCells(1920)));
+    assert.equal(query.cells, String(LATTICE_CELLS / 2));
     // With the water plane, as the Blocks source asks a coarse level.
     assert.equal(query.water, '1');
     const { ti, tj } = latticeIndex(

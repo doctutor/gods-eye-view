@@ -469,7 +469,46 @@ rings past it. The 300 m view drew 1,497 buildings, the 5 km view 9,935.
   102 s against 40 s without the plane, and the harness's views stopped
   at "24 loading" (ring tiles still on their way at 3 minutes). A plane
   Earth Engine refuses is answered with the heights alone, not kept, so
-  Blocks still draws. The
+  Blocks still draws.
+- Cold coarse views (2026-10-30): a fresh lattice tile took 16 to 111 s,
+  and a 512-cell tile at 1,920 m twice passed the server's 120 s (a 503,
+  then the same heavy request again). Measured through an env-gated knob
+  (GEV_VALUES_EXPERIMENTS=1: `&maxPixels`, `&scale`, never cached): fewer
+  samples a cell (64, 16) is 4–20 × faster but moves the means by metres
+  (Kansas 1,920 m: 64 samples p99 2.4 m, 16 samples mean 2 m), so not
+  taken. Two changes taken: the mean declares the read band's own cell
+  (FABDEM 30 m, GMTED 231 m), not the stack's finest (3DEP's 1 m had a
+  120 m cell over the US read FABDEM at 7.5 m: 18–20 s a fresh tile, 4 s
+  after, means within 0.05 m on average); and the lattice tiles at 480
+  and 1,920 m are 256 cells a side (`latticeCells`), 6 to 12 s fresh
+  against 55 to 111 s, four times the tiles there. The source's tile cache
+  counts a 256-cell tile as a quarter (`latticeWeight`).
+
+  Fresh tiles, plain, one at a time (512 cells unless said; "band" scale):
+
+  | Level                  | 256 samples a cell (as before) | 64     | 16     | 256 cells a side |
+  | ---------------------- | ------------------------------ | ------ | ------ | ---------------- |
+  | 120 m over 3DEP (Ohio) | 18.1 s (stack scale), 4.0 s    |        |        |                  |
+  | 480 m (Iowa)           | 110.7 s                        |        |        | 6.4 s            |
+  | 1,920 m (Sahara)       | 96.4 s; another > 2 × 120 s    | 18.8 s | 14.1 s | 12.3 s           |
+  | 7,680 m (Australia)    | 37.4 s                         | 8.9 s  | 2.0 s  | 7.2 s            |
+
+  Means against the reading before, over the same lattice tile (max, mean,
+  p99 of |difference|; cells over 1 m):
+
+  | Tile              | Change     | Max    | Mean    | p99    | > 1 m                  |
+  | ----------------- | ---------- | ------ | ------- | ------ | ---------------------- |
+  | Baltimore 120 m   | band scale | 11.4 m | 0.035 m | 0.24 m | 116 of 202k (81 coast) |
+  | Kansas 1,920 m    | band scale | 2.2 m  | 0.046 m | 0.35 m | 101 of 206k            |
+  | Kansas 1,920 m    | 64 samples | 11.2 m | 0.34 m  | 2.4 m  | 11,259                 |
+  | Kansas 1,920 m    | 16 samples | 74.2 m | 2.08 m  | 14.0 m | 123,292                |
+  | Australia 7,680 m | 64 samples | 97.3 m | 0.12 m  | 1.4 m  | 3,904                  |
+
+  The "coast" cells flip between the sea (0 m) and land at the half-land
+  threshold. Cache: the band scale makes every coarse tile over 3DEP and
+  every 7,680 and 30,720 m tile a new version (the base band's tiles
+  outside 3DEP and the Arctic keep theirs), and the 256-cell lattice gives
+  every 480 and 1,920 m tile a new key; a warm-up comes after both. The
   plane rides on `raster-values/1` after the values, named in the
   header's `planes`, so a reader that does not ask never gets it and one
   that gets it but knows only the values reads them as before; the
@@ -480,6 +519,7 @@ rings past it. The 300 m view drew 1,497 buildings, the 5 km view 9,935.
   group's coarse column takes the mean of its fine shares. The Blocks
   style (`blocksStyleExpression`) colours a cell at least half water as
   water at its own level, so the drape and the columns agree.
+
 - After a search flew the camera from the opening view (15,000 km over
   30° N 40° W) to Europe or the United States at 30,720 m, 8 to 67 chunks
   stayed "loading" for minutes and the view never settled, though every

@@ -1,12 +1,16 @@
 // Personal fork: the Blocks pyramid's request lattice
-// (src/layers/blocks/lattice.js): tiles of 512 cells of a level, a global
+// (src/layers/blocks/lattice.js): tiles of 512 cells of a level (256 at
+// 480 and 1,920 m), a global
 // equal-angle grid from 180° W and 90° S, the same box for every view.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  HALF_LATTICE_M,
   LATTICE_CELLS,
   latticeBox,
+  latticeCells,
+  latticeWeight,
   latticeIndex,
   latticeKey,
   latticeSideDeg,
@@ -16,12 +20,24 @@ import {
 
 const M_PER_DEG = 111_319.49;
 
-test('a tile is 512 cells of its level a side, in degrees of latitude', () => {
+test('a tile is 512 cells of its level a side (256 at 480 and 1,920 m), in degrees of latitude', () => {
   assert.equal(LATTICE_CELLS, 512);
-  for (const blockM of [1, 30, 1920, 30720])
+  assert.deepEqual(HALF_LATTICE_M, [480, 1920]);
+  for (const [blockM, cells] of [
+    [1, 512],
+    [30, 512],
+    [120, 512],
+    [480, 256],
+    [1920, 256],
+    [7680, 512],
+    [30720, 512],
+  ]) {
+    assert.equal(latticeCells(blockM), cells);
+    assert.equal(latticeWeight(blockM), (cells / 512) ** 2);
     assert.ok(
-      Math.abs(latticeSideDeg(blockM) * M_PER_DEG - 512 * blockM) < 1e-6,
+      Math.abs(latticeSideDeg(blockM) * M_PER_DEG - cells * blockM) < 1e-6,
     );
+  }
   // The top level: 141° tiles, three across the longitudes, two over the latitudes.
   assert.deepEqual(latticeSpan(30720), { cols: 3, rows: 2 });
 });

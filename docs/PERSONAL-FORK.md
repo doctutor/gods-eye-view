@@ -6420,8 +6420,10 @@ fine and coarse at one levelM and matches them one to one at the skirts
 
 **The lattice.** The values are asked in tiles of a global equal-angle
 lattice a level (`src/layers/blocks/lattice.js`): 512 cells of the level
-a side, `blockM` of latitude a cell, from 180° W and 90° S, cut at the
-antimeridian and the poles. A tile's box is the same for every view,
+a side (256 at 480 and 1,920 m, `latticeCells`: a fresh 512-cell tile
+there took 55 to 111 s and at times passed the server's 120 s, a quarter
+of one 6 to 12 s), `blockM` of latitude a cell, from 180° W and 90° S,
+cut at the antimeridian and the poles. A tile's box is the same for every view,
 however the camera anchored the region, so the server's 30-day cache
 answers any region at that level and `npm run blocks:pyramid` can fill
 it ahead of time. A group reads its columns from the tiles under them

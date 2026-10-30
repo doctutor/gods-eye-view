@@ -7,7 +7,8 @@
  *       [--pace <ms between Earth Engine requests, 500>] [--dry-run]
  *
  * Asks the Elevation values of every lattice tile (src/layers/blocks/
- * lattice.js: 512 cells of the level a side, the boxes the Blocks source
+ * lattice.js: 512 cells of the level a side, 256 at 480 and 1,920 m, the
+ * boxes the Blocks source
  * asks, with the water plane where it does: source.js asksWater) over
  * the box at each level, one at a time, through the raster
  * values service as the app's server would: the same 30-day cache under
@@ -24,8 +25,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  LATTICE_CELLS,
   latticeBox,
+  latticeCells,
   latticeTilesOver,
 } from '../src/layers/blocks/lattice.js';
 import { BLOCK_PYRAMID_M } from '../src/layers/blocks/pyramid.js';
@@ -92,7 +93,7 @@ export function planRequests(bbox, levels) {
           south: String(box.south),
           east: String(box.east),
           north: String(box.north),
-          cells: String(LATTICE_CELLS),
+          cells: String(latticeCells(level)),
           ...(asksWater(level) ? { water: '1' } : {}),
         },
       });
