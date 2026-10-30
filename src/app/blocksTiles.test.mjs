@@ -14,6 +14,7 @@ import {
   INSIDE_HOLE_BLOCKS,
   createBlocksTilesLayer,
   coversView,
+  SWITCH_COVER_FRAMES,
   SWITCH_WAIT_MS,
   FAR_HIGH_ABOVE_M,
   PREWARM_FRAMES,
@@ -193,7 +194,8 @@ test('the box the controller names: its tileset made once with the Blocks shader
   await settle();
   assert.equal(made.length, 2);
   assert.equal(made[1].url, '/api/blocks/tiles/harbour-30/tileset-ground.json');
-  viewer.scene.preRender.raiseEvent();
+  for (let n = 0; n < SWITCH_COVER_FRAMES; n++)
+    viewer.scene.preRender.raiseEvent();
   assert.equal(made[1].show, true);
   assert.equal(tileset.show, false);
   // Back on: the first again, not made anew.
@@ -201,6 +203,8 @@ test('the box the controller names: its tileset made once with the Blocks shader
   layer.apply({ state: 'ready', tiles: TILES });
   await settle();
   assert.equal(made.length, 2);
+  for (let n = 0; n < SWITCH_COVER_FRAMES; n++)
+    viewer.scene.preRender.raiseEvent();
   assert.equal(tileset.show, true);
   // No tiles in the status (Blocks left, no box here): hidden.
   layer.apply({ state: 'ready', tiles: null });
@@ -295,8 +299,19 @@ test('a box switched to loads hidden while the one before stays drawn, and is dr
   assert.equal(first.preloadWhenHidden, false);
   assert.equal(layer.getState().shown, first.url);
   assert.equal(layer.getState().pending, second.url);
-  // Its root in: drawn in this frame, the old one hidden, no preload.
+  // Its root in: drawn in the frame it has covered SWITCH_COVER_FRAMES
+  // frames in a row, the old one hidden, no preload; a frame not covering
+  // starts the count again.
   second.root.contentAvailable = true;
+  frame();
+  assert.equal(second.show, false);
+  second.root.contentAvailable = false;
+  frame();
+  second.root.contentAvailable = true;
+  for (let n = 1; n < SWITCH_COVER_FRAMES; n++) {
+    frame();
+    assert.equal(second.show, false, `${n} frame(s) covered`);
+  }
   frame();
   assert.equal(second.show, true);
   assert.equal(first.show, false);

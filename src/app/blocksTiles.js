@@ -82,6 +82,13 @@ export const INSIDE_HOLE_BLOCKS = 2;
  * box whose tiles fail never keeps the old one forever.
  */
 export const SWITCH_WAIT_MS = 10_000;
+/**
+ * The frames in a row a box switched to must cover the view before it is
+ * drawn: covered in the one frame it swapped, a page load at a Baltimore
+ * street (pitch −10, 2026-10-30) lost the far ground for 200 ms in the
+ * frames after, a tile coming into view not yet in.
+ */
+export const SWITCH_COVER_FRAMES = 3;
 
 /**
  * Whether a tileset can draw the view it was last traversed for: every
@@ -717,19 +724,20 @@ export function createBlocksTilesLayer({
     ) {
       shownUrl = url;
       pending = null;
-    } else if (pending?.url !== url) pending = { url, since: now() };
+    } else if (pending?.url !== url)
+      pending = { url, since: now(), covered: 0 };
     showDrawn();
   }
 
-  /** Before each frame: a pending box that covers the view (or waited
-   * SWITCH_WAIT_MS) is drawn in place of the old one, in this frame. */
+  /** Before each frame: a pending box that has covered the view
+   * SWITCH_COVER_FRAMES frames in a row (or waited SWITCH_WAIT_MS) is drawn
+   * in place of the old one, in this frame. */
   function switchWhenReady() {
     if (!pending) return;
     const tileset = loaded.get(pending.url)?.tileset;
-    if (!tileset && now() - pending.since < SWITCH_WAIT_MS) return;
+    pending.covered = tileset && coversView(tileset) ? pending.covered + 1 : 0;
     if (
-      tileset &&
-      !coversView(tileset) &&
+      pending.covered < SWITCH_COVER_FRAMES &&
       now() - pending.since < SWITCH_WAIT_MS
     )
       return;
