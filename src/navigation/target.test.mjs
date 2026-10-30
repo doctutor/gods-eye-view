@@ -398,3 +398,92 @@ test('Relief ×3: a ray at the drawn blocks targets the true block; a picked dra
   );
   assert.ok(Math.abs(d.z - flatD.z / 3) < 1e-12);
 });
+
+test('at 480 m (a curved live region, grid.js LIVE_CURVED_BLOCK_M), 245 km from its anchor: the walker stands on the drawn top along the column’s own vertical, and a ray straight down targets that column', async () => {
+  const { blocksFrameFor } = await import('./binding.js');
+  const { buildChunkMesh } = await import('../layers/blocks/mesh.js');
+  const region = createRegion({
+    lon0: -79.5,
+    lat0: 38.6,
+    blockM: 480,
+    levelM: 30,
+    curved: true,
+  });
+  // A chunk eight east of the anchor (245 km), its ground at level 40
+  // (1,230 m), a column at (5, 9) raised to level 44.
+  const ci = 8;
+  const top = new Int32Array(N * N).fill(40);
+  top[columnIndex(5, 9)] = 44;
+  const chunk = createChunk({
+    ci,
+    cj: 0,
+    top,
+    water: new Int32Array(N * N).fill(NONE),
+  });
+  const w = {
+    region,
+    geoidM: 0,
+    sourceName: 'GLO-30',
+    chunkAt: (i, j) => (i === ci && j === 0 ? chunk : null),
+  };
+  const chunkM = N * 480;
+  const x = ci * chunkM + 5.5 * 480;
+  const y = 9.5 * 480;
+  const frame = blocksFrameFor(w);
+  // Its footing: the raised column's top, 45 levels up.
+  assert.equal(frame.world.surfaceBelow(x, y, 2000), 45 * 30);
+  // Where the walker's feet are drawn is the column's own place, 1,350 m
+  // over the ellipsoid there, not along the anchor's up (38 m off there).
+  const feet = frame.cameraCartographic(x, y, 45 * 30);
+  const place = region.toLonLat(x, y);
+  assert.ok(Math.abs(feet.lon - place.lon) < 1e-9);
+  assert.ok(Math.abs(feet.lat - place.lat) < 1e-9);
+  assert.ok(Math.abs(feet.heightM - 1350) < 1e-6);
+  const back = frame.cameraToLocal(
+    Cesium.Cartographic.fromDegrees(feet.lon, feet.lat, feet.heightM),
+  );
+  assert.ok(Math.hypot(back.x - x, back.y - y, back.z - 1350) < 1e-3);
+  // The mesher's drawn top corner of that column at the same place.
+  const mesh = buildChunkMesh(chunk, {
+    blockM: 480,
+    levelM: 30,
+    curved: {
+      lon0: region.lon0,
+      lat0: region.lat0,
+      regionBlockM: 480,
+      cornerM: { x: ci * chunkM, y: 0 },
+      datumM: 0,
+    },
+  });
+  const anchorFrame = Cesium.Transforms.eastNorthUpToFixedFrame(
+    Cesium.Cartesian3.fromDegrees(region.lon0, region.lat0, 0),
+  );
+  let worst = Infinity;
+  for (let v = 0; v < mesh.positions.length / 3; v++) {
+    const b = [0, 1, 2].map((c) => mesh.blockCoords[v * 3 + c]);
+    if (b[0] !== 5 || b[1] !== 9 || b[2] !== 45) continue;
+    const drawn = Cesium.Matrix4.multiplyByPoint(
+      anchorFrame,
+      new Cesium.Cartesian3(
+        ...[0, 1, 2].map(
+          (c) => mesh.origin['xyz'[c]] + mesh.positions[v * 3 + c],
+        ),
+      ),
+      new Cesium.Cartesian3(),
+    );
+    worst = Math.min(
+      worst,
+      Cesium.Cartesian3.distance(
+        drawn,
+        frame.toWorld(5 * 480 + ci * chunkM, 9 * 480, 1350),
+      ),
+    );
+  }
+  assert.ok(worst < 0.05, `the drawn corner ${worst} m from the walker's`);
+  // Straight down onto it from 1 km above (the place's own vertical).
+  const eye = Cesium.Cartesian3.fromDegrees(place.lon, place.lat, 2350);
+  const ground = Cesium.Cartesian3.fromDegrees(place.lon, place.lat, 1350);
+  const facts = targetAlongRay(w, rayBetween(eye, ground));
+  assert.deepEqual([facts.i, facts.j, facts.y], [ci * N + 5, 9, 44]);
+  assert.deepEqual(facts.face, [0, 0, 1]);
+});

@@ -3758,3 +3758,106 @@ test('tiles: a floor or box that changes re-anchors the live region; a plan that
   assert.equal(renderer.sets.at(-1).options.fogReachBlocks, 64);
   controller.destroy();
 });
+
+test('with the real grid, a live 480 m region is curved (grid.js LIVE_CURVED_BLOCK_M) and its chunks stand each column corner on the ellipsoid along its own vertical, as the tileset’s 480 m level does; 120 m stays flat, each vertex dropped by its place', async () => {
+  const realGrid = await import('./grid.js');
+  const { buildChunkMesh } = await import('./mesh.js');
+  const { createChunk } = await import('./store.js');
+  const { columnsFromHeights } = await import('./source.js');
+  assert.equal(realGrid.LIVE_CURVED_BLOCK_M, 480);
+  const N = realGrid.CHUNK_COLUMNS;
+  const run = async (blockM) => {
+    const source = {
+      regionFor: () =>
+        Promise.resolve({
+          blockM,
+          levelM: 30,
+          source: `Synthetic ${blockM} m`,
+        }),
+      loadChunk(region, ci, cj) {
+        // Hills of a few hundred metres, continuous across chunks.
+        const heights = new Float32Array(N * N);
+        for (let j = 0; j < N; j++)
+          for (let i = 0; i < N; i++)
+            heights[j * N + i] =
+              400 +
+              300 * Math.sin((ci * N + i) / 9) * Math.cos((cj * N + j) / 7);
+        return Promise.resolve(
+          createChunk({
+            ci,
+            cj,
+            ...columnsFromHeights(heights, region.blockM),
+          }),
+        );
+      },
+    };
+    const store = createRenderModeStore({ storage: memoryStorage() });
+    store.setMode('blocks');
+    const renderer = fakeRenderer();
+    const options = [];
+    const controller = createBlocksController({
+      viewer: fakeViewer(),
+      store,
+      layers: fakeLayers(true),
+      source,
+      renderer,
+      grid: realGrid,
+      buildChunkMesh(chunk, opts) {
+        options.push(opts);
+        return buildChunkMesh(chunk, opts);
+      },
+      radiusBlocks: 64,
+      setIntervalImpl: () => 1,
+      clearIntervalImpl: () => {},
+    });
+    await drain(controller);
+    const region = renderer.calls.find(([k]) => k === 'region')[1];
+    const shown = new Map(renderer.shown);
+    controller.destroy();
+    return { region, options, shown };
+  };
+  const curved = await run(480);
+  assert.equal(curved.region.curved, true);
+  assert.ok(curved.options.length > 0);
+  for (const opts of curved.options) {
+    assert.ok(opts.curved, 'curved placement');
+    assert.equal(opts.flatDrop, undefined);
+    assert.equal(opts.curved.regionBlockM, 480);
+  }
+  // Each block corner of a shown chunk: its column's place, at its level's
+  // height over the ellipsoid there (datum 0 on flat ground), in the
+  // region's frame: the build's rule (blocksTileset.test.mjs).
+  const region = curved.region;
+  let checked = 0;
+  let worst = 0;
+  for (const [key, mesh] of curved.shown) {
+    const [ci, cj] = key.split(':').map(Number);
+    assert.equal(mesh.curved, true, key);
+    for (let v = 0; v < mesh.positions.length / 3; v += 5) {
+      const bx = mesh.blockCoords[v * 3];
+      const by = mesh.blockCoords[v * 3 + 1];
+      const bz = mesh.blockCoords[v * 3 + 2];
+      if (!Number.isInteger(bx) || !Number.isInteger(by)) continue;
+      const place = region.toLonLat((ci * N + bx) * 480, (cj * N + by) * 480);
+      const want = region.localPoint(place.lon, place.lat, bz * 30);
+      const got = [0, 1, 2].map(
+        (c) => mesh.origin['xyz'[c]] + mesh.positions[v * 3 + c],
+      );
+      worst = Math.max(
+        worst,
+        Math.hypot(got[0] - want.x, got[1] - want.y, got[2] - want.z),
+      );
+      checked++;
+    }
+  }
+  assert.ok(checked > 1000, `${checked} corners`);
+  // Float32 positions about a chunk's own origin (30 km across): centimetres.
+  assert.ok(worst < 0.05, `${worst} m off its own vertical`);
+  // 120 m: flat, each vertex dropped by its own place.
+  const flat = await run(120);
+  assert.equal(flat.region.curved, false);
+  for (const opts of flat.options) {
+    assert.equal(opts.curved, undefined);
+    assert.equal(opts.flatDrop.regionBlockM, 120);
+  }
+});

@@ -1597,3 +1597,98 @@ test("curved placement against the live flat rule: the same within a flat region
   assert.ok(Math.abs(far.dh - 1000 * (1 - Math.cos(theta))) < 0.1);
   assert.ok(Math.abs(far.lean - 1000 * Math.sin(theta)) < 2);
 });
+
+test("a live 480 m column stands where the build's does: the live renderer's 480 m regions are curved (grid.js LIVE_CURVED_BLOCK_M), so a column 245 km from the live anchor, at the build's chunk corner, is the same world point at every level, where the flat rule leaned it 38 m", async (t) => {
+  const { createRegion, LIVE_CURVED_BLOCK_M, CHUNK_COLUMNS } =
+    await import('../layers/blocks/grid.js');
+  const { createChunk } = await import('../layers/blocks/store.js');
+  const { columnsFromHeights } = await import('../layers/blocks/source.js');
+  assert.equal(LIVE_CURVED_BLOCK_M, 480);
+  const N = CHUNK_COLUMNS;
+  const chunkM = N * 480;
+  // The lower 48's build anchor and its 480 m level (curved: its coarsest
+  // level is 30,720 m).
+  const build = levelRegion({ lon0: -95.6, lat0: 37.09 }, 480, true);
+  // A live 480 m region anchored 245 km west and south-west of a build
+  // chunk's corner, as the controller makes it (index.js liveCurved).
+  const ci = 40;
+  const cj = -12;
+  const corner = build.toLonLat(ci * chunkM, cj * chunkM);
+  const live = createRegion({
+    lon0: corner.lon - 2.4,
+    lat0: corner.lat - 0.8,
+    blockM: 480,
+    levelM: 30,
+    curved: 480 >= LIVE_CURVED_BLOCK_M,
+  });
+  assert.equal(live.curved, true);
+  const liveCorner = live.toLocal(corner.lon, corner.lat);
+  const awayKm = Math.hypot(liveCorner.x, liveCorner.y) / 1000;
+  assert.ok(awayKm > 200 && awayKm < 260, `${awayKm} km`);
+  // A mountain column at the corner (1,000 m) on rising ground.
+  const heights = new Float32Array(N * N);
+  for (let j = 0; j < N; j++)
+    for (let i = 0; i < N; i++) heights[j * N + i] = 1000 + 20 * (i + j);
+  const chunk = createChunk({ ci, cj, ...columnsFromHeights(heights, 480) });
+  const meshAt = (region, cornerM) =>
+    buildChunkMesh(chunk, {
+      blockM: 480,
+      levelM: 30,
+      // Walls down to sea level along the south and west edges: the
+      // corner column's foot as well as its top.
+      skirt: { n: null, s: 0, e: null, w: 0 },
+      curved: {
+        lon0: region.lon0,
+        lat0: region.lat0,
+        regionBlockM: 480,
+        cornerM,
+        datumM: 0,
+      },
+    });
+  const toEarth = (region, mesh, v) => {
+    const world = enuTransform({ lon0: region.lon0, lat0: region.lat0 });
+    const p = [0, 1, 2].map(
+      (c) => mesh.origin['xyz'[c]] + mesh.positions[v * 3 + c],
+    );
+    return new Cesium.Cartesian3(
+      ...[0, 1, 2].map(
+        (c) =>
+          world[c] * p[0] +
+          world[4 + c] * p[1] +
+          world[8 + c] * p[2] +
+          world[12 + c],
+      ),
+    );
+  };
+  // The build's tile (tileMesh: the build region, the chunk's corner).
+  const built = meshAt(build, { x: ci * chunkM, y: cj * chunkM });
+  // The live chunk with the same column at its corner.
+  const shown = meshAt(live, liveCorner);
+  const cornerVertices = (mesh) => {
+    const out = new Map();
+    for (let v = 0; v < mesh.positions.length / 3; v++)
+      if (mesh.blockCoords[v * 3] === 0 && mesh.blockCoords[v * 3 + 1] === 0)
+        out.set(mesh.blockCoords[v * 3 + 2], v);
+    return out;
+  };
+  const builtCorner = cornerVertices(built);
+  const shownCorner = cornerVertices(shown);
+  let checked = 0;
+  let worst = 0;
+  for (const [level, v] of builtCorner) {
+    if (!shownCorner.has(level)) continue;
+    worst = Math.max(
+      worst,
+      Cesium.Cartesian3.distance(
+        toEarth(build, built, v),
+        toEarth(live, shown, shownCorner.get(level)),
+      ),
+    );
+    checked++;
+  }
+  t.diagnostic(
+    `${checked} levels of the corner column, ${awayKm.toFixed(0)} km from the live anchor: ${(worst * 100).toFixed(2)} cm apart`,
+  );
+  assert.ok(checked >= 2, `${checked} levels`);
+  assert.ok(worst < 0.02, `${worst} m apart`);
+});

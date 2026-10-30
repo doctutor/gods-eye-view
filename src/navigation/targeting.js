@@ -27,12 +27,51 @@ export const targetReachM = (blockM) => Math.min(20_000, 2048 * blockM);
  * below the tangent plane (grid.js chunkOrigin). Under the Relief
  * (`world.relief`, relief.js) the blocks are drawn exaggerated: a world
  * point's height is taken back to the true one, and a direction's up part
- * shrinks by the factor (the mapping is affine in height).
+ * shrinks by the factor (the mapping is affine in height). A curved
+ * region (480 m and up, grid.js LIVE_CURVED_BLOCK_M) stands each column
+ * along its own vertical: a point goes through the region's map at its
+ * height over the ellipsoid, and a direction is the step it makes there.
  */
 export function regionFrame(world, cesium = Cesium) {
   const { region } = world;
   const geoidM = Number(world.geoidM) || 0;
   const relief = reliefOf(world.relief);
+  if (region.curved === true) {
+    const toLocal = (position) => {
+      const carto = cesium.Cartographic.fromCartesian(position);
+      const { x, y } = region.toLocal(
+        cesium.Math.toDegrees(carto.longitude),
+        cesium.Math.toDegrees(carto.latitude),
+      );
+      return { x, y, z: trueHeightM(carto.height, relief) - geoidM };
+    };
+    return {
+      toLocal,
+      // Where a ray goes from the last point taken to local (its origin):
+      // the region metres it moves over STEP_M along the direction.
+      toLocalDirection(direction, from = null) {
+        if (!from) return { x: direction.x, y: direction.y, z: direction.z };
+        const STEP_M = 10;
+        const a = toLocal(from);
+        const b = toLocal(
+          cesium.Cartesian3.add(
+            from,
+            cesium.Cartesian3.multiplyByScalar(
+              direction,
+              STEP_M,
+              new cesium.Cartesian3(),
+            ),
+            new cesium.Cartesian3(),
+          ),
+        );
+        return {
+          x: (b.x - a.x) / STEP_M,
+          y: (b.y - a.y) / STEP_M,
+          z: (b.z - a.z) / STEP_M,
+        };
+      },
+    };
+  }
   const frame = cesium.Transforms.eastNorthUpToFixedFrame(
     cesium.Cartesian3.fromDegrees(region.lon0, region.lat0, 0),
   );
@@ -81,7 +120,7 @@ export function targetAlongRay(
 ) {
   const frame = regionFrame(world, cesium);
   const origin = frame.toLocal(ray.origin);
-  const direction = frame.toLocalDirection(ray.direction);
+  const direction = frame.toLocalDirection(ray.direction, ray.origin);
   const blocks = createBlockWorld({
     region: world.region,
     chunkAt: world.chunkAt,

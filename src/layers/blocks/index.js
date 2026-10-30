@@ -1217,6 +1217,7 @@ export function createBlocksController({
           ...anchorPoint(camera, blockM),
           blockM,
           levelM,
+          ...liveCurved(blockM),
         });
         // Where sea level is: the ellipsoid on flat ground, the geoid on terrain.
         const flat = Boolean(datum.flat());
@@ -1309,6 +1310,17 @@ export function createBlocksController({
     requestRender('blocks-relief');
     return true;
   }
+
+  /**
+   * A live region's map: curved from grid.js LIVE_CURVED_BLOCK_M (480 m)
+   * up, as the tileset's 480 m level is, so a live chunk and a tile beside
+   * it raise their columns along the same verticals; a grid without it
+   * keeps createRegion's own rule.
+   */
+  const liveCurved = (blockM) =>
+    grid.LIVE_CURVED_BLOCK_M > 0
+      ? { curved: blockM >= grid.LIVE_CURVED_BLOCK_M }
+      : {};
 
   /** Where a region is anchored (anchorFor, with this controller's supergroups). */
   const anchorPoint = (camera, blockM) =>
@@ -1516,10 +1528,12 @@ export function createBlocksController({
         _region.relief.factor,
       sunDir: _region.sun.dir,
       ...(skirt ? { skirt } : {}),
-      // Cells of CURVED_BLOCK_M and up stand on the ellipsoid (mesh.js
+      // Cells of CURVED_BLOCK_M and up, and every chunk of a curved region
+      // (480 m and up, liveCurved), stand on the ellipsoid (mesh.js
       // curvedPlacement): the region, the mesh's south-west corner in its
       // metres, and the drawn datum the renderer's frame sits at.
-      ...(blockM >= grid.CURVED_BLOCK_M
+      ...(blockM >= grid.CURVED_BLOCK_M ||
+      (entry.ring ? entry.ring.region : _region.region)?.curved === true
         ? { curved: curvedOptions(entry) }
         : flatDropOptions(entry)),
     };
@@ -2419,6 +2433,7 @@ export function createBlocksController({
             lat0: camera.lat,
             blockM: level,
             levelM: levelMFor(level),
+            ...liveCurved(level),
           }),
           chunks: new Map(),
         };

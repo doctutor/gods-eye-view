@@ -32,6 +32,18 @@ export const REGION_RADIUS_M = 20_000;
  * ellipsoid. Below it the flat frame stays (0.2 m off at 50 km).
  */
 export const CURVED_BLOCK_M = 1920;
+/**
+ * From this block size up the live renderer's regions are curved too
+ * (src/layers/blocks/index.js), one level below CURVED_BLOCK_M: the
+ * tileset build lays its 480 m level out on the curved map (its coarsest
+ * level is 1,920 m or more), and a live flat 480 m region raised its
+ * columns along the anchor's up, so at its 245 km reach a 1,000 m column
+ * stood 0.74 m lower and leaned 38 m off the tile beside it, a quarter
+ * block in mountains (src/tooling/blocksTileset.test.mjs). 120 m and finer
+ * stay flat: at a 120 m region's 61 km reach the lean is under a tenth of
+ * a block. The anchoring and reach stay CURVED_BLOCK_M's.
+ */
+export const LIVE_CURVED_BLOCK_M = 480;
 
 const WGS84_A = 6_378_137;
 const WGS84_F = 1 / 298.257223563;

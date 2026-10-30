@@ -670,7 +670,9 @@ function writeQuads(
     stats,
     // A curved chunk's own origin in the renderer's frame (its positions
     // are relative to it); the flat ones use the region's chunkOrigin.
-    ...(bend ? { origin: bend.origin } : {}),
+    // `curved` tells the renderer its positions are off the block lattice
+    // (renderer.js chunkIsCurved), whatever its block size.
+    ...(bend ? { origin: bend.origin, curved: true } : {}),
   };
 }
 
