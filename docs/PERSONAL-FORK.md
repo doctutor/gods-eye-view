@@ -6508,8 +6508,16 @@ meets its coarse ring's water.
 tile over the box at each level through the values service, as the app's
 server would (its disk cache, its Earth Engine day). It prints the count
 first and stops past 2,000 or past what the day has left; one at a time,
-500 ms apart, a cached tile free; a 429 stops it. The continental US at
-1,920, 7,680 and 30,720 m is 25 tiles.
+500 ms apart, a cached tile free; a 429 stops it. With the 256-cell
+tiles at 480 and 1,920 m, the lower 48 (−125, 24, −66, 50) is 1 tile at
+30,720 m, 3 at 7,680, 98 at 1,920, 1,320 at 480 and 5,184 at 120 m.
+`--server http://localhost:4173` asks a running app server over GET
+instead (its cache, its budget, its key; nothing read from .env, nothing
+written here), `--concurrency 2` keeps two in flight, ten failures in the
+last forty answers stop the run, and `--land-only` skips the tiles finer
+than 480 m whose 480 m ground (read from the cache) is all sea. The
+server's `X-Raster-Values-Cache: hit|miss` says which answers were the
+disk's.
 
 ### Blocks: the renderer
 
