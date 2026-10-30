@@ -91,6 +91,7 @@ function setup({ buildings = true, index = INDEX } = {}) {
     scene: {
       primitives: new Cesium.PrimitiveCollection(),
       preRender: new Cesium.Event(),
+      postRender: new Cesium.Event(),
       requestRender() {},
       camera: {
         positionCartographic: Cesium.Cartographic.fromDegrees(
@@ -244,6 +245,7 @@ test('no index (the server has none): no boxes, nothing made, the plan off', asy
     scene: {
       primitives: new Cesium.PrimitiveCollection(),
       preRender: new Cesium.Event(),
+      postRender: new Cesium.Event(),
     },
   };
   const warn = console.warn;
@@ -467,22 +469,41 @@ test('a camera inside a tile (under its top, before the live chunks’ hole open
   const scene = viewer.scene;
   let top = 4000;
   let samples = 0;
+  // A live chunk beside the tiles: the sample sees the tiles alone.
+  const live = { show: true, update() {}, destroy() {} };
+  scene.primitives.add(live);
+  const seen = [];
   scene.sampleHeightSupported = true;
-  scene.sampleHeight = () => {
+  scene.sampleHeight = (place, exclude) => {
     samples++;
+    seen.push({ live: live.show, exclude });
     return top;
   };
   const u = (name) => layer.shader.uniforms[name].value;
   const closed = { ...TILES, hole: null };
   layer.apply({ state: 'loading', tiles: closed });
   await settle();
-  const frame = () => scene.preRender.raiseEvent();
+  // The check runs after a frame (afterFrame), its hole drawn from the next.
+  const frame = () => {
+    scene.postRender.raiseEvent();
+    scene.preRender.raiseEvent();
+  };
   // Over the tiles' top (5,000 m up, the top at 4,000 m): nothing opens.
   frame();
   assert.equal(u('u_holeRadiusM'), 0);
   assert.equal(layer.getState().inside, null);
-  // Under it: a hole of two floor blocks about the camera, at once.
+  // Sampled with the others hidden and nothing left out (sampleHeight's
+  // list is of objects to exclude), then shown again.
+  assert.deepEqual(seen.at(-1), { live: false, exclude: undefined });
+  assert.equal(live.show, true);
+  // Never sampled before a frame: its pick pass would mark the tiles it
+  // meets as asked for in that frame, and the render pass would not ask.
+  const beforeOnly = samples;
   top = 5100;
+  scene.preRender.raiseEvent();
+  assert.equal(samples, beforeOnly);
+  assert.equal(u('u_holeRadiusM'), 0);
+  // Under it: a hole of two floor blocks about the camera, the next frame.
   frame();
   assert.equal(u('u_holeRadiusM'), INSIDE_HOLE_BLOCKS * 30);
   assert.equal(layer.getState().insideOpens, 1);
@@ -775,6 +796,7 @@ test('held by the QA harness (holdPrewarm), the pre-warm’s Models stay drawn u
     scene: {
       primitives: new Cesium.PrimitiveCollection(),
       preRender: new Cesium.Event(),
+      postRender: new Cesium.Event(),
       requestRender() {},
       camera: {
         positionCartographic: Cesium.Cartographic.fromDegrees(

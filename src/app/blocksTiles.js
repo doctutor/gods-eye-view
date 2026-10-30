@@ -393,15 +393,10 @@ export function createBlocksTilesLayer({
       typeof scene?.sampleHeight !== 'function'
     )
       return null;
-    let top;
-    try {
-      top = scene.sampleHeight(
-        new Cesium.Cartographic(at.longitude, at.latitude),
-        [tileset],
-      );
-    } catch {
-      top = undefined;
-    }
+    const top = tilesetTopAt(
+      tileset,
+      new Cesium.Cartographic(at.longitude, at.latitude),
+    );
     if (!(Number.isFinite(top) && at.height < top)) return null;
     insideOpens++;
     inside = {
@@ -410,6 +405,32 @@ export function createBlocksTilesLayer({
       radiusM: INSIDE_HOLE_BLOCKS * (Number(state.floorM) || 0),
     };
     return inside;
+  }
+
+  /**
+   * The tileset's drawn top under a place (m), or undefined: Cesium's
+   * sampleHeight with every other primitive hidden for the one call. Its
+   * list is of objects to leave out, so sampleHeight(place, [tileset])
+   * measured all but the tiles (the live ground at 45 m at a Baltimore
+   * street, under a 30,720 m tile top at 813 m, 2026-10-30).
+   */
+  function tilesetTopAt(tileset, place) {
+    const primitives = scene.primitives;
+    const hidden = [];
+    for (let i = 0; i < (primitives?.length || 0); i++) {
+      const each = primitives.get(i);
+      if (each !== tileset && each?.show) {
+        each.show = false;
+        hidden.push(each);
+      }
+    }
+    try {
+      return scene.sampleHeight(place);
+    } catch {
+      return undefined;
+    } finally {
+      for (const each of hidden) each.show = true;
+    }
   }
 
   const requestRender = () => scene?.requestRender?.();
@@ -560,9 +581,10 @@ export function createBlocksTilesLayer({
       });
       shader.setUniform('u_fogColor', new Cesium.Cartesian4(...color));
     }
+    // The live hole, else the one about a camera inside a tile (afterFrame).
     let hole = state.hole;
     if (hole?.radiusM > 0) inside = null;
-    else if (shown && at) hole = insideHole(shown, at);
+    else hole = inside;
     const view = scene?.camera?.viewMatrix;
     if (hole?.radiusM > 0 && view) {
       const world = Cesium.Cartesian3.fromDegrees(
@@ -635,6 +657,37 @@ export function createBlocksTilesLayer({
   }
   const removePreRender = scene?.preRender?.addEventListener(frame);
 
+  /** The shown tiles' counts as the last frame drew them (afterFrame). */
+  let drawn = { selected: null, ready: null };
+  /**
+   * After each frame: the shown tiles' counts as it drew them, then the
+   * inside check (insideHole), its hole drawn from the next frame. Its
+   * sampleHeight runs a pick pass over the tileset, which marks the tiles
+   * it meets as asked for in that frame without asking (a pick pass never
+   * requests, and Cesium asks a tile once a frame): run before the frame
+   * (from preRender), it left the render pass nothing to ask, and from a
+   * page load at a Baltimore street the coarse tiles in view were not asked
+   * for until the live hole opened and the check stopped (2026-10-30).
+   * Its pass also leaves the tileset's statistics, hence `drawn`.
+   */
+  function afterFrame() {
+    const shown = shownUrl ? loaded.get(shownUrl)?.tileset : null;
+    if (!shown || !state) return;
+    drawn = {
+      selected: shown.statistics?.selected ?? null,
+      ready: shown.statistics?.numberOfTilesWithContentReady ?? null,
+    };
+    const at = scene?.camera?.positionCartographic;
+    if (state.hole?.radiusM > 0 || !at) {
+      inside = null;
+      return;
+    }
+    const was = inside;
+    insideHole(shown, at);
+    if (inside !== was) requestRender();
+  }
+  const removePostRender = scene?.postRender?.addEventListener(afterFrame);
+
   const api = {
     /** The index read (or failed): a promise. */
     ready,
@@ -676,8 +729,8 @@ export function createBlocksTilesLayer({
         tileUnloads,
         unloadTrail: unloadTrail.slice(),
         // Cesium's counts this frame: the tiles drawn, and those with content.
-        tilesSelected: shown?.statistics?.selected ?? null,
-        tilesReady: shown?.statistics?.numberOfTilesWithContentReady ?? null,
+        tilesSelected: shown ? drawn.selected : null,
+        tilesReady: shown ? drawn.ready : null,
         screenError: shown ? shown.maximumScreenSpaceError : null,
         heldError: loaded.get(shownUrl)?.guard.error ?? null,
         guardHolds: loaded.get(shownUrl)?.guard.steps ?? 0,
@@ -705,6 +758,7 @@ export function createBlocksTilesLayer({
       destroyed = true;
       endPrewarm();
       removePreRender?.();
+      removePostRender?.();
       removeMoveStart?.();
       removeMoveEnd?.();
       for (const entry of loaded.values())

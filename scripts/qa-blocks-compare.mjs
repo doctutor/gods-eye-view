@@ -78,7 +78,13 @@
  * --load-frames shoots each step 2, 5, 10 and 20 s after its flight's end
  * (with --altitudes: each Blocks shot 2 to 80 s from the page's load)
  * (<step>-load-<s>s.png) with the status line, the tiles' hole and the mesh
- * pool's counts then; for a check, not a timing run.
+ * pool's counts then; for a check, not a timing run. With --altitudes,
+ * each frame also keeps the camera, the shown tileset's selected tiles and
+ * the tile top under the camera, and report.json each tile asked for (ms
+ * from the page's start). --frame-eval <file> runs that file's function
+ * (its source, `() => ...`) in the page at each of those frames and keeps
+ * its answer: an experiment on the scene there; it runs once more as
+ * those frames start (an experiment watching every frame starts there).
  *
  * --panels opens the two panels before the steps, shoots each step 1.5 s
  * into its flight (<step>-flight.png) and, after the city, opens the
@@ -920,6 +926,11 @@ function respond(request, { dist, field, log, live, tilesDir = null }) {
   // the server's own rules (server/providers/blocksTiles.js), until the
   // app server serves them.
   if (tilesDir && url.pathname.startsWith(`${BLOCKS_TILES_ROUTE}/`)) {
+    // Each tile asked, with when (a shot's log keeps them in order).
+    log.tileRequests?.push([
+      Date.now(),
+      url.pathname.slice(BLOCKS_TILES_ROUTE.length + 1),
+    ]);
     const answer = resolveBlocksTilesPath(
       tilesDir,
       url.pathname.slice(BLOCKS_TILES_ROUTE.length),
@@ -1124,6 +1135,7 @@ async function shoot({
   checkPrewarm = false,
   loadFramesOn = false,
   buildingsOff = false,
+  frameEval = null,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
@@ -1159,6 +1171,7 @@ async function shoot({
     started: Date.now(),
     trail: [],
     statusTrail: [],
+    tileRequests: [],
   };
   page.on('pageerror', (error) =>
     log.errors.push(String(error?.message || error)),
@@ -1202,6 +1215,10 @@ async function shoot({
   const loadFrames = [];
   if (loadFramesOn && blocks) {
     const from = Date.now();
+    // --frame-eval once at the start too, so an experiment that watches
+    // every frame (a timeline) starts before the first shot.
+    if (frameEval)
+      await page.evaluate(`(${frameEval})()`).catch(() => undefined);
     for (const at of SHOT_LOAD_FRAMES_MS) {
       const wait = from + at - Date.now();
       if (wait > 0)
@@ -1211,9 +1228,17 @@ async function shoot({
         );
       const frame = path.join(out, `${name}-load-${at / 1000}s.png`);
       await page.screenshot({ path: frame });
+      // --frame-eval: a function's source, run in the page at each frame
+      // (an experiment on the scene there), its answer kept.
+      const probed = frameEval
+        ? await page
+            .evaluate(`(${frameEval})()`)
+            .catch((error) => `failed: ${error?.message || error}`)
+        : undefined;
       loadFrames.push({
         at,
         file: frame,
+        ...(probed !== undefined ? { probed } : {}),
         ...(await page.evaluate(() => {
           const status = window.__gevBlocksProbe?.controller?.getStatus?.();
           const tiles = window.__gevBlocksProbe?.tiles?.getState?.();
@@ -1226,6 +1251,66 @@ async function shoot({
             holeM: status?.tiles?.hole?.radiusM ?? null,
             tilesLoaded: tiles?.tilesLoaded ?? null,
             tileLoads: tiles?.tileLoads ?? null,
+            tilesReady: tiles?.tilesReady ?? null,
+            tilesSelected: tiles?.tilesSelected ?? null,
+            box: status?.tiles?.box ?? null,
+            fog: status?.tiles?.fog ?? null,
+            // The camera inside a tile (the tiles' own hole about it).
+            inside: tiles?.inside ?? null,
+            // The shown tileset's selected tiles and the tile top under
+            // the camera (Cesium's own, for a far ground missing).
+            selected: (() => {
+              const scene = window.__godsEyeView?.viewer?.scene;
+              const primitives = scene?.primitives;
+              let shown = null;
+              for (let i = 0; i < (primitives?.length || 0); i++) {
+                const each = primitives.get(i);
+                if (each?.isCesium3DTileset && each.show) shown = each;
+              }
+              if (!shown) return null;
+              const camera = scene.camera.positionCartographic;
+              // sampleHeight's list is of objects to leave out: the
+              // others are hidden for the one call instead.
+              const hidden = [];
+              for (let i = 0; i < primitives.length; i++) {
+                const each = primitives.get(i);
+                if (each !== shown && each?.show) {
+                  each.show = false;
+                  hidden.push(each);
+                }
+              }
+              let top = null;
+              try {
+                top = scene.sampleHeight(camera);
+              } catch {
+                top = null;
+              } finally {
+                for (const each of hidden) each.show = true;
+              }
+              return {
+                topM: Number.isFinite(top) ? Math.round(top) : null,
+                tiles: (shown._selectedTiles || []).map((tile) => {
+                  const uri =
+                    tile._contentResource?.url || tile._header?.content?.uri;
+                  return `${String(uri || '?')
+                    .split('/')
+                    .slice(-2)
+                    .join('/')
+                    .replace(/\?.*$/, '')} ge ${tile.geometricError}`;
+                }),
+              };
+            })(),
+            // Where the camera is (a page load may still be settling it).
+            camera: (() => {
+              const camera = window.__godsEyeView?.viewer?.camera;
+              const at = camera?.positionCartographic;
+              return at
+                ? {
+                    heightM: Math.round(at.height),
+                    pitchDeg: Math.round((camera.pitch * 180) / Math.PI),
+                  }
+                : null;
+            })(),
           };
         })),
       });
@@ -2849,6 +2934,9 @@ export async function main(argv = process.argv.slice(2)) {
             loadFramesOn: argv.includes('--load-frames'),
             buildingsOff: argv.includes('--buildings-off'),
             tilesDir: argValue(argv, '--tiles-dir') || null,
+            frameEval: argValue(argv, '--frame-eval')
+              ? readFileSync(argValue(argv, '--frame-eval'), 'utf8')
+              : null,
             ...shot,
           }),
         );
@@ -2924,6 +3012,16 @@ export async function main(argv = process.argv.slice(2)) {
       errors: result.errors,
       liveRetried: result.retried || 0,
       liveCutOff: result.cutOff || 0,
+      // --load-frames, and each tile asked (ms from the page's start).
+      ...(result.loadFrames ? { loadFrames: result.loadFrames } : {}),
+      ...(result.tileRequests?.length
+        ? {
+            tileRequests: result.tileRequests.map(([at, tile]) => [
+              at - result.started,
+              tile,
+            ]),
+          }
+        : {}),
     })),
   };
   writeFileSync(
