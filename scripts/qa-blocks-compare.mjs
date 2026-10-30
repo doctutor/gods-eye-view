@@ -63,6 +63,11 @@
  *
  *   ... --sequence --panels   # Data Layers and Display open throughout
  *
+ * Before each step (and before the --altitudes shots) the harness waits,
+ * up to 10 minutes, while a unit suite, a tileset or pyramid build,
+ * another harness or a vite build runs (CONCURRENT_JOBS); a step timed
+ * beside one all the same names it (`concurrent`). --no-wait skips that.
+ *
  * --panels opens the two panels before the steps, shoots each step 1.5 s
  * into its flight (<step>-flight.png) and, after the city, opens the
  * Elevation row's colour scale (<step>-grown.png), keeping the panels'
@@ -1849,6 +1854,74 @@ function sequenceToggleElevationScale() {
 }
 
 /**
+ * The jobs that load the machine enough to skew a run's timings: a unit
+ * suite, a tileset or pyramid build, another harness, a vite build. Two
+ * --panels runs read Lake Tahoe's long tasks at 10 to 11 s against 2.5 s
+ * quiet (2026-10-30), a build or suite unnoticed beside them.
+ */
+export const CONCURRENT_JOBS = Object.freeze([
+  ['unit suite', /run-unit-tests/],
+  ['tileset build', /blocks-tileset\.mjs/],
+  ['pyramid build', /blocks-pyramid\.mjs/],
+  ['another harness', /qa-blocks-compare\.mjs/],
+  ['vite build', /vite(\.js)?["']?\s+build/],
+]);
+
+/**
+ * The concurrent jobs in a process list (`pid<space>command line` a line),
+ * leaving out this process: their names, each once.
+ */
+export function concurrentJobs(lines, ownPid = process.pid) {
+  const found = new Set();
+  for (const line of lines) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (!match || Number(match[1]) === ownPid) continue;
+    for (const [name, pattern] of CONCURRENT_JOBS)
+      if (pattern.test(match[2])) found.add(name);
+  }
+  return [...found];
+}
+
+/** This machine's node processes as `pid command line` lines. */
+function nodeProcessLines() {
+  const run =
+    process.platform === 'win32'
+      ? spawnSync(
+          'powershell',
+          [
+            '-NoProfile',
+            '-Command',
+            'Get-CimInstance Win32_Process -Filter "Name=\'node.exe\'" | ForEach-Object { "$($_.ProcessId) $($_.CommandLine)" }',
+          ],
+          { encoding: 'utf8' },
+        )
+      : spawnSync('ps', ['-eo', 'pid,args'], { encoding: 'utf8' });
+  return String(run.stdout || '').split(/\r?\n/);
+}
+
+/**
+ * Wait, up to `maxMs`, until no concurrent job runs; the jobs still
+ * running then (the run goes on and its steps say so), else none.
+ */
+export async function waitQuiet({
+  maxMs = 600_000,
+  pollMs = 15_000,
+  list = nodeProcessLines,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  log = (text) => console.log(text),
+} = {}) {
+  const until = Date.now() + maxMs;
+  let jobs = concurrentJobs(list());
+  if (jobs.length) log(`waiting for: ${jobs.join(', ')}`);
+  while (jobs.length && Date.now() < until) {
+    await sleep(pollMs);
+    jobs = concurrentJobs(list());
+  }
+  if (jobs.length) log(`going on beside: ${jobs.join(', ')}`);
+  return jobs;
+}
+
+/**
  * A Chrome trace's main-thread time by event (the renderer's main thread,
  * complete events): style, layout, paint and compositing beside script, in
  * ms, the top `limit`, with the number of each.
@@ -1900,6 +1973,7 @@ async function runSequence({
   panels = false,
   traceStep = null,
   noBlur = false,
+  quiet = true,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
@@ -1999,6 +2073,8 @@ async function runSequence({
     ? SEQUENCE_STEPS.filter((step) => only.includes(step.name))
     : SEQUENCE_STEPS;
   for (const step of steps) {
+    // No step timed beside a build or a suite; one that has to be says so.
+    const concurrent = quiet ? await waitQuiet() : [];
     const query = step.query ?? streetQuery;
     const from = Date.now();
     await cdp.send('Profiler.start');
@@ -2184,6 +2260,7 @@ async function runSequence({
       name: step.name,
       via,
       settled,
+      ...(concurrent.length ? { concurrent } : {}),
       ...(panels
         ? { panels: { flight: flightPanels, grown: grownPanels } }
         : {}),
@@ -2333,6 +2410,8 @@ export async function main(argv = process.argv.slice(2)) {
         panels: argv.includes('--panels'),
         traceStep: argValue(argv, '--trace') || null,
         noBlur: argv.includes('--no-blur'),
+        // --no-wait: time the steps beside a build or a suite all the same.
+        quiet: !argv.includes('--no-wait'),
         // The precomputed Blocks tilesets served from this folder.
         tilesDir: argValue(argv, '--tiles-dir') || null,
         only:
@@ -2373,6 +2452,8 @@ export async function main(argv = process.argv.slice(2)) {
           .split(',')
           .map((name) => name.trim())
           .filter(Boolean);
+    // No shot taken beside a build or a suite (--no-wait: all the same).
+    if (!argv.includes('--no-wait')) await waitQuiet();
     for (const name of wanted) {
       const shot = shots[name];
       if (!shot) throw new Error(`unknown view ${name} (judgement, eye)`);
