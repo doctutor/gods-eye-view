@@ -38,6 +38,10 @@ import {
   summarizeLevels,
   loadTileChunks,
   tileFrame,
+  canaryChunk,
+  meshFingerprint,
+  buildFingerprint,
+  tileDigest,
   enuTransform,
   tileMesh,
   tileTree,
@@ -54,6 +58,7 @@ import {
   readBlocksGlb,
 } from '../layers/blocks/gltf.js';
 import { MeshoptDecoder } from 'meshoptimizer';
+import { STUDY_SUN, sunDirection } from '../layers/blocks/lighting.js';
 import { createChunkSource, groupBounds } from '../layers/blocks/source.js';
 import { MATERIALS, NONE } from '../layers/blocks/store.js';
 import { createStructuresSource } from '../layers/blocks/structures.js';
@@ -1596,4 +1601,153 @@ test("curved placement against the live flat rule: the same within a flat region
   const theta = 245_000 / 6_371_000;
   assert.ok(Math.abs(far.dh - 1000 * (1 - Math.cos(theta))) < 0.1);
   assert.ok(Math.abs(far.lean - 1000 * Math.sin(theta)) < 2);
+});
+
+test('the mesher fingerprint: two synthetic tiles carrying every kind of input, flat and curved', () => {
+  const chunk = canaryChunk();
+  const N = 64;
+  const kinds = {
+    sea: 0,
+    lake: 0,
+    land: 0,
+    nodata: 0,
+    building: 0,
+    deck: 0,
+    road: 0,
+    grass: 0,
+  };
+  for (let k = 0; k < N * N; k++) {
+    const top = chunk.top[k];
+    const water = chunk.water[k];
+    if (top === NONE) kinds.nodata++;
+    else if (water === 0 && top < 0) kinds.sea++;
+    else if (water !== NONE) kinds.lake++;
+    else kinds.land++;
+    if (chunk.structure?.top[k] !== NONE && chunk.structure)
+      kinds[
+        chunk.structure.material[k] === MATERIALS.ROAD ? 'deck' : 'building'
+      ]++;
+    if (chunk.material[k] === MATERIALS.ROAD) kinds.road++;
+    if (chunk.material[k] === MATERIALS.GRASS) kinds.grass++;
+  }
+  for (const [kind, count] of Object.entries(kinds))
+    assert.ok(count > 0, `no ${kind}`);
+  // Meshed as the fingerprint meshes them: skirts, water, shaded corners, both placements.
+  for (const [blockM, curved] of [
+    [30, false],
+    [1920, true],
+  ]) {
+    const region = levelRegion({ lon0: 10, lat0: 45 }, blockM, curved);
+    const tile = {
+      level: blockM,
+      kind: 'fill',
+      gi: 0,
+      gj: 0,
+      ci: 1,
+      cj: 1,
+      children: [],
+    };
+    let stats = null;
+    const mesh = tileMesh(
+      tile,
+      new Map([[blockM, new Map([['1:1', canaryChunk()]])]]),
+      region,
+      {
+        toTile: curved ? tileFrame(tile, region).toTile : null,
+        mesher: (c, options) => {
+          const out = buildChunkMesh(c, options);
+          stats = out.stats;
+          return out;
+        },
+      },
+    );
+    assert.ok(stats.skirt > 0, 'skirts on the borders');
+    assert.ok(stats.water > 0, 'water faces');
+    const coords = mesh.chunks[0].mesh.blockCoords;
+    assert.ok(
+      coords.some((v) => !Number.isInteger(v)),
+      'a shaded face centre (ambient occlusion)',
+    );
+    assert.equal(region.curved, curved);
+  }
+  const first = meshFingerprint();
+  assert.match(first, /^[0-9a-f]{32}$/);
+  assert.equal(meshFingerprint(), first, 'the same every time');
+  assert.equal(buildFingerprint(), first);
+});
+
+test('the fingerprint: a refactor keeping the bytes keeps it and every record; a one-constant change in the mesher or the encoder changes it', async () => {
+  const fingerprint = meshFingerprint();
+  // A refactor: the same mesher reached another way, its arrays copied.
+  const refactored = (chunk, options) => {
+    const out = buildChunkMesh(chunk, { ...options });
+    return {
+      ...out,
+      positions: Float32Array.from(out.positions),
+      indices: Uint32Array.from(out.indices),
+    };
+  };
+  assert.equal(meshFingerprint({ mesher: refactored }), fingerprint);
+  // One constant in the mesher: the sun a hundredth of a radian round.
+  const sunMoved = (chunk, options) =>
+    buildChunkMesh(chunk, {
+      ...options,
+      sunDir: sunDirection(STUDY_SUN.azimuthDeg + 0.6, STUDY_SUN.elevationDeg),
+    });
+  assert.notEqual(meshFingerprint({ mesher: sunMoved }), fingerprint);
+  // One constant in the encoder: compression off.
+  assert.notEqual(
+    meshFingerprint({
+      encode: (mesh, blockM) => encodeTile(mesh, blockM, { compress: false }),
+    }),
+    fingerprint,
+  );
+  // The records follow it: kept with the same fingerprint, all built again with another.
+  const { plan, chunksByLevel } = await built();
+  const out = temporary('blocks-tileset-fingerprint-');
+  await buildTileset(plan, chunksByLevel, { out, fingerprint });
+  const same = await buildTileset(plan, chunksByLevel, { out, fingerprint });
+  assert.ok(same.tiles.every((tile) => tile.kept));
+  const moved = await buildTileset(plan, chunksByLevel, {
+    out,
+    fingerprint: 'another',
+  });
+  assert.ok(moved.tiles.every((tile) => !tile.kept));
+});
+
+test("the build's own settings shape the digest by value: land only, the split depth, the lattice side", async () => {
+  const { plan, chunksByLevel } = await built();
+  const tile = tileTree(plan)[0];
+  const base = tileDigest(tile, chunksByLevel, null, { fingerprint: 'f' });
+  assert.equal(
+    tileDigest(tile, chunksByLevel, null, { fingerprint: 'f' }),
+    base,
+  );
+  assert.notEqual(
+    tileDigest(tile, chunksByLevel, null, { fingerprint: 'f', landOnly: true }),
+    base,
+  );
+  assert.notEqual(
+    tileDigest(tile, chunksByLevel, null, { fingerprint: 'f', splitDepth: 1 }),
+    base,
+  );
+  assert.notEqual(
+    tileDigest(tile, chunksByLevel, null, { fingerprint: 'g' }),
+    base,
+  );
+  // The lattice side is the level's (512 cells at 120 m, 256 at 480 m): another level, another digest.
+  assert.notEqual(
+    tileDigest(
+      { ...tile, level: 480 },
+      new Map([[480, chunksByLevel.get(120)]]),
+      null,
+      { fingerprint: 'f' },
+    ),
+    tileDigest(
+      { ...tile, level: 120 },
+      new Map([[120, chunksByLevel.get(120)]]),
+      null,
+      { fingerprint: 'f' },
+    ),
+  );
 });
