@@ -1848,6 +1848,46 @@ function sequenceToggleElevationScale() {
   return true;
 }
 
+/**
+ * A Chrome trace's main-thread time by event (the renderer's main thread,
+ * complete events): style, layout, paint and compositing beside script, in
+ * ms, the top `limit`, with the number of each.
+ */
+export function traceMainThread(trace, limit = 20) {
+  const events = trace?.traceEvents || [];
+  const main = new Set(
+    events
+      .filter(
+        (e) => e.name === 'thread_name' && e.args?.name === 'CrRendererMain',
+      )
+      .map((e) => `${e.pid}:${e.tid}`),
+  );
+  const by = new Map();
+  for (const e of events) {
+    if (e.ph !== 'X' || !main.has(`${e.pid}:${e.tid}`)) continue;
+    const held = by.get(e.name) || { ms: 0, count: 0 };
+    held.ms += (e.dur || 0) / 1000;
+    held.count++;
+    by.set(e.name, held);
+  }
+  return [...by.entries()]
+    .sort((a, b) => b[1].ms - a[1].ms)
+    .slice(0, limit)
+    .map(([name, { ms, count }]) => ({ name, ms: Math.round(ms), count }));
+}
+
+/** --no-blur: every backdrop filter off (to measure the panels' blur). */
+function sequenceNoBlur() {
+  const add = () => {
+    const style = document.createElement('style');
+    style.textContent =
+      '*, *::before, *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }';
+    document.head.append(style);
+  };
+  if (document.head) add();
+  else document.addEventListener('DOMContentLoaded', add, { once: true });
+}
+
 async function runSequence({
   browser,
   dist,
@@ -1858,10 +1898,13 @@ async function runSequence({
   heapChurn = false,
   tilesDir = null,
   panels = false,
+  traceStep = null,
+  noBlur = false,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   await page.evaluateOnNewDocument(sequencePageProbe);
+  if (noBlur) await page.evaluateOnNewDocument(sequenceNoBlur);
   const log = {
     values: 0,
     tiles: 0,
@@ -1997,6 +2040,25 @@ async function runSequence({
         });
       }, step.view);
     }
+    // --trace <step>: 4 s of Chrome's own timeline from 1 s into the flight.
+    let traced = null;
+    if (traceStep === step.name) {
+      await wait(1000);
+      const traceFile = path.join(out, `${step.name}-trace.json`);
+      await page.tracing.start({
+        path: traceFile,
+        categories: [
+          'devtools.timeline',
+          'disabled-by-default-devtools.timeline',
+          'blink',
+          'cc',
+          'gpu',
+        ],
+      });
+      await wait(4000);
+      await page.tracing.stop();
+      traced = traceMainThread(JSON.parse(readFileSync(traceFile, 'utf8')));
+    }
     // --panels: the rails mid-flight, Blocks updating its status as it goes.
     let flightPanels = null;
     if (panels) {
@@ -2125,6 +2187,7 @@ async function runSequence({
       ...(panels
         ? { panels: { flight: flightPanels, grown: grownPanels } }
         : {}),
+      ...(traced ? { trace: traced } : {}),
       flightSeconds: Math.round((flightEnd - from) / 100) / 10,
       ...metrics,
       budget:
@@ -2268,6 +2331,8 @@ export async function main(argv = process.argv.slice(2)) {
         streetQuery: argValue(argv, '--street-query'),
         heapChurn: argv.includes('--heap-churn'),
         panels: argv.includes('--panels'),
+        traceStep: argValue(argv, '--trace') || null,
+        noBlur: argv.includes('--no-blur'),
         // The precomputed Blocks tilesets served from this folder.
         tilesDir: argValue(argv, '--tiles-dir') || null,
         only:

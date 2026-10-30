@@ -206,6 +206,19 @@ function rowTextSpan(text, keep) {
  * @param {HTMLElement} element
  * @param {string} text
  */
+/**
+ * An attribute, a property or the text written only when it differs: the
+ * rows refresh at every layer and Blocks status (hundreds a flight), and
+ * each write is a mutation and a style invalidation of the open panel,
+ * changed or not.
+ */
+function setAttributeIfChanged(element, name, value) {
+  if (element.getAttribute?.(name) !== value) element.setAttribute(name, value);
+}
+function setIfChanged(target, key, value) {
+  if (target[key] !== value) target[key] = value;
+}
+
 export function setRowText(element, text) {
   const value = String(text ?? '');
   // Refreshes run every second; leave unchanged text (and its spans) alone.
@@ -604,12 +617,15 @@ export class LayerPanel {
     const slider = controls?.slider || null;
     const scale = controls?.scale || null;
     this._syncRowList(listContainer, controls?.list || null);
-    container.hidden =
+    setIfChanged(
+      container,
+      'hidden',
       chips.length === 0 &&
-      legend.length === 0 &&
-      !infoText &&
-      !slider &&
-      !scale;
+        legend.length === 0 &&
+        !infoText &&
+        !slider &&
+        !scale,
+    );
     this._syncRowSlider(container, layer.id, slider);
     // Personal fork: a ramp layer's colour scale (src/ui/colourScaleWidget.js).
     syncColourScaleWidget(container, scale, {
@@ -890,7 +906,7 @@ export class LayerPanel {
     const uncertain = Boolean(layer.lifecycleUncertain);
     button.classList.toggle('active', layer.enabled);
     // What the button shows, which a click acts on (see the toggle's click).
-    button.dataset.enabled = String(Boolean(layer.enabled));
+    setIfChanged(button.dataset, 'enabled', String(Boolean(layer.enabled)));
     button.classList.toggle('transitioning', transitioning);
     button.classList.toggle('enabling', layer.lifecycleState === 'enabling');
     button.classList.toggle('disabling', layer.lifecycleState === 'disabling');
@@ -901,20 +917,25 @@ export class LayerPanel {
         (layer.enabled || unavailable) && !uncertain && feedState === state,
       );
     }
-    button.dataset.feedState = transitioning
-      ? layer.lifecycleState
-      : uncertain
-        ? 'uncertain'
-        : feedState;
+    setIfChanged(
+      button.dataset,
+      'feedState',
+      transitioning
+        ? layer.lifecycleState
+        : uncertain
+          ? 'uncertain'
+          : feedState,
+    );
     // A busy toggle remains the keyboard focus owner. `aria-disabled` plus the
     // click guard above prevents repeat activation without the focus loss caused
     // by native `disabled`.
-    button.disabled = false;
-    button.setAttribute(
+    if (button.disabled) button.disabled = false;
+    setAttributeIfChanged(
+      button,
       'aria-disabled',
       String(transitioning || (unavailable && !layer.enabled)),
     );
-    button.setAttribute('aria-busy', String(transitioning));
+    setAttributeIfChanged(button, 'aria-busy', String(transitioning));
     const showsFeedState =
       !transitioning && !uncertain && (layer.enabled || unavailable);
     const stateText = transitioning
@@ -926,10 +947,13 @@ export class LayerPanel {
           : t('OFF');
     // The chip may abbreviate where a language's word is wider than the
     // status column; the meta line and the accessible name keep the full word.
-    button.textContent =
+    setIfChanged(
+      button,
+      'textContent',
       showsFeedState && feedState === 'unavailable'
         ? t('UNAVAILABLE', { context: 'status chip' })
-        : stateText;
+        : stateText,
+    );
     const keyGuidance = unavailable
       ? String(
           translateFeedError(layer.stats.error) || t('Data source unavailable'),
@@ -938,12 +962,13 @@ export class LayerPanel {
     // Name the missing key on the control itself: a row reading KEY REQUIRED
     // without saying WHICH key leaves a dead control and no next step. Empty
     // when the layer needs no key, or already has one.
-    button.title = keyGuidance;
+    setIfChanged(button, 'title', keyGuidance);
     const ariaLabel = t('{name}: {state}', {
       name: panelLabel(layer),
       state: stateText,
     });
-    button.setAttribute(
+    setAttributeIfChanged(
+      button,
       'aria-label',
       keyGuidance ? `${ariaLabel}. ${keyGuidance}` : ariaLabel,
     );

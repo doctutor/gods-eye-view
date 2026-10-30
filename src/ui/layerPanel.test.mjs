@@ -571,3 +571,54 @@ test('a toggle acts on what it shows: a layer turned on while the page was hidde
     globalThis.document = previousDocument;
   }
 });
+
+test('a row’s toggle is written only where its state changed: refreshed with the same layer it writes nothing (each write is a mutation and a restyle of the open panel, hundreds a flight)', async () => {
+  const { LayerPanel } = await import('./layerPanel.js');
+  const writes = [];
+  const attrs = new Map();
+  const values = { textContent: '', title: '', disabled: false };
+  const dataset = {};
+  const button = {
+    classList: { toggle() {} },
+    dataset: new Proxy(dataset, {
+      set(target, key, value) {
+        writes.push(`data-${String(key)}`);
+        target[key] = value;
+        return true;
+      },
+    }),
+    getAttribute: (key) => (attrs.has(key) ? attrs.get(key) : null),
+    setAttribute(key, value) {
+      writes.push(key);
+      attrs.set(key, value);
+    },
+  };
+  for (const key of Object.keys(values))
+    Object.defineProperty(button, key, {
+      get: () => values[key],
+      set(value) {
+        writes.push(key);
+        values[key] = value;
+      },
+    });
+  const layer = {
+    id: 'ee-elevation',
+    name: 'Elevation',
+    source: 'Earth Engine',
+    enabled: true,
+    stats: { count: 1, lastUpdate: Date.now() },
+  };
+  LayerPanel.prototype._syncToggleButton(button, layer);
+  assert.ok(writes.length > 3, 'the first sync writes the state');
+  assert.equal(button.textContent, 'ON');
+  writes.length = 0;
+  for (let k = 0; k < 50; k++)
+    LayerPanel.prototype._syncToggleButton(button, { ...layer });
+  assert.deepEqual(writes, [], 'nothing written for the same state');
+  // A real change writes what changed.
+  LayerPanel.prototype._syncToggleButton(button, { ...layer, enabled: false });
+  assert.equal(button.textContent, 'OFF');
+  assert.ok(writes.includes('textContent'));
+  assert.ok(writes.includes('data-enabled'));
+  assert.ok(writes.includes('aria-label'));
+});
