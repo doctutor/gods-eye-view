@@ -156,6 +156,33 @@ export function holePlanes(radiusM, sides = HOLE_SIDES) {
   return planes;
 }
 
+/**
+ * Cesium's requests to the app's own server at most at once (its
+ * RequestScheduler; it allows 18 a server, for HTTP/2). The page's server
+ * speaks HTTP/1.1, where the browser opens six sockets a host, and the
+ * tiles, the Earth Engine imagery and the app's own fetches share them:
+ * with the tiles holding all six, the live region's values probe waited
+ * 10.8 s at Lake Tahoe before it was even sent (2026-10-30). Two stay free.
+ */
+export const TILES_REQUESTS_PER_SERVER = 4;
+
+/** Keep sockets free for the app's fetches (TILES_REQUESTS_PER_SERVER). */
+export function reserveSockets(pageUrl = globalThis.location?.href) {
+  if (!pageUrl) return null;
+  let key;
+  try {
+    key = Cesium.RequestScheduler.getServerKey(pageUrl);
+  } catch {
+    return null;
+  }
+  const byServer = Cesium.RequestScheduler.requestsByServer;
+  byServer[key] = Math.min(
+    byServer[key] ?? Cesium.RequestScheduler.maximumRequestsPerServer,
+    TILES_REQUESTS_PER_SERVER,
+  );
+  return key;
+}
+
 /** The server's index of built boxes, or none. */
 async function fetchTilesIndex() {
   const answer = await fetch(TILES_INDEX_URL, { cache: 'no-cache' });
@@ -184,6 +211,7 @@ export function createBlocksTilesLayer({
   now = () => Date.now(),
 }) {
   const scene = viewer?.scene;
+  reserveSockets();
   let boxes = [];
   let destroyed = false;
   const ready = Promise.resolve()

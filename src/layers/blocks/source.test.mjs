@@ -157,6 +157,8 @@ test('regionFor: the native cell at the point, and the source name', async () =>
     assert.equal(calls[0].cells, CHUNK_COLUMNS);
     // One small probe resolves 1–30 m; GMTED needs the wider one.
     assert.equal(calls.length, nativeM > 64 ? 2 : 1);
+    // The region waits on its probes: asked at the browser's high priority.
+    assert.ok(calls.every((call) => call.priority === 'high'));
   }
 });
 
@@ -1072,4 +1074,13 @@ test('createChunkSource builds store chunks unless given createChunk', async () 
   assert.equal(typeof chunk.occupancy, 'function');
   assert.equal(chunk.occupancy(5, 5, 0), MATERIALS.TERRAIN);
   assert.equal(chunk.occupancy(5, 5, 1), MATERIALS.AIR);
+});
+
+test('a chunk group is asked at the browser’s default priority (only the probe a region waits on is high)', async () => {
+  const { fetchValues, calls } = fakeValues({ nativeM: 1, heightAt: () => 5 });
+  const source = createChunkSource({ fetchValues, createChunk });
+  const region = createRegion({ lon0: -76.6, lat0: 39.3, blockM: 1 });
+  await source.loadChunk(region, 0, 0);
+  assert.ok(calls.length > 0);
+  assert.ok(calls.every((call) => call.priority === undefined));
 });

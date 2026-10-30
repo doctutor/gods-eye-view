@@ -3939,3 +3939,139 @@ test('hybrid: the tiles’ hole opens only as far as the live chunks are drawn: 
   assert.equal(radii.at(-1), 7680);
   controller.destroy();
 });
+
+test('a flight’s end is the camera settled: the region anchors the frame it lands, without the moveEnd or the settle wait; the trailing moveEnd and Cesium’s move churn re-anchor nothing; a camera moved by hand still waits settleMs', async () => {
+  const { LANDING_MOVE_END_MS } = await import('./index.js');
+  assert.equal(LANDING_MOVE_END_MS, 1500);
+  let time = 10_000;
+  let flying = false;
+  const source = pyramidSource(1);
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  const postRender = fakeEvent();
+  viewer.scene.postRender = postRender;
+  const view = { px: 0.3 };
+  let ticker = null;
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    footprint: () => view.px,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    settleMs: 2000,
+    inFlight: () => flying,
+    now: () => time,
+    setIntervalImpl: (fn) => (ticker = fn),
+    clearIntervalImpl: () => (ticker = null),
+  });
+  // A flight: held while it flies.
+  flying = true;
+  viewer.camera.moveStart.raise();
+  ticker?.();
+  await settle();
+  assert.equal(controller.getStatus().state, 'flying');
+  // It lands: the frame it ends anchors, no interval tick, no waiting.
+  flying = false;
+  postRender.raise();
+  await settle();
+  await drain(controller);
+  assert.equal(source.regions.length, 1, 'anchored at the landing');
+  // Cesium's moveEnd half a second on, then its churn: nothing re-anchored.
+  time += 500;
+  viewer.camera.moveEnd.raise();
+  viewer.camera.moveStart.raise();
+  viewer.camera.moveEnd.raise();
+  await drain(controller);
+  time += 3000;
+  await drain(controller);
+  assert.equal(source.regions.length, 1, 'no re-anchor churn');
+  controller.destroy();
+
+  // By hand (no flight): the first region still waits settleMs.
+  let time2 = 50_000;
+  const byHand = pyramidSource(1);
+  const viewer2 = fakeViewer();
+  viewer2.scene.postRender = fakeEvent();
+  const second = createBlocksController({
+    viewer: viewer2,
+    store,
+    layers: fakeLayers(true),
+    source: byHand,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    footprint: () => 0.3,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    settleMs: 2000,
+    inFlight: () => false,
+    now: () => time2,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  viewer2.camera.moveStart.raise();
+  viewer2.camera.moveEnd.raise();
+  time2 += 500;
+  await drain(second);
+  assert.equal(byHand.regions.length, 0, 'not yet still 2 s');
+  time2 += 1600;
+  await drain(second);
+  assert.equal(byHand.regions.length, 1);
+  second.destroy();
+});
+
+test('flights within the region’s reach land without re-anchoring; one past it re-anchors once, at its landing', async () => {
+  let time = 0;
+  let flying = false;
+  const source = pyramidSource(1);
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const viewer = fakeViewer();
+  viewer.scene.postRender = fakeEvent();
+  const controller = createBlocksController({
+    viewer,
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer: fakeRenderer(),
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    footprint: () => 0.3,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    settleMs: 2000,
+    inFlight: () => flying,
+    now: () => time,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+  });
+  const flyTo = async (lon) => {
+    flying = true;
+    viewer.camera.moveStart.raise();
+    await drain(controller, 5);
+    viewer.moveTo(lon);
+    time += 3000;
+    flying = false;
+    viewer.scene.postRender.raise();
+    await drain(controller);
+  };
+  await flyTo(LON0);
+  assert.equal(source.regions.length, 1);
+  // 10 m and 30 m away: inside its reach, the same region.
+  await flyTo(east(10));
+  await flyTo(east(30));
+  assert.equal(source.regions.length, 1, 'no re-anchor within reach');
+  // 50 km away: past it, re-anchored once.
+  await flyTo(east(50_000));
+  assert.equal(source.regions.length, 2);
+  time += 5000;
+  await drain(controller);
+  assert.equal(source.regions.length, 2, 'once');
+  controller.destroy();
+});

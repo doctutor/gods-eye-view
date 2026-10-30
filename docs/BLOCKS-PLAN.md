@@ -1156,3 +1156,19 @@ unloads) gone at 8 px, 2 unloads, no request repeated after the flight.
    still after moveEnd (moveEnd itself is unreliable), then asks the source
    for the region (`regionFor`) on a server loaded by the builds. Until then
    a hybrid view shows the tiles alone, and a street view the 120 m tiles.
+
+   **Done (personal/blocks-anchor, 2026-10-30).** Measured first: after
+   each flight Cesium's moveEnd came about 0.5 s later and the app's 2 s
+   settle wait followed (2.2 to 2.5 s on every step), and at Lake Tahoe the
+   region's values probe was not even sent for 10.8 s (18 s in another
+   run): the tiles held all six of the browser's sockets to the page's
+   HTTP/1.1 server, Cesium allowing itself 18. Now a flight's end is the
+   camera settled (`flightEnded`, checked after each render; a camera moved
+   by hand and a page opening on a shared link still wait), Cesium asks the
+   page's server at most 4 at once (`TILES_REQUESTS_PER_SERVER`) and the
+   probe goes at the browser's high priority. The region is set 0 to 0.5 s
+   after the flight's end and its first chunk drawn within 1.4 s (Lake
+   Tahoe 22.5 s before, the city 3.3 s, the street 4.0 s); the harness's
+   first picture is under a second on every step. A probe asked ahead at
+   the flight's target would save at most its own round trip (0.3 to
+   0.5 s): not done.

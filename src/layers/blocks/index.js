@@ -268,6 +268,12 @@ export const TICK_MS = 500;
  * 2026-10-28).
  */
 export const SETTLE_MS = 600;
+/**
+ * A moveEnd this soon after a flight's end is Cesium's own for that flight
+ * (its cameraEventWaitTime is 500 ms): the camera stays settled since the
+ * landing.
+ */
+export const LANDING_MOVE_END_MS = 1500;
 /** Still: within this of where it was (m), and turned less than SETTLE_COS. */
 const SETTLE_M = 0.01;
 /** cos(0.001°): the camera's direction and up turned less than this. */
@@ -728,6 +734,14 @@ export function createBlocksController({
   let _interval = null;
   let _sunInterval = null;
   let _moving = false;
+  /**
+   * A camera flight (or the arrival correction after it) seen since the
+   * last tick: when it ends the camera is where it was flown to, settled at
+   * once (flightEnded), not after moveEnd (500 ms on, or never) and settleMs.
+   */
+  let _flown = false;
+  /** When the last flight ended (flightEnded), or null. */
+  let _landedAt = null;
   /** When the camera last came to rest (the controller's start at first). */
   let _settledAt = now();
   let _destroyed = false;
@@ -1981,7 +1995,7 @@ export function createBlocksController({
    */
   function holdFor(camera) {
     if (!camera) return null;
-    if (inFlight ? inFlight() : cameraInFlight(_viewer)) return 'flying';
+    if (flyingNow()) return 'flying';
     return heightAboveGround(camera) > ceilingNow() ? 'too-high' : null;
   }
 
@@ -2048,7 +2062,33 @@ export function createBlocksController({
     requestRender('blocks-unpark');
   }
 
+  /** A camera flight or arrival correction now (holdFor's 'flying'). */
+  const flyingNow = () => (inFlight ? inFlight() : cameraInFlight(_viewer));
+
+  /**
+   * The end of a flight is the camera's own word that it has arrived: it
+   * is settled from now, for anchoring and for a level change, without the
+   * moveEnd Cesium sends half a second later (or never) and the settleMs
+   * wait after it (the live region was set 2.2 to 2.5 s after every flight,
+   * 2026-10-30). A camera moved by hand still waits for both; a page that
+   * opens on a shared link has seen no flight yet and waits as before.
+   */
+  function flightEnded() {
+    if (flyingNow()) {
+      _flown = true;
+      return false;
+    }
+    if (!_flown) return false;
+    _flown = false;
+    _moving = false;
+    _still = null;
+    _landedAt = now();
+    _settledAt = now() - settleMs;
+    return true;
+  }
+
   function tick() {
+    flightEnded();
     // Cesium says the camera moves, but it has held still SETTLE_MS (a
     // moveEnd late, or never: its up vector churning by ~1e-16 a frame):
     // settled all the same.
@@ -2658,8 +2698,19 @@ export function createBlocksController({
       _removers.push(
         camera.moveEnd.addEventListener(() => {
           _moving = false;
-          _settledAt = now();
+          // The moveEnd Cesium sends after a flight's end: settled since
+          // the landing (flightEnded), not from now.
+          if (_landedAt === null || now() - _landedAt > LANDING_MOVE_END_MS)
+            _settledAt = now();
           tick();
+        }),
+      );
+    // The frame a flight ends: a tick at once, not at the next interval.
+    const postRender = _viewer?.scene?.postRender;
+    if (postRender?.addEventListener)
+      _removers.push(
+        postRender.addEventListener(() => {
+          if (_flown && !flyingNow()) tick();
         }),
       );
   }
