@@ -1128,6 +1128,15 @@ walker; the two never draw the same ground.
   the error floor 1.25× each time the cache frees after an overflow, so a
   view that overflows settles instead of swinging; it lets go when the camera
   moves or stops. `dynamicScreenSpaceError` off.
+- **Sockets.** Cesium asks the page's own server at most 4 requests at once
+  (`TILES_REQUESTS_PER_SERVER`). Its scheduler allows 18 a server, sized for
+  HTTP/2; the page's server speaks HTTP/1.1, where the browser opens six
+  sockets a host, shared by the tiles, the Earth Engine imagery and the
+  app's own fetches. With the tiles holding all six, the live region's
+  values probe waited 10 to 20 s before it was sent (Lake Tahoe,
+  2026-10-30). Two stay free. A tree with more tiles a view (the 120 m
+  tree) leans on this harder: keep the cap, or serve the tiles over HTTP/2
+  or from a second origin, before raising it.
 - **Look.** The live chunks and the tiles mesh alike: faces at 120 m and up
   are two triangles split by their corners' shading (`FAN_BELOW_M`), live
   480 m regions are curved as the tiles' 480 m level is
