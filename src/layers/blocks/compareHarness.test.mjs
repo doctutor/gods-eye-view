@@ -444,3 +444,14 @@ test('the live proxy: a reset GET is asked once more; a failure after the shot e
   assert.deepEqual(after.answered, []);
   assert.equal(ended.live['/api/raster/values'].count, 1);
 });
+
+test('--pitches: the --altitudes views at the pitches asked for, down only', async () => {
+  const { parsePitches, scaleViews, SCALE_PITCHES } =
+    await import('../../../scripts/qa-blocks-compare.mjs');
+  assert.equal(parsePitches(undefined), SCALE_PITCHES);
+  assert.deepEqual(parsePitches('-15, -45'), [-15, -45]);
+  assert.throws(() => parsePitches('15'));
+  assert.deepEqual(Object.keys(scaleViews([25_000], null, [-15])), [
+    'scale-25km-p15',
+  ]);
+});

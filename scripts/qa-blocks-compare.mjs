@@ -53,7 +53,8 @@
  *   ... --altitudes 5000000 --place 44,-84   # another place than Baltimore
  *
  * --place shoots the --altitudes views over a latitude and longitude (the
- * Great Lakes, Lake Tahoe) instead of Baltimore.
+ * Great Lakes, Lake Tahoe) instead of Baltimore; --pitches -15,-45 shoots
+ * them at those pitches instead of -45 and -90.
  *
  *   ... --tiles-dir D:/gev-cache/blocks-tiles   # with --sequence or --altitudes
  *
@@ -560,16 +561,31 @@ export const heightLabel = (metres) =>
 /**
  * The --altitudes views: Baltimore (the judgement view's place, heading
  * north), or `place` ({lat, lon}, --place), from each height at each of
- * SCALE_PITCHES, Colour and Blocks.
+ * SCALE_PITCHES (or `pitches`, --pitches), Colour and Blocks.
  */
-export function scaleViews(altitudes, place = null) {
+export function scaleViews(altitudes, place = null, pitches = SCALE_PITCHES) {
   const out = {};
   for (const alt of altitudes)
-    for (const pitch of SCALE_PITCHES) {
+    for (const pitch of pitches) {
       const prefix = `scale-${heightLabel(alt)}-p${Math.abs(pitch)}`;
       out[prefix] = { view: { ...VIEW, ...place, alt, pitch }, prefix };
     }
   return out;
+}
+
+/**
+ * --pitches: the pitches (degrees, down negative) each --altitudes height
+ * is shot at instead of SCALE_PITCHES; a shallow one (-15) looks out to
+ * where the tiles meet the live chunks, past what -45 shows.
+ */
+export function parsePitches(value) {
+  if (!value) return SCALE_PITCHES;
+  const pitches = String(value)
+    .split(',')
+    .map((part) => Number(part.trim()))
+    .filter((deg) => Number.isFinite(deg) && deg < 0 && deg >= -90);
+  if (!pitches.length) throw new Error(`--pitches: none in ${value}`);
+  return pitches;
 }
 
 /** --place's latitude and longitude, or null for Baltimore. */
@@ -2059,7 +2075,11 @@ export async function main(argv = process.argv.slice(2)) {
   const results = [];
   const altitudes = parseAltitudes(argValue(argv, '--altitudes'));
   const shots = altitudes.length
-    ? scaleViews(altitudes, parsePlace(argValue(argv, '--place')))
+    ? scaleViews(
+        altitudes,
+        parsePlace(argValue(argv, '--place')),
+        parsePitches(argValue(argv, '--pitches')),
+      )
     : views(field);
   try {
     if (live && shots.eye) shots.eye.view = await liveEyeView(live);
