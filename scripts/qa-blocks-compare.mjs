@@ -101,6 +101,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
@@ -115,6 +116,7 @@ import {
 import { encodeLayerStateParams } from '../src/data/layerState.js';
 import { EARTH_ENGINE_LAYERS } from '../src/data/earthEngineLayers.js';
 import { chromeExecutablePath } from './qa-chrome.mjs';
+import { connectWithoutRace } from '../build/loopback.js';
 import { blocksStyleZoomBand } from '../src/data/blocksStyle.js';
 import { MATERIAL_COLORS } from '../src/layers/blocks/lighting.js';
 import { MATERIALS } from '../src/layers/blocks/store.js';
@@ -2805,6 +2807,9 @@ async function runSequence({
 }
 
 export async function main(argv = process.argv.slice(2)) {
+  // The proxy's fetches to the live server: its own address, not
+  // localhost's race, which a busy harness loses (build/loopback.js).
+  connectWithoutRace(net);
   const size = /^(\d+)x(\d+)$/.exec(argValue(argv, '--size') || '');
   if (size) [WIDTH, HEIGHT] = [Number(size[1]), Number(size[2])];
   const out = path.resolve(argValue(argv, '--out', ''));

@@ -37,6 +37,7 @@
  * --part k/n the k-th of n equal parts of it, under MAX_REQUESTS.
  */
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -48,6 +49,7 @@ import {
 import { BLOCK_PYRAMID_M } from '../src/layers/blocks/pyramid.js';
 import { ELEVATION_LAYER, asksWater } from '../src/layers/blocks/source.js';
 import { decodeRasterValues } from '../src/data/rasterValues.js';
+import { connectWithoutRace } from '../build/loopback.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** The most tiles one run may ask. */
@@ -385,6 +387,8 @@ export async function main({
     return 1;
   }
   if (!service && args.server) {
+    // The local server's own address, not localhost's race (build/loopback.js).
+    connectWithoutRace(net);
     const remote = serverService(args.server);
     service = remote;
     budget ||= () => remote.budget();

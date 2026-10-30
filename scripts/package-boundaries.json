@@ -38,7 +38,8 @@
       "build/allowedHosts.js",
       "build/embed-framing.js",
       "build/panel.js",
-      "build/buildStamp.js"
+      "build/buildStamp.js",
+      "build/loopback.js"
     ],
     "external": ["vite-plugin-cesium"]
   },
