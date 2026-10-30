@@ -1345,6 +1345,7 @@ function sequencePageProbe() {
     byKind: {},
     kindOf: new WeakMap(),
     blocksDefines: new Map(),
+    blocksText: new Map(),
   };
   qa.programs = programs;
   for (const Context of [
@@ -1391,6 +1392,9 @@ function sequencePageProbe() {
       const clip =
         blocks && /#define HAS_CLIPPING_PLANES/.test(source) ? ' clip' : '';
       // A Blocks program's defines, to tell its variants apart.
+      // --program-sources: each Blocks program's text, to tell variants apart.
+      if (blocks && window.__qaProgramSources && !programs.blocksText.has(key))
+        programs.blocksText.set(key, source);
       if (blocks && !programs.blocksDefines.has(key))
         programs.blocksDefines.set(
           key,
@@ -1554,6 +1558,9 @@ function sequenceReadout() {
         cached:
           gev.viewer?.scene?.context?.shaderCache?.numberOfShaders ?? null,
         blocksDefines: [...linked.blocksDefines.values()],
+        ...(linked.blocksText.size
+          ? { blocksText: [...linked.blocksText.values()] }
+          : {}),
         byKind: Object.fromEntries(
           Object.entries(linked.byKind).map(([tag, held]) => [
             tag,
@@ -1576,6 +1583,7 @@ function sequenceReadout() {
     linked.blocksSources.clear();
     linked.byKind = {};
     linked.blocksDefines.clear();
+    linked.blocksText.clear();
   }
   const carto = gev.viewer.camera.positionCartographic;
   const text = (id) => document.getElementById(id)?.textContent?.trim() || '';
@@ -2110,11 +2118,16 @@ async function runSequence({
   traceStep = null,
   noBlur = false,
   quiet = true,
+  programSources = false,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   await page.evaluateOnNewDocument(sequencePageProbe);
   if (noBlur) await page.evaluateOnNewDocument(sequenceNoBlur);
+  if (programSources)
+    await page.evaluateOnNewDocument(() => {
+      window.__qaProgramSources = true;
+    });
   const log = {
     values: 0,
     tiles: 0,
@@ -2548,6 +2561,8 @@ export async function main(argv = process.argv.slice(2)) {
         noBlur: argv.includes('--no-blur'),
         // --no-wait: time the steps beside a build or a suite all the same.
         quiet: !argv.includes('--no-wait'),
+        // --program-sources: keep each Blocks program's text (large).
+        programSources: argv.includes('--program-sources'),
         // The precomputed Blocks tilesets served from this folder.
         tilesDir: argValue(argv, '--tiles-dir') || null,
         only:
