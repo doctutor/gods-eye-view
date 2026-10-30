@@ -247,6 +247,7 @@ export function lazyRenderer(make) {
     setVisible: (on) => renderer?.setVisible?.(on),
     keys: () => renderer?.keys?.() ?? [],
     getState: () => renderer?.getState?.() ?? null,
+    pickedChunk: (picked) => renderer?.pickedChunk?.(picked) ?? null,
     destroy() {
       renderer?.destroy?.();
       renderer = null;
