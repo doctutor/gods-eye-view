@@ -588,7 +588,6 @@ answer, with no new query. Bridge decks are roads and stay. Paint comes off
 only where land cover cannot be drawn: Overpass missing, or blocks coarser
 than 30 m (`clearSurfaces` in `store.js`).
 
-
 ## Milestone 6: a precomputed block tileset (2026-10-29, with the user)
 
 The user's goal: moving the camera in Blocks should be as fast and as
@@ -605,12 +604,12 @@ land-cover paint landing on some chunks and not their neighbours. Storage is
 not what stops a tree of our own: a quantised block world compresses far
 better than photoreal meshes.
 
-| Coverage                                  | Cells     | Raw 16-bit | Meshed, rough |
-| ----------------------------------------- | --------- | ---------- | ------------- |
-| Lower 48 at 30 m                          | 9 × 10⁹   | 18 GB      | 3 to 8 GB     |
-| A city at 1 m (Baltimore, 240 km²)        | 2.4 × 10⁸ | 0.5 GB     | ~100 MB       |
-| The planet at 30 m                        | 5.7 × 10¹¹| 1.1 TB     | 100 to 200 GB |
-| The planet at 1 m                         | 5 × 10¹⁴  |            | no such data  |
+| Coverage                           | Cells      | Raw 16-bit | Meshed, rough |
+| ---------------------------------- | ---------- | ---------- | ------------- |
+| Lower 48 at 30 m                   | 9 × 10⁹    | 18 GB      | 3 to 8 GB     |
+| A city at 1 m (Baltimore, 240 km²) | 2.4 × 10⁸  | 0.5 GB     | ~100 MB       |
+| The planet at 30 m                 | 5.7 × 10¹¹ | 1.1 TB     | 100 to 200 GB |
+| The planet at 1 m                  | 5 × 10¹⁴   |            | no such data  |
 
 ### Decisions
 
@@ -656,12 +655,12 @@ better than photoreal meshes.
 
 ### Work and ownership
 
-| Step | Owner                         | What                                                                                                                                                                                             |
-| ---- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A    | worker1, after blocks-paint   | `scripts/blocks-tileset.mjs`: DEM ingest and pyramid, quantise, water, greedy mesh per tile to glTF, implicit tileset JSON; a tiny box first (one Baltimore chunk at 30 m) with golden tests.    |
-| B    | worker1                       | Structures in the build: buildings, land cover and roads from the Overpass clone through the existing structures rules, per tile.                                                               |
-| C    | worker3, after blocks-perf    | Client: `Cesium3DTileset` under the Blocks render mode, the CustomShader look, relief, the HUD source line, the live controller as fallback outside the built boxes and under the walker.        |
-| D    | manager, with the user        | The downloads (decision 5), the lower-48 build on E: → D:, the comparison with Google's mode on the five-step sequence.                                                                           |
+| Step | Owner                       | What                                                                                                                                                                                          |
+| ---- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A    | worker1, after blocks-paint | `scripts/blocks-tileset.mjs`: DEM ingest and pyramid, quantise, water, greedy mesh per tile to glTF, implicit tileset JSON; a tiny box first (one Baltimore chunk at 30 m) with golden tests. |
+| B    | worker1                     | Structures in the build: buildings, land cover and roads from the Overpass clone through the existing structures rules, per tile.                                                             |
+| C    | worker3, after blocks-perf  | Client: `Cesium3DTileset` under the Blocks render mode, the CustomShader look, relief, the HUD source line, the live controller as fallback outside the built boxes and under the walker.     |
+| D    | manager, with the user      | The downloads (decision 5), the lower-48 build on E: → D:, the comparison with Google's mode on the five-step sequence.                                                                       |
 
 Order: A before C's tileset work (C needs real tiles); B and C in
 parallel once A's tiny box builds. The live pipeline's fixes in flight
