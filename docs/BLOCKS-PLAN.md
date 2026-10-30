@@ -1126,7 +1126,7 @@ walker; the two never draw the same ground.
   (finest 480 m or more) below 1,500 km, 4 px over 2,000 km (hysteresis
   between). Cesium's own cache (512 MB, 512 MB over). A cache guard steps
   the error floor 1.25× each time the cache frees after an overflow, so a
-  view that overflows settles instead of swinging; it let go when the camera
+  view that overflows settles instead of swinging; it lets go when the camera
   moves or stops. `dynamicScreenSpaceError` off.
 - **Look.** The live chunks and the tiles mesh alike: faces at 120 m and up
   are two triangles split by their corners' shading (`FAN_BELOW_M`), live
