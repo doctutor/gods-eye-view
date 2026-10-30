@@ -751,16 +751,19 @@ export function createBlocksRenderer({
 
   /**
    * How often geometry was made: chunks drawn alone, batch rebuilds, the
-   * chunks those combined, Models made, and the main thread's ms spent
-   * encoding their GLBs.
+   * chunks those combined, Models made, those the loader rejected, and the
+   * main thread's ms spent encoding their GLBs.
    */
   const stats = {
     alone: 0,
     rebuilds: 0,
     rebuiltChunks: 0,
     models: 0,
+    failed: 0,
     encodeMs: 0,
   };
+  /** Models being made or loaded: not drawn yet, not taken away. */
+  const loading = new Set();
 
   const clock = () => globalThis.performance?.now?.() ?? Date.now();
 
@@ -802,6 +805,7 @@ export function createBlocksRenderer({
   function removeEntry(entry) {
     if (!entry || entry.removed) return;
     entry.removed = true;
+    loading.delete(entry);
     if (entry.model) collection.remove(entry.model);
     entry.model = null;
   }
@@ -809,12 +813,14 @@ export function createBlocksRenderer({
   /**
    * A Model of a GLB at a place ({origin, level, plain}), made
    * asynchronously: the entry {model, ready, removed}; `onReady(entry)` once
-   * it draws. Taken away before then, it is never added.
+   * it draws, `onFailed(entry)` if the loader rejects it (what it was to
+   * replace stays drawn). Taken away before then, it is never added.
    */
-  function drawModel(glb, place, owner, onReady) {
+  function drawModel(glb, place, owner, onReady, onFailed = () => {}) {
     const entry = { model: null, ready: false, removed: false };
     const done = () => {
       if (entry.removed || entry.ready) return;
+      loading.delete(entry);
       entry.ready = true;
       onReady(entry);
       requestRender();
@@ -824,6 +830,7 @@ export function createBlocksRenderer({
       return entry;
     }
     stats.models++;
+    loading.add(entry);
     const customShader = place.plain
       ? plainShader
       : levelOf(place.level).shader;
@@ -846,8 +853,12 @@ export function createBlocksRenderer({
         requestRender();
       })
       .catch((error) => {
+        if (entry.removed) return;
+        loading.delete(entry);
         entry.failed = true;
+        stats.failed++;
         console.warn('[blocks] a chunk Model failed:', error?.message || error);
+        onFailed(entry);
       });
     return entry;
   }
@@ -912,8 +923,19 @@ export function createBlocksRenderer({
     };
     removeEntry(batch.next?.entry);
     batch.next = build;
-    build.entry = drawModel(encodeChunks(list), batch, { build }, () =>
-      batchReady(batchKey, build),
+    build.entry = drawModel(
+      encodeChunks(list),
+      batch,
+      { build },
+      () => batchReady(batchKey, build),
+      // Rejected: its chunks stay drawn alone, and it is tried again after
+      // the next quiet.
+      () => {
+        const now = batches.get(batchKey);
+        if (now?.next !== build) return;
+        now.next = null;
+        changed(batchKey, now);
+      },
     );
   }
 
@@ -1369,6 +1391,8 @@ export function createBlocksRenderer({
       chunks: chunks.size,
       batches: batches.size,
       stats: { ...stats },
+      // Models made and not drawn yet (one that never loads stays here).
+      loadingModels: loading.size,
       // What is kept to rebuild batches from, MB.
       retainedMB:
         [...chunks.values()].reduce(

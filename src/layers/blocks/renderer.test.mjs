@@ -187,12 +187,20 @@ function fakeModels({ ready = true } = {}) {
   };
 }
 
-/** A renderer on a fake viewer drawing fake Models. */
-function setup({ ready = true, viewer = fakeViewer(), ...options } = {}) {
+/**
+ * A renderer on a fake viewer drawing fake Models; `wrap` may stand
+ * between it and them (a loader that rejects).
+ */
+function setup({
+  ready = true,
+  viewer = fakeViewer(),
+  wrap = (make) => make,
+  ...options
+} = {}) {
   const fake = fakeModels({ ready });
   const renderer = createBlocksRenderer({
     viewer,
-    createModel: fake.createModel,
+    createModel: wrap(fake.createModel),
     ...options,
   });
   return { viewer, renderer, fake };
@@ -804,7 +812,7 @@ test('batchKeyOf: fine chunks by 4 × 4 group, coarse chunks by 4 × 4 coarse ch
 });
 
 /** A renderer on a fake scene with frames (preRender), a clock and a captured wake timer. */
-function batchSetup({ quietMs = 1500, ready = true } = {}) {
+function batchSetup({ quietMs = 1500, ready = true, wrap } = {}) {
   const viewer = fakeViewer();
   viewer.scene.preRender = new Cesium.Event();
   let clock = 1_000_000;
@@ -812,6 +820,7 @@ function batchSetup({ quietMs = 1500, ready = true } = {}) {
   const { renderer, fake } = setup({
     viewer,
     ready,
+    wrap,
     now: () => clock,
     // null: the renderer's own BATCH_QUIET_MS.
     ...(quietMs === null ? {} : { quietMs }),
@@ -1443,4 +1452,62 @@ test('a Blocks Model’s axes are a tile’s: the stored (east, up, −north) ba
   );
   // The same as a tileset's tiles (Cesium3DTileset's modelForwardAxis X).
   assert.equal(forwardAxis, Cesium.Axis.X);
+});
+
+test('a Model the loader rejects: counted, what it was to replace stays drawn, and a rejected batch is made again after the next quiet', async (t) => {
+  const warn = console.warn;
+  const warned = [];
+  console.warn = (...args) => warned.push(args.join(' '));
+  t.after(() => {
+    console.warn = warn;
+  });
+  let rejectBatches = 1;
+  const { renderer, advance, frame } = batchSetup({
+    wrap: (make) => async (glb, options) => {
+      if (rejectBatches > 0 && readBlocksGlb(glb).featureCount > 2) {
+        rejectBatches--;
+        throw new Error('a bad GLB');
+      }
+      return make(glb, options);
+    },
+  });
+  const collection = renderer.getCollection();
+  for (let ci = 0; ci < 4; ci++) renderer.upsert(`${ci}:0`, tinyMesh());
+  await settle();
+  assert.equal(renderer.getState().loadingModels, 0);
+  advance(1500);
+  frame();
+  await settle();
+  // Rejected: counted and said; the four lone Models still draw.
+  let state = renderer.getState();
+  assert.equal(state.stats.failed, 1);
+  assert.equal(state.loadingModels, 0);
+  assert.equal(collection.length, 4);
+  assert.match(warned.join(' | '), /a chunk Model failed: a bad GLB/);
+  // Pending again: after the next quiet it is made, and drawn.
+  advance(1500);
+  frame();
+  await settle();
+  state = renderer.getState();
+  assert.equal(state.stats.rebuilds, 2);
+  assert.equal(collection.length, 1);
+  assert.equal(batchKeys(collection.get(0)).length, 4);
+  renderer.destroy();
+});
+
+test('a Model that never becomes ready stays counted as loading, and what it was to replace stays drawn', async () => {
+  const { renderer, fake } = setup({ ready: false });
+  renderer.setRegion(stubRegion());
+  renderer.upsert('0:0', tinyMesh());
+  await settle();
+  fake.readyAll();
+  const first = renderer.getCollection().get(0);
+  renderer.upsert('0:0', tinyMesh({ water: true }));
+  await settle();
+  assert.equal(renderer.getState().loadingModels, 1);
+  assert.equal(first.isDestroyed(), false);
+  assert.equal(renderer.getCollection().contains(first), true);
+  renderer.remove('0:0');
+  assert.equal(renderer.getState().loadingModels, 0);
+  renderer.destroy();
 });
