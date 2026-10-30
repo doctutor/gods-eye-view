@@ -20,6 +20,7 @@ import {
 } from './meshJob.js';
 import {
   MAX_MESH_WORKERS,
+  MESH_JOB_SLOW_MS,
   MESH_JOB_TIMEOUT_MS,
   MESH_WORKER_START_MS,
   createMeshPool,
@@ -244,6 +245,7 @@ test('the pool: the real worker under node:worker_threads, jobs spread over two 
       inThread: false,
       timeouts: 0,
       inThreadJobs: 0,
+      slow: 0,
     });
   } finally {
     pool.destroy();
@@ -380,7 +382,7 @@ function fakeWorker({ silent = false, lateMs = null, log, readyMs = null }) {
 
 test('a worker that never answers is terminated after the timeout, its job meshed in-thread, and a replacement started lazily', async (t) => {
   t.mock.method(console, 'warn', () => {});
-  assert.equal(MESH_JOB_TIMEOUT_MS, 10_000);
+  assert.equal(MESH_JOB_TIMEOUT_MS, 60_000);
   const log = { posted: 0, terminated: 0 };
   const made = [];
   const pool = createMeshPool({
@@ -410,6 +412,7 @@ test('a worker that never answers is terminated after the timeout, its job meshe
       inThread: false,
       timeouts: 1,
       inThreadJobs: 1,
+      slow: 0,
     });
     // The next job starts the replacement, which answers.
     const next = hilly(1, 0);
@@ -575,5 +578,52 @@ test('packed (pack: true), the in-thread answer is the worker’s: with no worke
     assert.equal(hung.stats().timeouts, 1);
   } finally {
     hung.destroy();
+  }
+});
+
+test('a slow worker keeps its job: past slowMs it is counted slow, not taken back (on a saturated machine a take-back meshed in-thread on the same starved CPU and restarted a worker); only past the timeout is it taken back', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  assert.equal(MESH_JOB_SLOW_MS, 10_000);
+  assert.equal(MESH_JOB_TIMEOUT_MS, 60_000);
+  const log = { posted: 0, terminated: 0 };
+  // Ready at once, answering after 60 ms: slow at 10 ms, kept, answered.
+  const slow = createMeshPool({
+    size: 1,
+    slowMs: 10,
+    jobTimeoutMs: 500,
+    startTimeoutMs: 1000,
+    createWorker: () =>
+      fakeWorker({ silent: true, lateMs: 60, log, readyMs: 0 }),
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const chunk = hilly(3, 1);
+    const mesh = await slow.meshChunkAsync(chunk, OPTIONS);
+    assertSameMesh(mesh, buildChunkMesh(chunk, OPTIONS));
+    const stats = slow.stats();
+    assert.equal(stats.slow, 1, 'counted slow');
+    assert.equal(stats.timeouts, 0, 'not taken back');
+    assert.equal(stats.inThreadJobs, 0, 'nothing meshed here');
+    assert.equal(log.terminated, 0, 'the worker kept');
+  } finally {
+    slow.destroy();
+  }
+  // One that never answers: slow, then taken back at the timeout.
+  const stuck = createMeshPool({
+    size: 1,
+    slowMs: 10,
+    jobTimeoutMs: 40,
+    startTimeoutMs: 1000,
+    createWorker: () => fakeWorker({ silent: true, log, readyMs: 0 }),
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await stuck.meshChunkAsync(hilly(4, 1), OPTIONS);
+    const stats = stuck.stats();
+    assert.equal(stats.slow, 1);
+    assert.equal(stats.timeouts, 1);
+    assert.equal(stats.inThreadJobs, 1);
+  } finally {
+    stuck.destroy();
   }
 });

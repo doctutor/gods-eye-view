@@ -73,6 +73,10 @@
  * canvas's centre, read back from the scene itself: none, if they never
  * show.
  *
+ * --load-frames shoots each step 2, 5, 10 and 20 s after its flight's end
+ * (<step>-load-<s>s.png) with the status line, the tiles' hole and the mesh
+ * pool's counts then; for a check, not a timing run.
+ *
  * --panels opens the two panels before the steps, shoots each step 1.5 s
  * into its flight (<step>-flight.png) and, after the city, opens the
  * Elevation row's colour scale (<step>-grown.png), keeping the panels'
@@ -2174,6 +2178,9 @@ export async function waitQuiet({
   return jobs;
 }
 
+/** --load-frames: the frames' times after a flight's end (ms). */
+export const LOAD_FRAMES_MS = Object.freeze([2000, 5000, 10000, 20000]);
+
 /**
  * A Chrome trace's main-thread time by event (the renderer's main thread,
  * complete events): style, layout, paint and compositing beside script, in
@@ -2228,6 +2235,7 @@ async function runSequence({
   noBlur = false,
   quiet = true,
   programSources = false,
+  loadFramesOn = false,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
@@ -2420,6 +2428,42 @@ async function runSequence({
       )
       .then((handle) => handle.jsonValue())
       .catch(() => Date.now());
+    // --load-frames: the view while it loads, 2, 5, 10 and 20 s after the
+    // flight's end, each with its status line, the tiles' hole and the mesh
+    // pool's counts (a band undrawn between the live chunks and the tiles).
+    const loadFrames = [];
+    if (loadFramesOn) {
+      for (const at of LOAD_FRAMES_MS) {
+        const wait = flightEnd + at - Date.now();
+        if (wait > 0)
+          await page.evaluate(
+            (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+            wait,
+          );
+        const file = path.join(out, `${step.name}-load-${at / 1000}s.png`);
+        await page.screenshot({ path: file });
+        loadFrames.push({
+          at,
+          file,
+          ...(await page.evaluate(() => {
+            const probe = window.__gevBlocksProbe;
+            const status = probe?.controller?.getStatus?.();
+            return {
+              status:
+                document.querySelector('.lego-render-status')?.textContent ||
+                '',
+              state: status?.state ?? null,
+              chunks: status?.chunks ?? null,
+              coarse: status?.coarse ?? null,
+              pending: status?.pending ?? null,
+              tiles: status?.tiles?.mode ?? 'off',
+              holeM: status?.tiles?.hole?.radiusM ?? null,
+              meshPool: probe?.meshPool?.() ?? null,
+            };
+          })),
+        });
+      }
+    }
     // Already drawn at the flight's end: the tiles shown and every one the
     // view wants loaded (in flight, or before the step).
     const tilesAtEnd = await page.evaluate(() => {
@@ -2523,6 +2567,7 @@ async function runSequence({
         ? { panels: { flight: flightPanels, grown: grownPanels } }
         : {}),
       ...(traced ? { trace: traced } : {}),
+      ...(loadFrames.length ? { loadFrames } : {}),
       flightSeconds: Math.round((flightEnd - from) / 100) / 10,
       ...metrics,
       budget:
@@ -2672,6 +2717,8 @@ export async function main(argv = process.argv.slice(2)) {
         quiet: !argv.includes('--no-wait'),
         // --program-sources: keep each Blocks program's text (large).
         programSources: argv.includes('--program-sources'),
+        // --load-frames: each step shot while it loads.
+        loadFramesOn: argv.includes('--load-frames'),
         // The precomputed Blocks tilesets served from this folder.
         tilesDir: argValue(argv, '--tiles-dir') || null,
         only:
@@ -2686,7 +2733,7 @@ export async function main(argv = process.argv.slice(2)) {
       );
       for (const step of run.results)
         console.log(
-          `${step.name} (${step.via}${step.settled ? '' : ', not settled'}): first blocks ${step.firstBlocksMs} ms, settled ${step.settledMs} ms, levels ${step.levels.join(' → ')}, upserts ${step.upserts}, tiles ${step.readout?.tiles?.mode ?? 'off'}${step.readout?.tiles?.box ? ` ${step.readout.tiles.box} from ${step.readout.tiles.floorM} m${step.readout.tiles.holeM ? `, hole ${Math.round(step.readout.tiles.holeM)} m` : ''}` : ''} (${step.tileLoads} loads, ${step.requests.blocksTiles} requests${step.readout?.tiles?.memoryMB ? `, ${step.readout.tiles.memoryMB} MB` : ''}${step.readout?.tiles?.tileUnloads ? `, ${step.readout.tiles.tileUnloads} unloads` : ''}${step.readout?.tiles?.screenError ? `, ${step.readout.tiles.screenError} px, ${step.readout.tiles.tilesSelected} drawn of ${step.readout.tiles.tilesReady} loaded` : ''}${step.readout?.tiles?.guardHolds ? `, guard ${step.readout.tiles.guardHolds}× at ${Number(step.readout.tiles.heldError ?? 0).toFixed(1)} px` : ''}), anchors ${step.anchors}, values ${step.requests.values}, budget ${step.budget}, long tasks ${step.longTasks.count}/${step.longTasks.totalMs} ms, ${step.fps} fps, heap ${step.heapMaxMB} MB (JS ${step.heapPeaksMB?.jsHeap}, buffers ${step.heapPeaksMB?.backingStores}); still ${step.still?.fps} fps, render ${step.still?.renderMs?.median}/${step.still?.renderMs?.p95} ms, ${step.still?.commands} commands, pick ${step.still?.pick?.chunk ? `${step.still.pick.chunk.key}${step.still.pick.chunk.water ? ' water' : ''}` : 'none'}${step.still?.pick?.expected === false ? ' (NOT as expected)' : ''}`,
+          `${step.name} (${step.via}${step.settled ? '' : ', not settled'}): first blocks ${step.firstBlocksMs} ms, settled ${step.settledMs} ms, levels ${step.levels.join(' → ')}, upserts ${step.upserts}, tiles ${step.readout?.tiles?.mode ?? 'off'}${step.readout?.tiles?.box ? ` ${step.readout.tiles.box} from ${step.readout.tiles.floorM} m${step.readout.tiles.holeM ? `, hole ${Math.round(step.readout.tiles.holeM)} m` : ''}` : ''} (${step.tileLoads} loads, ${step.requests.blocksTiles} requests${step.readout?.tiles?.memoryMB ? `, ${step.readout.tiles.memoryMB} MB` : ''}${step.readout?.tiles?.tileUnloads ? `, ${step.readout.tiles.tileUnloads} unloads` : ''}${step.readout?.tiles?.screenError ? `, ${step.readout.tiles.screenError} px, ${step.readout.tiles.tilesSelected} drawn of ${step.readout.tiles.tilesReady} loaded` : ''}${step.readout?.tiles?.guardHolds ? `, guard ${step.readout.tiles.guardHolds}× at ${Number(step.readout.tiles.heldError ?? 0).toFixed(1)} px` : ''}), anchors ${step.anchors}${step.holdings?.meshPool ? `, mesh jobs ${step.holdings.meshPool.slow ?? 0} slow, ${step.holdings.meshPool.timeouts ?? 0} taken back` : ''}, values ${step.requests.values}, budget ${step.budget}, long tasks ${step.longTasks.count}/${step.longTasks.totalMs} ms, ${step.fps} fps, heap ${step.heapMaxMB} MB (JS ${step.heapPeaksMB?.jsHeap}, buffers ${step.heapPeaksMB?.backingStores}); still ${step.still?.fps} fps, render ${step.still?.renderMs?.median}/${step.still?.renderMs?.p95} ms, ${step.still?.commands} commands, pick ${step.still?.pick?.chunk ? `${step.still.pick.chunk.key}${step.still.pick.chunk.water ? ' water' : ''}` : 'none'}${step.still?.pick?.expected === false ? ' (NOT as expected)' : ''}`,
         );
       console.log(`sequence: ${path.join(out, 'sequence.json')}`);
       return run;
