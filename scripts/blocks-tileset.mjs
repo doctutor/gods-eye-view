@@ -50,6 +50,7 @@
  */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -93,6 +94,7 @@ import {
   withoutBuildings,
 } from '../src/layers/blocks/index.js';
 import { createOverpassViewClient } from '../src/sources/overpassView.js';
+import { connectWithoutRace } from '../build/loopback.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 await MeshoptEncoder.ready;
@@ -1844,6 +1846,9 @@ export async function main({
     print(args.error);
     return 2;
   }
+  // Reads and Overpass through the local server: its own address, not
+  // localhost's race, which a busy build loses (build/loopback.js).
+  if (!fetchValues) connectWithoutRace(net);
   const startedAt = Date.now();
   // Every line to the console and, once there is an output, its build.log.
   const logFile = args.out ? path.join(args.out, 'build.log') : null;
