@@ -984,3 +984,50 @@ download.
     tiles carry only the baked colours; edges and dither are step C's
     shader), and past the box the 120 m fill tiles stand without land
     cover.
+
+### Curved levels and the country tree (2026-10-30)
+
+- **Curved builds.** A build whose coarsest level is 1,920 m or more is
+  curved (`plan.curved`).
+  - Its anchor is the coarsest level's graticule point at the box's middle,
+    not its south-west corner. The azimuthal map is truest there: for the
+    lower 48 the map stretches about 3 % across the bearing at the corners,
+    2,700 km out.
+  - Every level, 480 m included, uses that one curved map (`createRegion`
+    takes `curved`, and `mesh.js` asks for it), so a 480 m group is exactly
+    one 1,920 m chunk.
+  - Each chunk is meshed by the live mesher's curved placement: every column
+    corner is stood on the ellipsoid at its level, and greedy runs are
+    capped by `curvedRunCap`.
+  - Each tile has its own east-north-up frame at the middle of its ground.
+    The vertices move from the anchor's frame into it, so they stay small
+    and its box stays tight. A tile's transform is its parent's frame
+    inverted, times its own.
+  - Several root groups (four around a middle anchor) hang under a root with
+    no content and a bounding sphere.
+- **The chord bound, tested.** Over a synthetic curved box at 1,920 m, no
+  top face runs more than `curvedRunCap` (57) cells, and the middle of every
+  straight edge sags at most 235 m under its level (a pixel of an 8 px cell
+  is 240 m). The cap bounds runs, not faces: a face capped both ways sags
+  417 m at its middle, about 1.7 px. Capping runs at the cap divided by √2
+  would bound the faces too, at about twice the quads on curved levels.
+  That is the live mesher's rule as well, so it is left as it is pending a
+  decision.
+- **External tilesets.** Every `--split-depth` levels below the root (2 by
+  default), a subtree goes into its own JSON, `subtrees/<level>m/g<gi>_<gj>.json`.
+  - Its root has no transform: it is in the referencing tile's frame.
+  - Its paths are written from its folder (`../../`).
+  - The main tileset holds the top levels and the references, and Cesium
+    loads a subtree when its traversal reaches it. A test resolves the paths
+    with Cesium's own loader.
+- **Streamed builds.** A finest level with more than 64 groups (or
+  `--stream`) is never held whole.
+  - A first pass reads every chunk once and keeps only its lowest tops,
+    along each edge and over the whole chunk (`chunkSummary`).
+  - Then each tile's chunks are read again when it is built (the server's
+    cache answers), meshed, written and let go.
+  - Skirt floors come from the summaries. They equal the column-scan floors
+    where a level's chunk edges lie on the border, and are deeper (never
+    shallower) where a coarser level's chunks straddle it.
+  - Memory is a few hundred chunks, whatever the box. Every line also goes
+    to `build.log`, and the run reports Earth Engine's day before and after.

@@ -34,17 +34,22 @@ import {
   planLatticeTiles,
   planTiles,
   serverOverpass,
+  skirtFloors,
+  summarizeLevels,
+  loadTileChunks,
+  tileFrame,
   tileMesh,
   tileTree,
   walkTiles,
 } from '../../scripts/blocks-tileset.mjs';
+import { CURVED_CELL_PX, curvedRunCap } from '../layers/blocks/mesh.js';
 import {
   FOLD_COLUMNS,
   foldColumns,
   readBlocksGlb,
 } from '../layers/blocks/gltf.js';
 import { MeshoptDecoder } from 'meshoptimizer';
-import { createChunkSource } from '../layers/blocks/source.js';
+import { createChunkSource, groupBounds } from '../layers/blocks/source.js';
 import { MATERIALS, NONE } from '../layers/blocks/store.js';
 import { createStructuresSource } from '../layers/blocks/structures.js';
 
@@ -205,7 +210,7 @@ async function build(finestM = 30) {
   });
   const chunksByLevel = await loadChunks(plan, source);
   const out = temporary('blocks-tileset-');
-  const result = buildTileset(plan, chunksByLevel, {
+  const result = await buildTileset(plan, chunksByLevel, {
     out,
     inputs: { heights: 'synthetic' },
   });
@@ -230,7 +235,7 @@ test('parseArgs: the box, the finest level, the ×4 flat chain only, the output'
   assert.equal(ok.finestM, 30);
   assert.equal(ok.coarsestM, null);
   assert.equal(ok.base, 'http://localhost:4173');
-  assert.deepEqual(TILESET_LEVELS_M, [30, 120, 480]);
+  assert.deepEqual(TILESET_LEVELS_M, [30, 120, 480, 1920, 7680, 30720]);
   assert.match(parseArgs(['--levels', '30', '--out', 'x']).error, /--bbox/);
   assert.match(
     parseArgs([
@@ -243,16 +248,26 @@ test('parseArgs: the box, the finest level, the ×4 flat chain only, the output'
     ]).error,
     /not 10/,
   );
+  // The curved levels too; --split-depth a whole number; --stream.
+  assert.equal(
+    parseArgs(['--bbox', '-125,24,-66,50', '--levels', '1920', '--out', 'x'])
+      .finestM,
+    1920,
+  );
+  assert.equal(ok.splitDepth, 2);
+  assert.equal(ok.stream, false);
   assert.match(
     parseArgs([
       '--bbox',
       '-76.7,39.2,-76.5,39.3',
       '--levels',
-      '1920',
+      '30',
+      '--split-depth',
+      '-1',
       '--out',
       'x',
     ]).error,
-    /flat/,
+    /--split-depth/,
   );
   assert.match(
     parseArgs([
@@ -879,7 +894,7 @@ test('structures at 30 m (golden): the land cover and decks in both variants, th
 test('two tilesets over one tree: the fine tiles per variant, the coarse ones shared', async () => {
   const { plan, chunksByLevel, built, ground } = await withStructures();
   const out = temporary('blocks-tileset-variants-');
-  const { tiles, tilesets } = buildTileset(plan, chunksByLevel, {
+  const { tiles, tilesets } = await buildTileset(plan, chunksByLevel, {
     out,
     variants: [
       {
@@ -927,16 +942,16 @@ test('two tilesets over one tree: the fine tiles per variant, the coarse ones sh
 test('resume: a tile whose inputs are unchanged is kept; a changed chunk or a missing file builds again', async () => {
   const { plan, chunksByLevel } = await withStructures();
   const out = temporary('blocks-tileset-resume-');
-  const first = buildTileset(plan, chunksByLevel, { out });
+  const first = await buildTileset(plan, chunksByLevel, { out });
   assert.ok(first.tiles.every((tile) => !tile.kept));
   assert.ok(fs.existsSync(path.join(out, BUILD_STATE)));
-  const again = buildTileset(plan, chunksByLevel, { out });
+  const again = await buildTileset(plan, chunksByLevel, { out });
   assert.ok(again.tiles.every((tile) => tile.kept));
   assert.deepEqual(again.tileset.root, first.tileset.root, 'the same tree');
   // A column of the 30 m group raised: that tile again, the rest kept.
   const chunk = chunksByLevel.get(30).get('1:1');
   chunk.top[100] += 3;
-  const changed = buildTileset(plan, chunksByLevel, { out });
+  const changed = await buildTileset(plan, chunksByLevel, { out });
   assert.deepEqual(
     changed.tiles.filter((tile) => !tile.kept).map((tile) => tile.uri),
     ['30m/g0_0.glb'],
@@ -944,7 +959,7 @@ test('resume: a tile whose inputs are unchanged is kept; a changed chunk or a mi
   chunk.top[100] -= 3;
   // A fill tile's file gone: that one again.
   fs.rmSync(path.join(out, '120m/c3_3.glb'));
-  const restored = buildTileset(plan, chunksByLevel, { out });
+  const restored = await buildTileset(plan, chunksByLevel, { out });
   assert.deepEqual(
     restored.tiles.filter((tile) => !tile.kept).map((tile) => tile.uri),
     ['30m/g0_0.glb', '120m/c3_3.glb'],
@@ -977,4 +992,383 @@ test("serverOverpass: POST to the app server's proxy, one at a time, 700 ms apar
     calls[1].at - calls[0].at >= 690,
     `${calls[1].at - calls[0].at} ms apart`,
   );
+});
+
+/** A synthetic curved box: about 390 by 445 km around the seed, built at 7,680 and 1,920 m. */
+const CURVED_BOX = { west: 7.5, south: 43, east: 12.5, north: 47 };
+let curvedOnce = null;
+/** The curved box built once into a temporary directory (in memory, not streamed). */
+const curvedBuilt = () =>
+  (curvedOnce ??= (async () => {
+    const plan = planTiles(CURVED_BOX, 1920, 7680);
+    const source = createChunkSource({
+      fetchValues: syntheticReader(CURVED_BOX),
+      maxChunks: 4096,
+    });
+    const chunksByLevel = await loadChunks(plan, source);
+    const out = temporary('blocks-tileset-curved-');
+    const result = await buildTileset(plan, chunksByLevel, { out });
+    return { plan, chunksByLevel, out, ...result };
+  })());
+
+test('a curved build: the box middle on the coarsest graticule, every level on the curved map', () => {
+  const plan = planTiles(CURVED_BOX, 1920, 7680);
+  assert.equal(plan.curved, true);
+  assert.deepEqual(plan.levels, [7680, 1920]);
+  assert.ok(
+    Math.abs(plan.anchor.lon0 - 10) < 0.1 &&
+      Math.abs(plan.anchor.lat0 - 45) < 0.1,
+  );
+  // The anchor is a corner of four groups at every level.
+  assert.deepEqual([...plan.groups.get(1920).keys()].sort(), [
+    '-1:-1',
+    '-1:0',
+    '0:-1',
+    '0:0',
+  ]);
+  assert.deepEqual([...plan.groups.get(7680).keys()].sort(), [
+    '-1:-1',
+    '-1:0',
+    '0:-1',
+    '0:0',
+  ]);
+  assert.equal(
+    levelRegion(plan.anchor, 480, true).curved,
+    true,
+    'a finer level on the curved map too',
+  );
+  // The flat builds are as they were.
+  assert.equal(planTiles(groupBox().bbox, 30).curved, false);
+});
+
+test('a curved plan keeps the groups whose ground meets the box, not the bowed rectangle around it', () => {
+  // The lower 48 at 480 m and up (no reads: the plan alone).
+  const box = { west: -125, south: 24, east: -66, north: 50 };
+  const plan = planTiles(box, 480);
+  assert.deepEqual(plan.levels, [30720, 7680, 1920, 480]);
+  const region = levelRegion(plan.anchor, 480, true);
+  const fine = [...plan.groups.get(480).values()];
+  for (const { gi, gj } of fine) {
+    const b = groupBounds(region, gi, gj);
+    assert.ok(
+      b.west < box.east &&
+        b.east > box.west &&
+        b.south < box.north &&
+        b.north > box.south,
+      `group ${gi}:${gj} off the box`,
+    );
+  }
+  // The rectangle around the box's image would be 1,350 groups.
+  assert.equal(fine.length, 1082);
+  // Every finer group's parent is built.
+  for (const { gi, gj } of fine)
+    assert.ok(
+      plan.groups.get(1920).has(`${Math.floor(gi / 4)}:${Math.floor(gj / 4)}`),
+    );
+});
+
+test('curved placement: each vertex is its block corner on the ellipsoid, at its level above it', async () => {
+  const { plan, out, tiles } = await curvedBuilt();
+  const region = levelRegion(plan.anchor, 1920, true);
+  let checked = 0;
+  for (const { uri } of tiles.filter((tile) => tile.uri.startsWith('1920m/'))) {
+    const [, gi, gj] = /g(-?\d+)_(-?\d+)\.glb$/.exec(uri).map(Number);
+    const { world } = tileFrame(
+      { level: 1920, kind: 'group', gi, gj, children: [] },
+      region,
+    );
+    const tile = await unpack(fs.readFileSync(path.join(out, uri)));
+    const { ci, cj } = tile.properties;
+    for (const p of tile.primitives)
+      for (let v = 0; v < p.positions.length / 3; v += 7) {
+        const row = p.featureIds[v];
+        const i = p.blockCoords[v * 3] - foldColumns(ci[row]) + ci[row] * 64;
+        const j =
+          p.blockCoords[v * 3 + 1] - foldColumns(cj[row]) + cj[row] * 64;
+        const level = p.blockCoords[v * 3 + 2];
+        // Faces' corners only (a shaded face's centre is a half).
+        if (!Number.isInteger(i) || !Number.isInteger(j)) continue;
+        const [x, y, z] = [0, 1, 2].map((c) => p.positions[v * 3 + c]);
+        const earth = new Cesium.Cartesian3(
+          ...[0, 1, 2].map(
+            (c) =>
+              world[c] * x +
+              world[4 + c] * y +
+              world[8 + c] * z +
+              world[12 + c],
+          ),
+        );
+        const at = Cesium.Cartographic.fromCartesian(earth);
+        const corner = region.toLonLat(i * 1920, j * 1920);
+        assert.ok(
+          Math.abs(Cesium.Math.toDegrees(at.longitude) - corner.lon) < 1e-5,
+        );
+        assert.ok(
+          Math.abs(Cesium.Math.toDegrees(at.latitude) - corner.lat) < 1e-5,
+        );
+        assert.ok(
+          Math.abs(at.height - level * 60) < 0.5,
+          `height ${at.height} at level ${level}`,
+        );
+        checked++;
+      }
+  }
+  assert.ok(checked > 1000, `${checked} vertices checked`);
+});
+
+test('curved greedy runs: no top face longer than curvedRunCap cells, each straight edge chord under a pixel of its cell', async (t) => {
+  const { plan, out, tiles } = await curvedBuilt();
+  const region = levelRegion(plan.anchor, 1920, true);
+  const cap = curvedRunCap(1920);
+  let longest = 0;
+  let deepestEdge = 0;
+  let deepestMiddle = 0;
+  const earthOf = (world, q) =>
+    Cesium.Cartographic.fromCartesian(
+      new Cesium.Cartesian3(
+        ...[0, 1, 2].map(
+          (c) =>
+            world[c] * q[0] +
+            world[4 + c] * q[1] +
+            world[8 + c] * q[2] +
+            world[12 + c],
+        ),
+      ),
+    ).height;
+  for (const { uri } of tiles.filter((tile) => tile.uri.startsWith('1920m/'))) {
+    const [, gi, gj] = /g(-?\d+)_(-?\d+)\.glb$/.exec(uri).map(Number);
+    const { world } = tileFrame(
+      { level: 1920, kind: 'group', gi, gj, children: [] },
+      region,
+    );
+    const tile = await unpack(fs.readFileSync(path.join(out, uri)));
+    for (const p of tile.primitives)
+      for (let k = 0; k < p.indices.length; k += 3) {
+        const v = [0, 1, 2].map((c) => p.indices[k + c]);
+        const levels = v.map((w) => p.blockCoords[w * 3 + 2]);
+        // Top faces: one level, whole columns at every corner.
+        if (levels[0] !== levels[1] || levels[1] !== levels[2]) continue;
+        const i = v.map((w) => p.blockCoords[w * 3]);
+        const j = v.map((w) => p.blockCoords[w * 3 + 1]);
+        if (![...i, ...j].every(Number.isInteger)) continue;
+        longest = Math.max(
+          longest,
+          Math.max(...i) - Math.min(...i),
+          Math.max(...j) - Math.min(...j),
+        );
+        const at = (w) => [0, 1, 2].map((c) => p.positions[w * 3 + c]);
+        // Each edge along a row or a column: its middle under the level's height.
+        for (const [a, b] of [
+          [0, 1],
+          [1, 2],
+          [2, 0],
+        ]) {
+          if (i[a] !== i[b] && j[a] !== j[b]) continue;
+          const middle = [0, 1, 2].map((c) => (at(v[a])[c] + at(v[b])[c]) / 2);
+          deepestEdge = Math.max(
+            deepestEdge,
+            levels[0] * 60 - earthOf(world, middle),
+          );
+        }
+        // The face's inside, for the record (not what the cap bounds).
+        const centroid = [0, 1, 2].map(
+          (c) => v.reduce((sum, w) => sum + at(w)[c], 0) / 3,
+        );
+        deepestMiddle = Math.max(
+          deepestMiddle,
+          levels[0] * 60 - earthOf(world, centroid),
+        );
+      }
+  }
+  t.diagnostic(
+    `longest run ${longest} cells; edge chord ${deepestEdge.toFixed(0)} m, face middle ${deepestMiddle.toFixed(0)} m (a pixel: ${1920 / CURVED_CELL_PX} m)`,
+  );
+  assert.ok(longest <= cap, `a run of ${longest} cells, cap ${cap}`);
+  assert.equal(longest, cap, 'the open sea merges up to the cap');
+  assert.ok(
+    deepestEdge <= 1920 / CURVED_CELL_PX,
+    `an edge's chord sags ${deepestEdge} m`,
+  );
+  // A face capped both ways sags about twice an edge at its middle (the
+  // cap bounds runs, not faces): 1.7 px of an 8 px cell here.
+  assert.ok(
+    deepestMiddle > deepestEdge &&
+      deepestMiddle < (2.5 * 1920) / CURVED_CELL_PX,
+    `inside ${deepestMiddle} m`,
+  );
+});
+
+test('curved roots: four groups under a content-free root, each tile in its own Earth-fixed frame, Cesium reads them', async () => {
+  const { out, tileset } = await curvedBuilt();
+  assert.ok(
+    tileset.root.boundingVolume.sphere,
+    'several roots: a sphere around them',
+  );
+  assert.equal(tileset.root.children.length, 4);
+  assert.equal(tileset.asset.extras.blocks.curved, true);
+  await withTilesFrom(out, async () => {
+    const loaded = await Cesium.Cesium3DTileset.fromUrl(
+      'http://tiles.test/tileset.json',
+    );
+    for (const child of loaded.root.children) {
+      const centre = Cesium.Cartographic.fromCartesian(
+        child.boundingVolume.boundingVolume.center,
+      );
+      // Each root group's box is over its quarter of the 7,864 km around the seed.
+      assert.ok(Math.abs(Cesium.Math.toDegrees(centre.latitude) - 45) < 40);
+      const fine = child.children.find((tile) =>
+        tile._contentResource?.url.includes('/1920m/'),
+      );
+      assert.ok(fine, 'a 1,920 m group under each root');
+      const middle = Cesium.Cartographic.fromCartesian(
+        fine.boundingVolume.boundingVolume.center,
+      );
+      assert.ok(Math.abs(Cesium.Math.toDegrees(middle.longitude) - 10) < 4);
+      assert.ok(Math.abs(Cesium.Math.toDegrees(middle.latitude) - 45) < 4);
+    }
+  });
+});
+
+/**
+ * Run `body` with Cesium's requests answered from files under `out`
+ * (http://tiles.test/<path>), as a page would fetch them.
+ */
+async function withTilesFrom(out, body) {
+  const implementations = Cesium.Resource._Implementations;
+  const original = implementations.loadWithXhr;
+  implementations.loadWithXhr = (
+    url,
+    responseType,
+    method,
+    data,
+    headers,
+    deferred,
+  ) => {
+    const name = decodeURIComponent(
+      url.replace(/^https?:\/\/[^/]+\//, '').split('?')[0],
+    );
+    const file = path.join(out, name);
+    if (!fs.existsSync(file)) {
+      deferred.reject(new Cesium.RequestErrorEvent(404, 'missing'));
+      return;
+    }
+    const bytes = fs.readFileSync(file);
+    if (responseType === 'json')
+      deferred.resolve(JSON.parse(bytes.toString('utf8')));
+    else if (responseType === 'text') deferred.resolve(bytes.toString('utf8'));
+    else
+      deferred.resolve(
+        bytes.buffer.slice(
+          bytes.byteOffset,
+          bytes.byteOffset + bytes.byteLength,
+        ),
+      );
+  };
+  try {
+    await body();
+  } finally {
+    implementations.loadWithXhr = original;
+  }
+}
+
+test('external tilesets: a subtree every split depth in its own JSON, its paths resolving from its folder, in Cesium too', async () => {
+  // The flat box with three levels (480, 120, 30 m): the 120 m group has children.
+  const { bbox } = groupBox();
+  const plan = planTiles(bbox, 30, 480);
+  assert.deepEqual(plan.levels, [480, 120, 30]);
+  const source = createChunkSource({
+    fetchValues: syntheticReader(bbox),
+    maxChunks: 4096,
+  });
+  const chunksByLevel = await loadChunks(plan, source);
+  const out = temporary('blocks-tileset-split-');
+  const { tileset, externals } = await buildTileset(plan, chunksByLevel, {
+    out,
+    splitDepth: 1,
+  });
+  assert.deepEqual(externals, ['subtrees/120m/g0_0.json']);
+  const reference = tileset.root.children.find(
+    (child) => child.content?.uri === externals[0],
+  );
+  assert.ok(
+    reference && !reference.children,
+    'the subtree is referenced, not inlined',
+  );
+  const sub = JSON.parse(fs.readFileSync(path.join(out, externals[0]), 'utf8'));
+  assert.equal(
+    sub.root.transform,
+    undefined,
+    "its root in the referencing tile's frame",
+  );
+  assert.deepEqual(sub.root.boundingVolume, reference.boundingVolume);
+  const uris = [];
+  const walk = (node) => {
+    if (node.content) uris.push(node.content.uri);
+    (node.children ?? []).forEach(walk);
+  };
+  walk(sub.root);
+  assert.equal(uris[0], '../../120m/g0_0.glb');
+  for (const uri of uris)
+    assert.ok(
+      fs.existsSync(path.join(out, path.dirname(externals[0]), uri)),
+      uri,
+    );
+  // The main JSON holds the root and the references only.
+  walk({ children: [] });
+  await withTilesFrom(out, async () => {
+    const main = await Cesium.Cesium3DTileset.fromUrl(
+      'http://tiles.test/tileset.json',
+    );
+    const tile = main.root.children.find((child) =>
+      child._contentResource?.url.endsWith('.json'),
+    );
+    assert.ok(tile._contentResource.url.endsWith('/subtrees/120m/g0_0.json'));
+    // Cesium resolves the subtree's paths from its own folder.
+    const subtree = await Cesium.Cesium3DTileset.fromUrl(
+      tile._contentResource.url,
+    );
+    assert.equal(
+      subtree.root._contentResource.url,
+      'http://tiles.test/120m/g0_0.glb',
+    );
+    assert.equal(subtree.root.children.length, 16);
+  });
+});
+
+test('streamed: tile by tile from the summaries, the same tiles, skirt floors never shallower than the held build', async () => {
+  const { plan, chunksByLevel, tiles: held } = await built();
+  const source = createChunkSource({
+    fetchValues: syntheticReader(groupBox().bbox),
+    maxChunks: 64,
+  });
+  const summaries = await summarizeLevels(plan, source);
+  for (const tile of walkTiles(tileTree(plan))) {
+    const full = skirtFloors(tile, chunksByLevel);
+    const light = skirtFloors(tile, chunksByLevel, summaries);
+    for (const side of ['n', 's', 'e', 'w'])
+      if (full[side] !== null)
+        assert.ok(
+          light[side] <= full[side],
+          `${side}: ${light[side]} > ${full[side]}`,
+        );
+  }
+  const out = temporary('blocks-tileset-streamed-');
+  const { tiles } = await buildTileset(plan, null, {
+    out,
+    summaries,
+    variants: [
+      {
+        file: 'tileset.json',
+        suffix: '',
+        chunksFor: (tile) => loadTileChunks(plan, source, tile),
+      },
+    ],
+  });
+  assert.deepEqual(
+    tiles.map((t) => t.uri),
+    held.map((t) => t.uri),
+  );
+  // The finest tile's floors line up with its own level's chunk edges: the same mesh.
+  const fine = (list) => list.find((t) => t.uri === '30m/g0_0.glb');
+  assert.ok(fine(tiles).vertices >= fine(held).vertices);
 });

@@ -96,17 +96,27 @@ await MeshoptEncoder.ready;
 /** The app server the heights are read through by default (read-only GET). */
 export const DEFAULT_BASE = 'http://localhost:4173';
 /**
- * The levels a tileset may hold: the pyramid's ×4 chain from 30 m, flat
- * (under CURVED_BLOCK_M: a curved level's columns stand on the sphere,
- * not on one tangent frame; a later cut).
+ * The levels a tileset may hold: the pyramid's ×4 chain from 30 m. A build
+ * whose coarsest level is CURVED_BLOCK_M or more is curved: every level is
+ * laid out on the azimuthal map from the box's middle and stood on the
+ * ellipsoid, as the live renderer places its curved levels (mesh.js
+ * curvedPlacement), so a finer level (480 m) nests in the curved ones.
  */
 export const TILESET_LEVELS_M = Object.freeze(
-  BLOCK_PYRAMID_M.filter((m) => m >= 30 && m < CURVED_BLOCK_M),
+  BLOCK_PYRAMID_M.filter((m) => m >= 30),
 );
+/** External tilesets: a subtree in its own JSON every this many levels below the root. */
+export const SPLIT_DEPTH = 2;
+/**
+ * A finest level with more groups than this is built tile by tile
+ * (streamed: each tile's chunks read when it is built, the skirts from a
+ * first pass's summaries), so a country is never held whole.
+ */
+export const STREAM_GROUPS = 64;
 /** What the tileset's asset says it is. */
 export const TILESET_FORMAT = Object.freeze({
   version: '1.1',
-  tree: 'explicit',
+  tree: 'explicit, split into external tilesets',
   children: CHUNK_GROUP * CHUNK_GROUP,
   refine: 'REPLACE',
   upAxis: 'Y',
@@ -140,7 +150,7 @@ export function parseArgs(argv) {
     return TILESET_LEVELS_M.includes(m)
       ? { m }
       : {
-          error: `${name} must be a tileset level (${TILESET_LEVELS_M.join(', ')} m: the ×4 pyramid, flat): not ${text}`,
+          error: `${name} must be a tileset level (${TILESET_LEVELS_M.join(', ')} m: the ×4 pyramid): not ${text}`,
         };
   };
   const finest = level('--levels');
@@ -150,6 +160,10 @@ export function parseArgs(argv) {
   if (coarsest.error) return { error: coarsest.error };
   if (coarsest.m !== null && coarsest.m < finest.m)
     return { error: '--coarsest must be at least --levels' };
+  const split = value('--split-depth');
+  const splitDepth = split === undefined ? SPLIT_DEPTH : Number(split);
+  if (!Number.isInteger(splitDepth) || splitDepth < 0)
+    return { error: '--split-depth needs a whole number ≥ 0 (0: one JSON)' };
   const dryRun = argv.includes('--dry-run');
   const out = value('--out');
   if (!out && !dryRun) return { error: '--out <dir> is required' };
@@ -160,17 +174,23 @@ export function parseArgs(argv) {
     out: out ?? null,
     base: value('--base') ?? DEFAULT_BASE,
     structures: !argv.includes('--no-structures'),
+    stream: argv.includes('--stream'),
+    splitDepth,
     dryRun,
   };
 }
 
-/** A level's region: the anchor's frame, the level's block and level height. */
-export const levelRegion = (anchor, blockM) =>
+/**
+ * A level's region: the anchor's frame, the level's block and level
+ * height; `curved` for a curved build (the azimuthal map at every level).
+ */
+export const levelRegion = (anchor, blockM, curved = false) =>
   createRegion({
     lon0: anchor.lon0,
     lat0: anchor.lat0,
     blockM,
     levelM: levelMFor(blockM),
+    curved,
   });
 
 /** The columns of a region a box covers: {i0, j0, i1, j1}, inclusive. */
@@ -179,9 +199,13 @@ export function boxColumns(region, bbox) {
   let yMin = Infinity;
   let xMax = -Infinity;
   let yMax = -Infinity;
-  // The edges' midpoints too: a lon/lat box is not a rectangle on the plane.
-  for (const u of [0, 0.5, 1])
-    for (const v of [0, 0.5, 1]) {
+  // The edges' midpoints too: a lon/lat box is not a rectangle on the
+  // plane; on the curved map, more of each edge.
+  const steps = region.curved ? 16 : 2;
+  for (let a = 0; a <= steps; a++)
+    for (let b = 0; b <= steps; b++) {
+      const u = a / steps;
+      const v = b / steps;
       const { x, y } = region.toLocal(
         bbox.west + u * (bbox.east - bbox.west),
         bbox.south + v * (bbox.north - bbox.south),
@@ -220,14 +244,32 @@ export function anchorFor(bbox, blockM) {
   );
 }
 
+/**
+ * A curved build's anchor: the coarsest level's graticule point nearest the
+ * box's middle, where the azimuthal map is truest (3 % across at the lower
+ * 48's corners, 2,700 km out).
+ */
+export const middleAnchorFor = (bbox, blockM) =>
+  snapOrigin(
+    (bbox.west + bbox.east) / 2,
+    (bbox.south + bbox.north) / 2,
+    blockM,
+  );
+
 const tileKey = (gi, gj) => `${gi}:${gj}`;
+
+/** Whether two boxes in degrees overlap. */
+const meetsBox = (a, b) =>
+  a.west < b.east && a.east > b.west && a.south < b.north && a.north > b.south;
 
 /**
  * The tiles for a box: the levels (coarsest first, each ×4 the next), the
  * anchor, and per level the groups built. A level's groups are those the
  * box covers and the parents of the finer level's (the same ground).
+ * A curved build (coarsest level CURVED_BLOCK_M or more) anchors at the
+ * box's middle (middleAnchorFor), every level on the curved map.
  * @returns {{anchor: {lon0, lat0}, levels: number[], groups: Map<number,
- *   Map<string, {gi, gj}>>}}
+ *   Map<string, {gi, gj}>>, curved: boolean}}
  */
 export function planTiles(bbox, finestM, coarsestM = null) {
   const chain = TILESET_LEVELS_M.filter((m) => m >= finestM);
@@ -246,12 +288,16 @@ export function planTiles(bbox, finestM, coarsestM = null) {
     }
   }
   const levels = chain.filter((m) => m <= top).reverse();
-  const anchor = anchorFor(bbox, levels[0]);
+  const curved = levels[0] >= CURVED_BLOCK_M;
+  const anchor = curved
+    ? middleAnchorFor(bbox, levels[0])
+    : anchorFor(bbox, levels[0]);
   const groups = new Map();
   let finer = null;
   for (const m of [...levels].reverse()) {
     const here = new Map();
-    const c = boxColumns(levelRegion(anchor, m), bbox);
+    const region = levelRegion(anchor, m, curved);
+    const c = boxColumns(region, bbox);
     for (
       let gj = Math.floor(c.j0 / GROUP_COLUMNS);
       gj <= Math.floor(c.j1 / GROUP_COLUMNS);
@@ -262,7 +308,11 @@ export function planTiles(bbox, finestM, coarsestM = null) {
         gi <= Math.floor(c.i1 / GROUP_COLUMNS);
         gi++
       )
-        here.set(tileKey(gi, gj), { gi, gj });
+        // On the curved map the box is a bowed shape whose bounding
+        // rectangle reaches far past its corners: only groups whose ground
+        // meets the box (the box around the group's own corners).
+        if (!curved || meetsBox(groupBounds(region, gi, gj), bbox))
+          here.set(tileKey(gi, gj), { gi, gj });
     if (finer)
       for (const { gi, gj } of finer.values()) {
         const parent = {
@@ -274,7 +324,7 @@ export function planTiles(bbox, finestM, coarsestM = null) {
     groups.set(m, here);
     finer = here;
   }
-  return { anchor, levels, groups };
+  return { anchor, levels, groups, curved };
 }
 
 /**
@@ -349,7 +399,7 @@ export function* walkTiles(tiles) {
 export async function loadChunks(plan, source) {
   const out = new Map();
   for (const m of plan.levels) {
-    const region = levelRegion(plan.anchor, m);
+    const region = levelRegion(plan.anchor, m, plan.curved);
     const chunks = new Map();
     for (const { gi, gj } of plan.groups.get(m).values())
       await Promise.all(
@@ -378,13 +428,48 @@ function topAt(chunks, i, j) {
 }
 
 /**
+ * A chunk's lowest tops, for the skirt floors of a build that does not hold
+ * every chunk (streamed): along each edge's columns (n, s, e, w) and over
+ * the whole chunk (all); null where it has none.
+ */
+export function chunkSummary(chunk) {
+  const N = CHUNK_COLUMNS;
+  const low = { n: Infinity, s: Infinity, e: Infinity, w: Infinity };
+  let all = Infinity;
+  for (let j = 0; j < N; j++)
+    for (let i = 0; i < N; i++) {
+      const top = chunk.top[j * N + i];
+      if (top === NONE) continue;
+      if (top < all) all = top;
+      if (j === N - 1 && top < low.n) low.n = top;
+      if (j === 0 && top < low.s) low.s = top;
+      if (i === N - 1 && top < low.e) low.e = top;
+      if (i === 0 && top < low.w) low.w = top;
+    }
+  const or = (value) => (value === Infinity ? null : value);
+  return {
+    n: or(low.n),
+    s: or(low.s),
+    e: or(low.e),
+    w: or(low.w),
+    all: or(all),
+  };
+}
+
+const isWhole = (value) => Math.abs(value - Math.round(value)) < 1e-9;
+
+/**
  * A tile's skirt floors {n, s, e, w} in its level's levels: along each
  * border, the lowest top of the columns either side of it at every level
  * built (all levels share one levelM up to 480 m blocks; otherwise each
  * is converted through metres), so the skirt reaches whatever ground a
- * finer or coarser neighbour stands on there.
+ * finer or coarser neighbour stands on there. With `summaries` (level →
+ * 'ci:cj' → chunkSummary, a streamed build's), from those: a level whose
+ * chunk edges lie on the border gives the same floor as its columns; a
+ * coarser level whose chunks straddle it gives each such chunk's lowest
+ * top, deeper than the columns would, never shallower.
  */
-export function skirtFloors(tile, chunksByLevel) {
+export function skirtFloors(tile, chunksByLevel, summaries = null) {
   const { x, y, side } = tileExtent(tile);
   const levelM = levelMFor(tile.level);
   const lines = {
@@ -396,16 +481,52 @@ export function skirtFloors(tile, chunksByLevel) {
   const floors = {};
   for (const [name, line] of Object.entries(lines)) {
     let lowestM = Infinity;
-    for (const [m, chunks] of chunksByLevel) {
-      const across = Math.round(line.at / m);
-      const first = Math.floor(line.from / m);
-      const count = Math.ceil(side / m);
-      for (let k = first; k < first + count; k++)
-        for (const c of [across - 1, across]) {
-          const top =
-            line.along === 'y' ? topAt(chunks, c, k) : topAt(chunks, k, c);
-          if (top !== null) lowestM = Math.min(lowestM, top * levelMFor(m));
+    const lower = (top, m) => {
+      if (top !== null && top !== undefined)
+        lowestM = Math.min(lowestM, top * levelMFor(m));
+    };
+    for (const [m, byKey] of summaries ?? chunksByLevel) {
+      if (!summaries) {
+        const across = Math.round(line.at / m);
+        const first = Math.floor(line.from / m);
+        const count = Math.ceil(side / m);
+        for (let k = first; k < first + count; k++)
+          for (const c of [across - 1, across])
+            lower(
+              line.along === 'y' ? topAt(byKey, c, k) : topAt(byKey, k, c),
+              m,
+            );
+        continue;
+      }
+      const chunkM = CHUNK_COLUMNS * m;
+      const key = (c, k) =>
+        line.along === 'y' ? tileKey(c, k) : tileKey(k, c);
+      if (
+        isWhole(line.at / chunkM) &&
+        isWhole(line.from / chunkM) &&
+        isWhole(side / chunkM)
+      ) {
+        // The border on this level's chunk edges: the chunk before it gives
+        // its far edge (e or n), the one after it its near edge (w or s).
+        const across = Math.round(line.at / chunkM);
+        const first = Math.round(line.from / chunkM);
+        for (let k = first; k < first + Math.round(side / chunkM); k++) {
+          const before = byKey.get(key(across - 1, k));
+          const after = byKey.get(key(across, k));
+          lower(line.along === 'y' ? before?.e : before?.n, m);
+          lower(line.along === 'y' ? after?.w : after?.s, m);
         }
+        continue;
+      }
+      // A coarser level's chunks across the border: each one's lowest.
+      const crossing = new Set([
+        Math.floor((line.at - 1e-6) / chunkM),
+        Math.floor((line.at + 1e-6) / chunkM),
+      ]);
+      const first = Math.floor(line.from / chunkM);
+      const last = Math.floor((line.from + side - 1e-6) / chunkM);
+      for (let k = first; k <= last; k++)
+        for (const c of crossing) lower(byKey.get(key(c, k))?.all, m);
     }
     floors[name] =
       lowestM === Infinity ? null : Math.floor(lowestM / levelM + 1e-9);
@@ -415,21 +536,27 @@ export function skirtFloors(tile, chunksByLevel) {
 
 /**
  * A tile's mesh: its chunks meshed (neighbours inside the tile only, skirts
- * on the tile's borders) and merged in the tile's frame, east-north-up
- * metres from its south-west corner, each vertex dropped onto the
- * ellipsoid's curve under the tangent plane. Opaque indices first, then
- * the water's.
- * @returns {{positions: Float32Array, normals: Float32Array, colors:
- *   Uint8Array, blockCoords: Float32Array, indices: Uint32Array,
- *   opaqueIndexCount: number, faces: number}}
+ * on the tile's borders) in the tile's frame. Flat: east-north-up metres
+ * from its south-west corner, each vertex dropped onto the ellipsoid's
+ * curve under the tangent plane. Curved (a curved region): each column
+ * stood on the ellipsoid by the live mesher (mesh.js curvedPlacement, its
+ * greedy runs capped by curvedRunCap) in the anchor's frame, then moved by
+ * `toTile` (tileFrame) into the tile's own east-north-up frame.
+ * @returns {{chunks: Array<{ci, cj, mesh}>, faces: number, vertices:
+ *   number, indices: number, bounds: {min, max}|null}}
  */
-export function tileMesh(tile, chunksByLevel, region) {
+export function tileMesh(
+  tile,
+  chunksByLevel,
+  region,
+  { summaries = null, toTile = null } = {},
+) {
   const chunks = chunksByLevel.get(tile.level);
   const levelM = levelMFor(tile.level);
   const blockM = tile.level;
   const chunkM = CHUNK_COLUMNS * blockM;
   const inTile = new Set(tileChunks(tile).map(([ci, cj]) => tileKey(ci, cj)));
-  const floors = skirtFloors(tile, chunksByLevel);
+  const floors = skirtFloors(tile, chunksByLevel, summaries);
   const { x: tileX, y: tileY } = tileExtent(tile);
   const neighbourAt = (ci, cj) =>
     inTile.has(tileKey(ci, cj)) ? chunks.get(tileKey(ci, cj)) : undefined;
@@ -454,7 +581,23 @@ export function tileMesh(tile, chunksByLevel, region) {
     const skirt = {};
     for (const name of ['n', 's', 'e', 'w'])
       skirt[name] = neighbours[name] ? null : floors[name];
-    const mesh = buildChunkMesh(chunk, { neighbours, blockM, levelM, skirt });
+    const mesh = buildChunkMesh(chunk, {
+      neighbours,
+      blockM,
+      levelM,
+      skirt,
+      ...(region.curved
+        ? {
+            curved: {
+              lon0: region.lon0,
+              lat0: region.lat0,
+              regionBlockM: region.blockM,
+              cornerM: { x: ci * chunkM, y: cj * chunkM },
+              datumM: 0,
+            },
+          }
+        : {}),
+    });
     meshes.push({ mesh, ci, cj });
   }
   // The ellipsoid's drop under the tangent plane at region metres (x, y).
@@ -471,6 +614,7 @@ export function tileMesh(tile, chunksByLevel, region) {
   const placed = [];
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
+  const p = [0, 0, 0];
   let faces = 0;
   let vertices = 0;
   let indices = 0;
@@ -480,13 +624,24 @@ export function tileMesh(tile, chunksByLevel, region) {
     const dx = ci * chunkM;
     const dy = cj * chunkM;
     for (let v = 0; v < count; v++) {
-      const x = mesh.positions[v * 3] + dx;
-      const y = mesh.positions[v * 3 + 1] + dy;
-      const p = [
-        x - tileX,
-        y - tileY,
-        mesh.positions[v * 3 + 2] + dropAt(x, y),
-      ];
+      if (region.curved) {
+        // The anchor's frame (the mesh's origin plus its position), then the tile's.
+        const ax = mesh.origin.x + mesh.positions[v * 3];
+        const ay = mesh.origin.y + mesh.positions[v * 3 + 1];
+        const az = mesh.origin.z + mesh.positions[v * 3 + 2];
+        for (let c = 0; c < 3; c++)
+          p[c] =
+            toTile[c] * ax +
+            toTile[4 + c] * ay +
+            toTile[8 + c] * az +
+            toTile[12 + c];
+      } else {
+        const x = mesh.positions[v * 3] + dx;
+        const y = mesh.positions[v * 3 + 1] + dy;
+        p[0] = x - tileX;
+        p[1] = y - tileY;
+        p[2] = mesh.positions[v * 3 + 2] + dropAt(x, y);
+      }
       for (let c = 0; c < 3; c++) {
         positions[v * 3 + c] = p[c];
         if (p[c] < min[c]) min[c] = p[c];
@@ -505,6 +660,82 @@ export function tileMesh(tile, chunksByLevel, region) {
     indices,
     bounds: vertices ? { min, max } : null,
   };
+}
+
+/** The inverse of a rigid column-major 4 × 4 (a rotation and a translation). */
+export function inverseRigid(m) {
+  const out = new Array(16).fill(0);
+  for (let r = 0; r < 3; r++)
+    for (let c = 0; c < 3; c++) out[c * 4 + r] = m[r * 4 + c];
+  for (let r = 0; r < 3; r++)
+    out[12 + r] = -(
+      m[r * 4] * m[12] +
+      m[r * 4 + 1] * m[13] +
+      m[r * 4 + 2] * m[14]
+    );
+  out[15] = 1;
+  return out;
+}
+
+/**
+ * A curved build's tile frame: east-north-up on the ellipsoid at the
+ * middle of the tile's ground (`world`, column-major, Earth-fixed), and
+ * the move from the anchor's frame (the mesher's) into it (`toTile`).
+ */
+export function tileFrame(tile, region) {
+  const { x, y, side } = tileExtent(tile);
+  const middle = region.toLonLat(x + side / 2, y + side / 2);
+  const world = enuTransform({ lon0: middle.lon, lat0: middle.lat });
+  const anchor = enuTransform({ lon0: region.lon0, lat0: region.lat0 });
+  return { world, toTile: multiplyTransform(inverseRigid(world), anchor) };
+}
+
+/**
+ * The chunks of one tile, read through `source` (a streamed build's: the
+ * tile's own level only; the skirts come from the summaries).
+ */
+export async function loadTileChunks(plan, source, tile) {
+  const region = levelRegion(plan.anchor, tile.level, plan.curved);
+  const chunks = new Map();
+  const loaded = await Promise.all(
+    tileChunks(tile).map(([ci, cj]) => source.loadChunk(region, ci, cj)),
+  );
+  tileChunks(tile).forEach(([ci, cj], k) =>
+    chunks.set(tileKey(ci, cj), loaded[k]),
+  );
+  return new Map([[tile.level, chunks]]);
+}
+
+/**
+ * Every built chunk's summary (chunkSummary), level by level, group by
+ * group through `source`, holding none of the chunks: a streamed build's
+ * first pass, for the skirt floors.
+ * @returns {Promise<Map<number, Map<string, object>>>}
+ */
+export async function summarizeLevels(plan, source, { log = null } = {}) {
+  const out = new Map();
+  for (const m of plan.levels) {
+    const region = levelRegion(plan.anchor, m, plan.curved);
+    const byKey = new Map();
+    const groups = [...plan.groups.get(m).values()];
+    for (const [n, { gi, gj }] of groups.entries()) {
+      const keys = [];
+      const loads = [];
+      for (let k = 0; k < CHUNK_GROUP * CHUNK_GROUP; k++) {
+        const ci = gi * CHUNK_GROUP + (k % CHUNK_GROUP);
+        const cj = gj * CHUNK_GROUP + Math.floor(k / CHUNK_GROUP);
+        keys.push(tileKey(ci, cj));
+        loads.push(source.loadChunk(region, ci, cj));
+      }
+      (await Promise.all(loads)).forEach((chunk, k) =>
+        byKey.set(keys[k], chunkSummary(chunk)),
+      );
+      if (log && ((n + 1) % 50 === 0 || n + 1 === groups.length))
+        log(`summaries: ${m} m, ${n + 1} of ${groups.length} groups read`);
+    }
+    out.set(m, byKey);
+  }
+  return out;
 }
 
 /**
@@ -793,7 +1024,7 @@ const bytesOf = (array) =>
  * every column of its chunks (heightfield, surfaces and structures). A tile
  * already written with the same digest is not built again.
  */
-export function tileDigest(tile, chunksByLevel) {
+export function tileDigest(tile, chunksByLevel, summaries = null) {
   const hash = createHash('sha256');
   hash.update(buildCodeDigest());
   hash.update(
@@ -804,7 +1035,7 @@ export function tileDigest(tile, chunksByLevel) {
       gj: tile.gj,
       ci: tile.ci,
       cj: tile.cj,
-      floors: skirtFloors(tile, chunksByLevel),
+      floors: skirtFloors(tile, chunksByLevel, summaries),
     }),
   );
   const chunks = chunksByLevel.get(tile.level);
@@ -839,37 +1070,56 @@ function readState(out) {
 
 /**
  * Build the tilesets: every tile's glTF, and a tileset JSON a variant, under
- * `out`. `variants` ([{file, name, suffix, chunksByLevel}], the first the
- * default): the same tree drawn from different chunks, a tile's file
- * shared where a variant's chunks of its level are the first's (the coarse
- * levels), its own (`suffix` before .glb) where not (the fine levels
- * without their buildings). A tile whose file exists with its inputs'
- * digest unchanged (BUILD_STATE) is kept, not built again; the state is
- * written after each tile, so an interrupted build resumes where it
- * stopped.
- * @returns {{tiles: Array<{uri, level, kind, bytes, vertices, indices,
- *   faces, kept}>, tilesets: Map<string, object>, tileset: object}}
+ * `out`. `variants` ([{file, name, suffix, chunksByLevel | chunksFor}], the
+ * first the default): the same tree drawn from different chunks, a tile's
+ * file shared where a variant's chunks of its level are the first's (the
+ * coarse levels), its own (`suffix` before .glb) where not (the fine levels
+ * without their buildings). A streamed variant reads each tile's chunks
+ * when it builds it (`chunksFor(tile)`), with `summaries` for the skirts.
+ * A tile whose file exists with its inputs' digest unchanged (BUILD_STATE)
+ * is kept, not built again; the state is written after each tile, so an
+ * interrupted build resumes where it stopped. Every `splitDepth` levels
+ * below the root a subtree goes into its own JSON (an external tileset,
+ * `subtrees/<level>m/g<gi>_<gj>.json`), which Cesium loads when it
+ * reaches it, so a country's tileset.json stays small.
+ * @returns {Promise<{tiles: Array<{uri, level, kind, bytes, vertices,
+ *   indices, faces, kept}>, tilesets: Map<string, object>, tileset:
+ *   object, externals: string[]}>}
  */
-export function buildTileset(
+export async function buildTileset(
   plan,
   chunksByLevel,
-  { out, inputs = {}, variants = null },
+  {
+    out,
+    inputs = {},
+    variants = null,
+    summaries = null,
+    splitDepth = SPLIT_DEPTH,
+    log = null,
+  },
 ) {
   variants ??= [{ file: 'tileset.json', suffix: '', chunksByLevel }];
   const base = variants[0].chunksByLevel;
   const roots = tileTree(plan);
   const regions = new Map(
-    plan.levels.map((m) => [m, levelRegion(plan.anchor, m)]),
+    plan.levels.map((m) => [m, levelRegion(plan.anchor, m, plan.curved)]),
   );
   const state = readState(out);
   const writeState = () =>
     writeAtomic(path.join(out, BUILD_STATE), JSON.stringify(state));
   const tiles = [];
   const done = new Map(); // uri → {box, content}, this run
-  const buildTile = (tile, chunks, uri) => {
+  const total = variants.length * [...walkTiles(roots)].length;
+  const started = Date.now();
+  let visited = 0;
+  const buildTile = async (tile, variant, uri) => {
+    visited++;
     const known = done.get(uri);
     if (known) return known;
-    const digest = tileDigest(tile, chunks);
+    const chunks = variant.chunksFor
+      ? await variant.chunksFor(tile)
+      : variant.chunksByLevel;
+    const digest = tileDigest(tile, chunks, summaries);
     const record = state.tiles[uri];
     const file = path.join(out, uri);
     let result;
@@ -880,7 +1130,11 @@ export function buildTileset(
       result = { box: record.box, content: record.bytes > 0 };
       tiles.push({ ...record.stats, uri, bytes: record.bytes, kept: true });
     } else {
-      const mesh = tileMesh(tile, chunks, regions.get(tile.level));
+      const region = regions.get(tile.level);
+      const mesh = tileMesh(tile, chunks, region, {
+        summaries,
+        toTile: plan.curved ? tileFrame(tile, region).toTile : null,
+      });
       const glb = encodeTile(mesh, tile.level);
       if (glb) writeAtomic(file, glb);
       const stats = {
@@ -900,22 +1154,39 @@ export function buildTileset(
       tiles.push({ ...stats, uri, bytes, kept: false });
     }
     done.set(uri, result);
+    if (log && (visited % 25 === 0 || visited === total)) {
+      const kept = tiles.filter((t) => t.kept).length;
+      log(
+        `${visited} of ${total} tiles: ${tiles.length - kept} built, ${kept} kept, ` +
+          `${((Date.now() - started) / 1000).toFixed(0)} s`,
+      );
+    }
     return result;
   };
   const tilesets = new Map();
+  const externals = [];
   for (const variant of variants) {
     const uriOf = (tile) =>
-      variant.chunksByLevel.get(tile.level) === base.get(tile.level)
+      variants.length === 1 ||
+      variant.chunksByLevel?.get(tile.level) === base?.get(tile.level)
         ? tileUri(tile)
         : tileUri(tile).replace(/\.glb$/, `${variant.suffix}.glb`);
-    const toJson = (tile, parent = null) => {
+    const toJson = async (tile, parent, depth) => {
       const uri = uriOf(tile);
-      const { box, content } = buildTile(tile, variant.chunksByLevel, uri);
+      const { box, content } = await buildTile(tile, variant, uri);
       const { x, y } = tileExtent(tile);
-      const origin = parent ? { x: x - parent.x, y: y - parent.y } : { x, y };
-      const node = {
+      let transform;
+      let world = null;
+      if (plan.curved) {
+        // Each tile in its own east-north-up frame, relative to its parent's.
+        world = tileFrame(tile, regions.get(tile.level)).world;
+        transform = parent
+          ? multiplyTransform(inverseRigid(parent.world), world)
+          : world;
+      } else {
         // Relative to the parent's frame (the root's to the anchor's).
-        transform: [
+        const origin = parent ? { x: x - parent.x, y: y - parent.y } : { x, y };
+        transform = [
           1,
           0,
           0,
@@ -932,33 +1203,84 @@ export function buildTileset(
           origin.y,
           0,
           1,
-        ],
+        ];
+      }
+      const node = {
+        transform,
         boundingVolume: { box },
         // The content's error is its block; a leaf is exact as far as the tree goes.
         geometricError: tile.children.length ? tile.level : 0,
         refine: 'REPLACE',
         ...(content ? { content: { uri } } : {}),
       };
-      if (tile.children.length)
-        node.children = tile.children.map((child) => toJson(child, { x, y }));
+      if (tile.children.length) {
+        node.children = [];
+        for (const child of tile.children)
+          node.children.push(await toJson(child, { x, y, world }, depth + 1));
+      }
+      if (
+        splitDepth > 0 &&
+        depth > 0 &&
+        depth % splitDepth === 0 &&
+        node.children
+      ) {
+        // The subtree in its own JSON: its root in the referencing tile's
+        // frame (no transform of its own), its files' paths from there.
+        const file = `subtrees${variant.suffix}/${tile.level}m/g${tile.gi}_${tile.gj}.json`;
+        const { transform: own, ...rest } = node;
+        void own;
+        writeAtomic(
+          path.join(out, file),
+          JSON.stringify({
+            asset: {
+              version: TILESET_FORMAT.version,
+              generator: 'godseye scripts/blocks-tileset.mjs',
+            },
+            geometricError: node.geometricError,
+            root: prefixUris(rest, '../../'),
+          }),
+        );
+        externals.push(file);
+        return {
+          transform: node.transform,
+          boundingVolume: node.boundingVolume,
+          geometricError: node.geometricError,
+          refine: 'REPLACE',
+          content: { uri: file },
+        };
+      }
       return node;
     };
-    const rootNodes = roots.map((root) => toJson(root));
-    const rootFrame = enuTransform(plan.anchor);
+    const rootNodes = [];
+    for (const root of roots) rootNodes.push(await toJson(root, null, 0));
     const coarsest = plan.levels[0];
-    const root =
-      rootNodes.length === 1
-        ? {
-            ...rootNodes[0],
-            transform: multiplyTransform(rootFrame, rootNodes[0].transform),
-          }
+    let root;
+    if (rootNodes.length === 1)
+      root = plan.curved
+        ? rootNodes[0]
         : {
-            transform: rootFrame,
-            boundingVolume: enclosingBox(rootNodes),
-            geometricError: coarsest * CHUNK_GROUP,
-            refine: 'REPLACE',
-            children: rootNodes,
+            ...rootNodes[0],
+            transform: multiplyTransform(
+              enuTransform(plan.anchor),
+              rootNodes[0].transform,
+            ),
           };
+    else if (plan.curved)
+      root = {
+        // Several roots, each in its own Earth-fixed frame.
+        boundingVolume: { sphere: enclosingSphere(rootNodes) },
+        geometricError: coarsest * CHUNK_GROUP,
+        refine: 'REPLACE',
+        children: rootNodes,
+      };
+    else
+      root = {
+        transform: enuTransform(plan.anchor),
+        boundingVolume: enclosingBox(rootNodes),
+        geometricError: coarsest * CHUNK_GROUP,
+        refine: 'REPLACE',
+        children: rootNodes,
+      };
     const tileset = {
       asset: {
         version: TILESET_FORMAT.version,
@@ -966,11 +1288,12 @@ export function buildTileset(
         extras: {
           blocks: {
             anchor: plan.anchor,
+            curved: plan.curved,
             levelsM: plan.levels,
             levelHeightsM: plan.levels.map(levelMFor),
             chunkColumns: CHUNK_COLUMNS,
             chunkGroup: CHUNK_GROUP,
-            format: TILESET_FORMAT,
+            format: { ...TILESET_FORMAT, splitDepth },
             // The encoder's (gltf.js): its block point folded by chunk.
             attributes: {
               _BLOCKCOORD: `columns east and north, the chunk's folded modulo ${FOLD_COLUMNS}, and the level`,
@@ -993,7 +1316,59 @@ export function buildTileset(
     writeAtomic(path.join(out, variant.file), JSON.stringify(tileset, null, 1));
     tilesets.set(variant.file, tileset);
   }
-  return { tiles, tilesets, tileset: tilesets.get(variants[0].file) };
+  return {
+    tiles,
+    tilesets,
+    tileset: tilesets.get(variants[0].file),
+    externals,
+  };
+}
+
+/** A tree node with every content path given a prefix (an external tileset's, from its folder). */
+function prefixUris(node, prefix) {
+  return {
+    ...node,
+    ...(node.content ? { content: { uri: prefix + node.content.uri } } : {}),
+    ...(node.children
+      ? { children: node.children.map((child) => prefixUris(child, prefix)) }
+      : {}),
+  };
+}
+
+/** A sphere [x, y, z, r] (Earth-fixed) around several nodes' boxes in their own frames. */
+function enclosingSphere(nodes) {
+  const corners = [];
+  for (const { transform: m, boundingVolume } of nodes) {
+    const b = boundingVolume.box;
+    for (const sx of [-1, 1])
+      for (const sy of [-1, 1])
+        for (const sz of [-1, 1]) {
+          const local = [0, 1, 2].map(
+            (c) => b[c] + sx * b[3 + c] + sy * b[6 + c] + sz * b[9 + c],
+          );
+          corners.push(
+            [0, 1, 2].map(
+              (c) =>
+                m[c] * local[0] +
+                m[4 + c] * local[1] +
+                m[8 + c] * local[2] +
+                m[12 + c],
+            ),
+          );
+        }
+  }
+  const centre = [0, 1, 2].map(
+    (c) =>
+      (Math.min(...corners.map((p) => p[c])) +
+        Math.max(...corners.map((p) => p[c]))) /
+      2,
+  );
+  const radius = Math.max(
+    ...corners.map((p) =>
+      Math.hypot(p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]),
+    ),
+  );
+  return [...centre, radius];
 }
 
 /**
@@ -1026,7 +1401,7 @@ export async function loadStructures(plan, chunksByLevel, structures) {
   const ground = new Map(chunksByLevel);
   const levels = plan.levels.filter((m) => m <= STRUCTURES_MAX_BLOCK_M);
   for (const m of levels) {
-    const region = levelRegion(plan.anchor, m);
+    const region = levelRegion(plan.anchor, m, plan.curved);
     const withBuildings = new Map();
     const without = new Map();
     for (const [key, chunk] of chunksByLevel.get(m)) {
@@ -1081,7 +1456,7 @@ function enclosingBox(nodes) {
 export function planLatticeTiles(plan) {
   const out = new Map();
   for (const m of plan.levels) {
-    const region = levelRegion(plan.anchor, m);
+    const region = levelRegion(plan.anchor, m, plan.curved);
     const keys = new Set();
     for (const { gi, gj } of plan.groups.get(m).values())
       for (const { ti, tj } of latticeTilesOver(groupBounds(region, gi, gj), m))
@@ -1140,19 +1515,32 @@ export async function main({
   argv = process.argv.slice(2),
   fetchValues,
   query,
-  log = console.log,
+  log: print = console.log,
 } = {}) {
   const args = parseArgs(argv);
   if (args.error) {
-    log(args.error);
+    print(args.error);
     return 2;
   }
+  const startedAt = Date.now();
+  // Every line to the console and, once there is an output, its build.log.
+  const logFile = args.out ? path.join(args.out, 'build.log') : null;
+  const log = (line) => {
+    print(line);
+    if (!logFile) return;
+    fs.mkdirSync(args.out, { recursive: true });
+    fs.appendFileSync(logFile, `${new Date().toISOString()} ${line}\n`);
+  };
   const plan = planTiles(args.bbox, args.finestM, args.coarsestM);
   const tree = tileTree(plan);
   const all = [...walkTiles(tree)];
   const lattice = planLatticeTiles(plan);
+  const finestGroups = plan.groups.get(
+    plan.levels[plan.levels.length - 1],
+  ).size;
+  const streamed = args.stream || finestGroups > STREAM_GROUPS;
   log(
-    `levels ${plan.levels.join(', ')} m; ${all.length} tiles (` +
+    `levels ${plan.levels.join(', ')} m${plan.curved ? ' (curved)' : ''}; ${all.length} tiles (` +
       plan.levels
         .map((m) => {
           const here = all.filter((tile) => tile.level === m);
@@ -1160,19 +1548,50 @@ export async function main({
           return `${m} m: ${here.length - fills} groups${fills ? ` + ${fills} fill` : ''}`;
         })
         .join(', ') +
-      `); lattice tiles to read: ${[...lattice].map(([m, n]) => `${m} m: ${n}`).join(', ')} (a cached one costs nothing)`,
+      `); lattice tiles to read: ${[...lattice].map(([m, n]) => `${m} m: ${n}`).join(', ')} (a cached one costs nothing)` +
+      (streamed ? '; streamed tile by tile' : ''),
   );
   if (args.dryRun) return 0;
+  // Earth Engine's day as the app server counts it (other sessions' use counts too).
+  const budget = async () => {
+    if (fetchValues) return null;
+    try {
+      const answer = await fetch(`${args.base}/api/earth-engine/budget`);
+      return answer.ok ? (await answer.json()).total : null;
+    } catch {
+      return null;
+    }
+  };
+  const budgetBefore = await budget();
   const reader = fetchValues ?? serverHeightReader({ base: args.base });
-  const source = createChunkSource({ fetchValues: reader, maxChunks: 4096 });
+  const source = createChunkSource({
+    fetchValues: reader,
+    maxChunks: streamed ? 512 : 4096,
+  });
   let started = Date.now();
-  const chunksByLevel = await loadChunks(plan, source);
-  log(`heights read in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  let chunksByLevel = null;
+  let summaries = null;
   let variants = null;
   const structureLevels = plan.levels.filter(
     (m) => m <= STRUCTURES_MAX_BLOCK_M,
   );
-  if (args.structures && structureLevels.length) {
+  if (streamed) {
+    summaries = await summarizeLevels(plan, source, { log });
+    log(`summaries read in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+    if (args.structures && structureLevels.length)
+      log('structures need the whole box held: none in a streamed build');
+    variants = [
+      {
+        file: 'tileset.json',
+        suffix: '',
+        chunksFor: (tile) => loadTileChunks(plan, source, tile),
+      },
+    ];
+  } else {
+    chunksByLevel = await loadChunks(plan, source);
+    log(`heights read in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  }
+  if (!streamed && args.structures && structureLevels.length) {
     const overpass = query ?? serverOverpass({ base: args.base });
     const structures = createStructuresSource({
       loadChunk: (region, ci, cj) => source.loadChunk(region, ci, cj),
@@ -1204,18 +1623,22 @@ export async function main({
       },
     ];
   }
-  const { tiles } = buildTileset(plan, chunksByLevel, {
+  const { tiles, externals } = await buildTileset(plan, chunksByLevel, {
     out: args.out,
     variants,
+    summaries,
+    splitDepth: args.splitDepth,
+    log,
     inputs: {
       heights: fetchValues
         ? 'a given reader'
         : `${args.base}/api/raster/values`,
-      structures: variants
-        ? query
-          ? 'a given query'
-          : `${args.base}/api/overpass`
-        : 'none',
+      structures:
+        variants?.length > 1
+          ? query
+            ? 'a given query'
+            : `${args.base}/api/overpass`
+          : 'none',
     },
   });
   const kept = tiles.filter((tile) => tile.kept).length;
@@ -1229,7 +1652,15 @@ export async function main({
         `largest ${(Math.max(...here.map((tile) => tile.bytes)) / 1024).toFixed(0)} KiB`,
     );
   }
-  log(`written to ${args.out}`);
+  if (externals.length) log(`${externals.length} external tilesets`);
+  const budgetAfter = await budget();
+  if (budgetBefore !== null && budgetAfter !== null)
+    log(
+      `Earth Engine today: ${budgetBefore} → ${budgetAfter} tiles (anyone's, during this build)`,
+    );
+  log(
+    `written to ${args.out} in ${((Date.now() - startedAt) / 1000).toFixed(0)} s`,
+  );
   return 0;
 }
 
