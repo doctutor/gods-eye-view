@@ -1161,9 +1161,14 @@ walker; the two never draw the same ground.
   - **A pre-warm at the first Blocks status** (`prewarmPrograms`): three
     Models a millimetre across (a live batch's feature table with the
     parked planes, a tile's with them and without; `prewarmBlocksGlb`)
-    drawn 10 m in front of the eye, under a tenth of a pixel, and removed
-    two frames after they are ready. Under the ground the globe occluded
-    them and Cesium culled the draw, so nothing was linked.
+    drawn ahead of the eye, half the camera's height out (10 m to 100 km)
+    and following it each frame, far under a pixel, and removed two frames
+    after they are ready. Under the ground the globe occluded them and
+    Cesium culled the draw; placed once, a shared link's flight carried the
+    camera away before they were ready; either way nothing was linked. The
+    harness's --prewarm-check holds them and reads the scene back at the
+    canvas's centre: 1 and 3 of 4,096 pixels change by more than two levels
+    (at 300 m and 5,000 km, for the frames they stand), no quad.
     Lake Tahoe now links none (26 before); the app's start 19 (37). The city
     still links three or four programs whose text matches one linked at the
     start (some other input of Cesium's shader cache differs): about 0.1 s,
