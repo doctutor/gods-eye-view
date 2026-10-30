@@ -3861,3 +3861,81 @@ test('with the real grid, a live 480 m region is curved (grid.js LIVE_CURVED_BLO
     assert.equal(opts.flatDrop.regionBlockM, 120);
   }
 });
+
+test('hybrid: the tiles’ hole opens only as far as the live chunks are drawn: closed until the fine disc is in, then the fine disc, the coarse ring and each ring in turn, out to the live reach', async () => {
+  const base = fakeSource({ blockM: 1, hold: true });
+  const source = {
+    ...base,
+    async regionFor(lon, lat, windowM, options = {}) {
+      base.regions.push({ lon, lat, windowM });
+      const { levelMFor, pyramidLevelM } = await import('./pyramid.js');
+      const blockM = pyramidLevelM(1, options.wantedM);
+      return { blockM, levelM: levelMFor(blockM), nativeM: 1, source: 'x' };
+    },
+  };
+  const renderer = fakeRenderer();
+  renderer.setRegions = () => {};
+  renderer.setRingHoles = () => {};
+  renderer.setFog = () => {};
+  const store = createRenderModeStore({ storage: memoryStorage() });
+  store.setMode('blocks');
+  const controller = createBlocksController({
+    viewer: fakeViewer(),
+    store,
+    layers: fakeLayers(true),
+    source,
+    renderer,
+    grid: fakeGrid,
+    buildChunkMesh: (chunk) => ({ faces: 1, chunk }),
+    footprint: () => 0.3,
+    flatStyle: () => true,
+    radiusBlocks: 64,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl: () => {},
+    tiles: {
+      plan: () => ({ mode: 'hybrid', box: TILES_BOX, floorM: 480 }),
+    },
+  });
+  const radii = [];
+  const note = () => {
+    const hole = controller.getStatus().tiles?.hole;
+    const r = hole ? hole.radiusM : 0;
+    if (radii.at(-1) !== r) radii.push(r);
+  };
+  await drain(controller, 50);
+  note();
+  assert.equal(controller.getStatus().state, 'loading');
+  assert.equal(controller.getStatus().tiles.hole, null, 'the tiles whole');
+  // The 1 m loads (the fine disc and its coarse ring) first, then the 8 m
+  // ring's, then the 120 m ring's: the hole after each.
+  const phase = async (blockM) => {
+    for (let round = 0; round < 200; round++) {
+      const open = base.loads.filter(
+        (l) => l.resolve && l.region.blockM === blockM,
+      );
+      for (const load of open) {
+        load.resolve();
+        delete load.resolve;
+      }
+      await settle();
+      controller.tick();
+      await settle();
+      note();
+      if (!open.length && round > 20) break;
+    }
+    return controller.getStatus().tiles.hole?.radiusM ?? 0;
+  };
+  const afterFine = await phase(1);
+  assert.ok(afterFine === 64 || afterFine === 256, `${afterFine} m`);
+  assert.equal(await phase(8), 512);
+  assert.equal(await phase(120), 7680);
+  await drain(controller, 100);
+  note();
+  assert.equal(controller.getStatus().state, 'ready');
+  // Closed, then wider each time, never narrower.
+  assert.equal(radii[0], 0);
+  for (let k = 1; k < radii.length; k++)
+    assert.ok(radii[k] > radii[k - 1], `${radii}`);
+  assert.equal(radii.at(-1), 7680);
+  controller.destroy();
+});

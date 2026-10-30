@@ -770,6 +770,13 @@ export function createBlocksController({
   let _tilesStatus = null;
   /** The live rings' centre (the camera's ground at the last tick). */
   let _holeCentre = null;
+  /**
+   * What the last tick wanted drawn, nearest first: the fine disc, the
+   * coarse ring and the rings past it, each with its reach (m), for the
+   * tiles' hole to open only as far as the live chunks are drawn
+   * (drawnReachM).
+   */
+  let _wanted = null;
   /** The live renderer's fog last set for the tiles ('hybrid'), as JSON. */
   let _tilesFogKey = null;
   /** The map an entry is kept in. */
@@ -949,12 +956,53 @@ export function createBlocksController({
    * in 'tiles': their heights are above sea level) and the fog toward the
    * horizon; null when off. The same object while nothing changed.
    */
+  /**
+   * How far about the rings' centre the live chunks are drawn (m): none
+   * until every chunk of the fine disc is drawn (or failed), then the fine
+   * disc's reach, the coarse ring's once it is in, and each ring's as it
+   * comes, nearest first; never past the live reach. The tiles' hole opens
+   * to it ('hybrid'), so the tiles stay the picture until the live chunks
+   * replace them, and nothing is drawn twice for long.
+   */
+  function drawnReachM() {
+    const wanted = _wanted;
+    if (!wanted || !_region) return 0;
+    const done = (entry) => Boolean(entry && (entry.shown || entry.failed));
+    if (
+      !wanted.fine.every(({ ci, cj }) =>
+        done(_chunks.get(grid.chunkKey(ci, cj))),
+      )
+    )
+      return 0;
+    let reach = wanted.fineReachM;
+    if (wanted.groups.length) {
+      const coarseIn = wanted.groups.every(
+        ({ gi, gj }) =>
+          done(_coarse.get(coarseKey(gi, gj))) || groupDrawn(gi, gj),
+      );
+      if (!coarseIn) return Math.min(reach, _liveReachM);
+      reach = wanted.coarseReachM;
+    }
+    for (const { ring, list } of wanted.rings) {
+      if (_rings.get(ring.level) !== ring) break;
+      if (
+        !list.every(({ ci, cj }) =>
+          done(ring.chunks.get(ringKey(ring.level, ci, cj))),
+        )
+      )
+        break;
+      reach = radiusBlocks * ring.level;
+    }
+    return Math.min(reach, _liveReachM);
+  }
+
   function tilesStatusNow() {
     if (_tiles.mode === 'off' || !_tiles.box) {
       _tilesStatus = null;
       return null;
     }
     const hybrid = _tiles.mode === 'hybrid';
+    const holeM = hybrid && _region && _holeCentre ? drawnReachM() : 0;
     const next = {
       mode: _tiles.mode,
       box: _tiles.box.name,
@@ -962,10 +1010,8 @@ export function createBlocksController({
       month: _tiles.box.month,
       finestM: _tiles.box.finestM,
       floorM: _tiles.floorM,
-      hole:
-        hybrid && _region && _holeCentre && _liveReachM > 0
-          ? { ..._holeCentre, radiusM: _liveReachM }
-          : null,
+      // Where the live chunks are drawn: none until the fine disc is in.
+      hole: holeM > 0 ? { ..._holeCentre, radiusM: holeM } : null,
       datumOffsetM: hybrid
         ? (_region?.datumOffsetM ?? 0)
         : (_tilesDatum?.offsetM ?? 0),
@@ -1112,6 +1158,7 @@ export function createBlocksController({
     _ringHolesKey = null;
     _tilesFogKey = null;
     _liveReachM = 0;
+    _wanted = null;
     _groupBuildings.clear();
     _region = null;
     stopTicking();
@@ -2192,6 +2239,13 @@ export function createBlocksController({
     // The rings past the coarse one: loaded once the fine ring is in, so
     // the near ground comes first.
     const rings = syncRings(camera, horizonCut);
+    _wanted = {
+      fine: ring,
+      fineReachM: radius * _region.blockM,
+      groups,
+      coarseReachM: radiusBlocks * COARSE_REACH * _region.blockM,
+      rings,
+    };
     // With the tiles past the live chunks, one fog for both, toward the
     // horizon (the live rings stop short of it).
     if (_tiles.mode === 'hybrid') {
