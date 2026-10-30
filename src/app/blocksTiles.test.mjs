@@ -11,6 +11,7 @@ import {
   TILES_SCREEN_ERROR,
   GUARD_STEP,
   HOLE_SIDES,
+  INSIDE_HOLE_BLOCKS,
   createBlocksTilesLayer,
   createCacheGuard,
   holePlanes,
@@ -414,5 +415,56 @@ test('the tiles inside the hole are culled before they load: clipping planes on 
   layer.apply({ state: 'ready', tiles: { ...TILES, hole: null } });
   viewer.scene.preRender.raiseEvent();
   assert.equal(clipping.enabled, false);
+  layer.destroy();
+});
+
+test('a camera inside a tile (under its top, before the live chunks’ hole opens) opens a small hole about itself the frame it is found, kept while it stays, gone when the live hole opens', async () => {
+  const { viewer, layer, made } = setup();
+  await layer.ready;
+  const scene = viewer.scene;
+  let top = 4000;
+  let samples = 0;
+  scene.sampleHeightSupported = true;
+  scene.sampleHeight = () => {
+    samples++;
+    return top;
+  };
+  const u = (name) => layer.shader.uniforms[name].value;
+  const closed = { ...TILES, hole: null };
+  layer.apply({ state: 'loading', tiles: closed });
+  await settle();
+  const frame = () => scene.preRender.raiseEvent();
+  // Over the tiles' top (5,000 m up, the top at 4,000 m): nothing opens.
+  frame();
+  assert.equal(u('u_holeRadiusM'), 0);
+  assert.equal(layer.getState().inside, null);
+  // Under it: a hole of two floor blocks about the camera, at once.
+  top = 5100;
+  frame();
+  assert.equal(u('u_holeRadiusM'), INSIDE_HOLE_BLOCKS * 30);
+  assert.equal(layer.getState().insideOpens, 1);
+  assert.equal(made[0].clippingPlanes.enabled, true, 'its tiles culled too');
+  // Kept while the camera stays (the hole hides the tile from the sample).
+  top = undefined;
+  const asked = samples;
+  frame();
+  assert.equal(u('u_holeRadiusM'), INSIDE_HOLE_BLOCKS * 30);
+  assert.equal(samples, asked, 'not sampled again while inside');
+  // The live hole opens: it takes over.
+  layer.apply({ state: 'ready', tiles: TILES });
+  frame();
+  assert.equal(u('u_holeRadiusM'), 7680);
+  assert.equal(layer.getState().inside, null);
+  // High up: never sampled.
+  layer.apply({ state: 'loading', tiles: closed });
+  scene.camera.positionCartographic = Cesium.Cartographic.fromDegrees(
+    -76.6,
+    39.27,
+    20_000,
+  );
+  const before = samples;
+  frame();
+  assert.equal(samples, before);
+  assert.equal(u('u_holeRadiusM'), 0);
   layer.destroy();
 });

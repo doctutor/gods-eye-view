@@ -38,6 +38,16 @@ export const TILES_CACHE_BYTES = 256 * 1024 * 1024;
 export const GUARD_STEP = 1.25;
 
 /**
+ * Below this height (m above the ellipsoid) and before the live chunks'
+ * hole opens, each frame asks whether the camera is inside a tile (under
+ * its top): at the street the 120 m tiles draw until the live fine disc
+ * is in, and the camera can stand inside one of their blocks.
+ */
+export const INSIDE_CHECK_M = 9000;
+/** The hole opened about a camera inside a tile: this many floor blocks. */
+export const INSIDE_HOLE_BLOCKS = 2;
+
+/**
  * The cache guard. While the tiles a view wants overflow the cache
  * (cacheBytes plus Cesium's maximumCacheOverflowBytes), Cesium raises a
  * tileset's memoryAdjustedScreenSpaceError 2 % a frame, unloads tiles, and
@@ -182,6 +192,57 @@ export function createBlocksTilesLayer({
   const guard = createCacheGuard();
   /** The hole the clipping planes were last set for, as JSON. */
   let clippedKey = null;
+  /**
+   * The hole about a camera found inside a tile ({lon, lat, radiusM}),
+   * kept while the camera stays in it (the hole's own discard hides the
+   * tile from the next sample), until the live chunks' hole opens.
+   */
+  let inside = null;
+  let insideOpens = 0;
+
+  /**
+   * Whether the camera stands under the shown tiles' top (scene.sampleHeight
+   * over the tileset), and if so the small hole that lets it see out: a wall
+   * across the lens is worse than a small hole in the tiles.
+   */
+  function insideHole(tileset, at) {
+    if (state?.mode !== 'hybrid' || !(at.height < INSIDE_CHECK_M)) {
+      inside = null;
+      return null;
+    }
+    const lon = Cesium.Math.toDegrees(at.longitude);
+    const lat = Cesium.Math.toDegrees(at.latitude);
+    if (inside) {
+      const away = Cesium.Cartesian3.distance(
+        Cesium.Cartesian3.fromDegrees(lon, lat),
+        Cesium.Cartesian3.fromDegrees(inside.lon, inside.lat),
+      );
+      if (away < inside.radiusM / 2) return inside;
+      inside = null;
+    }
+    if (
+      !scene.sampleHeightSupported ||
+      typeof scene.sampleHeight !== 'function'
+    )
+      return null;
+    let top;
+    try {
+      top = scene.sampleHeight(
+        new Cesium.Cartographic(at.longitude, at.latitude),
+        [tileset],
+      );
+    } catch {
+      top = undefined;
+    }
+    if (!(Number.isFinite(top) && at.height < top)) return null;
+    insideOpens++;
+    inside = {
+      lon,
+      lat,
+      radiusM: INSIDE_HOLE_BLOCKS * (Number(state.floorM) || 0),
+    };
+    return inside;
+  }
 
   const requestRender = () => scene.requestRender?.();
 
@@ -296,7 +357,9 @@ export function createBlocksTilesLayer({
       });
       shader.setUniform('u_fogColor', new Cesium.Cartesian4(...color));
     }
-    const hole = state.hole;
+    let hole = state.hole;
+    if (hole?.radiusM > 0) inside = null;
+    else if (shown && at) hole = insideHole(shown, at);
     const view = scene.camera?.viewMatrix;
     if (hole?.radiusM > 0 && view) {
       const world = Cesium.Cartesian3.fromDegrees(
@@ -406,6 +469,9 @@ export function createBlocksTilesLayer({
         // The cache guard: the error it holds now, and how often it held.
         heldError: guard.error,
         guardHolds: guard.steps,
+        // The hole about a camera inside a tile, and how often it opened.
+        inside,
+        insideOpens,
         // The hole's clipping planes on (the tiles inside it culled).
         clipped: Boolean(shown?.clippingPlanes?.enabled),
         memoryMB: shown?.totalMemoryUsageInBytes
