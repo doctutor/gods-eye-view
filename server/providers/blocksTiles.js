@@ -51,7 +51,9 @@ export function boxEntry(dir, name) {
   // Every level's groups (a group's variants are one group).
   const byLevel = new Map(blocks.levelsM.map((level) => [level, new Map()]));
   for (const [file, tile] of Object.entries(state?.tiles || {})) {
-    if (tile?.stats?.kind !== 'group') continue;
+    // A group whose tile has no content (its heights failed in the build)
+    // is a hole: the live chunks fill it (worker1, 2026-10-30).
+    if (tile?.stats?.kind !== 'group' || tile.bytes === 0) continue;
     const match = /^(\d+(?:\.\d+)?)m\/g(-?\d+)_(-?\d+)\./.exec(file);
     const level = match && byLevel.get(Number(match[1]));
     if (!level) continue;
