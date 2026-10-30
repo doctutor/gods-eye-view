@@ -1093,9 +1093,9 @@ so the server's tiles route finds every tree under one root. A junction is
 removed with `rmdir` on the link, never a recursive delete, which would
 follow it into E:.
 
-| Tree                           | Where                                                                  |
-| ------------------------------ | ---------------------------------------------------------------------- |
-| `baltimore-harbour-30`, `-120` | D: (small)                                                             |
-| `lower48-480`                  | D: (4.5 GB)                                                            |
-| `europe-480`                   | E:, junctioned in (3.4 GB: 1,316 tiles, 16 minutes, nothing fetched)   |
-| `lower48-120`                  | E:, junctioned in (about 33 to 38 GB; waits for the warm-up and a yes) |
+| Tree                           | Where                                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `baltimore-harbour-30`, `-120` | D: (small)                                                                                 |
+| `lower48-480`                  | E:, junctioned in (3.3 GB in layout v2 without fans, rebuilt 2026-10-30; was 4.5 GB on D:) |
+| `europe-480`                   | E:, junctioned in (2.6 GB in layout v2 without fans; was 3.4 GB)                           |
+| `lower48-120`                  | E:, junctioned in (about 33 to 38 GB; waits for the warm-up and a yes)                     |
