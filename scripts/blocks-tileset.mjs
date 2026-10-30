@@ -61,7 +61,11 @@ import {
   metresPerDegree,
   snapOrigin,
 } from '../src/layers/blocks/grid.js';
-import { latticeBox, latticeTilesOver } from '../src/layers/blocks/lattice.js';
+import {
+  latticeBox,
+  latticeCells,
+  latticeTilesOver,
+} from '../src/layers/blocks/lattice.js';
 import { buildChunkMesh } from '../src/layers/blocks/mesh.js';
 import {
   FOLD_COLUMNS,
@@ -77,7 +81,7 @@ import {
   createChunkSource,
   groupBounds,
 } from '../src/layers/blocks/source.js';
-import { NONE, createChunk } from '../src/layers/blocks/store.js';
+import { MATERIALS, NONE, createChunk } from '../src/layers/blocks/store.js';
 import {
   QUERY_GAP_MS,
   applyStructures,
@@ -578,7 +582,7 @@ export function tileMesh(
   tile,
   chunksByLevel,
   region,
-  { summaries = null, toTile = null } = {},
+  { summaries = null, toTile = null, mesher = buildChunkMesh } = {},
 ) {
   const chunks = chunksByLevel.get(tile.level);
   const levelM = levelMFor(tile.level);
@@ -610,7 +614,7 @@ export function tileMesh(
     const skirt = {};
     for (const name of ['n', 's', 'e', 'w'])
       skirt[name] = neighbours[name] ? null : floors[name];
-    const mesh = buildChunkMesh(chunk, {
+    const mesh = mesher(chunk, {
       neighbours,
       blockM,
       levelM,
@@ -1035,28 +1039,95 @@ function writeAtomic(file, bytes) {
 }
 
 /**
- * The files the tile digests cover besides the inputs: the build and the
- * mesher's (a change to either rebuilds every tile; the inputs, the
- * heights and the structures, are in each tile's digest as data).
+ * The fingerprint's synthetic chunk: every kind of column a real tile
+ * carries, laid out by rule (no randomness): open sea (its bed stepping),
+ * a lake above sea level, land in uneven steps (ambient occlusion), a
+ * nodata patch, land cover (a road across, a park), a building and a
+ * bridge deck one block thick over the ground.
  */
-const CODE_FILES = [
-  'scripts/blocks-tileset.mjs',
-  'src/layers/blocks/mesh.js',
-  'src/layers/blocks/gltf.js',
-  'src/layers/blocks/lighting.js',
-  'src/layers/blocks/store.js',
-  'src/layers/blocks/grid.js',
-];
-let codeDigest = null;
-/** The build's code, hashed once a run. */
-function buildCodeDigest() {
-  if (codeDigest) return codeDigest;
-  const hash = createHash('sha256');
-  for (const file of CODE_FILES)
-    hash.update(fs.readFileSync(path.join(ROOT, file)));
-  codeDigest = hash.digest('hex');
-  return codeDigest;
+export function canaryChunk(ci = 1, cj = 1) {
+  const N = CHUNK_COLUMNS;
+  const top = new Int32Array(N * N);
+  const water = new Int32Array(N * N).fill(NONE);
+  for (let j = 0; j < N; j++)
+    for (let i = 0; i < N; i++) {
+      const k = j * N + i;
+      if (i < 12) {
+        top[k] = -1 - ((i + j) % 3);
+        water[k] = 0;
+      } else if (i >= 20 && i < 28 && j >= 20 && j < 28) {
+        top[k] = 4;
+        water[k] = 5;
+      } else if (i >= 40 && i < 46 && j >= 50 && j < 56) top[k] = NONE;
+      else top[k] = 2 + ((i * 7 + j * 13) % 5) + (i > 32 ? (i - 32) >> 2 : 0);
+    }
+  const chunk = createChunk({ ci, cj, top, water });
+  for (let i = 12; i < N; i++)
+    if (chunk.top[30 * N + i] !== NONE) chunk.setSurface(i, 30, MATERIALS.ROAD);
+  for (let j = 40; j < 48; j++)
+    for (let i = 14; i < 20; i++) chunk.setSurface(i, j, MATERIALS.GRASS);
+  for (let j = 10; j < 14; j++)
+    for (let i = 50; i < 56; i++)
+      chunk.setStructure(i, j, chunk.top[j * N + i] + 4, MATERIALS.BUILDING);
+  for (let i = 30; i < 38; i++) {
+    const deck = chunk.top[34 * N + i] + 3;
+    chunk.setStructure(i, 34, deck, MATERIALS.ROAD, deck);
+  }
+  return chunk;
 }
+
+/** Where the fingerprint's two tiles stand (any fixed place does). */
+const FINGERPRINT_ANCHOR = Object.freeze({ lon0: 10, lat0: 45 });
+
+/**
+ * What a tile looks like for this build's code, as one hash: two synthetic
+ * fill tiles of canaryChunk, one flat at 30 m (the drop onto the curve)
+ * and one curved at 1,920 m (the tile frame, curvedPlacement, the run cap),
+ * each meshed by tileMesh (skirts on its four borders) and written by
+ * encodeTile (the shared encoder, meshopt). A refactor that keeps the
+ * bytes keeps the hash; any change to what a tile holds changes it.
+ * `mesher` and `encode` stand in for buildChunkMesh and encodeTile (tests).
+ */
+export function meshFingerprint({
+  mesher = buildChunkMesh,
+  encode = encodeTile,
+} = {}) {
+  const hash = createHash('sha256');
+  for (const [blockM, curved] of [
+    [30, false],
+    [1920, true],
+  ]) {
+    const region = levelRegion(FINGERPRINT_ANCHOR, blockM, curved);
+    const tile = {
+      level: blockM,
+      kind: 'fill',
+      gi: 0,
+      gj: 0,
+      ci: 1,
+      cj: 1,
+      children: [],
+    };
+    const chunks = new Map([[blockM, new Map([['1:1', canaryChunk(1, 1)]])]]);
+    const mesh = tileMesh(tile, chunks, region, {
+      toTile: curved ? tileFrame(tile, region).toTile : null,
+      mesher,
+    });
+    hash.update(encode(mesh, blockM));
+  }
+  return hash.digest('hex').slice(0, 32);
+}
+
+let fingerprintOnce = null;
+/** This build's mesher fingerprint, made once a run. */
+export const buildFingerprint = () => (fingerprintOnce ??= meshFingerprint());
+
+/** How the build compresses its tiles (compressGlb), kept in the digests by value. */
+export const MESHOPT_SETTINGS = Object.freeze({
+  reorder: true,
+  attributes: 'ATTRIBUTES',
+  indices: 'TRIANGLES',
+  fallback: true,
+});
 
 /** A typed array's bytes, for a digest. */
 const bytesOf = (array) =>
@@ -1067,9 +1138,24 @@ const bytesOf = (array) =>
  * every column of its chunks (heightfield, surfaces and structures). A tile
  * already written with the same digest is not built again.
  */
-export function tileDigest(tile, chunksByLevel, summaries = null) {
+export function tileDigest(
+  tile,
+  chunksByLevel,
+  summaries = null,
+  { fingerprint = null, landOnly = false, splitDepth = SPLIT_DEPTH } = {},
+) {
   const hash = createHash('sha256');
-  hash.update(buildCodeDigest());
+  // What the code makes of a tile (the mesher fingerprint), and the
+  // build's own settings that shape its output, by value.
+  hash.update(
+    JSON.stringify({
+      fingerprint: fingerprint ?? buildFingerprint(),
+      latticeCells: latticeCells(tile.level),
+      landOnly,
+      splitDepth,
+      meshopt: MESHOPT_SETTINGS,
+    }),
+  );
   hash.update(
     JSON.stringify({
       level: tile.level,
@@ -1138,6 +1224,8 @@ export async function buildTileset(
     variants = null,
     summaries = null,
     splitDepth = SPLIT_DEPTH,
+    landOnly = false,
+    fingerprint = null,
     log = null,
   },
 ) {
@@ -1175,7 +1263,11 @@ export async function buildTileset(
       done.set(uri, result);
       return result;
     }
-    const digest = tileDigest(tile, chunks, summaries);
+    const digest = tileDigest(tile, chunks, summaries, {
+      fingerprint,
+      landOnly,
+      splitDepth,
+    });
     const record = state.tiles[uri];
     const file = path.join(out, uri);
     let result;
@@ -1773,6 +1865,7 @@ export async function main({
     variants,
     summaries,
     splitDepth: args.splitDepth,
+    landOnly: args.landOnly,
     log,
     inputs: {
       heights: fetchValues

@@ -962,7 +962,15 @@ download.
     on the switch.
 - **Resume.** `build-state.json` beside the tiles holds each tile's inputs'
   digest, its bounding box and its counts. The digest covers:
-  - the build's and the mesher's code;
+  - the mesher fingerprint (since 2026-10-30, replacing a hash of the code's
+    text): two synthetic fill tiles of one chunk carrying every input class
+    (sea, a lake, stepped land, nodata, a road, a park, a building, a deck;
+    flat at 30 m and curved at 1,920 m, with skirts and shaded corners),
+    meshed and encoded exactly as real tiles and hashed. A refactor that
+    keeps the bytes keeps every tile; any change to what a tile holds
+    rebuilds them all;
+  - the build's own output settings, by value: the level's lattice side,
+    `--land-only`, the split depth, the meshopt settings;
   - the tile and its skirt floors;
   - every column of its chunks: the heightfield, surfaces and structures.
 
@@ -1085,5 +1093,5 @@ follow it into E:.
 | ------------------------------ | ---------------------------------------------------------------------- |
 | `baltimore-harbour-30`, `-120` | D: (small)                                                             |
 | `lower48-480`                  | D: (4.5 GB)                                                            |
-| `europe-480`                   | E:, junctioned in                                                      |
+| `europe-480`                   | E:, junctioned in (3.4 GB: 1,316 tiles, 16 minutes, nothing fetched)   |
 | `lower48-120`                  | E:, junctioned in (about 33 to 38 GB; waits for the warm-up and a yes) |
