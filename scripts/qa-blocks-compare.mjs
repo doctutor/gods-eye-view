@@ -680,8 +680,25 @@ export const isLiveRoute = (pathname) =>
     route.endsWith('/') ? pathname.startsWith(route) : pathname === route,
   );
 
-/** Pass an intercepted request to the live server and answer with its reply. */
-async function proxy(request, url, live, log) {
+/**
+ * Connection failures a GET is asked again after, once: a keep-alive
+ * socket the server had just closed (Node's 5 s keep-alive), seen as
+ * "fetch failed" though the server answered every other request.
+ */
+const RESET_CAUSES = new Set([
+  'ECONNRESET',
+  'EPIPE',
+  'UND_ERR_SOCKET',
+  'UND_ERR_CLOSED',
+]);
+
+/**
+ * Pass an intercepted request to the live server and answer with its
+ * reply. A GET whose connection is reset is asked once more; a failure
+ * after the shot's page closed (`log.closedAt`) is a request the shot no
+ * longer waits for: counted in `log.cutOff`, not an error.
+ */
+export async function proxy(request, url, live, log, fetchImpl = fetch) {
   const started = Date.now();
   const route = url.pathname.startsWith('/api/earth-engine/')
     ? '/api/earth-engine/'
@@ -690,11 +707,21 @@ async function proxy(request, url, live, log) {
     const headers = {};
     const type = request.headers()['content-type'];
     if (type) headers['content-type'] = type;
-    const answer = await fetch(`${live}${url.pathname}${url.search}`, {
-      method: request.method(),
-      headers,
-      body: request.method() === 'GET' ? undefined : request.postData(),
-    });
+    const ask = () =>
+      fetchImpl(`${live}${url.pathname}${url.search}`, {
+        method: request.method(),
+        headers,
+        body: request.method() === 'GET' ? undefined : request.postData(),
+      });
+    let answer;
+    try {
+      answer = await ask();
+    } catch (error) {
+      const code = error?.cause?.code;
+      if (request.method() !== 'GET' || !RESET_CAUSES.has(code)) throw error;
+      log.retried = (log.retried || 0) + 1;
+      answer = await ask();
+    }
     const body = Buffer.from(await answer.arrayBuffer());
     const stat = (log.live[route] ||= {
       count: 0,
@@ -706,6 +733,8 @@ async function proxy(request, url, live, log) {
     stat.ms += Date.now() - started;
     stat.bytes += body.length;
     stat.status[answer.status] = (stat.status[answer.status] || 0) + 1;
+    // Answered after the shot: its page is gone, so nothing to answer.
+    if (log.closedAt) return undefined;
     return request.respond({
       status: answer.status,
       contentType:
@@ -713,7 +742,15 @@ async function proxy(request, url, live, log) {
       body,
     });
   } catch (error) {
-    log.errors.push(`live ${url.pathname}: ${error?.message || error}`);
+    // The shot is over: nothing waits for this one, and its page is gone.
+    if (log.closedAt) {
+      log.cutOff = (log.cutOff || 0) + 1;
+      return undefined;
+    }
+    const cause = error?.cause?.code || error?.cause?.message || '';
+    log.errors.push(
+      `live ${url.pathname}: ${error?.message || error}${cause ? ` (${cause})` : ''}, ${Date.now() - log.started} ms into the shot`,
+    );
     return request.respond({
       status: 502,
       contentType: 'application/json',
@@ -1045,6 +1082,7 @@ async function shoot({
     );
     scene.push({ after: 'Render: Colour', ...(await probe(page)) });
   }
+  log.closedAt = Date.now();
   await context.close();
   return { name, file, status, scene, ...log, missing: [...log.missing] };
 }
@@ -1789,6 +1827,14 @@ export async function main(argv = process.argv.slice(2)) {
         `  live ${route}: ${stat.count} answers ${JSON.stringify(stat.status)}, ${Math.round(stat.ms / Math.max(1, stat.count))} ms each, ${(stat.bytes / 1e6).toFixed(1)} MB`,
       );
     for (const error of result.errors) console.log(`  page error: ${error}`);
+    if (result.retried)
+      console.log(
+        `  live requests asked again after a reset: ${result.retried}`,
+      );
+    if (result.cutOff)
+      console.log(
+        `  live requests still out when the shot ended (not errors): ${result.cutOff}`,
+      );
   }
   // The run's numbers beside the PNGs.
   const report = {
@@ -1816,6 +1862,8 @@ export async function main(argv = process.argv.slice(2)) {
       trail: result.trail,
       statusTrail: result.statusTrail,
       errors: result.errors,
+      liveRetried: result.retried || 0,
+      liveCutOff: result.cutOff || 0,
     })),
   };
   writeFileSync(
