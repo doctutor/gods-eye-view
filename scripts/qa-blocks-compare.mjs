@@ -1113,6 +1113,8 @@ export const SEQUENCE_STEPS = Object.freeze([
     name: 'step3-lake',
     query: 'Lake Tahoe, California',
     view: { lat: 39.09, lon: -120.03, alt: 50_000 },
+    // The pick at the view's centre lands on the lake.
+    pickWater: true,
   },
   {
     name: 'step4-city',
@@ -1124,6 +1126,7 @@ export const SEQUENCE_STEPS = Object.freeze([
     // The user's street address: given with --street-query, never kept.
     query: null,
     view: { lat: 39.326, lon: -76.633, alt: 400 },
+    pickWater: false,
   },
 ]);
 
@@ -1411,10 +1414,76 @@ function sequenceHoldings() {
         }
       : null,
     renderer: rs
-      ? { chunks: rs.chunks, batches: rs.batches, stats: rs.stats ?? null }
+      ? {
+          chunks: rs.chunks,
+          batches: rs.batches,
+          stats: rs.stats ?? null,
+          // Models made and not drawn yet (the Model renderer).
+          loadingModels: rs.loadingModels ?? null,
+        }
       : null,
     primitives: window.__godsEyeView?.viewer?.scene?.primitives?.length ?? null,
     imageryLayers: window.__godsEyeView?.viewer?.imageryLayers?.length ?? null,
+  };
+}
+
+/**
+ * The view held still for three seconds, a frame requested on every
+ * animation frame: frames drawn a second, scene.render's main-thread ms
+ * (median and 95th percentile), the commands the last frame drew and the
+ * Blocks Models: the cost of drawing apart from loading. Then a pick at
+ * the view's centre and the chunk the renderer names for it (pickedChunk;
+ * null before the Model renderer).
+ */
+async function sequenceStill() {
+  const scene = window.__godsEyeView.viewer.scene;
+  const probe = window.__gevBlocksProbe;
+  const renderMs = [];
+  const render = scene.render;
+  scene.render = function (...args) {
+    const start = performance.now();
+    const result = render.apply(this, args);
+    renderMs.push(performance.now() - start);
+    return result;
+  };
+  let frames = 0;
+  const removeListener = scene.postRender.addEventListener(() => frames++);
+  const start = performance.now();
+  await new Promise((resolve) => {
+    const tick = () => {
+      scene.requestRender();
+      if (performance.now() - start < 3000) requestAnimationFrame(tick);
+      else resolve();
+    };
+    tick();
+  });
+  removeListener();
+  scene.render = render;
+  const commands = scene.frameState?.commandList?.length ?? null;
+  const sorted = renderMs.slice().sort((a, b) => a - b);
+  const quantile = (q) =>
+    sorted.length
+      ? Math.round(
+          sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] *
+            10,
+        ) / 10
+      : null;
+  const canvas = scene.canvas;
+  const picked = scene.pick({
+    x: canvas.clientWidth / 2,
+    y: canvas.clientHeight / 2,
+  });
+  const chunk = probe?.renderer?.pickedChunk?.(picked) ?? null;
+  return {
+    fps: Math.round((frames / 3) * 10) / 10,
+    renderMs: { median: quantile(0.5), p95: quantile(0.95) },
+    commands,
+    blocksModels: probe?.renderer?.getState?.()?.primitives ?? null,
+    pick: {
+      hit: Boolean(picked),
+      chunk,
+      drawn: chunk ? probe.renderer.keys().includes(chunk.key) : null,
+    },
   };
 }
 
@@ -1601,6 +1670,12 @@ async function runSequence({
     const { usedSize } = await cdp.send('Runtime.getHeapUsage');
     const { profile: heap } = await cdp.send('HeapProfiler.getSamplingProfile');
     const holdings = await page.evaluate(sequenceHoldings);
+    const still = await page.evaluate(sequenceStill);
+    // A step that says what its centre is: the pick names a drawn chunk
+    // and its water flag.
+    if (settled && typeof step.pickWater === 'boolean' && still.pick.chunk)
+      still.pick.expected =
+        still.pick.drawn && still.pick.chunk.water === step.pickWater;
     const file = path.join(out, `${step.name}.png`);
     await page.screenshot({ path: file });
     const budgetAfter = await budgetUsed(page);
@@ -1625,6 +1700,7 @@ async function runSequence({
       heapAfterGcMB: Math.round(usedSize / 1e5) / 10,
       heapSites: heapSites(heap),
       holdings,
+      still,
       valuesByCell: Object.fromEntries(
         Object.entries(
           log.requests
@@ -1733,7 +1809,7 @@ export async function main(argv = process.argv.slice(2)) {
       );
       for (const step of run.results)
         console.log(
-          `${step.name} (${step.via}${step.settled ? '' : ', not settled'}): first blocks ${step.firstBlocksMs} ms, settled ${step.settledMs} ms, levels ${step.levels.join(' → ')}, upserts ${step.upserts}, anchors ${step.anchors}, values ${step.requests.values}, budget ${step.budget}, long tasks ${step.longTasks.count}/${step.longTasks.totalMs} ms, ${step.fps} fps, heap ${step.heapMaxMB} MB`,
+          `${step.name} (${step.via}${step.settled ? '' : ', not settled'}): first blocks ${step.firstBlocksMs} ms, settled ${step.settledMs} ms, levels ${step.levels.join(' → ')}, upserts ${step.upserts}, anchors ${step.anchors}, values ${step.requests.values}, budget ${step.budget}, long tasks ${step.longTasks.count}/${step.longTasks.totalMs} ms, ${step.fps} fps, heap ${step.heapMaxMB} MB; still ${step.still?.fps} fps, render ${step.still?.renderMs?.median}/${step.still?.renderMs?.p95} ms, ${step.still?.commands} commands, pick ${step.still?.pick?.chunk ? `${step.still.pick.chunk.key}${step.still.pick.chunk.water ? ' water' : ''}` : 'none'}${step.still?.pick?.expected === false ? ' (NOT as expected)' : ''}`,
         );
       console.log(`sequence: ${path.join(out, 'sequence.json')}`);
       return run;
