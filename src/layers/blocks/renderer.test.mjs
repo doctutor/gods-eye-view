@@ -466,7 +466,9 @@ test('a real Cesium.Model from a tiny mesh (the default createModel): unlit unde
   assert.equal(model.imageBasedLighting.enabled, false);
   const shader = model.customShader;
   assert.ok(shader instanceof Cesium.CustomShader);
-  assert.equal(shader.mode, Cesium.CustomShaderMode.REPLACE_MATERIAL);
+  // Modifying, not replacing, the material: Cesium runs the material stage
+  // (the water's BLEND: the translucent pass, no depth) only then.
+  assert.equal(shader.mode, Cesium.CustomShaderMode.MODIFY_MATERIAL);
   assert.equal(shader.lightingModel, Cesium.LightingModel.UNLIT);
   assert.equal(
     shader.translucencyMode,

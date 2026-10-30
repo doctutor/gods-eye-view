@@ -239,11 +239,15 @@ const SHADER_UNIFORMS = () => ({
 
 /**
  * A level's shader: the Blocks look over the baked colours, unlit, the
- * water's translucency from its glTF material (BLEND).
+ * water's translucency from its glTF material (BLEND). It modifies the
+ * material rather than replacing it: with a replacing fragment shader
+ * Cesium skips the material stage, and with it the alpha mode, so the
+ * water drew opaque and wrote depth (the fragment sets every colour and
+ * alpha the material stage gave anyway).
  */
 export function blocksShader() {
   return new Cesium.CustomShader({
-    mode: Cesium.CustomShaderMode.REPLACE_MATERIAL,
+    mode: Cesium.CustomShaderMode.MODIFY_MATERIAL,
     lightingModel: Cesium.LightingModel.UNLIT,
     translucencyMode: Cesium.CustomShaderTranslucencyMode.INHERIT,
     uniforms: Object.fromEntries(
