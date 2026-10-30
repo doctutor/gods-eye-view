@@ -401,12 +401,19 @@ const imageLightingOff = () =>
 /**
  * A Blocks Model from a GLB (gltf.js), as the renderer draws it: no
  * vertical exaggeration (the controller bakes the relief into the mesh),
- * no environment map or image lighting, no shadows, picked by feature.
+ * no environment map or image lighting, no shadows, picked by feature;
+ * its axes a 3D Tiles tile's.
  * @returns {Promise<Cesium.Model>}
  */
 export function createBlocksModel(glb, { modelMatrix, customShader }) {
   return Cesium.Model.fromGltfAsync({
     gltf: glb,
+    // glTF's Y-up turned to Z-up and nothing more, as a 3D Tiles tile is
+    // (Cesium3DTileset's modelForwardAxis X): a lone Model's default Z
+    // forward adds a quarter turn about up, which turned every batch about
+    // its own corner.
+    upAxis: Cesium.Axis.Y,
+    forwardAxis: Cesium.Axis.X,
     modelMatrix,
     customShader,
     asynchronous: false,

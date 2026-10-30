@@ -32,6 +32,7 @@ import {
   chunkMatrix,
   createBlocksRenderer,
   model3D,
+  createBlocksModel,
   CENTRE_QUIET_MS,
   chunkIsCurved,
   derivedBlockCoords,
@@ -1408,4 +1409,38 @@ test('a batch whose chunks stream in two seconds apart is rebuilt once at the de
   const before = await stream(1500);
   assert.equal(before.rebuilds, 16);
   assert.equal(before.rebuiltChunks, 136);
+});
+
+test('a Blocks Model’s axes are a tile’s: the stored (east, up, −north) back to (east, north, up), no quarter turn about up', async (t) => {
+  const seen = [];
+  const original = Cesium.Model.fromGltfAsync;
+  Cesium.Model.fromGltfAsync = async (options) => {
+    seen.push(options);
+    return {};
+  };
+  t.after(() => {
+    Cesium.Model.fromGltfAsync = original;
+  });
+  await createBlocksModel(new Uint8Array(4), {
+    modelMatrix: Cesium.Matrix4.IDENTITY,
+  });
+  const [{ upAxis, forwardAxis }] = seen;
+  // Unset, the glTF loader takes Y up and Z forward (GltfLoader's defaults).
+  const correction = Cesium.ModelUtility.getAxisCorrectionMatrix(
+    upAxis ?? Cesium.Axis.Y,
+    forwardAxis ?? Cesium.Axis.Z,
+    new Cesium.Matrix4(),
+  );
+  // A vertex 3 m east, 5 m north and 7 m up, as gltf.js stores it.
+  const enu = Cesium.Matrix4.multiplyByPoint(
+    correction,
+    new Cesium.Cartesian3(3, 7, -5),
+    new Cesium.Cartesian3(),
+  );
+  assert.ok(
+    Cesium.Cartesian3.equalsEpsilon(enu, new Cesium.Cartesian3(3, 5, 7), 1e-12),
+    `stored (3, 7, −5) drawn at ${enu}`,
+  );
+  // The same as a tileset's tiles (Cesium3DTileset's modelForwardAxis X).
+  assert.equal(forwardAxis, Cesium.Axis.X);
 });
