@@ -1915,11 +1915,17 @@ export async function main({
       },
     });
   // Every values read that fails, logged with its time (the chunk source
-  // asks a 503 again after 5 and 20 s; a 429 is the day's budget).
+  // asks a 503 again after 5 and 20 s; a 429 is the day's budget), and a
+  // failed connection's cause (fetch's "fetch failed" carries it: refused,
+  // reset, timed out, and which address).
   let firstFailure = null;
   const reader = (request) =>
     Promise.resolve(asked(request)).catch((error) => {
-      const line = `values ${error?.status ?? '?'} at ${request.cells ?? ''} cells over ${JSON.stringify(request.box)}: ${error?.message ?? error}`;
+      const cause = error?.cause;
+      const why = cause
+        ? ` (${[cause.code, cause.address && `${cause.address}:${cause.port}`, cause.message].filter(Boolean).join(', ')})`
+        : '';
+      const line = `values ${error?.status ?? '?'} at ${request.cells ?? ''} cells over ${JSON.stringify(request.box)}: ${error?.message ?? error}${why}`;
       firstFailure ??= new Date().toISOString();
       log(line);
       throw error;
