@@ -63,6 +63,11 @@
  *
  *   ... --sequence --panels   # Data Layers and Display open throughout
  *
+ * Before each step (and before the --altitudes shots) the harness waits,
+ * up to 10 minutes, while a unit suite, a tileset or pyramid build,
+ * another harness or a vite build runs (CONCURRENT_JOBS); a step timed
+ * beside one all the same names it (`concurrent`). --no-wait skips that.
+ *
  * --panels opens the two panels before the steps, shoots each step 1.5 s
  * into its flight (<step>-flight.png) and, after the city, opens the
  * Elevation row's colour scale (<step>-grown.png), keeping the panels'
@@ -1326,6 +1331,108 @@ function sequencePageProbe() {
     if (performance.memory)
       qa.heap.push([Date.now(), performance.memory.usedJSHeapSize]);
   }, 500);
+  // The shader programs linked: how many, how many are the Blocks shader's
+  // (its blocks_inHole), how many distinct, and the main thread's time in
+  // linkProgram and in getProgramParameter (where it waits for the link).
+  const programs = {
+    links: 0,
+    blocksLinks: 0,
+    linkMs: 0,
+    waitMs: 0,
+    waits: 0,
+    sources: new Set(),
+    blocksSources: new Set(),
+    byKind: {},
+    kindOf: new WeakMap(),
+    blocksDefines: new Map(),
+    blocksText: new Map(),
+  };
+  qa.programs = programs;
+  for (const Context of [
+    window.WebGL2RenderingContext,
+    window.WebGLRenderingContext,
+  ]) {
+    if (!Context) continue;
+    const link = Context.prototype.linkProgram;
+    const parameter = Context.prototype.getProgramParameter;
+    Context.prototype.linkProgram = function (program) {
+      let source = '';
+      try {
+        source = (this.getAttachedShaders(program) || [])
+          .map((shader) => this.getShaderSource(shader) || '')
+          .join('|');
+      } catch {
+        source = '';
+      }
+      // A cheap key for the pair's text: its length and a rolling hash.
+      let hash = 0;
+      for (let k = 0; k < source.length; k += 7)
+        hash = (hash * 31 + source.charCodeAt(k)) | 0;
+      const key = `${source.length}:${hash}`;
+      const blocks = source.includes('blocks_inHole');
+      // What the program draws, by names its source carries.
+      const kind = blocks
+        ? 'blocks'
+        : source.includes('czm_modelMaterial')
+          ? 'model'
+          : source.includes('u_dayTextureTranslationAndScale') ||
+              source.includes('u_initialColor')
+            ? 'globe'
+            : source.includes('computeAtmosphereColor') ||
+                source.includes('czm_skyAtmosphere')
+              ? 'atmosphere'
+              : source.includes('a_positionHighAndScale') ||
+                  source.includes('a_compressedAttribute')
+                ? 'billboard'
+                : source.includes('colorTexture')
+                  ? 'post-process'
+                  : 'other';
+      const pick = source.includes('czm_pickColor') ? ' pick' : '';
+      // A Blocks variant cut by clipping planes (the tiles about the hole).
+      const clip =
+        blocks && /#define HAS_CLIPPING_PLANES/.test(source) ? ' clip' : '';
+      // A Blocks program's defines, to tell its variants apart.
+      // --program-sources: each Blocks program's text, to tell variants apart.
+      if (blocks && window.__qaProgramSources && !programs.blocksText.has(key))
+        programs.blocksText.set(key, source);
+      if (blocks && !programs.blocksDefines.has(key))
+        programs.blocksDefines.set(
+          key,
+          [...new Set(source.match(/#define [A-Z_0-9]+/g) || [])]
+            .map((line) => line.slice(8))
+            .sort(),
+        );
+      const tag = `${kind}${clip}${pick}`;
+      const byKind = (programs.byKind[tag] ||= {
+        links: 0,
+        sources: new Set(),
+        waitMs: 0,
+      });
+      byKind.links++;
+      byKind.sources.add(key);
+      programs.kindOf.set(program, tag);
+      programs.links++;
+      programs.sources.add(key);
+      if (blocks) {
+        programs.blocksLinks++;
+        programs.blocksSources.add(key);
+      }
+      const start = performance.now();
+      const result = link.call(this, program);
+      programs.linkMs += performance.now() - start;
+      return result;
+    };
+    Context.prototype.getProgramParameter = function (...args) {
+      const start = performance.now();
+      const result = parameter.apply(this, args);
+      const ms = performance.now() - start;
+      programs.waitMs += ms;
+      programs.waits++;
+      const tag = programs.kindOf.get(args[0]);
+      if (tag && programs.byKind[tag]) programs.byKind[tag].waitMs += ms;
+      return result;
+    };
+  }
 }
 
 /** Wrap the Blocks renderer and controller, and the camera, to log events. */
@@ -1437,6 +1544,47 @@ function sequenceReadout() {
         .map(([key, count]) => ({ key, count }))
     : null;
   counted?.clear();
+  // The shader programs linked since the last step's readout.
+  const linked = window.__qa?.programs;
+  const programs = linked
+    ? {
+        links: linked.links,
+        blocksLinks: linked.blocksLinks,
+        distinct: linked.sources.size,
+        blocksDistinct: linked.blocksSources.size,
+        linkMs: Math.round(linked.linkMs),
+        waitMs: Math.round(linked.waitMs),
+        waits: linked.waits,
+        cached:
+          gev.viewer?.scene?.context?.shaderCache?.numberOfShaders ?? null,
+        blocksDefines: [...linked.blocksDefines.values()],
+        ...(linked.blocksText.size
+          ? { blocksText: [...linked.blocksText.values()] }
+          : {}),
+        byKind: Object.fromEntries(
+          Object.entries(linked.byKind).map(([tag, held]) => [
+            tag,
+            {
+              links: held.links,
+              distinct: held.sources.size,
+              waitMs: Math.round(held.waitMs),
+            },
+          ]),
+        ),
+      }
+    : null;
+  if (linked) {
+    linked.links = 0;
+    linked.blocksLinks = 0;
+    linked.linkMs = 0;
+    linked.waitMs = 0;
+    linked.waits = 0;
+    linked.sources.clear();
+    linked.blocksSources.clear();
+    linked.byKind = {};
+    linked.blocksDefines.clear();
+    linked.blocksText.clear();
+  }
   const carto = gev.viewer.camera.positionCartographic;
   const text = (id) => document.getElementById(id)?.textContent?.trim() || '';
   let floor = '';
@@ -1460,6 +1608,7 @@ function sequenceReadout() {
     globeShown: gev.viewer.scene.globe.show,
     drapes: gev.viewer.imageryLayers.length,
     mutations,
+    programs,
     // The precomputed tiles: the controller's plan and what is shown.
     tiles: (() => {
       const probe = window.__gevBlocksProbe;
@@ -1849,6 +1998,74 @@ function sequenceToggleElevationScale() {
 }
 
 /**
+ * The jobs that load the machine enough to skew a run's timings: a unit
+ * suite, a tileset or pyramid build, another harness, a vite build. Two
+ * --panels runs read Lake Tahoe's long tasks at 10 to 11 s against 2.5 s
+ * quiet (2026-10-30), a build or suite unnoticed beside them.
+ */
+export const CONCURRENT_JOBS = Object.freeze([
+  ['unit suite', /run-unit-tests/],
+  ['tileset build', /blocks-tileset\.mjs/],
+  ['pyramid build', /blocks-pyramid\.mjs/],
+  ['another harness', /qa-blocks-compare\.mjs/],
+  ['vite build', /vite(\.js)?["']?\s+build/],
+]);
+
+/**
+ * The concurrent jobs in a process list (`pid<space>command line` a line),
+ * leaving out this process: their names, each once.
+ */
+export function concurrentJobs(lines, ownPid = process.pid) {
+  const found = new Set();
+  for (const line of lines) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (!match || Number(match[1]) === ownPid) continue;
+    for (const [name, pattern] of CONCURRENT_JOBS)
+      if (pattern.test(match[2])) found.add(name);
+  }
+  return [...found];
+}
+
+/** This machine's node processes as `pid command line` lines. */
+function nodeProcessLines() {
+  const run =
+    process.platform === 'win32'
+      ? spawnSync(
+          'powershell',
+          [
+            '-NoProfile',
+            '-Command',
+            'Get-CimInstance Win32_Process -Filter "Name=\'node.exe\'" | ForEach-Object { "$($_.ProcessId) $($_.CommandLine)" }',
+          ],
+          { encoding: 'utf8' },
+        )
+      : spawnSync('ps', ['-eo', 'pid,args'], { encoding: 'utf8' });
+  return String(run.stdout || '').split(/\r?\n/);
+}
+
+/**
+ * Wait, up to `maxMs`, until no concurrent job runs; the jobs still
+ * running then (the run goes on and its steps say so), else none.
+ */
+export async function waitQuiet({
+  maxMs = 600_000,
+  pollMs = 15_000,
+  list = nodeProcessLines,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  log = (text) => console.log(text),
+} = {}) {
+  const until = Date.now() + maxMs;
+  let jobs = concurrentJobs(list());
+  if (jobs.length) log(`waiting for: ${jobs.join(', ')}`);
+  while (jobs.length && Date.now() < until) {
+    await sleep(pollMs);
+    jobs = concurrentJobs(list());
+  }
+  if (jobs.length) log(`going on beside: ${jobs.join(', ')}`);
+  return jobs;
+}
+
+/**
  * A Chrome trace's main-thread time by event (the renderer's main thread,
  * complete events): style, layout, paint and compositing beside script, in
  * ms, the top `limit`, with the number of each.
@@ -1900,11 +2117,17 @@ async function runSequence({
   panels = false,
   traceStep = null,
   noBlur = false,
+  quiet = true,
+  programSources = false,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   await page.evaluateOnNewDocument(sequencePageProbe);
   if (noBlur) await page.evaluateOnNewDocument(sequenceNoBlur);
+  if (programSources)
+    await page.evaluateOnNewDocument(() => {
+      window.__qaProgramSources = true;
+    });
   const log = {
     values: 0,
     tiles: 0,
@@ -1999,6 +2222,8 @@ async function runSequence({
     ? SEQUENCE_STEPS.filter((step) => only.includes(step.name))
     : SEQUENCE_STEPS;
   for (const step of steps) {
+    // No step timed beside a build or a suite; one that has to be says so.
+    const concurrent = quiet ? await waitQuiet() : [];
     const query = step.query ?? streetQuery;
     const from = Date.now();
     await cdp.send('Profiler.start');
@@ -2184,6 +2409,7 @@ async function runSequence({
       name: step.name,
       via,
       settled,
+      ...(concurrent.length ? { concurrent } : {}),
       ...(panels
         ? { panels: { flight: flightPanels, grown: grownPanels } }
         : {}),
@@ -2333,6 +2559,10 @@ export async function main(argv = process.argv.slice(2)) {
         panels: argv.includes('--panels'),
         traceStep: argValue(argv, '--trace') || null,
         noBlur: argv.includes('--no-blur'),
+        // --no-wait: time the steps beside a build or a suite all the same.
+        quiet: !argv.includes('--no-wait'),
+        // --program-sources: keep each Blocks program's text (large).
+        programSources: argv.includes('--program-sources'),
         // The precomputed Blocks tilesets served from this folder.
         tilesDir: argValue(argv, '--tiles-dir') || null,
         only:
@@ -2373,6 +2603,8 @@ export async function main(argv = process.argv.slice(2)) {
           .split(',')
           .map((name) => name.trim())
           .filter(Boolean);
+    // No shot taken beside a build or a suite (--no-wait: all the same).
+    if (!argv.includes('--no-wait')) await waitQuiet();
     for (const name of wanted) {
       const shot = shots[name];
       if (!shot) throw new Error(`unknown view ${name} (judgement, eye)`);

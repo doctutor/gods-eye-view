@@ -12,7 +12,12 @@
 import * as Cesium from 'cesium';
 import { sunPosition } from '../data/solarDaylight.js';
 import {
+  CLIPPING_SIDES,
   DITHER_DEFAULTS,
+  blocksClippingPlanes,
+  createBlocksModel,
+  parkedPlanes,
+  prewarmBlocksGlb,
   EDGE_DEFAULTS,
   blocksShader,
   fogColorFor,
@@ -130,8 +135,15 @@ export function createCacheGuard(baseError = TILES_SCREEN_ERROR) {
   };
 }
 
-/** The sides of the polygon inscribed in the hole whose tiles are culled. */
-export const HOLE_SIDES = 8;
+/**
+ * The sides of the polygon inscribed in the hole whose tiles are culled:
+ * every Blocks Model's planes (renderer.js CLIPPING_SIDES), so the tiles
+ * and the live chunks share their programs.
+ */
+export const HOLE_SIDES = CLIPPING_SIDES;
+
+/** The pre-warm's Models are removed after this many frames at most. */
+export const PREWARM_FRAMES = 300;
 
 /**
  * The clipping planes that cull the tiles inside the hole: HOLE_SIDES
@@ -209,9 +221,89 @@ export function createBlocksTilesLayer({
     Cesium.Cesium3DTileset.fromUrl(url, options),
   buildings = () => true,
   now = () => Date.now(),
+  createModel = createBlocksModel,
 }) {
   const scene = viewer?.scene;
   reserveSockets();
+  /** The pre-warm (prewarmPrograms): not yet, under way, or done. */
+  let prewarm = 'not yet';
+  /** Its Models while drawn, and their frame listener's remover. */
+  let prewarmModels = [];
+  let removePrewarmFrames = null;
+  const endPrewarm = () => {
+    removePrewarmFrames?.();
+    removePrewarmFrames = null;
+    for (const model of prewarmModels) scene?.primitives?.remove(model);
+    prewarmModels = [];
+    prewarm = 'done';
+  };
+
+  /**
+   * Every Blocks program linked before the first flight: Cesium links a
+   * Model's programs the first frame it draws, and waits for each link on
+   * the main thread (getProgramParameter: 0.8 s at Lake Tahoe, 2026-10-30),
+   * with one set for a Model its clipping planes cut (the live chunks, the
+   * tiles about the hole) and one for the rest (the tiles the hole does not
+   * reach), and the live batches' feature table and the tiles' apart. So at
+   * the first Blocks status, three Models of a millimetre's ground and water
+   * are drawn 10 m in front of the eye, and removed once they have drawn
+   * (two frames after all are ready, or after PREWARM_FRAMES).
+   */
+  function prewarmPrograms() {
+    if (prewarm !== 'not yet' || !scene?.primitives?.add) return;
+    const eye = scene.camera?.positionWC;
+    const ahead = scene.camera?.directionWC;
+    if (!eye || !ahead) return;
+    prewarm = 'under way';
+    // 10 m in front of the eye: in the frustum and above the ground, so
+    // nothing culls the draw (under the ground the globe occluded it, and
+    // nothing was linked), and a millimetre there is a tenth of a pixel.
+    const modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
+      Cesium.Cartesian3.add(
+        eye,
+        Cesium.Cartesian3.multiplyByScalar(ahead, 10, new Cesium.Cartesian3()),
+        new Cesium.Cartesian3(),
+      ),
+    );
+    // The live chunks always carry the planes; the tiles with and without.
+    Promise.all(
+      [
+        ['live', true],
+        ['tile', true],
+        ['tile', false],
+      ].map(([schema, clipped]) =>
+        createModel(prewarmBlocksGlb(schema), {
+          modelMatrix,
+          customShader: shader,
+          clipped,
+        }),
+      ),
+    )
+      .then((models) => {
+        if (destroyed) {
+          for (const model of models) model.destroy?.();
+          return;
+        }
+        for (const model of models) scene.primitives.add(model);
+        prewarmModels = models;
+        let frames = 0;
+        let readyFrames = 0;
+        removePrewarmFrames = scene.preRender?.addEventListener(() => {
+          frames++;
+          if (models.every((model) => model.ready !== false)) readyFrames++;
+          requestRender();
+          if (readyFrames >= 3 || frames >= PREWARM_FRAMES) endPrewarm();
+        });
+        requestRender();
+      })
+      .catch((error) => {
+        prewarm = 'done';
+        console.warn(
+          '[Blocks] programs not pre-warmed:',
+          error?.message || error,
+        );
+      });
+  }
   let boxes = [];
   let destroyed = false;
   const ready = Promise.resolve()
@@ -374,12 +466,7 @@ export function createBlocksTilesLayer({
         });
         // Culling the tiles under the live chunks (holePlanes), off until
         // there is a hole.
-        tileset.clippingPlanes = new Cesium.ClippingPlaneCollection({
-          planes: holePlanes(1),
-          unionClippingRegions: false,
-          enabled: false,
-          edgeWidth: 0,
-        });
+        tileset.clippingPlanes = blocksClippingPlanes();
         tileset.show = url === shownUrl;
         entry.tileset = tileset;
         clippedKey = null;
@@ -498,11 +585,13 @@ export function createBlocksTilesLayer({
       : null;
     if (key === clippedKey) return;
     clippedKey = key;
+    // No hole: parked, not off (turning them on and off links new programs).
+    planes.removeAll();
     if (!hole) {
-      planes.enabled = false;
+      for (const plane of parkedPlanes()) planes.add(plane);
+      planes.modelMatrix = Cesium.Matrix4.clone(Cesium.Matrix4.IDENTITY);
       return;
     }
-    planes.removeAll();
     for (const plane of holePlanes(hole.radiusM)) planes.add(plane);
     const centre = Cesium.Transforms.eastNorthUpToFixedFrame(
       Cesium.Cartesian3.fromDegrees(
@@ -519,7 +608,6 @@ export function createBlocksTilesLayer({
       centre,
       new Cesium.Matrix4(),
     );
-    planes.enabled = true;
   }
   const removePreRender = scene?.preRender?.addEventListener(frame);
 
@@ -533,6 +621,8 @@ export function createBlocksTilesLayer({
      * only while Blocks draws), the others hidden but kept.
      */
     apply(status) {
+      // Blocks on (live or tiles): its programs linked before any flight.
+      if (status && status.state !== 'off') prewarmPrograms();
       state = status?.tiles || null;
       const box = state ? boxes.find((each) => each.name === state.box) : null;
       shownUrl = box ? box.url({ buildings: buildings() !== false }) : null;
@@ -571,7 +661,7 @@ export function createBlocksTilesLayer({
         inside,
         insideOpens,
         // The hole's clipping planes on (the tiles inside it culled).
-        clipped: Boolean(shown?.clippingPlanes?.enabled),
+        clipped: clippedKey !== null,
         memoryMB: shown?.totalMemoryUsageInBytes
           ? Math.round(shown.totalMemoryUsageInBytes / 1e6)
           : null,
@@ -587,6 +677,7 @@ export function createBlocksTilesLayer({
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      endPrewarm();
       removePreRender?.();
       removeMoveStart?.();
       removeMoveEnd?.();

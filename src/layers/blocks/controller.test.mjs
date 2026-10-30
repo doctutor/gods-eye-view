@@ -4075,3 +4075,26 @@ test('flights within the region’s reach land without re-anchoring; one past it
   assert.equal(source.regions.length, 2, 'once');
   controller.destroy();
 });
+
+test('under the tiles (hybrid) no style is draped while the live region builds: the tiles are the first picture over the whole frame, so the globe stays hidden (no surface programs linked mid-flight, no style tiles asked)', async () => {
+  const { blocksScene } = await import('./floor.js');
+  const { viewer, view, controller } = tilesSetup({
+    plan: () => ({ mode: 'hybrid', box: TILES_BOX, floorM: 480 }),
+    px: 0.3,
+    height: 300,
+  });
+  await drain(controller, 400);
+  // Out to 50 km: 120 m blocks, under the 480 m floor, still hybrid.
+  setHeight(viewer, 50_000);
+  view.px = 40;
+  viewer.camera.moveEnd.raise();
+  controller.tick();
+  assert.match(controller.getStatus().state, /anchoring|loading/);
+  assert.equal(controller.getStatus().tiles.mode, 'hybrid');
+  assert.equal(blocksScene().style, null, 'no drape under the tiles');
+  assert.equal(viewer.scene.globe.show, false, 'the globe stays hidden');
+  await drain(controller, 400);
+  assert.equal(blocksScene().style, null);
+  assert.equal(viewer.scene.globe.show, false);
+  controller.destroy();
+});

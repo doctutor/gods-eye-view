@@ -455,3 +455,47 @@ test('--pitches: the --altitudes views at the pitches asked for, down only', asy
     'scale-25km-p15',
   ]);
 });
+
+test('the harness waits for the jobs that load the machine: a unit suite, a tileset or pyramid build, another harness, a vite build (not the dev server, not itself)', async () => {
+  const { concurrentJobs, waitQuiet } =
+    await import('../../../scripts/qa-blocks-compare.mjs');
+  const lines = [
+    '12 node scripts/run-unit-tests.mjs',
+    '13 "C:/Program Files/nodejs/node.exe" scripts/blocks-tileset.mjs --bbox -11,35',
+    '14 node scripts/qa-blocks-compare.mjs --sequence',
+    '15 "C:/node.exe" scripts/blocks-pyramid.mjs --tiles x',
+    '16 node C:/x/node_modules/vite/bin/vite.js build --outDir y',
+    '17 node C:/x/node_modules/.bin/../vite/bin/vite.js --host localhost --port 4173',
+    '',
+  ];
+  assert.deepEqual(concurrentJobs(lines, 14), [
+    'unit suite',
+    'tileset build',
+    'pyramid build',
+    'vite build',
+  ]);
+  assert.deepEqual(concurrentJobs(lines, 99), [
+    'unit suite',
+    'tileset build',
+    'another harness',
+    'pyramid build',
+    'vite build',
+  ]);
+  assert.deepEqual(concurrentJobs([lines[5]], 1), [], 'the dev server alone');
+  // Waits while one runs; goes on, naming it, after maxMs.
+  let polls = 0;
+  const quietAfterTwo = await waitQuiet({
+    list: () => (polls++ < 2 ? [lines[1]] : []),
+    sleep: async () => {},
+    log: () => {},
+  });
+  assert.deepEqual(quietAfterTwo, []);
+  assert.equal(polls, 3);
+  const busy = await waitQuiet({
+    maxMs: 0,
+    list: () => [lines[3]],
+    sleep: async () => {},
+    log: () => {},
+  });
+  assert.deepEqual(busy, ['pyramid build']);
+});

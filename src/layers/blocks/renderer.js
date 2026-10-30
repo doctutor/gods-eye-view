@@ -24,6 +24,7 @@ import * as Cesium from 'cesium';
 import { solarParameters, sunPosition } from '../../data/solarDaylight.js';
 import { CHUNK_COLUMNS, CURVED_BLOCK_M, parseChunkKey } from './grid.js';
 import { createGlbService } from './glbService.js';
+import { encodeBatchGlb, packPart } from './gltf.js';
 import { packMesh, packedMeshHasFaces } from './packMesh.js';
 import { STUDY_SUN, STUDY_SUN_DIR, sunDirection } from './lighting.js';
 
@@ -310,6 +311,91 @@ const imageLightingOff = () =>
     imageBasedLightingFactor: new Cesium.Cartesian2(0, 0),
   }));
 
+/**
+ * Every Blocks Model's clipping planes: this many, the same for the live
+ * chunks and the tiles. Cesium compiles a Model's programs with its
+ * clipping planes' count and state as defines, so the tiles' planes
+ * turning on when the live hole opened linked four new programs mid-flight
+ * (Lake Tahoe, 2026-10-30: 0.8 s waiting on them); with the same planes
+ * always on, parked where they clip nothing, every Blocks Model shares one
+ * set of four programs, linked at the first Blocks draw.
+ */
+export const CLIPPING_SIDES = 8;
+
+/** Planes that clip nothing: every point lies on their kept side. */
+export const parkedPlanes = (sides = CLIPPING_SIDES) =>
+  Array.from(
+    { length: sides },
+    () => new Cesium.ClippingPlane(Cesium.Cartesian3.UNIT_Z, 1e10),
+  );
+
+/**
+ * A Blocks Model's (or tileset's) clipping planes: CLIPPING_SIDES of them,
+ * not uniting their regions (a point is clipped only outside every plane),
+ * always on, parked unless given.
+ */
+export const blocksClippingPlanes = (planes = parkedPlanes()) =>
+  new Cesium.ClippingPlaneCollection({
+    planes,
+    unionClippingRegions: false,
+    enabled: true,
+    edgeWidth: 0,
+  });
+
+/**
+ * The pre-warm's GLB (blocksTiles.js prewarmPrograms): one ground quad and
+ * one water quad, a millimetre across, enough for a Blocks Model's opaque
+ * and translucent programs to be linked when it is drawn, with the feature
+ * table of a live batch (glbStore.js: ci, cj, water) or of a tile (the
+ * build's: ci, cj, blockM). Cesium compiles a Model's metadata into its
+ * programs (metadata picking), so the two tables make two sets.
+ */
+export function prewarmBlocksGlb(schema = 'live') {
+  const properties =
+    schema === 'tile'
+      ? {
+          ci: new Int32Array(2),
+          cj: new Int32Array(2),
+          blockM: Float32Array.from([480, 480]),
+        }
+      : {
+          ci: new Int32Array(2),
+          cj: new Int32Array(2),
+          water: Uint8Array.from([0, 1]),
+        };
+  const quad = (z, rgba) => ({
+    positions: Float32Array.from([
+      0,
+      0,
+      z,
+      0.001,
+      0,
+      z,
+      0.001,
+      0.001,
+      z,
+      0,
+      0.001,
+      z,
+    ]),
+    normals: Int8Array.from([0, 0, 127, 0, 0, 127, 0, 0, 127, 0, 0, 127]),
+    colors: Uint8Array.from([...rgba, ...rgba, ...rgba, ...rgba]),
+    blockCoords: Float32Array.from([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]),
+    indices: Uint32Array.from([0, 1, 2, 0, 2, 3]),
+  });
+  return encodeBatchGlb({
+    chunks: [
+      {
+        opaque: packPart(quad(0, [200, 194, 176, 255])),
+        water: packPart(quad(0.0005, [70, 120, 200, 160])),
+        offset: { x: 0, y: 0, z: 0 },
+        features: { opaque: 0, water: 1 },
+      },
+    ],
+    features: { count: 2, properties },
+  });
+}
+
 /** Each Blocks Model's own base path (createBlocksModel). */
 let glbSerial = 0;
 
@@ -320,7 +406,10 @@ let glbSerial = 0;
  * its axes a 3D Tiles tile's.
  * @returns {Promise<Cesium.Model>}
  */
-export function createBlocksModel(glb, { modelMatrix, customShader }) {
+export function createBlocksModel(
+  glb,
+  { modelMatrix, customShader, clipped = true },
+) {
   return Cesium.Model.fromGltfAsync({
     gltf: glb,
     // Cesium caches a glTF's JSON and buffers by its address; an in-memory
@@ -336,6 +425,8 @@ export function createBlocksModel(glb, { modelMatrix, customShader }) {
     forwardAxis: Cesium.Axis.X,
     modelMatrix,
     customShader,
+    // The tiles' planes, parked: the same programs as every Blocks Model.
+    ...(clipped ? { clippingPlanes: blocksClippingPlanes() } : {}),
     asynchronous: false,
     releaseGltfJson: true,
     enableVerticalExaggeration: false,

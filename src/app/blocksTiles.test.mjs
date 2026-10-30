@@ -14,6 +14,7 @@ import {
   INSIDE_HOLE_BLOCKS,
   createBlocksTilesLayer,
   FAR_HIGH_ABOVE_M,
+  PREWARM_FRAMES,
   TILES_REQUESTS_PER_SERVER,
   reserveSockets,
   FAR_HIGH_BELOW_M,
@@ -22,6 +23,11 @@ import {
   holePlanes,
   screenErrorFor,
 } from './blocksTiles.js';
+import {
+  CLIPPING_SIDES,
+  blocksClippingPlanes,
+  parkedPlanes,
+} from '../layers/blocks/renderer.js';
 
 // Cesium's CustomShader asks whether a uniform is a canvas or an image.
 const BROWSER_GLOBALS = [
@@ -63,6 +69,23 @@ const INDEX = {
   ],
 };
 
+/** A pre-warm Model as the layer sees one (createModel's fake). */
+const fakeModels = [];
+async function fakeModel(glb, options) {
+  const model = {
+    glb,
+    options,
+    ready: true,
+    update() {},
+    destroy() {
+      model.destroyed = true;
+    },
+    isDestroyed: () => Boolean(model.destroyed),
+  };
+  fakeModels.push(model);
+  return model;
+}
+
 function setup({ buildings = true, index = INDEX } = {}) {
   const viewer = {
     scene: {
@@ -76,6 +99,8 @@ function setup({ buildings = true, index = INDEX } = {}) {
           5000,
         ),
         viewMatrix: Cesium.Matrix4.IDENTITY,
+        positionWC: Cesium.Cartesian3.fromDegrees(-76.6, 39.27, 5000),
+        directionWC: new Cesium.Cartesian3(0, 0, -1),
         moveStart: new Cesium.Event(),
         moveEnd: new Cesium.Event(),
       },
@@ -86,6 +111,7 @@ function setup({ buildings = true, index = INDEX } = {}) {
   const layer = createBlocksTilesLayer({
     viewer,
     fetchIndex: async () => index,
+    createModel: fakeModel,
     buildings: () => switches.buildings,
     createTileset: async (url, options) => {
       // Cesium's: setting the maximum error resets the memory-adjusted one.
@@ -418,10 +444,20 @@ test('the tiles inside the hole are culled before they load: clipping planes on 
   // The planes' frame is the hole's east-north-up: its origin the centre.
   const origin = Cesium.Matrix4.getTranslation(world, new Cesium.Cartesian3());
   assert.ok(Cesium.Cartesian3.distance(origin, centre) < 0.01);
-  // No hole: off.
+  // No hole: still on (the same programs), parked where it clips nothing.
   layer.apply({ state: 'ready', tiles: { ...TILES, hole: null } });
   viewer.scene.preRender.raiseEvent();
-  assert.equal(clipping.enabled, false);
+  assert.equal(clipping.enabled, true);
+  assert.equal(clipping.length, HOLE_SIDES);
+  assert.equal(layer.getState().clipped, false);
+  assert.equal(
+    clipping.computeIntersectionWithBoundingVolume(
+      at(centre, 7000),
+      tileset.clippingPlanesOriginMatrix,
+    ),
+    INSIDE,
+    'nothing culled without a hole',
+  );
   layer.destroy();
 });
 
@@ -623,4 +659,107 @@ test('Cesium asks the page’s own server at most 4 requests at once, so two of 
     for (const key of Object.keys(byServer)) delete byServer[key];
     Object.assign(byServer, before);
   }
+});
+
+test('one clipping configuration for every Blocks Model and the tiles, never switched: Cesium compiles a Model’s programs with its planes’ count and state, so the tiles’ planes turning on at the hole linked four programs mid-flight', async () => {
+  // What Cesium's defines are made of: the count, the union, on or off.
+  const signature = (planes) => [
+    planes.length,
+    planes.unionClippingRegions,
+    planes.enabled,
+  ];
+  const live = blocksClippingPlanes();
+  assert.deepEqual(signature(live), [CLIPPING_SIDES, false, true]);
+  // Parked: nothing anywhere is clipped.
+  const sphere = (x, y, z, r) => ({
+    intersectPlane: (plane) =>
+      Cesium.BoundingSphere.intersectPlane(
+        new Cesium.BoundingSphere(new Cesium.Cartesian3(x, y, z), r),
+        plane,
+      ),
+  });
+  for (const [x, y, z] of [
+    [0, 0, 0],
+    [6_378_137, 0, 0],
+    [0, -6_356_752, 0],
+    [1e7, 1e7, -1e7],
+  ])
+    assert.equal(
+      live.computeIntersectionWithBoundingVolume(sphere(x, y, z, 1e6)),
+      Cesium.Intersect.INSIDE,
+    );
+  assert.equal(parkedPlanes().length, CLIPPING_SIDES);
+  // The tileset's: the same signature with and without a hole, throughout.
+  const { viewer, layer, made } = setup();
+  await layer.ready;
+  layer.apply({ state: 'ready', tiles: { ...TILES, hole: null } });
+  await settle();
+  const [tileset] = made;
+  const seen = [];
+  const look = () => {
+    viewer.scene.preRender.raiseEvent();
+    seen.push(signature(tileset.clippingPlanes));
+  };
+  look();
+  layer.apply({ state: 'ready', tiles: TILES });
+  look();
+  layer.apply({ state: 'ready', tiles: { ...TILES, hole: null } });
+  look();
+  for (const each of seen) assert.deepEqual(each, signature(live));
+  layer.destroy();
+});
+
+test('the first Blocks status links its programs before any flight: three centimetre Models of ground and water under the camera (a live batch’s table with the parked planes, a tile’s with them and without), drawn and then removed; once a session', async () => {
+  assert.equal(PREWARM_FRAMES, 300);
+  fakeModels.length = 0;
+  const { viewer, layer } = setup();
+  await layer.ready;
+  // Blocks off: nothing.
+  layer.apply({ state: 'off', tiles: null });
+  await settle();
+  assert.equal(fakeModels.length, 0);
+  // On: two Models, clipped and not, with the tiles' Blocks shader.
+  layer.apply({ state: 'loading', tiles: null });
+  await settle();
+  assert.equal(fakeModels.length, 3);
+  assert.deepEqual(
+    fakeModels.map((model) => model.options.clipped),
+    [true, true, false],
+  );
+  for (const model of fakeModels) {
+    assert.equal(model.options.customShader, layer.shader);
+    assert.ok(model.glb.byteLength > 0, 'a GLB of ground and water');
+    assert.ok(viewer.scene.primitives.contains(model), 'drawn');
+  }
+  // 10 m in front of the eye (nothing culls it there).
+  const origin = Cesium.Matrix4.getTranslation(
+    fakeModels[0].options.modelMatrix,
+    new Cesium.Cartesian3(),
+  );
+  assert.ok(
+    Math.abs(
+      Cesium.Cartesian3.distance(origin, viewer.scene.camera.positionWC) - 10,
+    ) < 1e-6,
+  );
+  // Removed once drawn (ready a few frames).
+  for (let frame = 0; frame < 4; frame++) viewer.scene.preRender.raiseEvent();
+  for (const model of fakeModels)
+    assert.equal(viewer.scene.primitives.contains(model), false, 'removed');
+  // Once a session.
+  layer.apply({ state: 'ready', tiles: TILES });
+  await settle();
+  assert.equal(fakeModels.length, 3);
+  layer.destroy();
+});
+
+test('the pre-warm GLBs carry a live batch’s feature table or a tile’s: Cesium compiles the metadata into the programs, so each table is a set of its own', async () => {
+  const { prewarmBlocksGlb } = await import('../layers/blocks/renderer.js');
+  const { readBlocksGlb } = await import('../layers/blocks/gltf.js');
+  const names = (glb) =>
+    Object.keys(
+      readBlocksGlb(glb).json.extensions.EXT_structural_metadata.schema.classes
+        .chunk.properties,
+    ).sort();
+  assert.deepEqual(names(prewarmBlocksGlb('live')), ['ci', 'cj', 'water']);
+  assert.deepEqual(names(prewarmBlocksGlb('tile')), ['blockM', 'ci', 'cj']);
 });

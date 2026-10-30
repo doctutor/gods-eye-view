@@ -1943,6 +1943,12 @@ export function createBlocksController({
    */
   function styleCellNow(held) {
     if (_destroyed || !active() || held === 'flying') return null;
+    // Under the tiles none: they draw the whole frame past the live hole
+    // ('hybrid' needs every screen sample in the box) and inside it until
+    // the live fine disc is in, so the drape was drawn under them, and
+    // showing the globe for it linked its surface programs mid-flight
+    // (8 at Lake Tahoe, 2026-10-30) and asked the style's tiles.
+    if (_tiles.mode !== 'off') return null;
     const cannotBuild =
       held === 'too-high' ||
       _status.state === 'failed' ||
