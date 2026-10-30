@@ -82,11 +82,14 @@ test('the index: each built box with its levels, date, variants, finest groups a
   assert.equal(box.finestM, 30);
   assert.deepEqual(
     box.groups,
-    [
-      [0, 0],
-      [1, 0],
-    ],
-    'fill tiles and variants are not groups',
+    {
+      120: [[0, 0]],
+      30: [
+        [0, 0],
+        [1, 0],
+      ],
+    },
+    'every level’s groups; fill tiles and variants are not groups',
   );
   assert.deepEqual(
     box.variants.map((v) => v.file),
