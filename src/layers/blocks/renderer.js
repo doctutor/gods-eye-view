@@ -23,7 +23,8 @@
 import * as Cesium from 'cesium';
 import { solarParameters, sunPosition } from '../../data/solarDaylight.js';
 import { CHUNK_COLUMNS, CURVED_BLOCK_M, parseChunkKey } from './grid.js';
-import { encodeBlocksGlb, mergeParts } from './gltf.js';
+import { createGlbService } from './glbService.js';
+import { packMesh, packedMeshHasFaces } from './packMesh.js';
 import { STUDY_SUN, STUDY_SUN_DIR, sunDirection } from './lighting.js';
 
 /** The real sun lights the blocks above this elevation, else the study sun. */
@@ -268,102 +269,8 @@ function styleOption(value, defaults) {
   return { ...defaults, ...(typeof value === 'object' ? value : {}) };
 }
 
-/**
- * A mesh's faces split into opaque and water: mesh.js puts the opaque
- * faces first, [0, opaqueIndexCount) of the indices, and water after.
- * A part that uses only some of the vertices gets just those, renumbered;
- * a mesh without water is drawn from its own arrays.
- * @returns {{opaque: object|null, water: object|null}}
- */
-export function splitMesh({
-  positions,
-  normals,
-  colors,
-  blockCoords = null,
-  indices,
-  opaqueIndexCount,
-}) {
-  const cut = Number.isInteger(opaqueIndexCount)
-    ? opaqueIndexCount
-    : indices.length;
-  const vertexCount = positions.length / 3;
-  const remap = new Int32Array(vertexCount);
-  const part = (from, to) => {
-    if (from >= to) return null;
-    if (from === 0 && to === indices.length)
-      return { positions, normals, colors, blockCoords, indices };
-    remap.fill(-1);
-    const out = new Uint32Array(to - from);
-    let used = 0;
-    for (let k = from; k < to; k++) {
-      const v = indices[k];
-      if (remap[v] < 0) remap[v] = used++;
-      out[k - from] = remap[v];
-    }
-    const p = new Float32Array(used * 3);
-    const n = new Float32Array(used * 3);
-    const c = new Uint8Array(used * 4);
-    const b = blockCoords ? new Float32Array(used * 3) : null;
-    for (let v = 0; v < vertexCount; v++) {
-      const at = remap[v];
-      if (at < 0) continue;
-      if (b) {
-        b[at * 3] = blockCoords[v * 3];
-        b[at * 3 + 1] = blockCoords[v * 3 + 1];
-        b[at * 3 + 2] = blockCoords[v * 3 + 2];
-      }
-      p[at * 3] = positions[v * 3];
-      p[at * 3 + 1] = positions[v * 3 + 1];
-      p[at * 3 + 2] = positions[v * 3 + 2];
-      n[at * 3] = normals[v * 3];
-      n[at * 3 + 1] = normals[v * 3 + 1];
-      n[at * 3 + 2] = normals[v * 3 + 2];
-      c[at * 4] = colors[v * 4];
-      c[at * 4 + 1] = colors[v * 4 + 1];
-      c[at * 4 + 2] = colors[v * 4 + 2];
-      c[at * 4 + 3] = colors[v * 4 + 3];
-    }
-    return {
-      positions: p,
-      normals: n,
-      colors: c,
-      blockCoords: b,
-      indices: out,
-    };
-  };
-  return { opaque: part(0, cut), water: part(cut, indices.length) };
-}
-
-/**
- * A mesh part as the renderer keeps it to rebuild batches from: normals as
- * normalized bytes (they are axis unit vectors, so exact) and indices as
- * 16 bits where they fit; positions and colours as given.
- */
-export function compactPart(part) {
-  if (!part) return null;
-  const { positions, normals, colors, blockCoords = null, indices } = part;
-  let bytes = normals;
-  if (!(normals instanceof Int8Array)) {
-    bytes = new Int8Array(normals.length);
-    for (let k = 0; k < normals.length; k++)
-      bytes[k] = Math.round(normals[k] * 127);
-  }
-  const short =
-    positions.length / 3 < 65536 && !(indices instanceof Uint16Array)
-      ? new Uint16Array(indices)
-      : indices;
-  return { positions, normals: bytes, colors, blockCoords, indices: short };
-}
-
-/** A kept part's bytes. */
-const partBytes = (part) =>
-  part
-    ? part.positions.byteLength +
-      part.normals.byteLength +
-      part.colors.byteLength +
-      (part.blockCoords?.byteLength || 0) +
-      part.indices.byteLength
-    : 0;
+// The mesh split into opaque and water (packMesh.js), as before.
+export { splitMesh } from './packMesh.js';
 
 /**
  * A Cesium.Model that updates as if the scene were 3D only and fogless:
@@ -547,7 +454,8 @@ export function chunkMatrix(frame, origin, result = new Cesium.Matrix4()) {
  *   tone on top faces (DITHER_DEFAULTS, on by default). Water faces get
  *   neither. now: the wall clock the sky fog's sun is read on (Date.now).
  *   createModel: (glb, {modelMatrix, customShader}) → a Promise of a
- *   Model (createBlocksModel; a test's fake).
+ *   Model (createBlocksModel; a test's fake). glbService: where the
+ *   chunks' parts are kept and the GLBs made (createGlbService: a worker).
  */
 export function createBlocksRenderer({
   viewer,
@@ -563,7 +471,10 @@ export function createBlocksRenderer({
   clearTimeoutImpl = (handle) => clearTimeout(handle),
   viewCentre = null,
   createModel = createBlocksModel,
+  glbService = null,
 } = {}) {
+  // The chunks' geometry and the GLBs made of it, in a worker (glbService.js).
+  const glbs = glbService || createGlbService();
   const scene = viewer.scene;
   const collection = scene.primitives.add(
     new Cesium.PrimitiveCollection({ destroyPrimitives: true }),
@@ -755,8 +666,9 @@ export function createBlocksRenderer({
 
   /**
    * How often geometry was made: chunks drawn alone, batch rebuilds, the
-   * chunks those combined, Models made, those the loader rejected, and the
-   * main thread's ms spent encoding their GLBs.
+   * chunks those combined, Models made, those rejected, and the main
+   * thread's ms spent packing meshes meshed in this thread (a mesh
+   * worker's come packed; the GLBs are made in the GLB worker).
    */
   const stats = {
     alone: 0,
@@ -764,46 +676,12 @@ export function createBlocksRenderer({
     rebuiltChunks: 0,
     models: 0,
     failed: 0,
-    encodeMs: 0,
+    packMs: 0,
   };
   /** Models being made or loaded: not drawn yet, not taken away. */
   const loading = new Set();
 
   const clock = () => globalThis.performance?.now?.() ?? Date.now();
-
-  /**
-   * Chunks as one GLB (gltf.js): each {held, offset}'s opaque faces feature
-   * s, its water feature n + s, moved by its offset (m) from the GLB's
-   * origin; the property table's ci, cj and water name them.
-   */
-  function encodeChunks(list) {
-    const start = clock();
-    const n = list.length;
-    const merged = (kind, base) =>
-      mergeParts(
-        list.map(({ held, offset }, s) => ({
-          part: held.parts[kind],
-          offset,
-          chunk: held.chunk,
-          feature: base + s,
-        })),
-      );
-    const ci = new Int32Array(2 * n);
-    const cj = new Int32Array(2 * n);
-    const water = new Uint8Array(2 * n);
-    list.forEach(({ held }, s) => {
-      ci[s] = ci[n + s] = held.chunk[0];
-      cj[s] = cj[n + s] = held.chunk[1];
-      water[n + s] = 1;
-    });
-    const glb = encodeBlocksGlb({
-      opaque: merged('opaque', 0),
-      water: merged('water', n),
-      features: { count: 2 * n, properties: { ci, cj, water } },
-    });
-    stats.encodeMs += clock() - start;
-    return glb;
-  }
 
   /** Take a drawn (or still being made) Model away. */
   function removeEntry(entry) {
@@ -815,12 +693,13 @@ export function createBlocksRenderer({
   }
 
   /**
-   * A Model of a GLB at a place ({origin, level, plain}), made
-   * asynchronously: the entry {model, ready, removed}; `onReady(entry)` once
-   * it draws, `onFailed(entry)` if the loader rejects it (what it was to
-   * replace stays drawn). Taken away before then, it is never added.
+   * A Model of a GLB (a promise of one, from the GLB worker) at a place
+   * ({origin, level, plain}), made asynchronously: the entry {model, ready,
+   * removed}; `onReady(entry)` once it draws (at once for a GLB of no
+   * faces), `onFailed(entry)` if the GLB or the Model is rejected (what it
+   * was to replace stays drawn). Taken away before then, it is never added.
    */
-  function drawModel(glb, place, owner, onReady, onFailed = () => {}) {
+  function drawModel(source, place, owner, onReady, onFailed = () => {}) {
     const entry = { model: null, ready: false, removed: false };
     const done = () => {
       if (entry.removed || entry.ready) return;
@@ -829,20 +708,22 @@ export function createBlocksRenderer({
       onReady(entry);
       requestRender();
     };
-    if (!glb) {
-      Promise.resolve().then(done);
-      return entry;
-    }
-    stats.models++;
     loading.add(entry);
     const customShader = place.plain
       ? plainShader
       : levelOf(place.level).shader;
-    Promise.resolve()
-      .then(() =>
-        createModel(glb, { modelMatrix: matrixOf(place), customShader }),
-      )
+    Promise.resolve(source)
+      .then((glb) => {
+        if (entry.removed || destroyed) return null;
+        if (!glb) {
+          done();
+          return null;
+        }
+        stats.models++;
+        return createModel(glb, { modelMatrix: matrixOf(place), customShader });
+      })
       .then((model) => {
+        if (!model) return;
         if (entry.removed || destroyed || !levelOf(place.level).frame) {
           model.destroy?.();
           return;
@@ -867,27 +748,21 @@ export function createBlocksRenderer({
     return entry;
   }
 
-  const ZERO = Object.freeze({ x: 0, y: 0, z: 0 });
-
   /**
-   * A chunk drawn alone, at its own origin. Once it draws, the chunk's
-   * earlier Models go and its old features in the batch are hidden.
+   * A chunk drawn alone, at its own origin, from its own GLB (`source`, a
+   * promise from the GLB worker). Once it draws, the chunk's earlier Models
+   * go and its old features in the batch are hidden.
    */
-  function drawAlone(key, held) {
+  function drawAlone(key, held, source) {
     stats.alone++;
-    const entry = drawModel(
-      encodeChunks([{ held, offset: ZERO }]),
-      held,
-      { key },
-      () => {
-        // Replaced (the newer one takes this away) or dropped: nothing.
-        if (chunks.get(key) !== held) return;
-        for (const other of held.alone) if (other !== entry) removeEntry(other);
-        held.alone = [entry];
-        const batch = batches.get(held.batch);
-        if (batch) hideInBatch(batch, key);
-      },
-    );
+    const entry = drawModel(source, held, { key }, () => {
+      // Replaced (the newer one takes this away) or dropped: nothing.
+      if (chunks.get(key) !== held) return;
+      for (const other of held.alone) if (other !== entry) removeEntry(other);
+      held.alone = [entry];
+      const batch = batches.get(held.batch);
+      if (batch) hideInBatch(batch, key);
+    });
     return entry;
   }
 
@@ -908,10 +783,10 @@ export function createBlocksRenderer({
     stats.rebuilds++;
     stats.rebuiltChunks += batch.members.size;
     const keys = [...batch.members];
-    const list = keys.map((key) => {
+    const members = keys.map((key) => {
       const held = chunks.get(key);
       return {
-        held,
+        key,
         offset: {
           x: held.origin.x - batch.origin.x,
           y: held.origin.y - batch.origin.y,
@@ -919,16 +794,16 @@ export function createBlocksRenderer({
         },
       };
     });
-    const build = {
-      entry: null,
-      keys,
-      versions: new Map(keys.map((key) => [key, chunks.get(key).version])),
-      hidden: new Set(),
-    };
+    // The versions are the GLB worker's: what it held when it made the GLB.
+    const build = { entry: null, keys, versions: new Map(), hidden: new Set() };
     removeEntry(batch.next?.entry);
     batch.next = build;
+    const source = glbs.batch(members).then(({ glb, versions }) => {
+      keys.forEach((key, s) => build.versions.set(key, versions[s]));
+      return glb;
+    });
     build.entry = drawModel(
-      encodeChunks(list),
+      source,
       batch,
       { build },
       () => batchReady(batchKey, build),
@@ -1079,6 +954,7 @@ export function createBlocksRenderer({
     const held = chunks.get(key);
     if (!held) return false;
     chunks.delete(key);
+    glbs.forget(key);
     for (const entry of held.alone) removeEntry(entry);
     const batch = batches.get(held.batch);
     if (batch) {
@@ -1104,6 +980,7 @@ export function createBlocksRenderer({
       for (const entry of held.alone) removeEntry(entry);
     chunks.clear();
     pending.clear();
+    glbs.forgetAll();
   }
 
   function placeAll() {
@@ -1222,14 +1099,19 @@ export function createBlocksRenderer({
     },
 
     /**
-     * Draw or replace a chunk's mesh (mesh.js's buildChunkMesh). It draws
-     * alone as soon as its Model is ready, its old self in its batch hidden
-     * then; the batch takes it in when it has been quiet for `quietMs`. The mesh's arrays are kept
-     * (as given: the mesher does not change them after) to rebuild from.
+     * Draw or replace a chunk's mesh: mesh.js's buildChunkMesh, or one a
+     * mesh worker packed (packMesh.js). It draws alone as soon as its Model
+     * is ready, its old self in its batch hidden then; the batch takes it
+     * in when it has been quiet for `quietMs`. Its packed parts go to the
+     * GLB worker (a packed mesh's buffers are transferred: given again, as
+     * a coarse chunk's is when it comes back, the worker's are used).
      */
     upsert(key, mesh) {
       if (!region) throw new Error('Blocks renderer: setRegion first');
-      if (!mesh || !mesh.indices?.length) {
+      const faces = mesh?.packedParts
+        ? packedMeshHasFaces(mesh)
+        : Boolean(mesh?.indices?.length);
+      if (!faces) {
         if (!dropChunk(key)) requestRender();
         return;
       }
@@ -1247,20 +1129,35 @@ export function createBlocksRenderer({
       if (before && before.batch !== batchKey) dropChunk(key);
       // Its earlier Models stay drawn until the new one is ready.
       const earlier = before && before.batch === batchKey ? before.alone : [];
-      // Its block points: the mesher's, else from a flat mesh's positions;
-      // a curved one without them draws plain (no edges, no dither).
-      const scaleM =
-        leveled?.blockM ?? region.blockM * (/^c:/.test(key) ? BATCH_CHUNKS : 1);
-      const curved = chunkIsCurved(key, mesh, region.blockM);
-      const blockCoords = curved
-        ? mesh.blockCoords || null
-        : derivedBlockCoords(
-            mesh,
-            scaleM,
-            // Fine and coarse chunks are meshed on the region's levels.
-            levelMOf(ring?.region || region),
-          );
-      const plain = !blockCoords;
+      // The chunk whose columns fold into its block points: its own, a
+      // coarse chunk's group (as the mesh worker folds them).
+      const coarse = /^c:(-?\d+):(-?\d+)$/.exec(key);
+      const chunk = parsed
+        ? [parsed.ci, parsed.cj]
+        : coarse
+          ? [Number(coarse[1]), Number(coarse[2])]
+          : [0, 0];
+      let packed = mesh.packedParts ? mesh : null;
+      if (!packed) {
+        // Meshed in this thread: packed here. Its block points: the
+        // mesher's, else from a flat mesh's positions; a curved one without
+        // them draws plain (no edges, no dither).
+        const start = clock();
+        const scaleM =
+          leveled?.blockM ??
+          region.blockM * (/^c:/.test(key) ? BATCH_CHUNKS : 1);
+        const blockCoords = chunkIsCurved(key, mesh, region.blockM)
+          ? mesh.blockCoords || null
+          : derivedBlockCoords(
+              mesh,
+              scaleM,
+              // Fine and coarse chunks are meshed on the region's levels.
+              levelMOf(ring?.region || region),
+            );
+        packed = packMesh(mesh, { chunk, blockCoords });
+        stats.packMs += clock() - start;
+      }
+      const plain = packed.plain;
       let batch = batches.get(batchKey);
       if (!batch) {
         batch = {
@@ -1282,19 +1179,19 @@ export function createBlocksRenderer({
       const held = {
         batch: batchKey,
         origin,
-        parts: Object.fromEntries(
-          Object.entries(splitMesh({ ...mesh, blockCoords })).map(
-            ([kind, part]) => [kind, compactPart(part)],
-          ),
-        ),
-        chunk: [parsed?.ci ?? 0, parsed?.cj ?? 0],
+        chunk,
         level: leveled?.blockM ?? null,
         plain,
         version: ++versions,
         alone: earlier,
       };
       chunks.set(key, held);
-      held.alone = [...earlier, drawAlone(key, held)];
+      // A packed mesh given before has its buffers in the GLB worker.
+      const source = packed.given
+        ? glbs.revive(key, held.version)
+        : glbs.put(key, held.version, packed.packedParts, chunk);
+      if (packed === mesh) mesh.given = true;
+      held.alone = [...earlier, drawAlone(key, held, source)];
       changed(batchKey, batch);
     },
 
@@ -1397,13 +1294,9 @@ export function createBlocksRenderer({
       stats: { ...stats },
       // Models made and not drawn yet (one that never loads stays here).
       loadingModels: loading.size,
-      // What is kept to rebuild batches from, MB.
-      retainedMB:
-        [...chunks.values()].reduce(
-          (sum, held) =>
-            sum + partBytes(held.parts.opaque) + partBytes(held.parts.water),
-          0,
-        ) / 1e6,
+      // What the GLB worker keeps to rebuild batches from, MB.
+      retainedMB: glbs.stats().bytes / 1e6,
+      glbInWorker: glbs.inWorker(),
       // The Models drawn or being added (each batch's, each lone chunk's).
       primitives: collection.length,
       sun,
@@ -1439,6 +1332,7 @@ export function createBlocksRenderer({
       if (wake !== null) clearTimeoutImpl(wake);
       wake = null;
       dropAll();
+      glbs.destroy();
       rings.clear();
       scene.primitives.remove(collection);
       requestRender();

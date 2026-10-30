@@ -14,11 +14,12 @@ import { CHUNK_COLUMNS, createRegion } from './grid.js';
 import { createChunk } from './store.js';
 import { buildChunkMesh } from './mesh.js';
 import { readBlocksGlb } from './gltf.js';
+import { packMesh } from './packMesh.js';
+import { createGlbService } from './glbService.js';
 import {
   BATCH_CHUNKS,
   BLOCKS_SHADER_FRAGMENT,
   BLOCKS_SHADER_VERTEX,
-  compactPart,
   batchKeyOf,
   DITHER_DEFAULTS,
   HORIZON_SKY_DAY,
@@ -318,12 +319,14 @@ test('a Model not ready yet: what it replaces stays drawn until it is; one taken
   fake.readyAll();
   assert.equal(collection.length, 1);
   assert.equal(first.isDestroyed(), true);
-  // Removed before its Model is made: never added, destroyed.
+  // Removed before its GLB came back: no Model is made, none added.
+  const made = fake.made.length;
   renderer.upsert('1:0', tinyMesh());
   renderer.remove('1:0');
   await settle();
   assert.equal(collection.length, 1);
-  assert.equal(fake.made.at(-1).isDestroyed(), true);
+  assert.equal(fake.made.length, made);
+  assert.equal(renderer.getState().loadingModels, 0);
   renderer.destroy();
 });
 
@@ -1006,20 +1009,117 @@ test('one batch a frame; flush({all}) does every pending one; a new region drops
   renderer.destroy();
 });
 
-test('compactPart: byte normals and 16-bit indices, kept and counted', () => {
-  const part = compactPart(tinyMesh());
-  assert.ok(part.normals instanceof Int8Array);
-  assert.deepEqual([...part.normals.slice(0, 3)], [0, 0, 127]);
-  assert.ok(part.indices instanceof Uint16Array);
-  assert.equal(compactPart(null), null);
+test('a mesh meshed in this thread is packed here, once; the GLB store keeps its parts and counts them; nothing is kept on the renderer', async () => {
   const { renderer } = setup();
   renderer.setRegion(stubRegion());
   renderer.upsert('0:0', tinyMesh());
-  // 4 vertices: 48 bytes of positions, 12 of normals, 16 of colours, 48
-  // of block points (from the positions: a flat mesh without them), 12 of
-  // indices.
-  assert.ok(Math.abs(renderer.getState().retainedMB - 136 / 1e6) < 1e-12);
+  await settle();
+  // 4 vertices: 48 bytes of positions, 16 of byte normals, 16 of colours,
+  // 48 of block points (from the positions: a flat mesh without them),
+  // 12 of 16-bit indices.
+  assert.ok(Math.abs(renderer.getState().retainedMB - 140 / 1e6) < 1e-12);
+  assert.equal(renderer.getState().glbInWorker, false, 'no Worker in Node');
+  assert.ok(renderer.getState().stats.packMs >= 0);
+  renderer.remove('0:0');
+  assert.equal(renderer.getState().retainedMB, 0);
   renderer.destroy();
+});
+
+test('a mesh a worker packed (packMesh) is drawn as it came, its buffers given to the GLB store; given again (a coarse chunk back), the store’s parts are used', async () => {
+  const { renderer, fake } = setup();
+  renderer.setRegion(stubRegion());
+  const packed = packMesh(tinyMesh({ water: true }), { chunk: [0, 0] });
+  packed.origin = { x: 0, y: 0, z: 0 };
+  renderer.upsert('c:0:0', packed);
+  await settle();
+  assert.equal(packed.given, true);
+  const first = fake.made.at(-1);
+  assert.deepEqual(
+    first.decoded.primitives.map((p) => p.kind),
+    ['opaque', 'water'],
+  );
+  // Taken away (kept aside: a coarse chunk), then back with the same mesh.
+  renderer.remove('c:0:0');
+  renderer.upsert('c:0:0', packed);
+  await settle();
+  const again = fake.made.at(-1);
+  assert.notEqual(again, first);
+  assert.deepEqual(
+    again.decoded.primitives[0].positions,
+    first.decoded.primitives[0].positions,
+  );
+  assert.equal(renderer.getState().stats.failed, 0);
+  renderer.destroy();
+});
+
+test('the GLB service: put, a batch from what it keeps (its versions), forget, a coarse chunk kept aside and revived; in a worker the parts are transferred', async () => {
+  // In this thread (no Worker in Node).
+  const service = createGlbService();
+  assert.equal(service.inWorker(), false);
+  const parts = (x) =>
+    packMesh(
+      {
+        ...tinyMesh(),
+        positions: tinyMesh().positions.map((v, k) =>
+          k % 3 === 0 ? v + x : v,
+        ),
+      },
+      { chunk: [x, 0] },
+    ).packedParts;
+  const alone = readBlocksGlb(await service.put('1:0', 7, parts(1), [1, 0]));
+  assert.equal(alone.featureCount, 2);
+  await service.put('2:0', 3, parts(2), [2, 0]);
+  const { glb, versions } = await service.batch([
+    { key: '1:0', offset: { x: 0, y: 0 } },
+    { key: '9:9', offset: { x: 0, y: 0 } },
+    { key: '2:0', offset: { x: 64, y: 0 } },
+  ]);
+  assert.deepEqual(versions, [7, null, 3]);
+  const batch = readBlocksGlb(glb);
+  assert.deepEqual([...batch.properties.ci], [1, 0, 2, 1, 0, 2]);
+  assert.equal(batch.primitives[0].positions.length, 24);
+  service.forget('1:0');
+  assert.deepEqual((await service.batch([{ key: '1:0' }])).versions, [null]);
+  await assert.rejects(service.revive('1:0', 8), /nothing kept for 1:0/);
+  await service.put('c:4:4', 1, parts(0), [4, 4]);
+  service.forget('c:4:4');
+  assert.equal(service.stats().parked, 1);
+  assert.ok(await service.revive('c:4:4', 2));
+  assert.deepEqual((await service.batch([{ key: 'c:4:4' }])).versions, [2]);
+  service.forgetAll();
+  assert.deepEqual(service.stats(), { chunks: 0, parked: 0, bytes: 0 });
+  service.destroy();
+  // A worker: given the parts' buffers by transfer, answering by id.
+  const posted = [];
+  const listeners = {};
+  const worker = {
+    postMessage: (message, transfer) => posted.push({ message, transfer }),
+    addEventListener: (type, listener) => (listeners[type] = listener),
+    terminate() {},
+  };
+  const remote = createGlbService({ createWorker: () => worker });
+  assert.equal(remote.inWorker(), true);
+  const given = parts(0);
+  const answer = remote.put('0:0', 1, given, [0, 0]);
+  assert.equal(posted[0].message.op, 'put');
+  assert.equal(posted[0].transfer.length, 5, 'the opaque part’s five buffers');
+  listeners.message({
+    data: {
+      id: posted[0].message.id,
+      glb: new Uint8Array(4),
+      stats: { chunks: 1, parked: 0, bytes: 140 },
+    },
+  });
+  assert.equal((await answer).length, 4);
+  assert.equal(remote.stats().bytes, 140);
+  remote.forget('0:0');
+  assert.deepEqual(posted[1].message, { op: 'forget', key: '0:0' });
+  // The worker failing: what waits fails, and what is asked after.
+  const lost = remote.batch([{ key: '0:0' }]);
+  listeners.error({ preventDefault() {} });
+  await assert.rejects(lost, /GLB worker failed/);
+  await assert.rejects(remote.revive('0:0', 2), /GLB worker failed/);
+  remote.destroy();
 });
 
 test('level chunk keys and their batches: one lattice of chunks a ring', () => {
@@ -1273,7 +1373,7 @@ test('batches are built nearest the view centre first, and one covering the cent
   renderer.destroy();
 });
 
-test('block points: carried through splitMesh and compactPart into the GLB, opaque and water; a flat mesh without them derives them from its positions', async () => {
+test('block points: carried through splitMesh and packMesh into the GLB, opaque and water; a flat mesh without them derives them from its positions', async () => {
   // A mesh with block points: (i, j, level), here a quad at level 1 and a
   // water quad beside it.
   const mesh = tinyMesh({ water: true });
@@ -1284,7 +1384,6 @@ test('block points: carried through splitMesh and compactPart into the GLB, opaq
   const { opaque, water } = splitMesh(mesh);
   assert.deepEqual([...opaque.blockCoords], [...mesh.blockCoords.slice(0, 12)]);
   assert.deepEqual([...water.blockCoords], [...mesh.blockCoords.slice(12)]);
-  assert.equal(compactPart(water).blockCoords, water.blockCoords);
   // A flat mesh without them: positions over (blockM, blockM, levelM).
   const derived = derivedBlockCoords(
     { positions: Float32Array.from([30, 60, 90]) },
@@ -1415,7 +1514,7 @@ test('a batch whose chunks stream in two seconds apart is rebuilt once at the de
   assert.equal(now.rebuiltChunks, 16);
   assert.equal(now.alone, 16, 'each drawn alone meanwhile (a draw call each)');
   assert.equal(now.models, 17);
-  assert.ok(now.encodeMs >= 0);
+  assert.ok(now.packMs >= 0);
   // At the old 1.5 s, a rebuild after every chunk.
   const before = await stream(1500);
   assert.equal(before.rebuilds, 16);

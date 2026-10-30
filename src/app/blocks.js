@@ -72,7 +72,10 @@ export function createApplicationBlocks({
     // Coarse chunks come a supergroup at a time (source.js).
     supergroupGroups: SUPERGROUP,
     // Meshed off the main thread by the worker pool, its queue the brake.
-    meshAsync: meshChunkAsync,
+    // Packed by the mesh worker as the renderer draws it (packMesh.js):
+    // the page only passes the buffers on to the GLB worker.
+    meshAsync: (chunk, options) =>
+      meshChunkAsync(chunk, { ...options, pack: true }),
     meshBacklog: () => sharedMeshPool().stats(),
     // Buildings on the fine ring, where Overpass answers.
     structures: {
