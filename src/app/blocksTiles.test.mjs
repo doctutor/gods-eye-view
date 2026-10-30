@@ -563,3 +563,39 @@ test('a coarse tree refines to 4 px over 2,000 km and to 8 px again only under 1
   assert.equal(tileset.maximumScreenSpaceError, TILES_SCREEN_ERROR);
   layer.destroy();
 });
+
+test('a viewer without a scene (the app’s data set up under a stub viewer, src/app/catalog.test.mjs): the layer is made, plans, applies and is destroyed without touching one', async () => {
+  for (const viewer of [
+    {},
+    { scene: undefined },
+    { scene: { camera: undefined } },
+  ]) {
+    const made = [];
+    const layer = createBlocksTilesLayer({
+      viewer,
+      fetchIndex: async () => INDEX,
+      createTileset: async (url, options) => {
+        const tileset = {
+          url,
+          options,
+          tileLoad: new Cesium.Event(),
+          tileUnload: new Cesium.Event(),
+          destroy() {},
+        };
+        made.push(tileset);
+        return tileset;
+      },
+    });
+    await layer.ready;
+    assert.equal(
+      layer.plan({ lon: -76.6, lat: 39.27, wantedM: 30 }).mode !== undefined,
+      true,
+    );
+    layer.apply({ state: 'ready', tiles: TILES });
+    await settle();
+    assert.equal(made.length, 1, 'its tileset made, though nowhere to add it');
+    layer.apply({ state: 'off', tiles: null });
+    assert.equal(layer.getState().shown, null);
+    layer.destroy();
+  }
+});
