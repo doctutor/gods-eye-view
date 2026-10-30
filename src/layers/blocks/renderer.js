@@ -309,6 +309,9 @@ const imageLightingOff = () =>
     imageBasedLightingFactor: new Cesium.Cartesian2(0, 0),
   }));
 
+/** Each Blocks Model's own base path (createBlocksModel). */
+let glbSerial = 0;
+
 /**
  * A Blocks Model from a GLB (gltf.js), as the renderer draws it: no
  * vertical exaggeration (the controller bakes the relief into the mesh),
@@ -319,6 +322,11 @@ const imageLightingOff = () =>
 export function createBlocksModel(glb, { modelMatrix, customShader }) {
   return Cesium.Model.fromGltfAsync({
     gltf: glb,
+    // Cesium caches a glTF's JSON and buffers by its address; an in-memory
+    // GLB's is the base path, the same for all of them, so Models loading
+    // at once took the first one's geometry. A path of its own each (the
+    // buffers are in the GLB: nothing is fetched).
+    basePath: `blocks-glb/${++glbSerial}/`,
     // glTF's Y-up turned to Z-up and nothing more, as a 3D Tiles tile is
     // (Cesium3DTileset's modelForwardAxis X): a lone Model's default Z
     // forward adds a quarter turn about up, which turned every batch about
@@ -1297,6 +1305,8 @@ export function createBlocksRenderer({
       // What the GLB worker keeps to rebuild batches from, MB.
       retainedMB: glbs.stats().bytes / 1e6,
       glbInWorker: glbs.inWorker(),
+      // The GLB worker's count of chunks kept and kept aside (its last answer).
+      glbStore: glbs.stats(),
       // The Models drawn or being added (each batch's, each lone chunk's).
       primitives: collection.length,
       sun,

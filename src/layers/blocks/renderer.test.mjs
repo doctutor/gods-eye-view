@@ -1612,3 +1612,40 @@ test('a Model that never becomes ready stays counted as loading, and what it was
   assert.equal(renderer.getState().loadingModels, 0);
   renderer.destroy();
 });
+
+test('Models made at once each load their own GLB: Cesium caches a glTF by its address, so each Blocks Model has a base path of its own', async (t) => {
+  const quad = (x) => ({
+    positions: Float32Array.from([x, 0, 1, x + 1, 0, 1, x + 1, 1, 1, x, 1, 1]),
+    normals: Float32Array.from([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]),
+    colors: new Uint8Array(16).fill(200),
+    blockCoords: new Float32Array(12),
+    indices: Uint32Array.from([0, 1, 2, 0, 2, 3]),
+  });
+  const { encodeBatchGlb, packPart } = await import('./gltf.js');
+  const glb = (x) =>
+    encodeBatchGlb({
+      chunks: [{ opaque: packPart(quad(x)) }],
+      features: { count: 2 },
+    });
+  // Each load's glTF as Cesium parsed it: the first position's east.
+  const seen = [];
+  const original = Cesium.Model.fromGltfAsync;
+  Cesium.Model.fromGltfAsync = (options) =>
+    original({
+      ...options,
+      gltfCallback: (json) => seen.push(json.accessors[0].min[0]),
+    });
+  t.after(() => {
+    Cesium.Model.fromGltfAsync = original;
+  });
+  const models = await Promise.all(
+    [10, 20, 30].map((x) =>
+      createBlocksModel(glb(x), { modelMatrix: Cesium.Matrix4.IDENTITY }),
+    ),
+  );
+  assert.deepEqual(
+    seen.sort((a, b) => a - b),
+    [10, 20, 30],
+  );
+  for (const model of models) model.destroy();
+});
