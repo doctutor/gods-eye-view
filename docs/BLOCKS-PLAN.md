@@ -294,14 +294,7 @@ ceiling becomes the top of a pyramid rather than a wall.
    block is a cube (`levelM = blockM`, no visible change). Above 30 m the
    rule is `levelM = max(30 m, blockM / 32)`: 120 m blocks on 30 m
    levels, 1,920 m on 60 m, 30,720 m on 960 m. Appalachia at 10 km cells
-   is then tens of steps, not a fifth of one. From 60 m levels up
-   (1,920 m blocks and coarser) a block hangs below its height instead
-   of standing on it: its top at `floor(h / levelM) × levelM`, the sea's
-   water at level −1 (top at 0 m), so no coarse level stands above the
-   ground it stands for (`source.js` `HANGING_LEVEL_M`, live and built
-   alike). Standing, the 30,720 m blocks put a Baltimore street (about
-   50 m) under a top at 960 m, and a camera at 300 m inside it saw no
-   ground for 20 s of a page load (2026-10-30). The Relief ×n control
+   is then tens of steps, not a fifth of one. The Relief ×n control
    (`renderMode.js` exaggeration, kept in the browser) multiplies the drawn height
    of every level, as Colour already does; the readouts keep the real
    metres.

@@ -21,9 +21,7 @@ import {
   retryable,
   coarseHeights,
   coarseLevelOf,
-  HANGING_LEVEL_M,
   columnsFromHeights,
-  landFloorLevel,
   createChunkSource,
   groupBounds,
   groupOf,
@@ -210,30 +208,6 @@ test('columnsFromHeights: floor levels, the sea at level 0, nodata NONE', () => 
   assert.deepEqual([...coarse.top], [0, 1, 1, 2]);
 });
 
-test('columnsFromHeights: from HANGING_LEVEL_M a block hangs below its height (its top at floor(h / levelM) × levelM), the sea water at -1 with its top at 0 m; 30 m levels stand as before', () => {
-  assert.equal(HANGING_LEVEL_M, 60);
-  assert.deepEqual([30, 60, 960].map(landFloorLevel), [0, -1, -1]);
-  // A Baltimore street's 50 m on the 30,720 m blocks' 960 m levels: level
-  // -1, its top at 0 m (standing, level 0 put its top at 960 m).
-  const heights = Float32Array.from([50, 959, 960, 2000, 0, -400, -1000, NaN]);
-  const { top, water, material } = columnsFromHeights(heights, 960);
-  assert.deepEqual([...top], [-1, -1, 0, 1, -2, -2, -3, NONE]);
-  assert.deepEqual([...water], [NONE, NONE, NONE, NONE, -1, -1, -1, NONE]);
-  const { TERRAIN: T, AIR: A } = MATERIALS;
-  assert.deepEqual([...material], [T, T, T, T, T, T, T, A]);
-  // Each top, (level + 1) × levelM, is at or under its height.
-  for (let k = 0; k < 4; k++) assert.ok((top[k] + 1) * 960 <= heights[k]);
-  // A lake on 60 m levels: water at 360 m's level (5, its top 360 m) over a
-  // bed at 4.
-  const lake = columnsFromHeights(Float32Array.from([400]), 60, [1]);
-  assert.deepEqual([[...lake.top], [...lake.water]], [[4], [5]]);
-  // 30 m levels (480 m blocks and finer) stand on their height, as before.
-  assert.deepEqual(
-    [...columnsFromHeights(Float32Array.from([50, 0]), 30).top],
-    [1, -1],
-  );
-});
-
 test('columnsFromHeights with water shares: a column above 0 m at least half water is a lake at its level over a bed one below; the sea and nodata as before', () => {
   const heights = Float32Array.from([95, 95, 95, 0, -3, NaN, 20]);
   const shares = Float32Array.from([1, 0.5, 0.49, 1, 1, 1, 0.8]);
@@ -279,15 +253,14 @@ test('the water plane: asked above the OSM levels (30 m and under keep their req
   const source = createChunkSource({ fetchValues, createChunk });
   const chunk = await source.loadChunk(region, 0, 0);
   assert.ok(calls.length && calls.every((call) => call.water === true));
-  // 400 m on 60 m levels hangs (HANGING_LEVEL_M): its top at 360 m, the
-  // top of level 5; the lake's water there, its bed at 4.
-  assert.equal(chunk.top[columnIndex(10, 10)], 4);
-  assert.equal(chunk.water[columnIndex(10, 10)], 5);
-  assert.equal(chunk.top[columnIndex(40, 10)], 5);
+  // 400 m on 60 m levels is level 6: the lake's water there, its bed at 5.
+  assert.equal(chunk.top[columnIndex(10, 10)], 5);
+  assert.equal(chunk.water[columnIndex(10, 10)], 6);
+  assert.equal(chunk.top[columnIndex(40, 10)], 6);
   assert.equal(chunk.water[columnIndex(40, 10)], NONE);
   // The group's coarse chunk: each column the mean of 4 × 4 fine shares.
   const coarse = await source.loadCoarseChunk(region, 0, 0);
-  assert.equal(coarse.water[columnIndex(2, 3)], 5);
+  assert.equal(coarse.water[columnIndex(2, 3)], 6);
   assert.equal(coarse.water[columnIndex(12, 3)], NONE);
   // A supergroup's coarse chunks read the 7,680 m tiles' plane.
   const asked = calls.length;
@@ -777,11 +750,11 @@ test('any level: a region at 1,920 m is served like one at 1 m, its coarse ring 
     assert.ok(call.box.west >= -180 && call.box.east <= 180);
     assert.ok(call.box.south >= -90 && call.box.north <= 90);
   }
-  // Column 0's centre: 960 m east of 95° W, about 425 m high: in 1,920 m
-  // cubes, hanging (HANGING_LEVEL_M), level -1, its top at 0 m.
+  // Column 0's centre: 960 m east of 95° W, about 425 m high: level 0 of
+  // 1,920 m cubes.
   assert.equal(
     chunk.top[0],
-    Math.floor(heightAt(region.columnCentre(0, 0).lon) / 1920) - 1,
+    Math.floor(heightAt(region.columnCentre(0, 0).lon) / 1920),
   );
   const asked = calls.length;
   const coarse = await source.loadCoarseChunk(region, 4, 0);
@@ -809,8 +782,8 @@ test("reach: a flat region's columns past its tangent plane are nodata; a curved
     assert.ok(call.box.west >= -180 && call.box.east <= 180);
     assert.ok(call.box.south >= -90 && call.box.north <= 90);
   }
-  assert.equal(chunk.top[0], -1); // 300 m on 960 m levels, hanging
-  assert.equal(chunk.top[CHUNK_COLUMNS - 1], -1);
+  assert.equal(chunk.top[0], 0); // 300 m on 960 m levels
+  assert.equal(chunk.top[CHUNK_COLUMNS - 1], 0);
   assert.ok(CURVED_REACH_M > 19_000_000);
 });
 
@@ -887,7 +860,7 @@ test("levels apart from blocks: a region's levelM sets its fine and coarse colum
     0,
     0,
   );
-  assert.equal(cubes.top[0], -1); // 95 m in 120 m cubes, hanging: top 0 m
+  assert.equal(cubes.top[0], 0); // 95 m in 120 m cubes
 });
 
 test('a fill value beside land is no column and no pit: fine columns NONE, the coarse mean of the land alone', async () => {
