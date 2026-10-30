@@ -1344,6 +1344,7 @@ function sequencePageProbe() {
     blocksSources: new Set(),
     byKind: {},
     kindOf: new WeakMap(),
+    blocksDefines: new Map(),
   };
   qa.programs = programs;
   for (const Context of [
@@ -1387,7 +1388,16 @@ function sequencePageProbe() {
                   : 'other';
       const pick = source.includes('czm_pickColor') ? ' pick' : '';
       // A Blocks variant cut by clipping planes (the tiles about the hole).
-      const clip = blocks && /clippingPlane/i.test(source) ? ' clip' : '';
+      const clip =
+        blocks && /#define HAS_CLIPPING_PLANES/.test(source) ? ' clip' : '';
+      // A Blocks program's defines, to tell its variants apart.
+      if (blocks && !programs.blocksDefines.has(key))
+        programs.blocksDefines.set(
+          key,
+          [...new Set(source.match(/#define [A-Z_0-9]+/g) || [])]
+            .map((line) => line.slice(8))
+            .sort(),
+        );
       const tag = `${kind}${clip}${pick}`;
       const byKind = (programs.byKind[tag] ||= {
         links: 0,
@@ -1543,6 +1553,7 @@ function sequenceReadout() {
         waits: linked.waits,
         cached:
           gev.viewer?.scene?.context?.shaderCache?.numberOfShaders ?? null,
+        blocksDefines: [...linked.blocksDefines.values()],
         byKind: Object.fromEntries(
           Object.entries(linked.byKind).map(([tag, held]) => [
             tag,
@@ -1564,6 +1575,7 @@ function sequenceReadout() {
     linked.sources.clear();
     linked.blocksSources.clear();
     linked.byKind = {};
+    linked.blocksDefines.clear();
   }
   const carto = gev.viewer.camera.positionCartographic;
   const text = (id) => document.getElementById(id)?.textContent?.trim() || '';
