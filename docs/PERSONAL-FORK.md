@@ -2567,7 +2567,16 @@ day's budget (`EARTH_ENGINE_DAILY_TILES`), as a map tile does.
 `.gev-cache/raster-values/<layer>/<mode>/<version>/<hash>.bin` for 30
 days, the hash being of the layer, mode, box and cells. A changed
 expression, build or grid file makes a new version. Answers in flight are
-shared. The self-hosted sources are computed in two worker threads, the
+shared.
+
+Cells 100 m wide or wider are kept a year (`valuesTtlMs`): the Blocks
+lattice from 120 m up, which the warm-up fills
+(`npm run blocks:pyramid -- --server`) and the live fallback reads. On
+2026-10-30 the Elevation version in use held 6,883 answers in 7.1 GB, about
+1 MB each (a 512-cell tile's heights and water). The life gates only reads:
+nothing sweeps the folder, so an answer past its life stays on disk until it is
+asked again and rewritten, and a superseded version (1.4 GB in
+3,460 answers then) stays until it is deleted by hand. The self-hosted sources are computed in two worker threads, the
 shared tile pool's `raster-values` drawer
 (`server/providers/common/tileWorker.js`).
 

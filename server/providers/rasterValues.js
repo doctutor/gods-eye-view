@@ -68,13 +68,25 @@ import {
  * VALUES_EXPERIMENTS): its answer is computed fresh, served, never read
  * from or written to the cache, and its header says `experiment`; a bad
  * value, or another layer, is a 400. Without the flag they are ignored. `?v=` is ignored. Answers are kept under
- * .gev-cache/raster-values/<layer>/<mode>/<version>/<hash of box+cells>.bin;
- * the self-hosted sources are computed in worker threads.
+ * .gev-cache/raster-values/<layer>/<mode>/<version>/<hash of box+cells>.bin,
+ * 30 days, or a year for cells of 100 m and wider (valuesTtlMs); the self-hosted sources are computed in worker threads.
  */
 
 const CACHE_DIR = path.join('.gev-cache', 'raster-values');
 /** A kept answer serves this long (Earth Engine's tiles keep 30 days too). */
 export const VALUES_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/**
+ * Cells this wide or wider are kept a year instead: the Blocks lattice from
+ * 120 m up (a lattice cell is its level or a little more), which a warm-up
+ * fills by the thousand (scripts/blocks-pyramid.mjs) and the live fallback
+ * reads. The line sits clear of the 30 m and 120 m levels.
+ */
+export const COARSE_VALUES_FROM_M = 100;
+export const COARSE_VALUES_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+
+/** How long a kept answer with this cell serves. */
+export const valuesTtlMs = (cellSizeM) =>
+  cellSizeM >= COARSE_VALUES_FROM_M ? COARSE_VALUES_TTL_MS : VALUES_TTL_MS;
 const NEEDS = {
   overture:
     'Overture buildings are not built (npm run overture:build -- --buildings)',
@@ -372,7 +384,7 @@ export function createRasterValuesService({
       if (!fresh)
         try {
           const stat = fs.statSync(file);
-          if (now() - stat.mtimeMs < VALUES_TTL_MS)
+          if (now() - stat.mtimeMs < valuesTtlMs(plan.cellSizeM))
             return { status: 200, body: fs.readFileSync(file), cached: true };
         } catch {
           /* not on disk */

@@ -8,15 +8,25 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { EARTH_ENGINE_LAYERS } from '../../src/data/earthEngineLayers.js';
-import { decodeRasterValues } from '../../src/data/rasterValues.js';
+import { decodeRasterValues, windowGrid } from '../../src/data/rasterValues.js';
+import {
+  latticeBox,
+  latticeCells,
+  latticeIndex,
+} from '../../src/layers/blocks/lattice.js';
+import { BLOCK_PYRAMID_M } from '../../src/layers/blocks/pyramid.js';
 import {
   VALUES_RETRY_AFTER_S,
   createEarthEngineService,
   createRestBackend,
 } from './earthEngine.js';
 import {
+  COARSE_VALUES_FROM_M,
+  COARSE_VALUES_TTL_MS,
+  VALUES_TTL_MS,
   createRasterValuesHandler,
   createRasterValuesService,
+  valuesTtlMs,
 } from './rasterValues.js';
 import {
   legendRange,
@@ -1042,4 +1052,45 @@ test('the REST backend: a values request waits its own time, and no answer is a 
   assert.match(answer.error, /no answer .*timeout/);
   assert.equal(signals.length, 1);
   assert.ok(signals[0] instanceof AbortSignal);
+});
+
+test('a kept answer serves 30 days, a year for cells of 100 m and wider (the Blocks lattice from 120 m up)', async (t) => {
+  // Against the real lattice, at the equator, Baltimore and 70° N: every
+  // tile from 120 m up is kept a year, every 30 m tile 30 days.
+  for (const blockM of BLOCK_PYRAMID_M.filter((m) => m >= 30))
+    for (const lat of [0.5, 39.3, 70]) {
+      const { ti, tj } = latticeIndex(blockM, -76.6, lat);
+      const box = latticeBox(blockM, ti, tj);
+      const { cellSizeM } = windowGrid(box, latticeCells(blockM));
+      assert.equal(
+        valuesTtlMs(cellSizeM),
+        blockM >= 120 ? COARSE_VALUES_TTL_MS : VALUES_TTL_MS,
+        `${blockM} m at ${lat}°: ${cellSizeM} m cells`,
+      );
+    }
+  assert.equal(valuesTtlMs(99.9), VALUES_TTL_MS);
+  assert.equal(valuesTtlMs(COARSE_VALUES_FROM_M), COARSE_VALUES_TTL_MS);
+  // The service: a 700 m answer still serves after 31 days and is asked
+  // again after 366; a 35 m one is asked again after 31.
+  let ahead = 0;
+  const { service: values, calls } = service(t, {
+    now: () => Date.now() + ahead,
+  });
+  const DAY = 24 * 60 * 60 * 1000;
+  const fine = query({
+    west: '7.5',
+    south: '45.8',
+    east: '7.52',
+    north: '45.82',
+  });
+  for (const ask of [query(), fine])
+    assert.equal((await values.values(ask)).status, 200);
+  assert.equal(calls.length, 2);
+  ahead = 31 * DAY;
+  assert.equal((await values.values(query())).cached, true);
+  assert.notEqual((await values.values(fine)).cached, true);
+  assert.equal(calls.length, 3);
+  ahead = 366 * DAY;
+  assert.notEqual((await values.values(query())).cached, true);
+  assert.equal(calls.length, 4);
 });
