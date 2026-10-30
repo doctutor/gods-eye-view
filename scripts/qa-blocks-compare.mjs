@@ -83,7 +83,8 @@
  * the tile top under the camera, and report.json each tile asked for (ms
  * from the page's start). --frame-eval <file> runs that file's function
  * (its source, `() => ...`) in the page at each of those frames and keeps
- * its answer: an experiment on the scene there.
+ * its answer: an experiment on the scene there; it runs once more as
+ * those frames start (an experiment watching every frame starts there).
  *
  * --panels opens the two panels before the steps, shoots each step 1.5 s
  * into its flight (<step>-flight.png) and, after the city, opens the
@@ -1214,6 +1215,10 @@ async function shoot({
   const loadFrames = [];
   if (loadFramesOn && blocks) {
     const from = Date.now();
+    // --frame-eval once at the start too, so an experiment that watches
+    // every frame (a timeline) starts before the first shot.
+    if (frameEval)
+      await page.evaluate(`(${frameEval})()`).catch(() => undefined);
     for (const at of SHOT_LOAD_FRAMES_MS) {
       const wait = from + at - Date.now();
       if (wait > 0)
