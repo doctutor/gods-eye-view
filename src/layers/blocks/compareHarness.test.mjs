@@ -499,3 +499,27 @@ test('the harness waits for the jobs that load the machine: a unit suite, a tile
   });
   assert.deepEqual(busy, ['pyramid build']);
 });
+
+test('a pyramid warm-up is waited for 2 minutes, then recorded (it competes on the server only lightly, and runs for hours); a tileset build, a suite or another harness the full 10 minutes', async () => {
+  const { waitQuiet, CONCURRENT_JOB_WAIT_MS } =
+    await import('../../../scripts/qa-blocks-compare.mjs');
+  assert.equal(CONCURRENT_JOB_WAIT_MS['pyramid build'], 120_000);
+  const run = async (line) => {
+    let clock = 0;
+    const jobs = await waitQuiet({
+      list: () => [line],
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      now: () => clock,
+      log: () => {},
+    });
+    return { jobs, waitedMs: clock };
+  };
+  const warmUp = await run('7 node scripts/blocks-pyramid.mjs --tiles eu.json');
+  assert.deepEqual(warmUp.jobs, ['pyramid build']);
+  assert.equal(warmUp.waitedMs, 120_000);
+  const build = await run('8 node scripts/blocks-tileset.mjs --bbox x');
+  assert.deepEqual(build.jobs, ['tileset build']);
+  assert.equal(build.waitedMs, 600_000);
+});

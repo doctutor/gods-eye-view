@@ -2174,6 +2174,15 @@ export const CONCURRENT_JOBS = Object.freeze([
 ]);
 
 /**
+ * How long a job is waited for at most (ms), when not the full maxMs: a
+ * pyramid warm-up competes on the app server and the CPU only lightly, and
+ * runs for hours, so it is waited for 2 minutes, then recorded.
+ */
+export const CONCURRENT_JOB_WAIT_MS = Object.freeze({
+  'pyramid build': 120_000,
+});
+
+/**
  * The concurrent jobs in a process list (`pid<space>command line` a line),
  * leaving out this process: their names, each once.
  */
@@ -2215,11 +2224,18 @@ export async function waitQuiet({
   list = nodeProcessLines,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   log = (text) => console.log(text),
+  waitCaps = CONCURRENT_JOB_WAIT_MS,
+  now = () => Date.now(),
 } = {}) {
-  const until = Date.now() + maxMs;
+  const start = now();
+  // The jobs still worth waiting for: each up to its own cap.
+  const waitingFor = (jobs) =>
+    jobs.filter(
+      (job) => now() - start < Math.min(maxMs, waitCaps[job] ?? maxMs),
+    );
   let jobs = concurrentJobs(list());
   if (jobs.length) log(`waiting for: ${jobs.join(', ')}`);
-  while (jobs.length && Date.now() < until) {
+  while (waitingFor(jobs).length) {
     await sleep(pollMs);
     jobs = concurrentJobs(list());
   }
