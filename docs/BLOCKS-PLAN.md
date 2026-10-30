@@ -1085,5 +1085,5 @@ follow it into E:.
 | ------------------------------ | ---------------------------------------------------------------------- |
 | `baltimore-harbour-30`, `-120` | D: (small)                                                             |
 | `lower48-480`                  | D: (4.5 GB)                                                            |
-| `europe-480`                   | E:, junctioned in                                                      |
+| `europe-480`                   | E:, junctioned in (3.4 GB: 1,316 tiles, 16 minutes, nothing fetched)   |
 | `lower48-120`                  | E:, junctioned in (about 33 to 38 GB; waits for the warm-up and a yes) |
