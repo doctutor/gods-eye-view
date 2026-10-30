@@ -10,6 +10,7 @@ import {
   TILES_CACHE_BYTES,
   TILES_SCREEN_ERROR,
   createBlocksTilesLayer,
+  guardTilesCache,
 } from './blocksTiles.js';
 
 // Cesium's CustomShader asks whether a uniform is a canvas or an image.
@@ -65,6 +66,8 @@ function setup({ buildings = true } = {}) {
           5000,
         ),
         viewMatrix: Cesium.Matrix4.IDENTITY,
+        moveStart: new Cesium.Event(),
+        moveEnd: new Cesium.Event(),
       },
     },
   };
@@ -75,9 +78,19 @@ function setup({ buildings = true } = {}) {
     fetchIndex: async () => INDEX,
     buildings: () => switches.buildings,
     createTileset: async (url, options) => {
+      // Cesium's: setting the maximum error resets the memory-adjusted one.
+      let maximum = options.maximumScreenSpaceError;
       const tileset = {
         url,
         options,
+        memoryAdjustedScreenSpaceError: maximum,
+        get maximumScreenSpaceError() {
+          return maximum;
+        },
+        set maximumScreenSpaceError(value) {
+          maximum = value;
+          tileset.memoryAdjustedScreenSpaceError = value;
+        },
         show: true,
         modelMatrix: Cesium.Matrix4.IDENTITY,
         tileLoad: new Cesium.Event(),
@@ -217,4 +230,54 @@ test('no index (the server has none): no boxes, nothing made, the plan off', asy
   } finally {
     console.warn = warn;
   }
+});
+
+test('the cache guard: when the view overflows the cache Cesium raises the error; the guard holds it as the maximum, so the coarser level stays instead of swapping back, until the camera moves or stops', async () => {
+  // On its own: nothing raised, nothing held.
+  const plain = {
+    maximumScreenSpaceError: 4,
+    memoryAdjustedScreenSpaceError: 4,
+  };
+  assert.equal(guardTilesCache(plain), null);
+  const { viewer, layer, made } = setup();
+  await layer.ready;
+  layer.apply({ state: 'ready', tiles: TILES });
+  await settle();
+  const [tileset] = made;
+  assert.equal(tileset.maximumScreenSpaceError, TILES_SCREEN_ERROR);
+  // Cesium, over cacheBytes + its overflow: the error up 2 % a frame.
+  for (let n = 0; n < 30; n++) tileset.memoryAdjustedScreenSpaceError *= 1.02;
+  const raised = tileset.memoryAdjustedScreenSpaceError;
+  viewer.scene.preRender.raiseEvent();
+  assert.equal(tileset.maximumScreenSpaceError, raised);
+  assert.equal(layer.getState().heldError, raised);
+  assert.equal(layer.getState().guardHolds, 1);
+  // The tiles unloaded and under cacheBytes: Cesium lowers the error, but
+  // never below the maximum, so the finer tiles are not asked for again.
+  tileset.memoryAdjustedScreenSpaceError = Math.max(
+    tileset.memoryAdjustedScreenSpaceError / 1.02,
+    tileset.maximumScreenSpaceError,
+  );
+  viewer.scene.preRender.raiseEvent();
+  assert.equal(tileset.memoryAdjustedScreenSpaceError, raised);
+  assert.equal(layer.getState().heldError, raised);
+  // Overflowing further: held higher, still one hold.
+  tileset.memoryAdjustedScreenSpaceError *= 1.02;
+  viewer.scene.preRender.raiseEvent();
+  assert.ok(layer.getState().heldError > raised);
+  assert.equal(layer.getState().guardHolds, 1);
+  // The camera moves: let go, the tiles refine to 4 px again.
+  viewer.scene.camera.moveStart.raiseEvent();
+  assert.equal(tileset.maximumScreenSpaceError, TILES_SCREEN_ERROR);
+  assert.equal(layer.getState().heldError, null);
+  viewer.scene.preRender.raiseEvent();
+  assert.equal(layer.getState().heldError, null);
+  // It overflows again where the camera stopped: held again.
+  tileset.memoryAdjustedScreenSpaceError = 6;
+  viewer.scene.preRender.raiseEvent();
+  assert.equal(layer.getState().heldError, 6);
+  assert.equal(layer.getState().guardHolds, 2);
+  viewer.scene.camera.moveEnd.raiseEvent();
+  assert.equal(tileset.maximumScreenSpaceError, TILES_SCREEN_ERROR);
+  layer.destroy();
 });

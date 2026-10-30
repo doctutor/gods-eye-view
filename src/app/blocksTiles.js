@@ -34,6 +34,27 @@ export const TILES_SCREEN_ERROR = 4;
 /** The tiles kept in memory at most (Cesium's cache; its default is 512 MB). */
 export const TILES_CACHE_BYTES = 256 * 1024 * 1024;
 
+/**
+ * The cache guard. While the tiles a view wants overflow the cache
+ * (cacheBytes plus Cesium's maximumCacheOverflowBytes), Cesium raises a
+ * tileset's memoryAdjustedScreenSpaceError, unloads tiles, and lowers it
+ * again once under cacheBytes, so the finer tiles load again: at Lake
+ * Tahoe the lower 48's 480 m tiles (60 MB each decoded) and their 1,920 m
+ * parents swapped every 4 s, 207 requests and the main thread decoding
+ * (2026-10-30). The guard holds the raised error as the tileset's
+ * maximumScreenSpaceError, under which Cesium never lowers it, so the
+ * coarser level stays until the camera next moves or stops; then the tiles
+ * may refine again, and the guard holds wherever the cache overflows.
+ * @returns {number|null} the error now held, or null when none is
+ */
+export function guardTilesCache(tileset, baseError = TILES_SCREEN_ERROR) {
+  const adjusted = Number(tileset?.memoryAdjustedScreenSpaceError);
+  const maximum = Number(tileset?.maximumScreenSpaceError);
+  if (!(adjusted > maximum + 1e-9)) return maximum > baseError ? maximum : null;
+  tileset.maximumScreenSpaceError = adjusted;
+  return adjusted;
+}
+
 /** The server's index of built boxes, or none. */
 async function fetchTilesIndex() {
   const answer = await fetch(TILES_INDEX_URL, { cache: 'no-cache' });
@@ -90,8 +111,24 @@ export function createBlocksTilesLayer({
   /** Told of each tile loaded (the QA harness times the first picture). */
   const tileLoadListeners = new Set();
   let tileLoads = 0;
+  /** The screen-space error the cache guard holds (guardTilesCache), or null. */
+  let heldError = null;
+  let guardHolds = 0;
 
   const requestRender = () => scene.requestRender?.();
+
+  /** The guard lets go: every tileset refines to TILES_SCREEN_ERROR again. */
+  function releaseGuard() {
+    if (heldError === null) return;
+    heldError = null;
+    for (const entry of loaded.values())
+      if (entry.tileset)
+        entry.tileset.maximumScreenSpaceError = TILES_SCREEN_ERROR;
+    requestRender();
+  }
+  const removeMoveStart =
+    scene.camera?.moveStart?.addEventListener(releaseGuard);
+  const removeMoveEnd = scene.camera?.moveEnd?.addEventListener(releaseGuard);
 
   function tilesetFor(url) {
     let entry = loaded.get(url);
@@ -172,6 +209,14 @@ export function createBlocksTilesLayer({
    */
   function frame() {
     if (!shownUrl || !state) return;
+    const shown = loaded.get(shownUrl)?.tileset;
+    if (shown) {
+      const held = guardTilesCache(shown);
+      if (held !== null && held !== heldError) {
+        if (heldError === null) guardHolds++;
+        heldError = held;
+      }
+    }
     const at = scene.camera?.positionCartographic;
     if (at) {
       const { color } = fogColorFor(scene, {
@@ -247,6 +292,12 @@ export function createBlocksTilesLayer({
         tileLoads,
         // The shown tileset has every tile the view wants (Cesium's own).
         tilesLoaded: shown ? Boolean(shown.tilesLoaded) : null,
+        // The cache guard: the error it holds now, and how often it held.
+        heldError,
+        guardHolds,
+        memoryMB: shown?.totalMemoryUsageInBytes
+          ? Math.round(shown.totalMemoryUsageInBytes / 1e6)
+          : null,
       };
     },
     /** Hear each tile loaded; returns the remover. */
@@ -260,6 +311,8 @@ export function createBlocksTilesLayer({
       if (destroyed) return;
       destroyed = true;
       removePreRender?.();
+      removeMoveStart?.();
+      removeMoveEnd?.();
       for (const entry of loaded.values())
         if (entry.tileset) scene.primitives.remove(entry.tileset);
       loaded.clear();
