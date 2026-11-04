@@ -31,6 +31,7 @@ import {
   blocksClippingPlanes,
   parkedPlanes,
 } from '../layers/blocks/renderer.js';
+import { SURFACE_AS_DRAWN } from '../surfaceTrust.js';
 
 // Cesium's CustomShader asks whether a uniform is a canvas or an image.
 const BROWSER_GLOBALS = [
@@ -187,6 +188,8 @@ test('the box the controller names: its tileset made once with the Blocks shader
   assert.equal(tileset.options.imageBasedLighting.enabled, false);
   assert.ok(viewer.scene.primitives.contains(tileset));
   assert.equal(tileset.show, true);
+  // Its block tops are the surface as drawn (the HUD's AGL trusts them).
+  assert.equal(tileset[SURFACE_AS_DRAWN], true);
   // The Buildings switch off: the ground variant, drawn the next frame
   // (it covers the view there), the other kept hidden.
   switches.buildings = false;

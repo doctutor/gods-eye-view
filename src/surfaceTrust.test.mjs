@@ -9,6 +9,7 @@ import * as Cesium from 'cesium';
 
 import {
   COLLISION_REFRESH_FRAMES,
+  SURFACE_AS_DRAWN,
   TRUSTED_TILE_ERROR_M,
   allowedTileErrorM,
   columnHit,
@@ -62,6 +63,28 @@ test('a hit on a 1,100 m tile is not trusted near the camera; a 1.2 m leaf is', 
     3,
   );
   assert.equal(pickedTile({ primitive: {} }), null);
+});
+
+test('a hit on a tileset marked SURFACE_AS_DRAWN (Blocks’ tiles) is trusted at any level, its error still reported', () => {
+  const viewer = fakeViewer({ cameraHeightM: 60_000 });
+  const blocks = (geometricError) => ({
+    position: at(1900),
+    object: {
+      content: { tile: { geometricError } },
+      primitive: {
+        isCesium3DTileset: true,
+        maximumScreenSpaceError: 8,
+        [SURFACE_AS_DRAWN]: true,
+      },
+    },
+  });
+  for (const error of [120, 1920, 7680]) {
+    const judged = judgeHit(viewer, blocks(error));
+    assert.equal(judged.trusted, true, `${error} m`);
+    assert.equal(judged.tileErrorM, error);
+  }
+  // The same tiles unmarked (Google's coarse ancestors): not trusted.
+  assert.equal(judgeHit(viewer, onTile(at(1900), 7680, 8)).trusted, false);
 });
 
 test('the error trusted grows with distance as Cesium refines: far tiles may be coarse', () => {
