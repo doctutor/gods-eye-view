@@ -24,6 +24,16 @@ export const TRUSTED_TILE_ERROR_M = 8;
 export const TILE_SSE_SLACK = 2;
 /** Cesium3DTileset's default maximumScreenSpaceError, pixels. */
 const DEFAULT_MAXIMUM_SSE = 16;
+/**
+ * Set on a tileset whose tiles are the surface as drawn, at any level
+ * (Blocks' precomputed tiles, src/app/blocksTiles.js): a block top is the
+ * ground Blocks shows, not a coarse chord over finer ground, so a hit on
+ * it is trusted. With the base map's tiles hidden under them (2026-11-04)
+ * they are the only surface the HUD's AGL can meet: over Lake Tahoe from
+ * 60 km their 480 m to 7,680 m tiles read as misses, and AGL showed "—".
+ */
+export const SURFACE_AS_DRAWN = 'gevSurfaceAsDrawn';
+
 /** Rays from above start here: no surface is higher (sampleHeight's 9 km). */
 export const ABOVE_SURFACES_M = 9000;
 
@@ -86,7 +96,9 @@ export function judgeHit(viewer, picked, cesium = Cesium) {
   const origin = viewer?.camera?.positionWC;
   const distanceM = origin ? cesium.Cartesian3.distance(origin, position) : 0;
   const tileset = picked.object?.primitive ?? tile.tileset;
-  return { position, ...judgeTile(viewer, tile, distanceM, tileset) };
+  const judged = judgeTile(viewer, tile, distanceM, tileset);
+  if (tileset?.[SURFACE_AS_DRAWN] === true) judged.trusted = true;
+  return { position, ...judged };
 }
 
 /** The first hit of a ray through the scene, judged; null on a miss. */

@@ -23,6 +23,7 @@ import {
   fogColorFor,
   model3D,
 } from '../layers/blocks/renderer.js';
+import { SURFACE_AS_DRAWN } from '../surfaceTrust.js';
 import {
   TILES_INDEX_URL,
   planTiles,
@@ -554,6 +555,9 @@ export function createBlocksTilesLayer({
         // Culling the tiles under the live chunks (holePlanes), off until
         // there is a hole.
         tileset.clippingPlanes = blocksClippingPlanes();
+        // Its block tops are the ground as drawn: the HUD's AGL and the
+        // ground guard trust a hit on them at any level (surfaceTrust.js).
+        tileset[SURFACE_AS_DRAWN] = true;
         tileset.show = url === shownUrl;
         tileset.preloadWhenHidden = url === pending?.url;
         entry.tileset = tileset;
