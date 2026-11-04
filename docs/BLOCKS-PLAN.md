@@ -1119,13 +1119,13 @@ so the server's tiles route finds every tree under one root. A junction is
 removed with `rmdir` on the link, never a recursive delete, which would
 follow it into E:.
 
-| Tree                           | Where                                                                                      |
-| ------------------------------ | ------------------------------------------------------------------------------------------ |
-| `baltimore-harbour-30`, `-120` | D: (small; `--coarsest 1920`, 65 and 50 MB, rebuilt 2026-10-30)                            |
-| `baltimore-metro-30`           | E:, junctioned in (`--coarsest 1920`, both variants, 376 MiB, rebuilt 2026-10-30)          |
-| `lower48-480`                  | E:, junctioned in (3.3 GB in layout v2 without fans, rebuilt 2026-10-30; was 4.5 GB on D:) |
-| `europe-480`                   | E:, junctioned in (2.6 GB in layout v2 without fans; was 3.4 GB)                           |
-| `lower48-120`                  | E:, junctioned in (`--land-only`, 18,820 tiles, 26.5 GiB, 2 h 47 min, built 2026-10-30)    |
+| Tree                           | Where                                                                                                                                         |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baltimore-harbour-30`, `-120` | D: (small; `--coarsest 1920`, 65 and 50 MB, rebuilt 2026-10-30)                                                                               |
+| `baltimore-metro-30`           | E:, junctioned in (`--coarsest 1920`, both variants, 376 MiB, rebuilt 2026-10-30)                                                             |
+| `lower48-480`                  | E:, junctioned in (3.3 GB in layout v2 without fans, rebuilt 2026-10-30; was 4.5 GB on D:)                                                    |
+| `europe-480`                   | E:, junctioned in (2.5 GiB in layout v2 without fans, rebuilt 2026-10-30 with the drop)                                                       |
+| `lower48-120`                  | E:, junctioned in (`--land-only`, 18,820 tiles, 26.5 GiB, 2 h 47 min, built 2026-10-30; rebuilt with the drop 2026-10-30 to 11-04, see below) |
 
 ### Step C, the client on the tiles (2026-10-30)
 
@@ -1424,13 +1424,24 @@ The page load at the street (ms from the page's navigation, from
 
 **Open items.**
 
-1. **The big trees' rebuild with the drop.** `lower48-480`, `lower48-120`
-   and `europe-480` still stand their coarse levels on their heights
-   (960 m steps at 30,720 m), so a camera low over a held lower-48 tile
-   can stand inside a block. Worker1's build-only drop (ae760936: from
-   1,920 m up the tiles are drawn one level lower) goes into those trees
-   at their next rebuilds; the three Baltimore boxes were rebuilt with
-   `--coarsest 1920` instead.
+1. **The big trees' rebuild with the drop: done.** `europe-480` (1,316
+   tiles, 628 s) and `lower48-480` (1,508 tiles, 657 s) were rebuilt on
+   2026-10-30 and `lower48-120` on 2026-10-30 to 11-04 (18,820 tiles,
+   3,433 rebuilt in the last run, 0 fetched, 3 reset reads retried), so
+   every served tree now draws its coarse levels one step lower (worker1's
+   build-only drop, ae760936); the three Baltimore boxes were rebuilt with
+   `--coarsest 1920` instead. The 120 m rebuild took three runs: the
+   external E: drive (USB, UASP) reset twice under the sustained writes
+   and dropped off the bus at 14,325 tiles on 2026-10-30 (an NTFS
+   delayed-write loss on the `120m` folder), reset twice more 35 min into
+   the first resume on 11-04, and held through the second. The per-tile
+   write-then-rename and the per-tile `build-state.json` made the drop
+   harmless: worker1's tree check (every GLB's header and chunk layout,
+   zeroed pages, every JSON, every named tile, the recorded sizes against
+   the disk) found all five E: trees clean before the resume and
+   `lower48-120` clean after it; the only trace was a 0-byte `.tmp` of
+   the write in flight. The drive's summaries pass was twice as slow
+   after the reboot (1,397 s against 657 s).
 2. **The 1 m city levels.** A box finer than 30 m waits on the lidar and
    DEM download, which needs its own yes.
 3. **Walk and Fly on the tiles.** Deferred: the walker stands on the live
