@@ -323,6 +323,23 @@ test('groupQuery: buildings, parts, land cover, highways and railways in the box
   assert.doesNotMatch(coarse, /way\["highway"\]\(/);
   assert.match(coarse, /way\["highway"~"\^\(motorway\|trunk/);
   assert.doesNotMatch(coarse, /footway/);
+  // Water areas also by the points they contain: a group wholly inside a
+  // lake crosses none of its ways. The centre and the four corners.
+  for (const point of [
+    '39.2900000,-76.6100000',
+    '39.2800000,-76.6200000',
+    '39.2800000,-76.6000000',
+    '39.3000000,-76.6200000',
+    '39.3000000,-76.6000000',
+  ])
+    assert.ok(ql.includes(`is_in(${point})->.in`), point);
+  for (let n = 0; n < 5; n++)
+    for (const filter of ['["natural"="water"]', '["water"]'])
+      for (const type of ['way', 'relation'])
+        assert.ok(
+          ql.includes(`${type}(pivot.in${n})${filter};`),
+          `${type}(pivot.in${n})${filter}`,
+        );
   // The proxy accepts both.
   for (const q of [ql, coarse])
     assert.equal(

@@ -138,9 +138,37 @@ const RAILWAYS = ['rail', 'tram', 'light_rail', 'subway', 'narrow_gauge'];
  * land cover areas, and the highways and railways in a box. Above
  * FINE_BLOCK_M blocks it leaves out buildings whose perimeter is under 8
  * blocks and the highways narrower than a block.
+ *
+ * Water areas are also asked by the points they contain (is_in at the
+ * box's centre and corners, then the ways and relations that make those
+ * areas): a box query finds a lake only by a member way crossing the box,
+ * so a group wholly inside one (Lake Tahoe from 9 km, 2026-11-04) had no
+ * lake and was drawn dry, a square of ground at the water's level.
  */
 export function groupQuery({ west, south, east, north }, blockM = 1) {
   const bbox = [south, west, north, east].map((v) => v.toFixed(7)).join(',');
+  const points = [
+    [(south + north) / 2, (west + east) / 2],
+    [south, west],
+    [south, east],
+    [north, west],
+    [north, east],
+  ];
+  const areas = points
+    .map(
+      ([lat, lon], n) => `is_in(${lat.toFixed(7)},${lon.toFixed(7)})->.in${n};`,
+    )
+    .join('');
+  const containing = points
+    .map((_, n) =>
+      ['["natural"="water"]', '["water"]']
+        .map(
+          (filter) =>
+            `way(pivot.in${n})${filter};relation(pivot.in${n})${filter};`,
+        )
+        .join(''),
+    )
+    .join('');
   const coarse = blockM > FINE_BLOCK_M;
   const big = coarse ? `(if:length()>=${8 * blockM})` : '';
   const both = (filter) => `way${filter}(${bbox});relation${filter}(${bbox});`;
@@ -148,7 +176,10 @@ export function groupQuery({ west, south, east, north }, blockM = 1) {
     ? `["highway"~"^(${COARSE_HIGHWAYS.join('|')})$"]`
     : '["highway"]';
   return (
-    '[out:json][timeout:25];(' +
+    '[out:json][timeout:25];' +
+    areas +
+    '(' +
+    containing +
     `way["building"]["building"!="no"](${bbox})${big};` +
     `relation["building"]["building"!="no"](${bbox});` +
     `way["building:part"]["building:part"!="no"](${bbox})${big};` +
