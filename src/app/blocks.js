@@ -130,6 +130,11 @@ export function createApplicationBlocks({
   // The tiles follow the controller's status; once the index is read the
   // view is planned again; the Buildings switch changes their variant.
   const offTilesStatus = controller.subscribe((status) => tiles.apply(status));
+  // The base map's 3D tileset hidden while the tiles draw the world.
+  const offBaseSuppressed = suppressBaseUnderTiles({
+    controller,
+    mapStackController,
+  });
   tiles.ready.then(() => controller.tick?.());
   const offTilesBuildings = store.subscribe?.(() =>
     tiles.apply(controller.getStatus?.()),
@@ -158,11 +163,51 @@ export function createApplicationBlocks({
     unsetGround();
     unprovide();
     offTilesStatus?.();
+    offBaseSuppressed();
     offTilesBuildings?.();
     tiles.destroy();
     destroy();
   };
   return controller;
+}
+
+/** The map controller's suppression reason while Blocks' tiles draw. */
+export const BLOCKS_TILES_SUPPRESSION = 'blocks-tiles';
+
+/**
+ * Whether a Blocks status has its precomputed tiles drawing the world:
+ * 'tiles' (they alone) or 'hybrid' (they past the live chunks' hole).
+ */
+export const tilesDrawWorld = (status) =>
+  status?.tiles?.mode === 'tiles' || status?.tiles?.mode === 'hybrid';
+
+/**
+ * The base map's 3D tileset (Google's photoreal tiles) suppressed through
+ * the map stack controller while Blocks' tiles draw the world, released
+ * when they stop (Blocks left, live only, no box) and on teardown. Depth-
+ * tested against the blocks, Google's surface showed through them wherever
+ * the ground stood above a block top: orange mountains among grey plates
+ * over Lake Tahoe from 60 km (2026-11-04). Live-only Blocks keeps it.
+ * @returns {() => void} release and stop listening
+ */
+export function suppressBaseUnderTiles({ controller, mapStackController }) {
+  const set = mapStackController?.setTilesetSuppressed;
+  if (typeof set !== 'function' || typeof controller?.subscribe !== 'function')
+    return () => {};
+  let on = null;
+  const apply = (status) => {
+    const next = tilesDrawWorld(status);
+    if (next === on) return;
+    on = next;
+    set.call(mapStackController, BLOCKS_TILES_SUPPRESSION, next);
+  };
+  apply(controller.getStatus?.());
+  const off = controller.subscribe(apply);
+  return () => {
+    off?.();
+    if (on) set.call(mapStackController, BLOCKS_TILES_SUPPRESSION, false);
+    on = false;
+  };
 }
 
 /** How long a footprint stands for a camera that has not moved (ms). */

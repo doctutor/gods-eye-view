@@ -5,7 +5,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { memoizeFootprint, pointGroundM } from './blocks.js';
+import {
+  BLOCKS_TILES_SUPPRESSION,
+  memoizeFootprint,
+  pointGroundM,
+  suppressBaseUnderTiles,
+  tilesDrawWorld,
+} from './blocks.js';
 
 const valuesAnswering = (heights) => {
   const asked = [];
@@ -69,4 +75,48 @@ test('the footprint is read once a second for a camera that has not moved, and a
   time = 1100;
   assert.equal(footprint(), 3, 'the camera moved: read again');
   assert.equal(reads, 3);
+});
+
+test('the base map’s 3D tileset is suppressed while Blocks’ tiles draw the world (tiles, hybrid), released when they stop and on teardown', () => {
+  assert.equal(tilesDrawWorld({ tiles: { mode: 'tiles' } }), true);
+  assert.equal(tilesDrawWorld({ tiles: { mode: 'hybrid' } }), true);
+  assert.equal(tilesDrawWorld({ tiles: null }), false);
+  assert.equal(tilesDrawWorld(null), false);
+  const listeners = new Set();
+  let status = { state: 'loading', tiles: null };
+  const controller = {
+    getStatus: () => status,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const calls = [];
+  const mapStackController = {
+    setTilesetSuppressed(reason, on) {
+      assert.equal(this, mapStackController);
+      calls.push([reason, on]);
+      return on;
+    },
+  };
+  const emit = (next) => {
+    status = next;
+    for (const listener of [...listeners]) listener(next);
+  };
+  const off = suppressBaseUnderTiles({ controller, mapStackController });
+  assert.deepEqual(calls, [[BLOCKS_TILES_SUPPRESSION, false]], 'live only');
+  emit({ state: 'loading', tiles: { mode: 'hybrid' } });
+  emit({ state: 'ready', tiles: { mode: 'hybrid', hole: {} } });
+  emit({ state: 'tiles', tiles: { mode: 'tiles' } });
+  assert.deepEqual(calls.at(-1), [BLOCKS_TILES_SUPPRESSION, true]);
+  assert.equal(calls.length, 2, 'told once while it holds');
+  emit({ state: 'off', tiles: null });
+  assert.deepEqual(calls.at(-1), [BLOCKS_TILES_SUPPRESSION, false]);
+  emit({ state: 'tiles', tiles: { mode: 'tiles' } });
+  off();
+  assert.deepEqual(calls.at(-1), [BLOCKS_TILES_SUPPRESSION, false]);
+  assert.equal(listeners.size, 0);
+  // A map controller without the flag: nothing to do.
+  const none = suppressBaseUnderTiles({ controller, mapStackController: {} });
+  none();
 });

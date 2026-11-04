@@ -76,6 +76,14 @@ export class MapSourceController {
     this._destroyed = false;
     /** Personal fork: the Custom cutouts layer's plate colour, or null. */
     this._plate = null;
+    /**
+     * Personal fork: the 3D tileset the active stack shows (null for a globe
+     * stack; undefined until the controller has shown or hidden one), kept
+     * apart from its `show`, which a suppression turns off.
+     */
+    this._hostTileset = undefined;
+    /** Personal fork: who suppresses the 3D tileset now (setTilesetSuppressed). */
+    this._suppressedBy = new Set();
   }
 
   getStack(id) {
@@ -102,9 +110,14 @@ export class MapSourceController {
       `${stack?.label || 'This map stack'} is unavailable`
     );
   }
-  /** Return the shown supplied or controller-owned tileset, if any. */
+  /**
+   * Return the shown supplied or controller-owned tileset, if any: the one
+   * the active stack shows, also while suppressed (setTilesetSuppressed), so
+   * draped overlays keep their host and come back with it.
+   */
   getImageryHostTileset() {
     if (this._destroyed) return null;
+    if (this._hostTileset !== undefined) return this._hostTileset;
     for (const source of this._sources.values())
       if (source.tileset?.show === true) return source.tileset;
     for (const tileset of this._ownedTilesets)
@@ -312,7 +325,41 @@ export class MapSourceController {
 
   /** Whether the plate shows now (a colour set and a 3D tileset active). */
   hasPlate() {
-    return Boolean(this._plate && this._tilesetActive());
+    return Boolean(this._plate && this._tilesetActive() && !this._suppressed());
+  }
+
+  /**
+   * Personal fork: hide the active stack's 3D tileset, and the globe a plate
+   * shows under it, while `reason` holds (Blocks while its precomputed tiles
+   * draw the world: Google's surface depth-tested against the blocks showed
+   * through them wherever the ground stood above a block top). The tileset
+   * stays the stack's and the overlays' host; a switch made meanwhile shows
+   * its own tileset only once nothing suppresses. Globe stacks are untouched.
+   * @param {string} reason Who suppresses (one flag each).
+   * @param {boolean} on
+   * @returns {boolean} whether the tileset is suppressed now
+   */
+  setTilesetSuppressed(reason, on) {
+    if (this._destroyed) return false;
+    const before = this._suppressed();
+    if (on) this._suppressedBy.add(String(reason));
+    else this._suppressedBy.delete(String(reason));
+    const after = this._suppressed();
+    if (before !== after && this._tilesetActive()) {
+      this._showTileset(this.getImageryHostTileset());
+      this._applyPlate();
+      this._requestRender('map-suppressed');
+    }
+    return after;
+  }
+
+  /** Whether a 3D tileset is suppressed now (setTilesetSuppressed). */
+  isTilesetSuppressed() {
+    return this._suppressed();
+  }
+
+  _suppressed() {
+    return this._suppressedBy.size > 0;
   }
 
   // A shown tileset, not the active id: mid-switch the id is still the
@@ -326,7 +373,7 @@ export class MapSourceController {
     if (!this._tilesetActive()) return false;
     const globe = this.viewer.scene.globe;
     const before = globe.show;
-    if (this._plate) {
+    if (this._plate && !this._suppressed()) {
       globe.show = true;
       applyGlobeBaseColor(this.viewer, this._plate);
     } else {
@@ -337,10 +384,11 @@ export class MapSourceController {
   }
 
   _showTileset(active) {
+    this._hostTileset = active || null;
+    const shown = this._suppressed() ? null : active;
     for (const source of this._sources.values())
-      if (source.tileset) source.tileset.show = source.tileset === active;
-    for (const tileset of this._ownedTilesets)
-      tileset.show = tileset === active;
+      if (source.tileset) source.tileset.show = source.tileset === shown;
+    for (const tileset of this._ownedTilesets) tileset.show = tileset === shown;
   }
 
   async _activateGlobeStack(stack, gen) {

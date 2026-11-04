@@ -54,7 +54,8 @@
  *
  * --place shoots the --altitudes views over a latitude and longitude (the
  * Great Lakes, Lake Tahoe) instead of Baltimore; --pitches -15,-45 shoots
- * them at those pitches instead of -45 and -90.
+ * them at those pitches instead of -45 and -90; --heading 280 turns them
+ * to that heading instead of north.
  *
  *   ... --tiles-dir D:/gev-cache/blocks-tiles   # with --sequence or --altitudes
  *
@@ -74,6 +75,8 @@
  * show.
  *
  * --buildings-off opens the page with Blocks' Buildings off (bk=1.b0).
+ * --map esri-imagery opens it on that map instead of blank-black (the
+ * --altitudes shots): a map whose globe Blocks keeps.
  *
  * --load-frames shoots each step 2, 5, 10 and 20 s after its flight's end
  * (with --altitudes: each Blocks shot 2 to 80 s from the page's load)
@@ -631,6 +634,17 @@ export function parsePlace(value) {
   return { lat, lon };
 }
 
+/**
+ * --heading: the --altitudes views' heading (degrees from north) beside
+ * --place's latitude and longitude; Baltimore's place if none was given.
+ */
+export function withHeading(place, value) {
+  if (value === undefined || value === null || value === '') return place;
+  const heading = Number(value);
+  if (!Number.isFinite(heading)) throw new Error(`--heading: ${value}`);
+  return { ...(place || { lat: VIEW.lat, lon: VIEW.lon }), heading };
+}
+
 /** The heights --altitudes asks for, metres; [] for none. */
 export function parseAltitudes(value) {
   if (!value) return [];
@@ -685,11 +699,12 @@ export function pageHash({
   view = VIEW,
   nav = null,
   buildingsOff = false,
+  map = 'blank-black',
 }) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(view))
     params.set(key, String(value));
-  params.set('map', 'blank-black');
+  params.set('map', map);
   encodeLayerStateParams(params, { enabledLayerIds: [], options: {} });
   // The Elevation layer's colour scale: PET rainbow, 0 to 100 m, linear.
   params.set('cs', 'el.r.0.100.n');
@@ -1140,6 +1155,7 @@ async function shoot({
   loadFramesOn = false,
   buildingsOff = false,
   frameEval = null,
+  map = undefined,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
@@ -1190,7 +1206,7 @@ async function shoot({
   const mode = blocks ? 'blocks' : 'colour';
   const name = prefix ? `${prefix}-${mode}` : `${mode}${suffix}`;
   await page.goto(
-    `${ORIGIN}/${pageHash({ blocks, view, nav, buildingsOff })}`,
+    `${ORIGIN}/${pageHash({ blocks, view, nav, buildingsOff, map })}`,
     {
       waitUntil: 'domcontentloaded',
     },
@@ -2910,7 +2926,10 @@ export async function main(argv = process.argv.slice(2)) {
   const shots = altitudes.length
     ? scaleViews(
         altitudes,
-        parsePlace(argValue(argv, '--place')),
+        withHeading(
+          parsePlace(argValue(argv, '--place')),
+          argValue(argv, '--heading'),
+        ),
         parsePitches(argValue(argv, '--pitches')),
       )
     : views(field);
@@ -2940,6 +2959,7 @@ export async function main(argv = process.argv.slice(2)) {
             checkPrewarm: argv.includes('--prewarm-check'),
             loadFramesOn: argv.includes('--load-frames'),
             buildingsOff: argv.includes('--buildings-off'),
+            map: argValue(argv, '--map') || undefined,
             tilesDir: argValue(argv, '--tiles-dir') || null,
             // The function's source, without the statement's semicolon.
             frameEval: argValue(argv, '--frame-eval')
