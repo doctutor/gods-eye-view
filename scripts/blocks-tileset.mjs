@@ -469,9 +469,10 @@ function topAt(chunks, i, j) {
 /**
  * A chunk's lowest tops, for the skirt floors of a build that does not hold
  * every chunk (streamed): along each edge's columns (n, s, e, w) and over
- * the whole chunk (all); null where it has none.
+ * the whole chunk (all); null where it has none. With `edges`, each edge's
+ * columns too (a coarser level's, which skirtFloors reads in stretches).
  */
-export function chunkSummary(chunk) {
+export function chunkSummary(chunk, { edges = false } = {}) {
   const N = CHUNK_COLUMNS;
   const low = { n: Infinity, s: Infinity, e: Infinity, w: Infinity };
   let all = Infinity;
@@ -488,7 +489,7 @@ export function chunkSummary(chunk) {
       if (i === 0 && top < low.w) low.w = top;
     }
   const or = (value) => (value === Infinity ? null : value);
-  return {
+  const summary = {
     n: or(low.n),
     s: or(low.s),
     e: or(low.e),
@@ -496,6 +497,20 @@ export function chunkSummary(chunk) {
     all: or(all),
     high: high === -Infinity ? null : high,
   };
+  // With `edges`, each edge's column tops (NONE for nodata), west to east
+  // along n and s, south to north along e and w: a coarser level's chunk
+  // beside a finer tile meets it along a stretch of its edge only.
+  if (edges) {
+    const edge = (at) =>
+      Int32Array.from({ length: N }, (_, k) => chunk.top[at(k)]);
+    summary.edges = {
+      n: edge((k) => (N - 1) * N + k),
+      s: edge((k) => k),
+      e: edge((k) => k * N + N - 1),
+      w: edge((k) => k * N),
+    };
+  }
+  return summary;
 }
 
 /**
@@ -526,49 +541,64 @@ const isWhole = (value) => Math.abs(value - Math.round(value)) < 1e-9;
 
 /**
  * A tile's skirt floors {n, s, e, w} in its level's levels: along each
- * border, the lowest top of the columns either side of it at every level
- * built (all levels share one levelM up to 480 m blocks; otherwise each
- * is converted through metres), so the skirt reaches whatever ground a
- * finer or coarser neighbour stands on there. With `summaries` (level →
- * 'ci:cj' → chunkSummary, a streamed build's), from those: a level whose
- * chunk edges lie on the border gives the same floor as its columns; a
- * coarser level whose chunks straddle it gives each such chunk's lowest
- * top, deeper than the columns would, never shallower.
+ * border, the lowest top of the ground a tile drawn beside it can stand on
+ * there (all levels share one levelM up to 480 m blocks; otherwise each is
+ * converted through metres, in drawn metres after coarseDropM).
+ * - Its own level and every finer one: the columns either side of the
+ *   border.
+ * - A coarser level: only where the border lies on that level's chunk
+ *   grid, and only the far side's columns facing it, along the tile's own
+ *   stretch. Every tile's ground is inside one chunk of each coarser level
+ *   (the grids nest), so a coarser chunk across the border from it is
+ *   either that chunk, its ancestor and never drawn beside it, or the next
+ *   chunk over, which a coarser tile can stand on. Its columns farther
+ *   along, or the ancestor's whole lowest (a 30,720 m chunk reaching the
+ *   sea 1,000 km away), never meet the tile.
+ * With `summaries` (level → 'ci:cj' → chunkSummary, a streamed build's;
+ * the coarser levels' carrying `edges`), the same floors: a level whose
+ * chunk edges lie along the border from its chunks' edge lows, a coarser
+ * one from the far chunk's facing edge columns.
  */
 export function skirtFloors(tile, chunksByLevel, summaries = null) {
   const { x, y, side } = tileExtent(tile);
   const levelM = levelMFor(tile.level);
   const lines = {
-    w: { along: 'y', at: x, from: y },
-    e: { along: 'y', at: x + side, from: y },
-    s: { along: 'x', at: y, from: x },
-    n: { along: 'x', at: y + side, from: x },
+    w: { along: 'y', at: x, from: y, far: -1 },
+    e: { along: 'y', at: x + side, from: y, far: 0 },
+    s: { along: 'x', at: y, from: x, far: -1 },
+    n: { along: 'x', at: y + side, from: x, far: 0 },
   };
+  // The edge of the far chunk that faces the tile across each border.
+  const facing = { w: 'e', e: 'w', s: 'n', n: 's' };
   const floors = {};
   for (const [name, line] of Object.entries(lines)) {
     let lowestM = Infinity;
     // Each level's lowest top in drawn metres (its coarseDropM below its blocks).
     const lower = (top, m) => {
-      if (top !== null && top !== undefined)
+      if (top !== null && top !== undefined && top !== NONE)
         lowestM = Math.min(lowestM, top * levelMFor(m) - coarseDropM(m));
     };
     for (const [m, byKey] of summaries ?? chunksByLevel) {
+      const chunkM = CHUNK_COLUMNS * m;
+      const coarser = m > tile.level;
+      // A coarser level off the border's line: only the tile's own ancestor.
+      if (coarser && !isWhole(line.at / chunkM)) continue;
       if (!summaries) {
         const across = Math.round(line.at / m);
         const first = Math.floor(line.from / m);
         const count = Math.ceil(side / m);
         for (let k = first; k < first + count; k++)
-          for (const c of [across - 1, across])
+          for (const c of coarser ? [across + line.far] : [across - 1, across])
             lower(
               line.along === 'y' ? topAt(byKey, c, k) : topAt(byKey, k, c),
               m,
             );
         continue;
       }
-      const chunkM = CHUNK_COLUMNS * m;
       const key = (c, k) =>
         line.along === 'y' ? tileKey(c, k) : tileKey(k, c);
       if (
+        !coarser &&
         isWhole(line.at / chunkM) &&
         isWhole(line.from / chunkM) &&
         isWhole(side / chunkM)
@@ -585,15 +615,16 @@ export function skirtFloors(tile, chunksByLevel, summaries = null) {
         }
         continue;
       }
-      // A coarser level's chunks across the border: each one's lowest.
-      const crossing = new Set([
-        Math.floor((line.at - 1e-6) / chunkM),
-        Math.floor((line.at + 1e-6) / chunkM),
-      ]);
-      const first = Math.floor(line.from / chunkM);
-      const last = Math.floor((line.from + side - 1e-6) / chunkM);
-      for (let k = first; k <= last; k++)
-        for (const c of crossing) lower(byKey.get(key(c, k))?.all, m);
+      // A coarser level on the border's line: the far chunk's columns
+      // facing the tile, along the tile's own stretch of the border.
+      const far = Math.round(line.at / chunkM) + line.far;
+      const firstColumn = Math.floor(line.from / m + 1e-9);
+      const endColumn = Math.ceil((line.from + side) / m - 1e-9);
+      for (let column = firstColumn; column < endColumn; column++) {
+        const k = Math.floor(column / CHUNK_COLUMNS);
+        const edge = byKey.get(key(far, k))?.edges?.[facing[name]];
+        if (edge) lower(edge[column - k * CHUNK_COLUMNS], m);
+      }
     }
     // In this tile's own levels, which are drawn its coarseDropM lower.
     floors[name] =
@@ -872,10 +903,13 @@ export async function summarizeLevels(
   { log = null, levels = plan.levels } = {},
 ) {
   const out = new Map();
+  const finest = plan.levels[plan.levels.length - 1];
   for (const m of levels) {
     const region = levelRegion(plan.anchor, m, plan.curved);
     const byKey = new Map();
     const groups = [...plan.groups.get(m).values()];
+    // A coarser level's edge columns, for the finer tiles beside it.
+    const edges = m !== finest;
     for (const [n, { gi, gj }] of groups.entries()) {
       const keys = [];
       const loads = [];
@@ -887,7 +921,7 @@ export async function summarizeLevels(
       }
       try {
         (await Promise.all(loads)).forEach((chunk, k) =>
-          byKey.set(keys[k], chunkSummary(chunk)),
+          byKey.set(keys[k], chunkSummary(chunk, { edges })),
         );
       } catch (error) {
         // Left out: its skirts read as no ground there; a rerun reads it again.

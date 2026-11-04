@@ -1064,9 +1064,19 @@ download.
     along each edge and over the whole chunk (`chunkSummary`).
   - Then each tile's chunks are read again when it is built (the server's
     cache answers), meshed, written and let go.
-  - Skirt floors come from the summaries. They equal the column-scan floors
-    where a level's chunk edges lie on the border, and are deeper (never
-    shallower) where a coarser level's chunks straddle it.
+  - Skirt floors come from the summaries and equal the column-scan floors.
+    A coarser level counts only where the border lies on its chunk grid,
+    and only the far chunk's columns facing the tile along its own stretch
+    (the coarser levels' summaries carry their edge columns). A coarser
+    chunk straddling the border holds the tile itself, its ancestor, never
+    drawn beside it.
+  - Until 2026-11-04 a straddling chunk gave its whole lowest. A 30,720 m
+    chunk reaches the sea from anywhere in the lower 48, so every tile's
+    skirts hung to −1,920 m: 3.8 km under Lake Tahoe. Now they stop at the
+    lowest ground a neighbour can be drawn on: 1,200–1,740 m for a 120 m
+    tile there, and −120 to 30 m on the Monterey coast. A wall is one quad
+    a column whatever its depth, so the triangles are the same; the walls
+    only stop reaching where nothing can show them.
   - Memory is a few hundred chunks, whatever the box. Every line also goes
     to `build.log`, and the run reports Earth Engine's day before and after.
 
