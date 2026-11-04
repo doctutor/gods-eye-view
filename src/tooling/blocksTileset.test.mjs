@@ -42,6 +42,7 @@ import {
   tileRunCap,
   TILE_CELL_PX,
   canaryChunk,
+  chunkSummary,
   coarseDropM,
   meshFingerprint,
   buildFingerprint,
@@ -1213,6 +1214,98 @@ test('coarse levels drawn a step lower (1,920 m and up): a column at or below it
         );
     }
   }
+});
+
+test('skirt floors meet only ground a tile can be drawn beside: a coarser chunk holding the tile adds nothing, a far one only its stretch', () => {
+  const N = 64;
+  const chunkOf = (key, top) => {
+    const [ci, cj] = key.split(':').map(Number);
+    return createChunk({
+      ci,
+      cj,
+      top:
+        typeof top === 'function'
+          ? Int32Array.from({ length: N * N }, (_, k) =>
+              top(k % N, Math.floor(k / N)),
+            )
+          : new Int32Array(N * N).fill(top),
+    });
+  };
+  const level = (...chunks) =>
+    new Map(chunks.map(([key, top]) => [key, chunkOf(key, top)]));
+  const fill = (blockM, ci, cj) => ({
+    level: blockM,
+    kind: 'fill',
+    gi: 0,
+    gj: 0,
+    ci,
+    cj,
+    children: [],
+  });
+  // Held and streamed (summaries, coarser levels with their edge columns) agree.
+  const both = (tile, byLevel) => {
+    const finest = Math.min(...byLevel.keys());
+    const summaries = new Map(
+      [...byLevel].map(([m, chunks]) => [
+        m,
+        new Map(
+          [...chunks].map(([key, chunk]) => [
+            key,
+            chunkSummary(chunk, { edges: m !== finest }),
+          ]),
+        ),
+      ]),
+    );
+    const held = skirtFloors(tile, byLevel);
+    assert.deepEqual(
+      skirtFloors(tile, null, summaries),
+      held,
+      'streamed as held',
+    );
+    return held;
+  };
+  // A 120 m tile in a Sierra: its own columns at level 60 (1,800 m), inside
+  // one 1,920 m chunk whose sea corner, 100 km off, is level -1. That chunk
+  // holds the tile (its ancestor), so it adds nothing: the floor is its own.
+  const inland = both(
+    fill(120, 1, 1),
+    new Map([
+      [1920, level(['0:0', (i, j) => (i < 4 && j < 4 ? -1 : 31)])],
+      [
+        120,
+        level(['1:1', 60], ['0:1', 60], ['2:1', 60], ['1:0', 60], ['1:2', 60]),
+      ],
+    ]),
+  );
+  assert.deepEqual(inland, { n: 60, s: 60, e: 60, w: 60 });
+  // Before, the holding chunk's whole lowest set every floor: level -1 less
+  // the drop, -120 m, 1,920 m under this ground.
+  // A 480 m fill at the west edge of 1,920 m chunk 0:0 (ci 0, cj 1: rows 16
+  // to 31 of that level's columns): the 1,920 m chunk across (-1:0) counts
+  // only along those rows, its deep column at row 5 does not, one at row 20
+  // does. Its east edge faces the tile.
+  const beside = (deepRow) =>
+    both(
+      fill(480, 0, 1),
+      new Map([
+        [
+          1920,
+          level(
+            ['-1:0', (i, j) => (i === N - 1 && j === deepRow ? 0 : 40)],
+            ['0:0', 40],
+          ),
+        ],
+        [480, level(['0:1', 90])],
+      ]),
+    );
+  // Level 40 of 60 m is 2,400 m, drawn 2,340 m: level 78 of 30 m.
+  assert.equal(beside(5).w, 78);
+  // Level 0 of 60 m, drawn at -60 m: level -2 of 30 m.
+  assert.equal(beside(20).w, -2);
+  // The other borders of that tile lie inside 1,920 m chunk 0:0 (its
+  // ancestor) or on no 1,920 m chunk line: only its own columns.
+  assert.equal(beside(20).e, 90);
+  assert.equal(beside(20).n, 90);
 });
 
 test('skirt floors beside the dropped levels reach their drawn tops; between 30 m levels as they were', () => {
