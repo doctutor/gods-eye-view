@@ -104,6 +104,35 @@ const isFormTarget = (target) =>
 /** A ground nearer the eye than this is not believed (walkerPlace). */
 export const GROUND_BELOW_EYE_MIN_M = 0.5;
 
+/** The outline's colour and alpha. */
+export const outlineColor = () =>
+  Cesium.Color.fromCssColorString(OUTLINE_COLOR).withAlpha(0.9);
+
+/**
+ * Show `paths` (position lists) as a PolylineCollection's lines, adding
+ * lines as needed, each with its own colour material; `data` rides on each
+ * shown line as its id. Never one Material for several lines: a Polyline
+ * destroys its own material with itself, so leaving Walk or Fly (the
+ * collection removed and destroyed) destroyed a shared one, and the next
+ * mode's outline drew with it: "This object was destroyed", the scene
+ * stopped (2026-11-07).
+ */
+export function setOutlineLines(lines, paths, data = null) {
+  while (lines.length < paths.length)
+    lines.add({
+      positions: [],
+      width: 2,
+      material: Cesium.Material.fromType('Color', { color: outlineColor() }),
+    });
+  for (let k = 0; k < lines.length; k += 1) {
+    const line = lines.get(k);
+    line.show = k < paths.length;
+    if (line.show) line.positions = paths[k];
+    line.id = line.show ? data : null;
+  }
+  lines.show = paths.length > 0;
+}
+
 /**
  * Where the walker stands in a frame, for wayfinding (waypoints.js) and
  * the HUD's AGL: {lon, lat, heightM (the eye), groundM (the ground under
@@ -456,24 +485,12 @@ export function createNavigationBinding({
 
   /** The outline's lines, made on entering a mode (the scene destroys them on leaving). */
   let outlines = null;
-  const outlineMaterial = Cesium.Material.fromType('Color', {
-    color: Cesium.Color.fromCssColorString(OUTLINE_COLOR).withAlpha(0.9),
-  });
   /**
    * The outline's lines; `data` (the targeted block's facts, target.js)
    * rides on each line as its id, for a later click on the block.
    */
   const setOutline = (paths, data = null) => {
-    if (!outlines) return;
-    while (outlines.length < paths.length)
-      outlines.add({ positions: [], width: 2, material: outlineMaterial });
-    for (let k = 0; k < outlines.length; k += 1) {
-      const line = outlines.get(k);
-      line.show = k < paths.length;
-      if (line.show) line.positions = paths[k];
-      line.id = line.show ? data : null;
-    }
-    outlines.show = paths.length > 0;
+    if (outlines) setOutlineLines(outlines, paths, data);
   };
 
   /** The 12 edges of a block (region column i, j, level y). */
