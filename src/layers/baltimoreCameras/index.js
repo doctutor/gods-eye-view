@@ -3,8 +3,15 @@ import { BALTIMORE_CAMERA_SETS, fetchCameraSet } from './source.js';
 import { msg, t } from '../../i18n/index.js';
 export * from './source.js';
 
-/** What a partly loaded set says: "3 of 4 sets loaded; … unavailable", or ''. */
-export function cameraSetNote({ failed = [], loaded = 0, total = 0 } = {}) {
+/**
+ * What a partly loaded set says: "3 of 4 sets loaded; … unavailable", or ''.
+ * `partial` is null after a full load (and before any): a destructuring
+ * default covers only undefined, so null threw "Cannot read properties of
+ * null (reading 'failed')" from getStats and the panel showed every fully
+ * loaded set as unavailable.
+ */
+export function cameraSetNote(partial) {
+  const { failed = [], loaded = 0, total = 0 } = partial || {};
   if (!failed.length) return '';
   return t('{loaded} of {total} sets loaded; {missing} unavailable', {
     loaded,

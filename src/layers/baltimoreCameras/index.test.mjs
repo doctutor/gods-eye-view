@@ -4,7 +4,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 
-import { BALTIMORE_CAMERA_SETS, createBaltimoreCameraLayer } from './index.js';
+import {
+  BALTIMORE_CAMERA_SETS,
+  cameraSetNote,
+  createBaltimoreCameraLayer,
+} from './index.js';
 
 const overlayHost = {
   setVisible() {},
@@ -51,6 +55,30 @@ test('a layer down leaves the others on the map, and the status says so', async 
     '3 of 4 sets loaded; portable speed cameras unavailable',
   );
   layer.destroy(v);
+});
+
+test('every layer up: the status carries no error', async () => {
+  const layer = createBaltimoreCameraLayer({
+    setKey: 'enforcement',
+    overlayHost,
+    fetchImpl: async (url) => Response.json({ features: [camera(url.length)] }),
+  });
+  const v = viewer();
+  layer.init(v);
+  // Before any load, and after a full one, the set has nothing partial.
+  assert.equal(layer.getStats().error, null);
+  layer.enable(v);
+  assert.equal(await layer.update(), true);
+  const stats = layer.getStats();
+  assert.ok(stats.count >= 1);
+  assert.equal(stats.error, null);
+  layer.destroy(v);
+});
+
+test('the set note reads nothing from a null or missing partial', () => {
+  assert.equal(cameraSetNote(null), '');
+  assert.equal(cameraSetNote(undefined), '');
+  assert.equal(cameraSetNote({ failed: [] }), '');
 });
 
 test('every layer down: the load fails cleanly', async () => {
