@@ -209,7 +209,7 @@ test(
       'RecType=Standard',
       'RecFormat2=hybrid_mp4',
       'RecEncoder=obs_nvenc_h264_tex',
-      String.raw`RecFilePath=C:\gev\recordings`,
+      'RecFilePath=C:/gev/recordings',
     ])
       assert.ok(ini.split(/\r?\n/).includes(line), `basic.ini has ${line}`);
     assert.match(ini, /^\[General\]/, 'sections in order');

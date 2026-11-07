@@ -152,8 +152,11 @@ function Get-ObsFiles([string]$obsRoot, [string]$password, [hashtable]$o) {
         ColorFormat = 'NV12'; ColorSpace = '709'; ColorRange = 'Partial'
       }
       Output  = [ordered]@{ Mode = 'Advanced'; FilenameFormatting = 'gev_%CCYY-%MM-%DD_%hh-%mm-%ss' }
+      # Forward slashes: OBS unescapes backslash sequences in its ini values,
+      # so C:\gev\recordings reached OBS as "C:\gev" + CR + "ecordings" and
+      # every recording failed (StopRecord 501) on 2026-11-06.
       AdvOut  = [ordered]@{
-        RecType = 'Standard'; RecFilePath = $o.Recordings; RecFormat2 = 'hybrid_mp4'
+        RecType = 'Standard'; RecFilePath = ($o.Recordings -replace '\\', '/'); RecFormat2 = 'hybrid_mp4'
         RecEncoder = $encoder; RecUseRescale = 'false'; RecTracks = 1; Encoder = $encoder
       }
     })
