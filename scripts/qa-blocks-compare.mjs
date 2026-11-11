@@ -78,6 +78,8 @@
  * --map esri-imagery opens it on that map instead of blank-black (the
  * --altitudes shots): a map whose globe Blocks keeps. --relief 5 opens it
  * under Relief ×5 (the link's lp, as the app's Relief control writes it).
+ * --load-frames-to 320 goes on past 80 s, doubling (160, 320 s), for a
+ * load that takes longer (a cold Overpass).
  * --nav walk (or fly) enters the --altitudes views in Walk (or Fly) from
  * the link (nav=walk), Blocks only, named <view>-walk.
  *
@@ -1179,6 +1181,7 @@ async function shoot({
   tilesDir = null,
   checkPrewarm = false,
   loadFramesOn = false,
+  loadFramesMs = SHOT_LOAD_FRAMES_MS,
   buildingsOff = false,
   frameEval = null,
   map = undefined,
@@ -1266,7 +1269,7 @@ async function shoot({
     // every frame (a timeline) starts before the first shot.
     if (frameEval)
       await page.evaluate(`(${frameEval})()`).catch(() => undefined);
-    for (const at of SHOT_LOAD_FRAMES_MS) {
+    for (const at of loadFramesMs) {
       const wait = from + at - Date.now();
       if (wait > 0)
         await page.evaluate(
@@ -2381,6 +2384,19 @@ export const SHOT_LOAD_FRAMES_MS = Object.freeze([
   2000, 5000, 10000, 20000, 40000, 80000,
 ]);
 
+/**
+ * --load-frames-to <s>: SHOT_LOAD_FRAMES_MS, then doubling (160, 320 s …)
+ * up to `seconds`, for a load that takes longer (a cold Overpass); none
+ * given, SHOT_LOAD_FRAMES_MS.
+ */
+export function shotLoadFramesMs(seconds) {
+  const frames = [...SHOT_LOAD_FRAMES_MS];
+  const until = Number(seconds) * 1000;
+  if (!(until > 0)) return frames;
+  for (let at = frames.at(-1) * 2; at <= until; at *= 2) frames.push(at);
+  return frames;
+}
+
 /** --load-frames: the frames' times after a flight's end (ms). */
 export const LOAD_FRAMES_MS = Object.freeze([2000, 5000, 10000, 20000]);
 
@@ -2988,6 +3004,7 @@ export async function main(argv = process.argv.slice(2)) {
             isolate: argv.includes('--isolate'),
             checkPrewarm: argv.includes('--prewarm-check'),
             loadFramesOn: argv.includes('--load-frames'),
+            loadFramesMs: shotLoadFramesMs(argValue(argv, '--load-frames-to')),
             buildingsOff: argv.includes('--buildings-off'),
             map: argValue(argv, '--map') || undefined,
             relief:

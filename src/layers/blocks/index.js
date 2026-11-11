@@ -52,6 +52,22 @@ export const TOP_LEVEL_M = BLOCK_PYRAMID_M[BLOCK_PYRAMID_M.length - 1];
  */
 export const STRUCTURES_MAX_BLOCK_M = 30;
 /**
+ * The coarse ring's land cover (roads, greens, water; no buildings) up to
+ * this coarse block size: the coarse ring of 8 m cubes (32 m) and finer.
+ * Without it only the fine disc was painted, a quarter of the live
+ * ground's reach: from 1 km up over a Baltimore harbour at 1 to 2 m cubes
+ * the ground out to the tiles' hole (2 to 4 km) was bare (2026-11-11).
+ */
+export const COARSE_PAINT_MAX_BLOCK_M = 32;
+/**
+ * Over the tiles, the coarse ring waits undrawn for its land cover at most
+ * this long once its chunks are in (the tiles' own land cover shows
+ * meanwhile); then it is drawn, and what is late is painted in place. Warm,
+ * a view's ring is painted in under 20 s; a busy Overpass clone took 5 to
+ * 27 s an answer (2026-11-11).
+ */
+export const COARSE_PAINT_HOLD_MS = 30_000;
+/**
  * The app's wait before anchoring (src/app/blocks.js gives it as settleMs):
  * the camera still this long since it last moved, or since the controller
  * started. A shared link's view comes by a flight 1.5 s after the page
@@ -651,7 +667,9 @@ export function sourceName(source) {
  *   structures?: {loadChunk: (region, ci, cj) => Promise<{top: Int32Array,
  *     bottom: Int32Array}|null>, apply: (chunk, levels) => number,
  *     groupBuildings?: (region, gi, gj)
- *     => Promise<string[]>}, OpenStreetMap land cover and buildings
+ *     => Promise<string[]>, loadCoarse?: (region, gi, gj) => Promise<
+ *     levels|null>, the coarse chunk's land cover (structures.js
+ *     loadCoarseSurfaces)}, OpenStreetMap land cover and buildings
  *     (structures.js) for the fine chunks while Overpass answers: the land
  *     cover (roads, greens, water, bridge decks) always, the buildings
  *     while store.getBuildings() is not false,
@@ -830,8 +848,21 @@ export function createBlocksController({
   /** Whether the fine chunks get their buildings too: the switch on. */
   const buildingsHere = () =>
     structuresHere() && store.getBuildings?.() !== false;
+  /**
+   * Whether the coarse ring gets its land cover (structures.loadCoarse):
+   * the fine chunks' rule, and coarse blocks no wider than
+   * COARSE_PAINT_MAX_BLOCK_M.
+   */
+  const coarsePaintHere = () =>
+    structuresHere() &&
+    typeof structures.loadCoarse === 'function' &&
+    GROUP_CHUNKS * _region.blockM <= COARSE_PAINT_MAX_BLOCK_M;
   /** Whether the held answers were last applied with their buildings. */
   let _buildingsApplied = null;
+  /** The coarse ring's wait for its paint this region: since when, and whether it is over. */
+  let _paintHold = { generation: -1, since: null, over: false };
+  /** Whether the last tick held the coarse ring for its paint (the status's paintPending). */
+  let _coarseHeld = false;
   /**
    * The finest level the tiles draw in 'hybrid' (the live chunks stay
    * finer), else Infinity.
@@ -1220,12 +1251,33 @@ export function createBlocksController({
         else for (const id of list) ids.add(id);
       }
     }
+    // The land cover: the drawn fine and coarse chunks it is in, and
+    // whether a drawn one's is still to come.
+    let paintedFine = 0;
+    let paintedCoarse = 0;
+    // The coarse ring held for its paint counts as paint to come.
+    let paintPending = _coarseHeld;
+    if (structuresHere())
+      for (const entry of _chunks.values()) {
+        if (!entry.shown) continue;
+        if (entry.structures === 'done') paintedFine++;
+        else if (structuresComing(entry)) paintPending = true;
+      }
+    if (coarsePaintHere())
+      for (const entry of _coarse.values()) {
+        if (!entry.shown) continue;
+        if (entry.paint === 'done') paintedCoarse++;
+        else if (paintComing(entry)) paintPending = true;
+      }
     setStatus({
       state: pending
         ? 'loading'
         : shown || coarse || !failed
           ? 'ready'
           : 'failed',
+      paintedFine,
+      paintedCoarse,
+      paintPending,
       blockM: _region.blockM,
       levelM: _region.levelM,
       relief: _region.relief.factor,
@@ -1860,6 +1912,119 @@ export function createBlocksController({
     }
   }
 
+  /** Whether a coarse chunk's land cover is still to come (asked, or to be asked again). */
+  const paintComing = (entry) =>
+    entry.paint === undefined ||
+    entry.paint === 'loading' ||
+    (entry.paint === 'failed' && entry.paintRetryAt !== Infinity);
+
+  function loadCoarsePaint(entry) {
+    const generation = _generation;
+    const { region } = _region;
+    entry.paint = 'loading';
+    const stale = () =>
+      generation !== _generation || _coarse.get(entry.key) !== entry;
+    call(() => structures.loadCoarse(region, entry.gi, entry.gj)).then(
+      (levels) => {
+        if (stale()) return;
+        if (!coarsePaintHere() || !entry.chunk) {
+          entry.paint = undefined;
+          return;
+        }
+        entry.chunk.clearStructures?.();
+        if (levels) structures.apply(entry.chunk, levels);
+        entry.paint = 'done';
+      },
+      (error) => {
+        if (stale()) return;
+        if (error?.code === 'unconfigured') {
+          _overpassMissing = true;
+          entry.paint = undefined;
+          statusNow();
+          return;
+        }
+        entry.paintAttempts = (entry.paintAttempts || 0) + 1;
+        entry.paint = 'failed';
+        entry.paintRetryAt =
+          entry.paintAttempts < MAX_ATTEMPTS
+            ? now() + retryDelayMs(entry.paintAttempts)
+            : Infinity;
+        console.warn(
+          `[Blocks] land cover for ${entry.key} not loaded:`,
+          error?.message || error,
+        );
+      },
+    );
+  }
+
+  /**
+   * The coarse ring's land cover (roads, greens, water; never buildings),
+   * nearest first and under the budget, for the coarse chunks drawn or to
+   * be drawn (not those hidden under a fine group); one Overpass query a
+   * supergroup (structures.js loadCoarseSurfaces), so the ring is painted
+   * out to the live ground's edge, not only the fine disc. With no land
+   * cover here it all comes off every held coarse chunk.
+   */
+  function syncCoarsePaint(groups, perTick, time) {
+    if (!structures) return;
+    if (!coarsePaintHere()) {
+      for (const entry of _coarse.values()) {
+        if (entry.paint === undefined) continue;
+        if (entry.chunk) clearStructures(entry.chunk);
+        entry.paint = undefined;
+      }
+      return;
+    }
+    let inFlight = 0;
+    for (const entry of _coarse.values())
+      if (entry.paint === 'loading') inFlight++;
+    for (const { gi, gj } of groups) {
+      if (inFlight >= perTick) break;
+      const entry = _coarse.get(coarseKey(gi, gj));
+      if (!entry?.chunk || groupDrawn(gi, gj)) continue;
+      if (entry.paint === 'loading' || entry.paint === 'done') continue;
+      if (entry.paint === 'failed' && !(entry.paintRetryAt <= time)) continue;
+      loadCoarsePaint(entry);
+      inFlight++;
+    }
+  }
+
+  /**
+   * Whether the coarse ring waits, undrawn, for its land cover: with the
+   * tiles past the live chunks ('hybrid') and the ring to be painted,
+   * while a coarse chunk not under a drawn fine group is still to load
+   * (one that failed does not hold it) or its paint is to come, for at
+   * most COARSE_PAINT_HOLD_MS from when only paint is left (once over, not
+   * again this region: the rest is painted in place as it comes). The
+   * tiles' hole opens only as far as the live chunks are drawn
+   * (drawnReachM), so meanwhile the tiles, painted when built, show past
+   * the fine disc instead of bare coarse ground; the ring then comes all
+   * at once, not chunk by chunk over the tiles (where both draw the sea at
+   * 0 m they would fight).
+   */
+  function coarseHeldForPaint(groups) {
+    if (_tiles.mode !== 'hybrid' || !coarsePaintHere()) return false;
+    if (_paintHold.generation !== _generation)
+      _paintHold = { generation: _generation, since: null, over: false };
+    if (_paintHold.over) return false;
+    let loading = false;
+    let painting = false;
+    for (const { gi, gj } of groups) {
+      if (groupDrawn(gi, gj)) continue;
+      const entry = _coarse.get(coarseKey(gi, gj));
+      if (!entry) loading = true;
+      else if (!entry.chunk) loading ||= !entry.failed;
+      else painting ||= paintComing(entry);
+    }
+    if (loading) return true;
+    if (!painting) return false;
+    const time = now();
+    _paintHold.since ??= time;
+    if (time - _paintHold.since < COARSE_PAINT_HOLD_MS) return true;
+    _paintHold.over = true;
+    return false;
+  }
+
   const newEntry = (fields) => ({
     chunk: null,
     loading: null,
@@ -2280,8 +2445,10 @@ export function createBlocksController({
       ({ gi, gj }) => coarseKey(gi, gj),
       (key, { gi, gj }) => newEntry({ key, gi, gj, coarse: true }),
     );
-    // The fine ring's buildings (never the coarse ring's).
+    // The fine ring's buildings and land cover, then the coarse ring's
+    // land cover (never its buildings).
     syncStructures(ring, perTick, time);
+    syncCoarsePaint(groups, perTick, time);
     // The rings past the coarse one: loaded once the fine ring is in, so
     // the near ground comes first.
     const rings = syncRings(camera, horizonCut);
@@ -2388,11 +2555,17 @@ export function createBlocksController({
       undefined,
       neighbourComing,
     );
+    // Over the tiles, the coarse ring waits (undrawn) until all of it is
+    // painted: meanwhile the hole stays at the fine disc and the tiles'
+    // own land cover shows there (coarseHeldForPaint).
+    const holdCoarse = coarseHeldForPaint(groups);
+    _coarseHeld = holdCoarse;
     meshEach(
       groups,
       _coarse,
       ({ gi, gj }) => coarseKey(gi, gj),
       (entry) => groupDrawn(entry.gi, entry.gj),
+      () => holdCoarse,
     );
     for (const { ring: outer, list } of rings)
       meshEach(list, outer.chunks, ({ ci, cj }) =>
@@ -2455,12 +2628,15 @@ export function createBlocksController({
       if (!entry.shown || entry.signature !== meshInputs(entry).signature)
         return true;
     }
+    const wantPaint = coarsePaintHere();
     for (const { gi, gj } of groups) {
       const entry = _coarse.get(coarseKey(gi, gj));
       if (waiting(entry)) return true;
       if (!entry.chunk) continue;
       const covered = groupDrawn(gi, gj);
       if (covered === entry.shown) return true;
+      // Its land cover still to come, or to be asked again.
+      if (wantPaint && !covered && paintComing(entry)) return true;
       if (!covered && entry.signature !== meshInputs(entry).signature)
         return true;
     }
