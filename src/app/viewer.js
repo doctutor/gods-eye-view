@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import { applyModelAtmosphereWorkaround } from './atmosphereCompat.js';
+import { guardSkyBox } from './skyBoxGuard.js';
 import { gateCollisionOnRefinedTiles } from '../surfaceTrust.js';
 
 const PINCH_ZOOM_MULTIPLIER = 8;
@@ -130,6 +131,9 @@ export function createApplicationViewer({ container, creditContainer }) {
     // atmosphere fails to LINK on Apple's Metal backend and kills the
     // render loop. See app/atmosphereCompat.js.
     applyModelAtmosphereWorkaround(viewer.scene);
+    // Personal fork: a star image that fails to load no longer stops the
+    // render loop (app/skyBoxGuard.js).
+    guardSkyBox(viewer.scene);
     // Personal fork: Cesium's camera collision measures the ground on
     // trusted tiles only, so a coarse Google tile streaming in does not
     // lift the eye (src/surfaceTrust.js).

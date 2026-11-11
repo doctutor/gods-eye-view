@@ -25,6 +25,7 @@
     "modules": [
       "src/app/viewer.js",
       "src/app/atmosphereCompat.js",
+      "src/app/skyBoxGuard.js",
       "src/surfaceTrust.js"
     ],
     "external": ["cesium"]
@@ -1948,6 +1949,7 @@
       "src/app/tools.js",
       "src/app/viewer.js",
       "src/app/atmosphereCompat.js",
+      "src/app/skyBoxGuard.js",
       "src/bloom.js",
       "src/camera.js",
       "src/cameraGroundGuard.js",

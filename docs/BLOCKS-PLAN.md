@@ -1554,3 +1554,35 @@ frames in `.claude/blocks-compare/paint/`):
 The level the harness picks for the same view varies between runs (2 m or
 8 m cubes at ×1). That is the footprint at the view's centre, not this
 change.
+
+**One `is_in` a query (2026-11-11, later).** `groupQuery` now asks
+`is_in` at the box's centre only, not the centre and four corners. A lake
+that holds the whole box holds its centre. A lake that holds a corner but
+not the whole box has its shore inside the box, so the box query returns
+it (a test runs both cases through the source against a fake Overpass that
+answers by box and by point). Same answers, measured on the clone directly
+on fresh 2 km boxes at 8 m: 167 elements in 7.6 s (old, cold) against 5.3 s
+(new, same box after); 488 in 1.6 s (new, cold) against 3.1 s (old, same
+box after). Every cache key changed once.
+
+### A star image that stopped the page (2026-11-11)
+
+One Walk link run in about 55 page loads stayed at "Blocks: waiting for the
+camera to land" for 3 minutes, with the camera at the opening orbit
+(24,690 km) and the walker hovering. It was not a late `moveEnd`: Cesium
+had stopped rendering ("An error occurred while rendering. Rendering has
+stopped. InvalidStateError: The source image could not be decoded."). With
+no frames, the link's flight tween never advanced, `camera._currentFlight`
+stayed set, and Blocks (`cameraInFlight`) and the walker (it yields to a
+flight) both waited on it.
+
+The source is Cesium's sky box. When one of its six star images fails to
+load, `SkyBox` keeps the error and throws it from its next `update()`
+(CesiumGS/cesium#12307), inside `Scene.render`, which stops the loop for
+good. Reproduced at will by handing the sky box an undecodable face: the
+same panel, rendering stopped, Blocks never anchored. `app/skyBoxGuard.js`
+takes the failed load before `update()` can throw it. That frame draws no
+stars, the faces are asked again (twice), then the stars are left off. With
+the guard and the same bad face, rendering went on, the stars went off,
+Blocks was ready by 20 s, and a Walk link landed (eye at 36 m by 5 s,
+ready by 40 s).
