@@ -458,13 +458,7 @@ function fixture({ bricks = true, relief = 1, mode = 'lego' } = {}) {
     verticalExaggeration: 1,
     verticalExaggerationRelativeHeight: 0,
     canvas: { clientWidth: 100, clientHeight: 100 },
-    pickPositionSupported: true,
     // The centre's drawn ground: 2,000 m (true, before any relief).
-    pickPosition: () => ({
-      latitude: 46.85 * RAD,
-      longitude: -121.76 * RAD,
-      height: scene.drawnM,
-    }),
     drawnM: 2000,
     preRender: event(),
     postRender: event(),
@@ -475,9 +469,16 @@ function fixture({ bricks = true, relief = 1, mode = 'lego' } = {}) {
       inverseViewMatrix: { view: true },
       positionCartographic: { height: 50000 },
       moveEnd: event(),
-      pickEllipsoid: () => null,
+      // Where the centre's ray meets the ellipsoid.
+      pickEllipsoid: () => ({
+        latitude: 46.85 * RAD,
+        longitude: -121.76 * RAD,
+        height: 0,
+      }),
     },
   };
+  // The drawn ground there (surfaceAt's place in the app).
+  const clock = { ms: 0 };
   const store = createPhotorealStore({ initial: { relief, bricks } });
   const controller = createPhotorealController({
     viewer,
@@ -488,8 +489,11 @@ function fixture({ bricks = true, relief = 1, mode = 'lego' } = {}) {
     geoid: { ready: () => Promise.resolve(), height: () => -20 },
     // Far out AUTO textures the tops: here a build that never ends.
     buildTexture: () => new Promise(() => {}),
+    groundAt: () => scene.drawnM,
+    now: () => clock.ms,
   });
   return {
+    clock,
     cesium,
     header,
     built,
@@ -628,8 +632,8 @@ test('relief: Cesium’s exaggeration about the true ground under the view, re-a
     2000,
     'near: kept, so nothing jumps',
   );
-  const far = f.scene.pickPosition;
-  f.scene.pickPosition = () => ({ ...far(), latitude: 47.5 * RAD });
+  const far = f.viewer.camera.pickEllipsoid;
+  f.viewer.camera.pickEllipsoid = () => ({ ...far(), latitude: 47.5 * RAD });
   f.viewer.camera.moveEnd.raise();
   assert.equal(
     f.scene.verticalExaggerationRelativeHeight,
@@ -645,6 +649,46 @@ test('relief: Cesium’s exaggeration about the true ground under the view, re-a
   f.controller.destroy();
   assert.equal(f.scene.verticalExaggeration, 1, 'destroy restores the scene');
   assert.equal(f.viewer.camera.moveEnd.listeners.size, 0);
+});
+
+test('relief: anchored on the ground the trusted ray reads, never on a junk height; none yet, anchored when it answers', async () => {
+  // A page opening into Blocks under Relief ×5 or ×2: nothing drawn yet,
+  // and a depth pick read −1,210 m or −216 m (2026-11-11).
+  const f = fixture({ bricks: false, relief: 1 });
+  f.scene.drawnM = Number.NaN;
+  f.store.setRelief(5);
+  assert.equal(f.scene.verticalExaggeration, 5);
+  assert.equal(
+    f.scene.verticalExaggerationRelativeHeight,
+    0,
+    'no ground yet: no anchor',
+  );
+  // An implausible answer is none either.
+  f.scene.drawnM = -1209.7 * 5;
+  f.clock.ms += 1000;
+  f.scene.postRender.raise();
+  assert.equal(f.scene.verticalExaggerationRelativeHeight, 0);
+  // The ground answers (drawn about 0 at ×5): anchored after a frame,
+  // tried at most once a second.
+  f.scene.drawnM = (2000 - 0) * 5 + 0;
+  f.clock.ms += 500;
+  f.scene.postRender.raise();
+  assert.equal(f.scene.verticalExaggerationRelativeHeight, 0, 'not yet');
+  f.clock.ms += 500;
+  f.scene.postRender.raise();
+  assert.equal(f.scene.verticalExaggerationRelativeHeight, 2000);
+  // Anchored: later frames leave it.
+  f.scene.drawnM = 99999;
+  f.clock.ms += 5000;
+  f.scene.postRender.raise();
+  assert.equal(f.scene.verticalExaggerationRelativeHeight, 2000);
+  // The centre over nothing (the sky): no anchor taken.
+  f.store.setRelief(1);
+  f.viewer.camera.pickEllipsoid = () => null;
+  f.store.setRelief(5);
+  assert.equal(f.scene.verticalExaggerationRelativeHeight, 0);
+  f.controller.destroy();
+  assert.equal(f.scene.postRender.listeners.size, 0);
 });
 
 test('relief and bricks together: the lift is measured from the exaggerated ground; a pick can be un-lifted', async () => {
