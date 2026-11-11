@@ -34,6 +34,7 @@ import {
   planLatticeTiles,
   planTiles,
   serverOverpass,
+  OVERPASS_LIMITED_TRIES,
   skirtFloors,
   summarizeLevels,
   loadTileChunks,
@@ -1022,6 +1023,62 @@ test("serverOverpass: POST to the app server's proxy, one at a time, 700 ms apar
     calls[1].at - calls[0].at >= 690,
     `${calls[1].at - calls[0].at} ms apart`,
   );
+});
+
+test('serverOverpass: a rate-limited query waits out its Retry-After and is asked again; past OVERPASS_LIMITED_TRIES the build is told', async () => {
+  const answer = (status, body, headers = {}) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json', ...headers },
+    });
+  const waits = [];
+  const wait = async (ms) => {
+    waits.push(ms);
+  };
+  // Refused once with Retry-After: 7, then answered.
+  let calls = 0;
+  const query = serverOverpass({
+    fetchImpl: async () =>
+      ++calls === 1
+        ? answer(429, { error: 'busy' }, { 'retry-after': '7' })
+        : answer(200, { elements: [{ id: 1 }] }),
+    wait,
+  });
+  const { elements } = await query('[out:json];way(1);out;');
+  assert.deepEqual(elements, [{ id: 1 }]);
+  assert.equal(calls, 2);
+  assert.equal(query.count(), 1);
+  assert.equal(query.limited(), 1);
+  // The second request waited for the Retry-After (7 s), not the 700 ms gap.
+  assert.ok(
+    waits.some((ms) => ms > 6_000 && ms <= 7_000),
+    `waits ${waits}`,
+  );
+  // Always refused: asked OVERPASS_LIMITED_TRIES times, then the error.
+  let refused = 0;
+  const stubborn = serverOverpass({
+    fetchImpl: async () => {
+      refused++;
+      return answer(429, { error: 'busy' });
+    },
+    wait,
+  });
+  await assert.rejects(stubborn('[out:json];way(2);out;'), {
+    code: 'limited',
+  });
+  assert.equal(refused, OVERPASS_LIMITED_TRIES);
+  assert.equal(stubborn.limited(), OVERPASS_LIMITED_TRIES - 1);
+  // Another failure is not asked again.
+  let broken = 0;
+  const failing = serverOverpass({
+    fetchImpl: async () => {
+      broken++;
+      return answer(500, { error: 'down' });
+    },
+    wait,
+  });
+  await assert.rejects(failing('[out:json];way(3);out;'), { code: 'failed' });
+  assert.equal(broken, 1);
 });
 
 /** A synthetic curved box: about 390 by 445 km around the seed, built at 7,680 and 1,920 m. */
