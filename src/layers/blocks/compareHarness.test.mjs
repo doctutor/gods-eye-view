@@ -544,3 +544,12 @@ test('a pyramid warm-up is waited for 2 minutes, then recorded (it competes on t
   assert.deepEqual(build.jobs, ['tileset build']);
   assert.equal(build.waitedMs, 600_000);
 });
+
+test('--load-frames-to: the --altitudes load frames go on past 80 s, doubling, up to the seconds given', async () => {
+  const { shotLoadFramesMs, SHOT_LOAD_FRAMES_MS } =
+    await import('../../../scripts/qa-blocks-compare.mjs');
+  assert.deepEqual(shotLoadFramesMs(undefined), [...SHOT_LOAD_FRAMES_MS]);
+  assert.deepEqual(shotLoadFramesMs('80'), [...SHOT_LOAD_FRAMES_MS]);
+  assert.deepEqual(shotLoadFramesMs('320').slice(-3), [80000, 160000, 320000]);
+  assert.deepEqual(shotLoadFramesMs('300').slice(-2), [80000, 160000]);
+});
