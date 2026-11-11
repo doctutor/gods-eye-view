@@ -143,11 +143,15 @@ const RAILWAYS = ['rail', 'tram', 'light_rail', 'subway', 'narrow_gauge'];
  * blocks and the highways narrower than a block. `buildings: false` leaves
  * the buildings out altogether (the coarse ring's land cover).
  *
- * Water areas are also asked by the points they contain (is_in at the
- * box's centre and corners, then the ways and relations that make those
- * areas): a box query finds a lake only by a member way crossing the box,
- * so a group wholly inside one (Lake Tahoe from 9 km, 2026-11-04) had no
- * lake and was drawn dry, a square of ground at the water's level.
+ * Water areas are also asked by the point they contain at the box's centre
+ * (is_in, then the ways and relations that make those areas): a box query
+ * finds a lake only by a member way crossing the box, so a group wholly
+ * inside one (Lake Tahoe from 9 km, 2026-11-04) had no lake and was drawn
+ * dry, a square of ground at the water's level. The centre is enough: a
+ * lake holding the whole box holds its centre, and one holding a corner but
+ * not the whole box has its shore inside the box, so the box query returns
+ * it. The four corners asked as well (until 2026-11-11) cost about 3 s of a
+ * 5 to 7 s answer on the local clone and found nothing more.
  */
 export function groupQuery(
   { west, south, east, north },
@@ -155,13 +159,7 @@ export function groupQuery(
   { buildings = true } = {},
 ) {
   const bbox = [south, west, north, east].map((v) => v.toFixed(7)).join(',');
-  const points = [
-    [(south + north) / 2, (west + east) / 2],
-    [south, west],
-    [south, east],
-    [north, west],
-    [north, east],
-  ];
+  const points = [[(south + north) / 2, (west + east) / 2]];
   const areas = points
     .map(
       ([lat, lon], n) => `is_in(${lat.toFixed(7)},${lon.toFixed(7)})->.in${n};`,

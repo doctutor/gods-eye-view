@@ -323,23 +323,18 @@ test('groupQuery: buildings, parts, land cover, highways and railways in the box
   assert.doesNotMatch(coarse, /way\["highway"\]\(/);
   assert.match(coarse, /way\["highway"~"\^\(motorway\|trunk/);
   assert.doesNotMatch(coarse, /footway/);
-  // Water areas also by the points they contain: a group wholly inside a
-  // lake crosses none of its ways. The centre and the four corners.
-  for (const point of [
-    '39.2900000,-76.6100000',
-    '39.2800000,-76.6200000',
-    '39.2800000,-76.6000000',
-    '39.3000000,-76.6200000',
-    '39.3000000,-76.6000000',
-  ])
-    assert.ok(ql.includes(`is_in(${point})->.in`), point);
-  for (let n = 0; n < 5; n++)
-    for (const filter of ['["natural"="water"]', '["water"]'])
-      for (const type of ['way', 'relation'])
-        assert.ok(
-          ql.includes(`${type}(pivot.in${n})${filter};`),
-          `${type}(pivot.in${n})${filter}`,
-        );
+  // Water areas also by the point they contain: a group wholly inside a
+  // lake crosses none of its ways. The centre only (one holding a corner
+  // but not the box crosses it: the next test).
+  assert.ok(ql.includes('is_in(39.2900000,-76.6100000)->.in0;'));
+  assert.equal(ql.match(/is_in\(/g).length, 1, 'one is_in');
+  assert.doesNotMatch(ql, /pivot\.in[1-9]/);
+  for (const filter of ['["natural"="water"]', '["water"]'])
+    for (const type of ['way', 'relation'])
+      assert.ok(
+        ql.includes(`${type}(pivot.in0)${filter};`),
+        `${type}(pivot.in0)${filter}`,
+      );
   // The proxy accepts both.
   for (const q of [ql, coarse])
     assert.equal(
@@ -1891,4 +1886,103 @@ test('the coarse ring’s land cover: one query a supergroup, no buildings, at 4
   assert.equal(applyStructures(chunk, a), 0, 'no structures');
   assert.equal(chunk.material[columnIndex(2, 2)], MATERIALS.GRASS);
   assert.equal(chunk.material[columnIndex(10, 12)], MATERIALS.ROAD);
+});
+
+test('a lake holding a box’s corner but not its centre comes from the box query (its shore crosses the box); one holding the whole box from the centre’s is_in: both drawn, with the centre the only point asked', async () => {
+  // Group (0, 0) at 1 m: region metres 0 to 256 a side.
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 1 });
+  const SIDE = GROUP_COLUMNS;
+  const geometry = (points) =>
+    [...points, points[0]].map(([x, y]) => region.toLonLat(x, y));
+  // A triangle over the south-west corner: its long side x + y = 100 runs
+  // through the box; every vertex lies outside it; the centre (128, 128)
+  // is not in it.
+  const cornerLake = {
+    type: 'way',
+    id: 1,
+    tags: { natural: 'water' },
+    geometry: geometry([
+      [-300, -300],
+      [400, -300],
+      [-300, 400],
+    ]),
+  };
+  // A square far wider than the box: no shore near it.
+  const boxLake = {
+    type: 'way',
+    id: 2,
+    tags: { natural: 'water' },
+    geometry: geometry([
+      [-2000, -2000],
+      [2000, -2000],
+      [2000, 2000],
+      [-2000, 2000],
+    ]),
+  };
+  const local = (point) => region.toLocal(point.lon, point.lat);
+  const inside = (polygon, { x, y }) => {
+    let odd = false;
+    for (let k = 0, m = polygon.length - 1; k < polygon.length; m = k++) {
+      const a = polygon[k];
+      const b = polygon[m];
+      if (
+        a.y > y !== b.y > y &&
+        x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x
+      )
+        odd = !odd;
+    }
+    return odd;
+  };
+  const inBox = ({ x, y }) => x >= 0 && x <= SIDE && y >= 0 && y <= SIDE;
+  // Overpass as it answers: a way whose geometry enters the box (a bbox
+  // query), or an area holding a point the query asks is_in for.
+  const answered = [];
+  const fakeOverpass = (lakes) => async (ql) => {
+    const points = [...ql.matchAll(/is_in\(([-\d.]+),([-\d.]+)\)/g)].map(
+      ([, lat, lon]) => region.toLocal(Number(lon), Number(lat)),
+    );
+    const elements = lakes.filter((lake) => {
+      const ring = lake.geometry.map(local);
+      let crosses = false;
+      for (let k = 0; k + 1 < ring.length && !crosses; k++)
+        for (let t = 0; t <= 400 && !crosses; t++) {
+          const f = t / 400;
+          crosses = inBox({
+            x: ring[k].x + f * (ring[k + 1].x - ring[k].x),
+            y: ring[k].y + f * (ring[k + 1].y - ring[k].y),
+          });
+        }
+      const held = points.some((point) => inside(ring, point));
+      answered.push({ id: lake.id, crosses, held });
+      return crosses || held;
+    });
+    return { elements, points };
+  };
+  const loadChunk = async (r, ci, cj) =>
+    createChunk({ ci, cj, top: new Int32Array(COLUMNS).fill(3) });
+  // The corner lake: by the box (the centre is not in it), drawn at the
+  // corner, not at the centre.
+  const corner = createStructuresSource({
+    query: fakeOverpass([cornerLake]),
+    loadChunk,
+  });
+  const levels = await corner.loadChunkStructures(region, 0, 0);
+  assert.deepEqual(answered.at(-1), { id: 1, crosses: true, held: false });
+  assert.equal(levels.material[columnIndex(10, 10)], MATERIALS.WATER);
+  assert.equal(levels.material[columnIndex(60, 30)], MATERIALS.WATER);
+  assert.equal(levels.material[columnIndex(60, 60)], 0, 'past its shore');
+  const centreChunk = await corner.loadChunkStructures(region, 2, 2);
+  assert.equal(centreChunk, null, 'the centre: dry');
+  // The lake holding the box: only by the centre's is_in, the only point
+  // the query asks; drawn everywhere.
+  const whole = createStructuresSource({
+    query: fakeOverpass([boxLake]),
+    loadChunk,
+  });
+  const all = await whole.loadChunkStructures(region, 3, 3);
+  assert.deepEqual(answered.at(-1), { id: 2, crosses: false, held: true });
+  assert.equal(all.material[columnIndex(63, 63)], MATERIALS.WATER);
+  const ql = groupQuery(groupBounds(region, 0, 0), 1);
+  assert.equal([...ql.matchAll(/is_in\(/g)].length, 1);
+  assert.equal(sanitizeOverpassBody(`data=${encodeURIComponent(ql)}`).ok, true);
 });
