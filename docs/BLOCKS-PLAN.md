@@ -1024,25 +1024,34 @@ download.
     inverted, times its own.
   - Several root groups (four around a middle anchor) hang under a root with
     no content and a bounding sphere.
-- **Coarse levels drawn a step lower (`coarseDropM`).** A column's top block
+- **Every level drawn a step lower (`levelDropM`).** A column's top block
   stands on [L·step, (L+1)·step] with L = floor(h / step), so it can stand
   up to a step above its ground.
   - At 30,720 m the step is 960 m: a street at 50 m stood as a block 960 m
     tall. Until the finer tiles were in, a camera at 300 m was inside it
-    and saw sky (worker3's page-load trace, a Baltimore street).
-  - At the levels whose step is coarser than 30 m (1,920 m and up), the
-    build draws the whole level one step lower. That covers land, water,
-    lake beds and skirts. A top is then floor(h / step) × step, at or below
-    its ground, and the sea's surface is at 0 m.
-  - Skirt floors work in drawn metres, so a finer tile's skirt reaches a
-    lowered coarse neighbour.
+    and saw sky (worker3's page-load trace, a Baltimore street). From
+    2026-10-30 the levels whose step is coarser than 30 m (1,920 m and up)
+    were drawn one step lower.
+  - On the 30 m-step levels (30, 120 and 480 m blocks) a top stood up to
+    30 m high and the sea's water at level 0's top, +30 m, while the live
+    fine disc in front stands on 1 m levels near the true ground. At a
+    tiles/live seam that was a 6 to 36 m step, 40 to 190 m walls under
+    Relief ×5 (worker3, the Baltimore harbour: blue walls under the tile
+    water, a plateau, pillars). Since 2026-11-11 every level is drawn one
+    step lower.
+  - Land, water, lake beds, structures and skirts move together. A top is
+    floor(h / step) × step, at or below its ground; the sea's surface is at
+    0 m and a lake's at its level floored.
+  - Skirt floors work in drawn metres, so a skirt reaches a neighbour drawn
+    at any level's drop.
   - Only the drawing moves. The columns, the summaries, `--land-only`'s sea
-    test and the live mesher are as they were (a 60 m step where a live
-    1,920 m ring meets a tile edge is nothing at that scale). The mesher
-    fingerprint is unchanged; a dropped tile's digest carries the drop.
-  - The small boxes (the metro, the two harbours) are built with
-    `--coarsest 1920`, at most 60 m over the ground. The big trees take the
-    drop on their next rebuild.
+    test and the live mesher are as they were. The mesher fingerprint is
+    unchanged (its canary tiles are meshed without the drop); every tile's
+    digest carries the drop.
+  - Trees built before carry the step the build drew then, so a box switch
+    between trees of different builds can show it for a moment (30 m at a
+    30 m-step level, 60 m at 1,920 m; ×5 under Relief). Each tree takes the
+    drop on its next rebuild.
 - **The chord bound, tested.** Over a synthetic curved box at 1,920 m, no
   top face runs more than `curvedRunCap` (57) cells, and the middle of every
   straight edge sags at most 235 m under its level (a pixel of an 8 px cell

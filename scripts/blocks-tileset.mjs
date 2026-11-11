@@ -126,20 +126,20 @@ export const tileRunCap = (blockM) =>
   Math.max(1, Math.floor(Math.sqrt((8 * 6_371_000) / (TILE_CELL_PX * blockM))));
 
 /**
- * How far a level's tiles are drawn below its blocks: at the levels whose
- * step is coarser than 30 m (1,920 m and up, where levelMFor is blockM/32),
- * one step. grid.js stands a column's top block on [L·step, (L+1)·step]
- * with L = floor(h / step), up to a step above its ground; drawn one step
- * lower its top is floor(h / step) × step, at or below the ground, and the
- * sea's surface is at 0 m. A camera at the street is then never inside a
- * coarse block (a 960 m one at 30,720 m) while the finer tiles load. Only
- * the drawing moves: the columns, the summaries and the live mesher are
- * as they are.
+ * How far a level's tiles are drawn below its blocks: one step, at every
+ * level (30 m at 30, 120 and 480 m blocks; blockM/32 from 1,920 m up).
+ * grid.js stands a column's top block on [L·step, (L+1)·step] with
+ * L = floor(h / step), up to a step above its ground; drawn one step lower
+ * its top is floor(h / step) × step, at or below the ground, the sea's
+ * surface is at 0 m and a lake's at its level floored. A camera at the
+ * street is then never inside a coarse block (a 960 m one at 30,720 m)
+ * while the finer tiles load, and a tile beside the live fine disc (1 m
+ * levels near the true ground) stands no higher than it: a 30 m level a
+ * step up was a 6 to 36 m wall at a tiles/live seam, 40 to 190 m under
+ * Relief ×5. Only the drawing moves: the columns, the summaries and the
+ * live mesher are as they are.
  */
-export const coarseDropM = (blockM) => {
-  const levelM = levelMFor(blockM);
-  return levelM > 30 ? levelM : 0;
-};
+export const levelDropM = (blockM) => levelMFor(blockM);
 
 /** External tilesets: a subtree in its own JSON every this many levels below the root. */
 export const SPLIT_DEPTH = 2;
@@ -543,7 +543,7 @@ const isWhole = (value) => Math.abs(value - Math.round(value)) < 1e-9;
  * A tile's skirt floors {n, s, e, w} in its level's levels: along each
  * border, the lowest top of the ground a tile drawn beside it can stand on
  * there (all levels share one levelM up to 480 m blocks; otherwise each is
- * converted through metres, in drawn metres after coarseDropM).
+ * converted through metres, in drawn metres after levelDropM).
  * - Its own level and every finer one: the columns either side of the
  *   border.
  * - A coarser level: only where the border lies on that level's chunk
@@ -573,10 +573,10 @@ export function skirtFloors(tile, chunksByLevel, summaries = null) {
   const floors = {};
   for (const [name, line] of Object.entries(lines)) {
     let lowestM = Infinity;
-    // Each level's lowest top in drawn metres (its coarseDropM below its blocks).
+    // Each level's lowest top in drawn metres (its levelDropM below its blocks).
     const lower = (top, m) => {
       if (top !== null && top !== undefined && top !== NONE)
-        lowestM = Math.min(lowestM, top * levelMFor(m) - coarseDropM(m));
+        lowestM = Math.min(lowestM, top * levelMFor(m) - levelDropM(m));
     };
     for (const [m, byKey] of summaries ?? chunksByLevel) {
       const chunkM = CHUNK_COLUMNS * m;
@@ -626,11 +626,11 @@ export function skirtFloors(tile, chunksByLevel, summaries = null) {
         if (edge) lower(edge[column - k * CHUNK_COLUMNS], m);
       }
     }
-    // In this tile's own levels, which are drawn its coarseDropM lower.
+    // In this tile's own levels, which are drawn its levelDropM lower.
     floors[name] =
       lowestM === Infinity
         ? null
-        : Math.floor((lowestM + coarseDropM(tile.level)) / levelM + 1e-9);
+        : Math.floor((lowestM + levelDropM(tile.level)) / levelM + 1e-9);
   }
   return floors;
 }
@@ -654,11 +654,11 @@ export function tileMesh(
     summaries = null,
     toTile = null,
     mesher = buildChunkMesh,
-    dropM = coarseDropM(tile.level),
+    dropM = levelDropM(tile.level),
   } = {},
 ) {
   const chunks = chunksByLevel.get(tile.level);
-  // Curved levels only (every level coarser than 30 m a step is curved).
+  // Curved: through the mesher's datum; flat: off each vertex's height.
   const datumM = region.curved ? -dropM : 0;
   const levelM = levelMFor(tile.level);
   const blockM = tile.level;
@@ -750,7 +750,7 @@ export function tileMesh(
         const y = mesh.positions[v * 3 + 1] + dy;
         p[0] = x - tileX;
         p[1] = y - tileY;
-        p[2] = mesh.positions[v * 3 + 2] + dropAt(x, y);
+        p[2] = mesh.positions[v * 3 + 2] + dropAt(x, y) - dropM;
       }
       for (let c = 0; c < 3; c++) {
         positions[v * 3 + c] = p[c];
@@ -1327,7 +1327,7 @@ export function tileDigest(
       ci: tile.ci,
       cj: tile.cj,
       floors: skirtFloors(tile, chunksByLevel, summaries),
-      ...(coarseDropM(tile.level) ? { dropM: coarseDropM(tile.level) } : {}),
+      dropM: levelDropM(tile.level),
     }),
   );
   const chunks = chunksByLevel.get(tile.level);

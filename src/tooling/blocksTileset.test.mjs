@@ -43,7 +43,7 @@ import {
   TILE_CELL_PX,
   canaryChunk,
   chunkSummary,
-  coarseDropM,
+  levelDropM,
   meshFingerprint,
   buildFingerprint,
   tileDigest,
@@ -539,7 +539,8 @@ test('meshes (golden): tile sizes and geometry, opaque then water, in the tile f
     for (const triangle of triangleSet(tile)) geometry.update(`${triangle}\n`);
     // Each position is its block point in the tile's frame: the chunk's
     // columns (unfolded) × the block east and north of the tile's corner,
-    // levels × 30 m up, less the ellipsoid's drop under the plane.
+    // levels × 30 m up less a level (levelDropM), less the ellipsoid's drop
+    // under the plane.
     const fill = /\/c(\d+)_(\d+)\.glb$/.exec(uri);
     const group = /\/g(\d+)_(\d+)\.glb$/.exec(uri);
     const columns = fill ? 64 : 256;
@@ -559,7 +560,9 @@ test('meshes (golden): tile sizes and geometry, opaque then water, in the tile f
           Math.abs(p.positions[v * 3 + 1] - (line - b * columns) * level) <
             0.01,
         );
-        const drop = p.positions[v * 3 + 2] - p.blockCoords[v * 3 + 2] * 30;
+        const drop =
+          p.positions[v * 3 + 2] -
+          (p.blockCoords[v * 3 + 2] * 30 - levelDropM(level));
         assert.ok(drop <= 0.01 && drop > -200, `drop ${drop} m`);
         deepestDropM = Math.min(deepestDropM, drop);
       }
@@ -1134,7 +1137,7 @@ test('curved placement: each vertex is its block corner on the ellipsoid, at its
           Math.abs(Cesium.Math.toDegrees(at.latitude) - corner.lat) < 1e-5,
         );
         assert.ok(
-          Math.abs(at.height - (level * 60 - coarseDropM(1920))) < 0.5,
+          Math.abs(at.height - (level * 60 - levelDropM(1920))) < 0.5,
           `height ${at.height} at level ${level}`,
         );
         checked++;
@@ -1143,12 +1146,12 @@ test('curved placement: each vertex is its block corner on the ellipsoid, at its
   assert.ok(checked > 1000, `${checked} vertices checked`);
 });
 
-test('coarse levels drawn a step lower (1,920 m and up): a column at or below its height, the sea at 0 m; 480 m as it was', () => {
-  assert.deepEqual([30, 120, 480].map(coarseDropM), [0, 0, 0]);
-  assert.deepEqual([1920, 7680, 30720].map(coarseDropM), [60, 240, 960]);
+test('every level drawn a step lower: a column at or below its height, the sea at 0 m, a lake at its level floored', () => {
+  assert.deepEqual([30, 120, 480].map(levelDropM), [30, 30, 30]);
+  assert.deepEqual([1920, 7680, 30720].map(levelDropM), [60, 240, 960]);
   const { anchor } = planTiles(CURVED_BOX, 1920, 7680);
   const N = 64;
-  for (const blockM of [480, 1920, 7680]) {
+  for (const blockM of [30, 120, 480, 1920, 7680]) {
     const region = levelRegion(anchor, blockM, true);
     const levelM = levelMFor(blockM);
     const tile = {
@@ -1161,19 +1164,26 @@ test('coarse levels drawn a step lower (1,920 m and up): a column at or below it
       children: [],
     };
     const { world, toTile } = tileFrame(tile, region);
-    for (const h of [
-      -5,
-      1,
-      levelM - 1,
-      levelM,
-      1.5 * levelM,
-      10 * levelM + 7,
+    for (const [h, lake] of [
+      [-5, false],
+      [1, false],
+      [levelM - 1, false],
+      [levelM, false],
+      [1.5 * levelM, false],
+      [10 * levelM + 7, false],
+      [levelM - 1, true],
+      [10 * levelM + 7, true],
     ]) {
-      // One chunk every column h metres high (its mean), as the source makes it.
+      // One chunk every column h metres high (its mean), as the source makes
+      // it; a lake's columns all water (its surface at its level).
       const chunk = createChunk({
         ci: 0,
         cj: 0,
-        ...columnsFromHeights(new Float32Array(N * N).fill(h), levelM),
+        ...columnsFromHeights(
+          new Float32Array(N * N).fill(h),
+          levelM,
+          lake ? new Float32Array(N * N).fill(1) : null,
+        ),
       });
       const { chunks } = tileMesh(
         tile,
@@ -1199,19 +1209,21 @@ test('coarse levels drawn a step lower (1,920 m and up): a column at or below it
             Cesium.Cartographic.fromCartesian(earth).height,
           );
         }
-      // The top block (the sea's water at level 0) ends a level up, less the drop.
+      // The top block (the sea's water at level 0, a lake's at its level)
+      // ends a level up, less the drop: the sea at 0 m, land and a lake's
+      // surface at floor(h / step) × step.
       const expected =
         ((h <= 0 ? 0 : Math.floor(h / levelM)) + 1) * levelM -
-        coarseDropM(blockM);
+        levelDropM(blockM);
+      assert.equal(expected, h <= 0 ? 0 : Math.floor(h / levelM) * levelM);
       assert.ok(
         Math.abs(highest - expected) < 0.5,
-        `${blockM} m, ${h} m: top ${highest}, not ${expected}`,
+        `${blockM} m, ${h} m${lake ? ' lake' : ''}: top ${highest}, not ${expected}`,
       );
-      if (coarseDropM(blockM))
-        assert.ok(
-          highest <= Math.max(h, 0) + 0.5,
-          `${blockM} m: a top at ${highest} over ground at ${h}`,
-        );
+      assert.ok(
+        highest <= Math.max(h, 0) + 0.5,
+        `${blockM} m: a top at ${highest} over ground at ${h}`,
+      );
     }
   }
 });
@@ -1298,10 +1310,11 @@ test('skirt floors meet only ground a tile can be drawn beside: a coarser chunk 
         [480, level(['0:1', 90])],
       ]),
     );
-  // Level 40 of 60 m is 2,400 m, drawn 2,340 m: level 78 of 30 m.
-  assert.equal(beside(5).w, 78);
-  // Level 0 of 60 m, drawn at -60 m: level -2 of 30 m.
-  assert.equal(beside(20).w, -2);
+  // Level 40 of 60 m is 2,400 m, drawn 2,340 m: level 79 of this tile's
+  // 30 m levels, which are drawn 30 m lower too (2,370 m less 30).
+  assert.equal(beside(5).w, 79);
+  // Level 0 of 60 m, drawn at -60 m: this tile's level -1, drawn -60 m.
+  assert.equal(beside(20).w, -1);
   // The other borders of that tile lie inside 1,920 m chunk 0:0 (its
   // ancestor) or on no 1,920 m chunk line: only its own columns.
   assert.equal(beside(20).e, 90);
@@ -1340,9 +1353,10 @@ test('skirt floors beside the dropped levels reach their drawn tops; between 30 
     ]),
   );
   assert.equal(a.w, 1);
-  assert.equal(a.w * 60 - coarseDropM(1920), 0);
-  // A 480 m tile (not dropped) beside 1,920 m columns at level 3, drawn
-  // from 120 m: its floor at level 4, 120 m (undropped it was 6, 180 m).
+  assert.equal(a.w * 60 - levelDropM(1920), 0);
+  // A 480 m tile (dropped 30 m) beside 1,920 m columns at level 3, drawn
+  // from 120 m: its floor at its level 5, drawn 150 m less 30, 120 m
+  // (undropped it was level 6, 180 m).
   const b = skirtFloors(
     fill(480),
     new Map([
@@ -1350,8 +1364,10 @@ test('skirt floors beside the dropped levels reach their drawn tops; between 30 
       [480, level(480, ['0:0', 20])],
     ]),
   );
-  assert.equal(b.w, 4);
-  // Between levels 30 m a step (480 m and 120 m): the floor at the lower top, as before.
+  assert.equal(b.w, 5);
+  assert.equal(b.w * 30 - levelDropM(480), 120);
+  // Between levels 30 m a step (480 m and 120 m), both dropped alike: the
+  // floor at the lower top's level, as before.
   const c = skirtFloors(
     fill(120),
     new Map([
@@ -1779,7 +1795,8 @@ test("the build's flat placement is the live mesher's: a vertex at its levels pl
   for (let v = 0; v < plain.positions.length / 3; v++) {
     const x = plain.positions[v * 3] + chunkM;
     const y = plain.positions[v * 3 + 1] + chunkM;
-    // The build: its levels plus the drop at its own place (tileMesh).
+    // The build's rule: its levels plus the drop at its own place (tileMesh
+    // then draws every level one step lower, levelDropM; the live mesher not).
     const build =
       plain.positions[v * 3 + 2] + region.chunkOrigin(x / chunkM, y / chunkM).z;
     const shown = live.positions[v * 3 + 2] + corner;
