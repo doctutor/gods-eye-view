@@ -18,6 +18,7 @@
 
 import * as Cesium from 'cesium';
 import { plausibleSurfaceM } from '../../hud/cameraState.js';
+import { surfaceAt } from '../../surfaceTrust.js';
 import { brickHeightM } from './model.js';
 import { ecef, enuAxes } from './bricks.js';
 import {
@@ -446,6 +447,11 @@ export function createPhotorealController({
   credits = null,
   // The data popover's list (dataCredits.js registerDynamicCredit), once shown.
   registerCredit = null,
+  // The drawn ground's height at a place, NaN where none answers: the
+  // HUD's trusted surface from above (surfaceTrust.js surfaceAt), which
+  // meets Blocks' own ground and the refined photoreal tiles.
+  groundAt = (lat, lon) => surfaceAt(viewer, lat, lon, cesium).heightM,
+  now = () => Date.now(),
 }) {
   const scene = viewer?.scene;
   /** 'lift' or 'texture': what B draws now (brickRepresentation). */
@@ -500,7 +506,15 @@ export function createPhotorealController({
 
   const tileset = () => mapStackController?.getImageryHostTileset?.() || null;
 
-  // The true ground under the middle of the view (a pick reads the drawn one).
+  /**
+   * The true ground under the middle of the view: the place the centre's
+   * ray meets the ellipsoid, and the drawn ground there as a trusted ray
+   * from above reads it (groundAt), un-exaggerated; null while nothing
+   * there answers. Not a depth pick: a page opening into Blocks under the
+   * relief picked −1,210 m (×5) and −216 m (×2) before anything was drawn
+   * and drew every block that much off (2026-11-11). An implausible
+   * height is no ground either.
+   */
   function groundAtCentre() {
     const canvas = scene?.canvas;
     if (!canvas) return null;
@@ -508,36 +522,44 @@ export function createPhotorealController({
       canvas.clientWidth / 2,
       canvas.clientHeight / 2,
     );
-    const factor = scene.verticalExaggeration || 1;
-    const relative = scene.verticalExaggerationRelativeHeight || 0;
     let place = null;
     try {
-      const world = scene.pickPositionSupported
-        ? scene.pickPosition(middle)
-        : null;
-      if (world) place = cesium.Cartographic.fromCartesian(world);
+      const hit = viewer.camera?.pickEllipsoid?.(middle);
+      if (hit) place = cesium.Cartographic.fromCartesian(hit);
     } catch {
       place = null;
     }
-    // A pick of nothing drawn yet (a page opening into Blocks under Relief
-    // ×5 read −1,210 m, lifting every block about 5 km over the camera,
-    // 2026-11-11) is no ground: the ellipsoid stands in.
-    if (
-      place &&
-      !plausibleSurfaceM(unexaggerate(place.height || 0, factor, relative))
-    )
-      place = null;
-    if (!place) {
-      const hit = viewer.camera?.pickEllipsoid?.(middle);
-      if (hit) place = cesium.Cartographic.fromCartesian(hit);
-    }
     if (!place) return null;
+    const lat = cesium.Math.toDegrees(place.latitude);
+    const lon = cesium.Math.toDegrees(place.longitude);
+    const factor = scene.verticalExaggeration || 1;
+    const relative = scene.verticalExaggerationRelativeHeight || 0;
+    let drawnM = Number.NaN;
+    try {
+      drawnM = Number(groundAt(lat, lon));
+    } catch {
+      drawnM = Number.NaN;
+    }
+    const heightM = unexaggerate(drawnM, factor, relative);
+    if (!plausibleSurfaceM(heightM)) return null;
     return {
-      lat: cesium.Math.toDegrees(place.latitude),
-      lon: cesium.Math.toDegrees(place.longitude),
-      heightM: unexaggerate(place.height || 0, factor, relative),
+      lat,
+      lon,
+      heightM,
       cameraM: viewer.camera?.positionCartographic?.height || 0,
     };
+  }
+
+  /** While the relief has no anchor: tried again after frames, this often (ms). */
+  const ANCHOR_RETRY_MS = 1000;
+  let anchorTriedAt = -Infinity;
+  function anchorWhenGround() {
+    if (anchor || store.get().relief <= 1) return;
+    const time = now();
+    if (time - anchorTriedAt < ANCHOR_RETRY_MS) return;
+    anchorTriedAt = time;
+    applyRelief();
+    if (anchor) requestRender('lego-relief');
   }
 
   function applyRelief({ reanchor = false } = {}) {
@@ -890,6 +912,9 @@ export function createPhotorealController({
   if (typeof offMap === 'function') removers.push(offMap);
   const offMove = viewer?.camera?.moveEnd?.addEventListener?.(onSettled);
   if (typeof offMove === 'function') removers.push(offMove);
+  // Anchored once the ground answers (a page opening under the relief).
+  const offAnchor = scene?.postRender?.addEventListener?.(anchorWhenGround);
+  if (typeof offAnchor === 'function') removers.push(offAnchor);
 
   if (geoid?.ready)
     geoid
