@@ -456,6 +456,27 @@ test('--pitches: the --altitudes views at the pitches asked for, down only', asy
   ]);
 });
 
+test('--nav: the --altitudes views entered in Walk or Fly from the link, Blocks only, named -walk / -fly', async () => {
+  const { scaleViews, withNav, pageHash } =
+    await import('../../../scripts/qa-blocks-compare.mjs');
+  const shots = scaleViews([1035], null, [-35]);
+  assert.equal(withNav(shots, undefined), shots);
+  const walk = withNav(shots, 'walk');
+  assert.deepEqual(Object.keys(walk), ['scale-1035m-p35-walk']);
+  const shot = walk['scale-1035m-p35-walk'];
+  assert.equal(shot.prefix, 'scale-1035m-p35-walk');
+  assert.equal(shot.nav, 'walk');
+  assert.equal(shot.blocksOnly, true);
+  assert.deepEqual(shot.view, shots['scale-1035m-p35'].view);
+  assert.equal(
+    new URLSearchParams(
+      pageHash({ blocks: true, view: shot.view, nav: shot.nav }).slice(1),
+    ).get('nav'),
+    'walk',
+  );
+  assert.throws(() => withNav(shots, 'swim'), /walk or fly/);
+});
+
 test('the harness waits for the jobs that load the machine: a unit suite, a tileset or pyramid build, another harness, a vite build (not the dev server, not itself)', async () => {
   const { concurrentJobs, waitQuiet } =
     await import('../../../scripts/qa-blocks-compare.mjs');

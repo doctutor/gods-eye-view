@@ -78,6 +78,8 @@
  * --map esri-imagery opens it on that map instead of blank-black (the
  * --altitudes shots): a map whose globe Blocks keeps. --relief 5 opens it
  * under Relief ×5 (the link's lp, as the app's Relief control writes it).
+ * --nav walk (or fly) enters the --altitudes views in Walk (or Fly) from
+ * the link (nav=walk), Blocks only, named <view>-walk.
  *
  * --load-frames shoots each step 2, 5, 10 and 20 s after its flight's end
  * (with --altitudes: each Blocks shot 2 to 80 s from the page's load)
@@ -608,6 +610,26 @@ export function scaleViews(altitudes, place = null, pitches = SCALE_PITCHES) {
       const prefix = `scale-${heightLabel(alt)}-p${Math.abs(pitch)}`;
       out[prefix] = { view: { ...VIEW, ...place, alt, pitch }, prefix };
     }
+  return out;
+}
+
+/**
+ * --nav walk|fly: the --altitudes views entered in Walk or Fly from the
+ * link (its `nav`), Blocks only, named <prefix>-walk / -fly; none, the
+ * views as they are.
+ */
+export function withNav(shots, nav) {
+  if (!nav) return shots;
+  if (nav !== 'walk' && nav !== 'fly')
+    throw new Error(`--nav: walk or fly, not ${nav}`);
+  const out = {};
+  for (const [key, shot] of Object.entries(shots))
+    out[`${key}-${nav}`] = {
+      ...shot,
+      nav,
+      blocksOnly: true,
+      ...(shot.prefix ? { prefix: `${shot.prefix}-${nav}` } : {}),
+    };
   return out;
 }
 
@@ -2929,13 +2951,16 @@ export async function main(argv = process.argv.slice(2)) {
   const results = [];
   const altitudes = parseAltitudes(argValue(argv, '--altitudes'));
   const shots = altitudes.length
-    ? scaleViews(
-        altitudes,
-        withHeading(
-          parsePlace(argValue(argv, '--place')),
-          argValue(argv, '--heading'),
+    ? withNav(
+        scaleViews(
+          altitudes,
+          withHeading(
+            parsePlace(argValue(argv, '--place')),
+            argValue(argv, '--heading'),
+          ),
+          parsePitches(argValue(argv, '--pitches')),
         ),
-        parsePitches(argValue(argv, '--pitches')),
+        argValue(argv, '--nav'),
       )
     : views(field);
   try {
