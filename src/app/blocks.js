@@ -94,6 +94,9 @@ export function createApplicationBlocks({
         buildings.loadChunkStructures(region, ci, cj, { viaSupergroup: true }),
       groupBuildings: (region, gi, gj) =>
         buildings.loadGroupBuildings(region, gi, gj, { viaSupergroup: true }),
+      // The coarse ring's land cover: one query per supergroup, no buildings.
+      loadCoarse: (region, gi, gj) =>
+        buildings.loadCoarseSurfaces(region, gi, gj),
       apply: applyStructures,
     },
     // Anchored once the camera has been still 2 s (a link's flight starts

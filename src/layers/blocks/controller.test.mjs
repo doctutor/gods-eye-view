@@ -1496,13 +1496,19 @@ async function buildingsSetup({
   structuresError = null,
   radiusBlocks = 64,
   holdIds = false,
+  blockM = 1,
+  // Real store chunks for the coarse ring, and its land cover.
+  realCoarse = false,
+  loadCoarse = null,
+  now = undefined,
+  tiles = null,
 } = {}) {
   const idWaits = [];
   const { createChunk } = await import('./store.js');
   const { applyStructures } = await import('./structures.js');
   const N = 64;
   const source = {
-    regionFor: () => Promise.resolve({ blockM: 1, source: '3DEP 1 m' }),
+    regionFor: () => Promise.resolve({ blockM, source: '3DEP 1 m' }),
     loadChunk: (region, ci, cj) =>
       Promise.resolve(
         createChunk({
@@ -1514,7 +1520,20 @@ async function buildingsSetup({
         }),
       ),
     loadCoarseChunk: (region, gi, gj) =>
-      Promise.resolve({ gi, gj, coarse: true, version: 0, topSolid: () => 2 }),
+      Promise.resolve(
+        realCoarse
+          ? Object.assign(
+              createChunk({
+                ci: gi,
+                cj: gj,
+                top: new Int32Array(N * N).fill(10),
+                material: new Uint8Array(N * N).fill(1),
+                water: new Int32Array(N * N).fill(-2147483648),
+              }),
+              { gi, gj, coarse: true },
+            )
+          : { gi, gj, coarse: true, version: 0, topSolid: () => 2 },
+      ),
   };
   const asked = [];
   const structures = {
@@ -1537,6 +1556,7 @@ async function buildingsSetup({
       if (!holdIds) return Promise.resolve(ids);
       return new Promise((resolve) => idWaits.push(() => resolve(ids)));
     },
+    ...(loadCoarse ? { loadCoarse } : {}),
     apply: applyStructures,
   };
   const viewer = fakeViewer();
@@ -1552,6 +1572,8 @@ async function buildingsSetup({
     structures,
     renderer,
     grid: fakeGrid,
+    ...(now ? { now } : {}),
+    ...(tiles ? { tiles } : {}),
     buildChunkMesh(chunk, options) {
       meshes.push({
         key: chunk.coarse
@@ -1605,6 +1627,239 @@ test('buildings: asked for every fine chunk (never the coarse ring), put into it
     }),
     'Blocks: 1 m cubes · 274 + 48 coarse · 3DEP 1 m · 1,204 buildings',
   );
+  controller.destroy();
+});
+
+/** The coarse ring's land cover: a road down column 5, a green in the corner. */
+async function coarseLandCover() {
+  const { MATERIALS } = await import('./store.js');
+  const N = 64;
+  const asked = [];
+  const loadCoarse = (region, gi, gj) => {
+    asked.push(`c:${gi}:${gj}`);
+    const material = new Uint8Array(N * N);
+    for (let j = 0; j < N; j++) material[j * N + 5] = MATERIALS.ROAD;
+    for (let j = 0; j < 4; j++)
+      for (let i = 0; i < 4; i++) material[j * N + i] = MATERIALS.GRASS;
+    return Promise.resolve({
+      top: new Int32Array(N * N).fill(-2147483648),
+      bottom: new Int32Array(N * N).fill(-2147483648),
+      material,
+    });
+  };
+  return { asked, loadCoarse, MATERIALS };
+}
+
+test('the coarse ring: its land cover asked for every coarse chunk drawn, painted into it (roads, greens, no buildings), meshed again; counted; kept with the Buildings switch off', async () => {
+  const { asked, loadCoarse, MATERIALS } = await coarseLandCover();
+  const { controller, store, meshes } = await buildingsSetup({
+    realCoarse: true,
+    loadCoarse,
+  });
+  await drain(controller);
+  const status = controller.getStatus();
+  assert.ok(status.coarse > 0, 'a coarse ring');
+  const drawn = [...new Set(meshes.map((m) => m.key))].filter((key) =>
+    key.startsWith('c:'),
+  );
+  assert.ok(drawn.length > 0);
+  // Every coarse chunk drawn, each once (one under a fine group too while
+  // it is drawn, before its fine chunks: its supergroup's query is shared).
+  assert.equal(new Set(asked).size, asked.length, 'each asked once');
+  for (const key of drawn) assert.ok(asked.includes(key), `${key} asked`);
+  // Painted, and meshed from the painted chunk.
+  const last = meshes.filter((m) => m.key === drawn[0]).at(-1);
+  assert.ok(last.version > 0, 'meshed again once painted');
+  assert.equal(last.chunk.material[5], MATERIALS.ROAD);
+  assert.equal(last.chunk.material[0], MATERIALS.GRASS);
+  assert.equal(last.chunk.material[10], 1, 'the terrain elsewhere');
+  assert.equal(last.chunk.structureTop(0, 0), -2147483648, 'no buildings');
+  assert.equal(status.paintedCoarse, status.coarse, 'every one painted');
+  assert.ok(status.paintedFine > 0);
+  assert.equal(status.paintPending, false);
+  // The switch: the buildings come off, the coarse land cover stays.
+  const askedBefore = asked.length;
+  store.setBuildings(false);
+  await drain(controller);
+  assert.equal(last.chunk.material[5], MATERIALS.ROAD);
+  assert.equal(asked.length, askedBefore, 'nothing asked again');
+  controller.destroy();
+});
+
+test('the coarse ring is not painted past 32 m coarse blocks (8 m cubes and finer only); the fine chunks still are', async () => {
+  const { asked, loadCoarse } = await coarseLandCover();
+  const { controller, asked: fineAsked } = await buildingsSetup({
+    realCoarse: true,
+    loadCoarse,
+    blockM: 16,
+  });
+  await drain(controller);
+  const status = controller.getStatus();
+  assert.equal(status.blockM, 16);
+  assert.ok(status.coarse > 0);
+  assert.deepEqual(asked, [], 'no coarse land cover at 64 m');
+  assert.ok(fineAsked.length > 0, 'the fine ring still is');
+  assert.equal(status.paintedCoarse, 0);
+  controller.destroy();
+});
+
+test('the coarse ring’s land cover failing is asked again after a backoff; Overpass not configured ends it with the buildings', async () => {
+  const { loadCoarse } = await coarseLandCover();
+  const failed = new Set();
+  const clock = { ms: 1_000_000 };
+  const { controller } = await buildingsSetup({
+    realCoarse: true,
+    now: () => clock.ms,
+    // Each coarse chunk's first ask fails.
+    loadCoarse: (region, gi, gj) => {
+      const key = `${gi}:${gj}`;
+      if (!failed.has(key)) {
+        failed.add(key);
+        return Promise.reject(new Error('Overpass 504'));
+      }
+      return loadCoarse(region, gi, gj);
+    },
+  });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    await drain(controller);
+    let status = controller.getStatus();
+    assert.ok(status.coarse > 0);
+    assert.equal(status.paintedCoarse, 0, 'none yet');
+    assert.equal(status.paintPending, true, 'their retries to come');
+    // Past the first backoff (2 s): asked again, painted.
+    clock.ms += 2_001;
+    await drain(controller);
+    status = controller.getStatus();
+    assert.equal(status.paintedCoarse, status.coarse);
+    assert.equal(status.paintPending, false);
+  } finally {
+    console.warn = warn;
+  }
+  controller.destroy();
+  const error = Object.assign(new Error('not configured'), {
+    code: 'unconfigured',
+  });
+  const second = await buildingsSetup({
+    realCoarse: true,
+    loadCoarse: () => Promise.reject(error),
+  });
+  await drain(second.controller);
+  assert.equal(second.controller.getStatus().paintedCoarse, 0);
+  assert.equal(second.controller.buildingsAvailable(), false);
+  second.controller.destroy();
+});
+
+test('over the tiles (hybrid) the coarse ring waits undrawn until all of it is painted: the hole stays at the fine disc and the tiles show there; then the ring comes at once and the hole opens past it', async () => {
+  const { loadCoarse } = await coarseLandCover();
+  const waiting = [];
+  const { controller, renderer } = await buildingsSetup({
+    realCoarse: true,
+    loadCoarse: (region, gi, gj) =>
+      new Promise((resolve) =>
+        waiting.push(() => resolve(loadCoarse(region, gi, gj))),
+      ),
+    tiles: {
+      plan: () => ({ mode: 'hybrid', box: TILES_BOX, floorM: 480 }),
+    },
+  });
+  renderer.setRegions = () => {};
+  renderer.setRingHoles = () => {};
+  renderer.setFog = () => {};
+  const coarseDrawn = () =>
+    [...renderer.shown.keys()].filter((key) => key.startsWith('c:'));
+  await drain(controller, 60);
+  let status = controller.getStatus();
+  assert.equal(status.chunks > 0, true, 'the fine disc drawn');
+  assert.ok(waiting.length > 0, 'its land cover asked');
+  assert.deepEqual(coarseDrawn(), [], 'no coarse chunk drawn yet');
+  assert.equal(status.tiles.hole.radiusM, 64, 'the fine disc’s reach');
+  // All but one painted: still held.
+  for (const resolve of waiting.splice(0, waiting.length - 1)) resolve();
+  await drain(controller, 60);
+  assert.deepEqual(coarseDrawn(), []);
+  assert.equal(controller.getStatus().tiles.hole.radiusM, 64);
+  // The last: the ring comes, painted, and the hole opens past it.
+  for (const resolve of waiting.splice(0)) resolve();
+  await drain(controller, 200);
+  status = controller.getStatus();
+  assert.ok(coarseDrawn().length > 0, 'the coarse ring drawn');
+  // Every coarse chunk drawn is painted (status.coarse counts the rings
+  // past it too).
+  assert.equal(status.paintedCoarse, coarseDrawn().length);
+  assert.equal(status.paintPending, false);
+  assert.ok(status.tiles.hole.radiusM >= 256, `${status.tiles.hole.radiusM} m`);
+  controller.destroy();
+});
+
+test('the coarse ring waits for its paint over the tiles at most 30 s once its chunks are in: then it is drawn, the hole opens, and what is late is painted in place', async () => {
+  const { COARSE_PAINT_HOLD_MS } = await import('./index.js');
+  assert.equal(COARSE_PAINT_HOLD_MS, 30_000);
+  const { loadCoarse } = await coarseLandCover();
+  const waiting = [];
+  const clock = { ms: 1_000_000 };
+  const { controller, renderer } = await buildingsSetup({
+    realCoarse: true,
+    now: () => clock.ms,
+    loadCoarse: (region, gi, gj) =>
+      new Promise((resolve) =>
+        waiting.push(() => resolve(loadCoarse(region, gi, gj))),
+      ),
+    tiles: {
+      plan: () => ({ mode: 'hybrid', box: TILES_BOX, floorM: 480 }),
+    },
+  });
+  renderer.setRegions = () => {};
+  renderer.setRingHoles = () => {};
+  const coarseDrawn = () =>
+    [...renderer.shown.keys()].filter((key) => key.startsWith('c:'));
+  await drain(controller, 60);
+  assert.deepEqual(coarseDrawn(), []);
+  assert.equal(controller.getStatus().tiles.hole.radiusM, 64);
+  assert.equal(controller.getStatus().paintPending, true, 'held: to come');
+  // 29 s on: still held.
+  clock.ms += COARSE_PAINT_HOLD_MS - 1_000;
+  await drain(controller, 60);
+  assert.deepEqual(coarseDrawn(), []);
+  // Past 30 s: drawn bare, the hole past the ring.
+  clock.ms += 2_000;
+  await drain(controller, 200);
+  assert.ok(coarseDrawn().length > 0, 'drawn');
+  let status = controller.getStatus();
+  assert.ok(status.tiles.hole.radiusM >= 256);
+  assert.equal(status.paintedCoarse, 0);
+  assert.equal(status.paintPending, true);
+  // The paint comes: in place.
+  for (const resolve of waiting.splice(0)) resolve();
+  await drain(controller, 200);
+  status = controller.getStatus();
+  assert.equal(status.paintedCoarse, coarseDrawn().length);
+  assert.equal(status.paintPending, false);
+  controller.destroy();
+});
+
+test('without the tiles the coarse ring is drawn as it comes and painted in place', async () => {
+  const { loadCoarse } = await coarseLandCover();
+  const waiting = [];
+  const { controller, renderer } = await buildingsSetup({
+    realCoarse: true,
+    loadCoarse: (region, gi, gj) =>
+      new Promise((resolve) =>
+        waiting.push(() => resolve(loadCoarse(region, gi, gj))),
+      ),
+  });
+  await drain(controller, 60);
+  const drawn = [...renderer.shown.keys()].filter((key) =>
+    key.startsWith('c:'),
+  );
+  assert.ok(drawn.length > 0, 'drawn bare while its paint comes');
+  assert.equal(controller.getStatus().paintPending, true);
+  for (const resolve of waiting.splice(0)) resolve();
+  await drain(controller, 200);
+  const status = controller.getStatus();
+  assert.equal(status.paintedCoarse, status.coarse);
+  assert.equal(status.paintPending, false);
   controller.destroy();
 });
 

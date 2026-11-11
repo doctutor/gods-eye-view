@@ -1804,3 +1804,91 @@ test('a deck across groups takes its far end from the elevation source, so both 
     Math.round(7 + 18 * (155.5 / 200)),
   );
 });
+
+test('groupQuery without buildings: the land cover, highways and water only', () => {
+  const box = { west: -76.62, south: 39.28, east: -76.6, north: 39.3 };
+  const full = groupQuery(box, 8);
+  const bare = groupQuery(box, 8, { buildings: false });
+  assert.match(full, /"building"/);
+  assert.doesNotMatch(bare, /building/);
+  assert.match(bare, /\["leisure"~"\^\(park\|pitch\|garden\)\$"\]/);
+  assert.match(bare, /way\["highway"~/);
+  assert.match(bare, /is_in\(/);
+  assert.equal(groupQuery(box, 8, { buildings: true }), full);
+});
+
+test('the coarse ring’s land cover: one query a supergroup, no buildings, at 4 × the block; each coarse chunk its 64 × 64 coarse columns', async () => {
+  const { SUPERGROUP, supergroupBounds } = await import('./source.js');
+  // 2 m cubes: coarse columns of 8 m, a coarse chunk 512 m, a supergroup 2 km.
+  const region = createRegion({ lon0: -76.61, lat0: 39.29, blockM: 2 });
+  const park = squareAt(region, {}, 520, 8, 600, 40);
+  const road = [0, 1024].map((x) => region.toLonLat(x, 100));
+  const house = squareAt(region, {}, 700, 300, 720, 320);
+  const elements = [
+    {
+      type: 'way',
+      id: 1,
+      tags: { leisure: 'park' },
+      geometry: [...park.rings[0], park.rings[0][0]],
+    },
+    {
+      type: 'way',
+      id: 2,
+      tags: { highway: 'residential' },
+      geometry: road,
+    },
+    {
+      type: 'way',
+      id: 3,
+      tags: { building: 'yes', height: '30' },
+      geometry: [...house.rings[0], house.rings[0][0]],
+    },
+  ];
+  const queries = [];
+  const source = createStructuresSource({
+    query: async (ql) => {
+      queries.push(ql);
+      return { elements };
+    },
+    loadChunk: () => {
+      throw new Error('the coarse land cover needs no ground');
+    },
+  });
+  const [a, empty] = await Promise.all([
+    source.loadCoarseSurfaces(region, 1, 0),
+    source.loadCoarseSurfaces(region, 2, 3),
+  ]);
+  // Both in supergroup (0, 0): one query over its box, without buildings.
+  assert.equal(SUPERGROUP, 4);
+  assert.equal(queries.length, 1);
+  assert.equal(
+    queries[0],
+    groupQuery(supergroupBounds(region, 0, 0), 8, { buildings: false }),
+  );
+  // Coarse chunk (1, 0): x 512 to 1,024 m. The park over x 520 to 600, y 8
+  // to 40: coarse columns 1 to 9, rows 1 to 4; the road along y = 100 m:
+  // row 12 (its centre at 100 m).
+  assert.equal(a.material[columnIndex(2, 2)], MATERIALS.GRASS);
+  assert.equal(a.material[columnIndex(10, 12)], MATERIALS.ROAD);
+  assert.equal(a.material[columnIndex(10, 11)], 0);
+  assert.equal(a.material[columnIndex(20, 30)], 0, 'the terrain');
+  // No buildings or decks: every top NONE (the house is not drawn).
+  assert.ok(a.top.every((level) => level === NONE));
+  assert.equal(a.material[columnIndex(24, 39)], 0, 'no building surface');
+  // Nothing in coarse chunk (2, 3): null.
+  assert.equal(empty, null);
+  // Held: asked again, no query; another supergroup, one more.
+  await source.loadCoarseSurfaces(region, 3, 3);
+  assert.equal(queries.length, 1);
+  await source.loadCoarseSurfaces(region, 4, 0);
+  assert.equal(queries.length, 2);
+  // Painted into a coarse chunk by applyStructures: grass and road tops.
+  const chunk = createChunk({
+    ci: 1,
+    cj: 0,
+    top: new Int32Array(COLUMNS).fill(3),
+  });
+  assert.equal(applyStructures(chunk, a), 0, 'no structures');
+  assert.equal(chunk.material[columnIndex(2, 2)], MATERIALS.GRASS);
+  assert.equal(chunk.material[columnIndex(10, 12)], MATERIALS.ROAD);
+});

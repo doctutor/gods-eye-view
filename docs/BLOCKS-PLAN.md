@@ -1487,3 +1487,70 @@ The page load at the street (ms from the page's navigation, from
   tiles fetched almost one for one (retries add 0 to 30 %), so a warm-up
   spends at its pace: about 1,200 an hour in the south, 215 to 270 north of
   57° N.
+
+### The coarse ring painted (2026-11-11)
+
+From 1 km up over a Baltimore harbour (2000 × 1060, 1 to 2 m cubes, "320 +
+208 coarse"), the live ground out to the tiles' hole was bare beige: no
+roads, no greens, only the sea's blue from the heights, while the 30 m tiles
+past the hole were fully painted. Overpass was answering. The user's
+complaint of 2026-10-30 ("patchy rendering of roads and greens, even with
+buildings off") was this.
+
+**Why.** The land cover (`structures.js`) went to the fine disc only, by
+design (`syncStructures` walks the fine ring; "never the coarse ring's").
+The fine disc is R1 = 512 blocks: 512 m, 1 km, 2 km and 4 km at 1, 2, 4 and
+8 m cubes. The coarse ring reaches 4 × that (2, 4, 8 and 16 km), and in
+'hybrid' the tiles' hole opens to it. So the painted core was a quarter of
+the live ground's reach, a sixteenth of its area. From 1 km up at −35° the
+fine disc is mostly below the screen and the coarse ring is the view.
+
+**The fix: both of the candidates.**
+
+1. **The coarse ring is painted** (`syncCoarsePaint` in `index.js`,
+   `loadCoarseSurfaces` in `structures.js`). The land cover is roads,
+   greens and water, with no buildings or bridge decks, rasterised at the
+   coarse block (4 × blockM). A coarse chunk is one group's ground in
+   64 × 64 coarse columns, so a supergroup is 4 × 4 coarse chunks and one
+   Overpass query over its box serves 16. The query is `groupQuery(…, 4 ×
+blockM, {buildings: false})`. Chunks are painted nearest first, under the
+   budget, retried with the chunks' backoff, and kept with the Buildings
+   switch off. Painting stops past 32 m coarse blocks (8 m cubes); past
+   that, the fine chunks' 30 m rule ends structures anyway. The ring's
+   queries run on a client of their own: one at a time, beside the fine
+   chunks' one, so the ring does not queue behind the core.
+2. **Over the tiles the coarse ring waits, undrawn, for its paint**
+   (`coarseHeldForPaint`). The hole opens only as far as the live chunks
+   are drawn, so meanwhile it stays at the fine disc. The tiles, painted
+   when built, show past it in place of bare coarse ground. The ring then
+   comes all at once rather than chunk by chunk over the tiles, where both
+   draw the sea at 0 m and would fight. The wait is at most
+   `COARSE_PAINT_HOLD_MS` (30 s) from when only paint is left. After that
+   the ring is drawn and any late paint lands in place. Without tiles the
+   ring is drawn as it comes and painted in place.
+
+The status gives `paintedFine`, `paintedCoarse` and `paintPending` (a held
+ring counts as pending).
+
+**Overpass is the clock.** On the local clone a supergroup's
+buildings-free query is 0.4 to 1.2 MB at 8 m. The five `is_in` lake
+lookups cost about 3 s of a 5 to 7 s answer, and while the clone was busy
+on its own (222 % CPU, no query running), answers took 5 to 27 s, some
+timing out to 502s at the proxy's 22 s. The proxy keeps answers 24 h in
+memory and 7 days on disk, so a view seen before paints at once.
+
+**Measured** (`qa-blocks-compare.mjs --altitudes 1035 --pitches -35.3 --size
+2000x1060 --load-frames --load-frames-to 160` and a probe of the status,
+frames in `.claude/blocks-compare/paint/`):
+
+| View                               | Before                                             | After                                                                                 |
+| ---------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| User's view, ×5, 2 m cubes, warm   | 1 km core painted, 208 coarse chunks bare for good | core painted by 20 s, tiles past it; ring painted and drawn by 40 s, hole 4.1 km      |
+| Another harbour place, ×5, cold    | (same: ring bare)                                  | core painted by 40 s, tiles past it; ring painted at 104 s (Overpass 6.2 s an answer) |
+| Walk ×5, 1 m cubes                 | 512 m core painted                                 | core by 20 s; ring (4 m) painted by 37 to 80 s, hole 2 km                             |
+| Cold, no hold (first cut), ×1, 2 m | ring bare                                          | ring painted 6 of 208 at 80 s, 156 at 160 s, all at 320 s (7.6 s an answer, a 502)    |
+| User's view, ×1, 8 m cubes         | 4 km core painted, no coarse ring                  | the same (no coarse ring at 8 m under the tiles' 4.1 km hole)                         |
+
+The level the harness picks for the same view varies between runs (2 m or
+8 m cubes at ×1). That is the footprint at the view's centre, not this
+change.

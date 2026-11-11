@@ -48,6 +48,7 @@ import {
   groupBounds,
   groupOf,
   regionKey,
+  SUPERGROUP,
   supergroupBounds,
   supergroupOf,
   levelOf,
@@ -62,6 +63,8 @@ export const LEVEL_HEIGHT_M = 3.2;
 export const DEFAULT_HEIGHT_M = 2 * LEVEL_HEIGHT_M;
 /** Groups of buildings kept in memory. */
 export const MAX_GROUPS = 64;
+/** Supergroups of coarse-ring land cover kept (a 64 KB array each). */
+export const MAX_COARSE_SUPERGROUPS = 64;
 /** The least time between two Overpass queries from the blocks. */
 export const QUERY_GAP_MS = 700;
 const FOOT_M = 0.3048;
@@ -137,7 +140,8 @@ const RAILWAYS = ['rail', 'tram', 'light_rail', 'subway', 'narrow_gauge'];
  * The Overpass query for a group: the buildings and building parts, the
  * land cover areas, and the highways and railways in a box. Above
  * FINE_BLOCK_M blocks it leaves out buildings whose perimeter is under 8
- * blocks and the highways narrower than a block.
+ * blocks and the highways narrower than a block. `buildings: false` leaves
+ * the buildings out altogether (the coarse ring's land cover).
  *
  * Water areas are also asked by the points they contain (is_in at the
  * box's centre and corners, then the ways and relations that make those
@@ -145,7 +149,11 @@ const RAILWAYS = ['rail', 'tram', 'light_rail', 'subway', 'narrow_gauge'];
  * so a group wholly inside one (Lake Tahoe from 9 km, 2026-11-04) had no
  * lake and was drawn dry, a square of ground at the water's level.
  */
-export function groupQuery({ west, south, east, north }, blockM = 1) {
+export function groupQuery(
+  { west, south, east, north },
+  blockM = 1,
+  { buildings = true } = {},
+) {
   const bbox = [south, west, north, east].map((v) => v.toFixed(7)).join(',');
   const points = [
     [(south + north) / 2, (west + east) / 2],
@@ -180,10 +188,12 @@ export function groupQuery({ west, south, east, north }, blockM = 1) {
     areas +
     '(' +
     containing +
-    `way["building"]["building"!="no"](${bbox})${big};` +
-    `relation["building"]["building"!="no"](${bbox});` +
-    `way["building:part"]["building:part"!="no"](${bbox})${big};` +
-    `relation["building:part"]["building:part"!="no"](${bbox});` +
+    (buildings
+      ? `way["building"]["building"!="no"](${bbox})${big};` +
+        `relation["building"]["building"!="no"](${bbox});` +
+        `way["building:part"]["building:part"!="no"](${bbox})${big};` +
+        `relation["building:part"]["building:part"!="no"](${bbox});`
+      : '') +
     both('["natural"~"^(water|wood)$"]') +
     both('["water"]') +
     both('["waterway"="riverbank"]') +
@@ -956,20 +966,29 @@ export function serialQuery(client) {
 /**
  * @param {{loadChunk: (region: object, ci: number, cj: number) =>
  *   Promise<object>, query?: (ql: string) => Promise<{elements:
+ *   object[]}>, coarseQuery?: (ql: string) => Promise<{elements:
  *   object[]}>, maxGroups?: number}} options loadChunk: the elevation
  *   source's (source.js), for the ground under the buildings; query: the
  *   app's Overpass client (src/sources/overpassView.js through
- *   /api/overpass) unless given.
+ *   /api/overpass) unless given; coarseQuery: the coarse ring's land
+ *   cover's, a client of its own (one query at a time beside the fine
+ *   chunks' one, so the ring does not wait behind the core) unless given,
+ *   `query` when only that is given.
  */
 export function createStructuresSource({
   loadChunk,
   query,
+  coarseQuery,
   maxGroups = MAX_GROUPS,
 } = {}) {
   if (typeof loadChunk !== 'function')
     throw new TypeError(
       'createStructuresSource needs loadChunk (the elevation source)',
     );
+  if (!coarseQuery)
+    coarseQuery = query
+      ? query
+      : serialQuery(createOverpassViewClient({ minGapMs: QUERY_GAP_MS }));
   if (!query)
     query = serialQuery(createOverpassViewClient({ minGapMs: QUERY_GAP_MS }));
   const held = new Map(); // group key → Promise<Map<chunk key, levels|null>>
@@ -1133,8 +1152,70 @@ export function createStructuresSource({
     return promise;
   }
 
+  // supergroup key → Promise<Uint8Array>: the coarse ring's surfaces.
+  const coarse = new Map();
+
+  /**
+   * A supergroup's land cover at the coarse ring's block (CHUNK_GROUP ×
+   * blockM: a coarse chunk is one group's ground in 64 × 64 columns, so a
+   * supergroup is 4 × 4 coarse chunks, GROUP_COLUMNS² coarse columns),
+   * from one Overpass query over its box without buildings, kept a while;
+   * a failure is not.
+   */
+  function loadCoarseSupergroup(region, si, sj) {
+    const coarseM = CHUNK_GROUP * region.blockM;
+    const key = `${regionKey(region)}|cs${si}:${sj}`;
+    const known = coarse.get(key);
+    if (known) {
+      coarse.delete(key);
+      coarse.set(key, known);
+      return known;
+    }
+    const promise = coarseQuery(
+      groupQuery(supergroupBounds(region, si, sj), coarseM, {
+        buildings: false,
+      }),
+    ).then(({ elements }) =>
+      surfaceMaterials(
+        { blockM: coarseM, toLocal: (lon, lat) => region.toLocal(lon, lat) },
+        si,
+        sj,
+        parseFeatures(elements),
+      ),
+    );
+    coarse.set(key, promise);
+    while (coarse.size > MAX_COARSE_SUPERGROUPS)
+      coarse.delete(coarse.keys().next().value);
+    promise.catch(() => {
+      if (coarse.get(key) === promise) coarse.delete(key);
+    });
+    return promise;
+  }
+
   return {
     loadGroup,
+    /**
+     * A coarse chunk's land cover (the controller's coarse ring: group gi,
+     * gj's ground at CHUNK_GROUP × blockM), as levels for applyStructures:
+     * `material` per column (columnIndex order, 0: the terrain's), no
+     * buildings or decks (top NONE); null when it has none. From its
+     * supergroup's one query.
+     * @returns {Promise<{top: Int32Array, bottom: Int32Array, material:
+     *   Uint8Array}|null>}
+     */
+    async loadCoarseSurfaces(region, gi, gj) {
+      const { si, sj } = supergroupOf(gi, gj);
+      const material = await loadCoarseSupergroup(region, si, sj);
+      return chunkLevels(
+        {
+          top: new Int32Array(material.length).fill(NONE),
+          bottom: new Int32Array(material.length).fill(NONE),
+          material,
+        },
+        gi - si * SUPERGROUP,
+        gj - sj * SUPERGROUP,
+      );
+    },
     /**
      * A chunk's buildings as levels, {top, bottom} per column
      * (columnIndex order, top NONE: none), and its top-block surfaces,
@@ -1158,6 +1239,7 @@ export function createStructuresSource({
     clear: () => {
       held.clear();
       supers.clear();
+      coarse.clear();
     },
   };
 }
