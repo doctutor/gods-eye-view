@@ -1839,26 +1839,48 @@ export function serverHeightReader({ base = DEFAULT_BASE, fetchImpl } = {}) {
   return (request) => client.get(request);
 }
 
+/** How often a query refused as rate-limited is asked before the build gives up. */
+export const OVERPASS_LIMITED_TRIES = 5;
+
 /**
  * The Overpass queries through the app server's proxy (POST
  * {base}/api/overpass, the local clone behind it), one at a time and
- * QUERY_GAP_MS apart as the live Blocks asks them; `count()` the queries
- * sent.
+ * QUERY_GAP_MS apart as the live Blocks asks them. A query refused as
+ * rate-limited (429, or the proxy's OVERPASS_UNAVAILABLE) is asked again,
+ * up to OVERPASS_LIMITED_TRIES in all: the client holds every request until
+ * the refusal's Retry-After has passed (30 s when it names none), so a busy
+ * moment of the clone's slots costs a wait, not the build. `count()` the
+ * queries, `limited()` the refusals asked again.
  */
-export function serverOverpass({ base = DEFAULT_BASE, fetchImpl } = {}) {
+export function serverOverpass({
+  base = DEFAULT_BASE,
+  fetchImpl,
+  wait,
+  tries = OVERPASS_LIMITED_TRIES,
+} = {}) {
   let sent = 0;
+  let limited = 0;
   const query = serialQuery(
     createOverpassViewClient({
       url: `${base}/api/overpass`,
       minGapMs: QUERY_GAP_MS,
       ...(fetchImpl ? { fetchImpl } : {}),
+      ...(wait ? { wait } : {}),
     }),
   );
-  const counted = (ql) => {
+  const counted = async (ql) => {
     sent++;
-    return query(ql);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await query(ql);
+      } catch (error) {
+        if (error?.code !== 'limited' || attempt >= tries) throw error;
+        limited++;
+      }
+    }
   };
   counted.count = () => sent;
+  counted.limited = () => limited;
   return counted;
 }
 
@@ -2034,9 +2056,11 @@ export async function main({
       structures,
     );
     const count = overpass.count?.();
+    const limited = overpass.limited?.();
     log(
       `structures at ${structureLevels.join(', ')} m in ${((Date.now() - started) / 1000).toFixed(1)} s` +
-        (count === undefined ? '' : `, ${count} Overpass queries`),
+        (count === undefined ? '' : `, ${count} Overpass queries`) +
+        (limited ? `, ${limited} rate-limited and asked again` : ''),
     );
     variants = [
       {
@@ -2086,7 +2110,10 @@ export async function main({
   if (externals.length) log(`${externals.length} external tilesets`);
   if (streamedOverpass?.count)
     log(
-      `structures at ${structureLevels.join(', ')} m: ${streamedOverpass.count()} Overpass queries`,
+      `structures at ${structureLevels.join(', ')} m: ${streamedOverpass.count()} Overpass queries` +
+        (streamedOverpass.limited?.()
+          ? `, ${streamedOverpass.limited()} rate-limited and asked again`
+          : ''),
     );
   if (failed.length)
     log(

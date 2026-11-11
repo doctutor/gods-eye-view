@@ -954,6 +954,10 @@ download.
     clone), one at a time and 700 ms apart, as the live Blocks paces them.
     There is one query per group at 30 m; above 2 m blocks a group is not
     cut from a supergroup's query, so this matches live.
+  - A query refused as rate-limited (the clone's slots all busy) is asked
+    again after its Retry-After (30 s when it names none), up to five times
+    in all, and the log counts the retries. The harbour box gave up on one
+    such refusal on 2026-11-11; the next run went through.
   - The source's cached chunks are never painted: each variant works on its
     own copies.
 - **Two tilesets over one tree, as the Buildings switch has them.**
