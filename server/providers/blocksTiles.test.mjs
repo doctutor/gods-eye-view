@@ -240,3 +240,44 @@ test('the handler: GET and HEAD, an ETag and a 304, same-site only', async () =>
   assert.equal(crossSite.statusCode, 403);
   assert.equal(BLOCKS_TILES_ROUTE, '/api/blocks/tiles');
 });
+
+test('the handler: a request dropped mid-file closes the file it was reading', async (t) => {
+  const { default: fsSync } = await import('node:fs');
+  const http = await import('node:http');
+  const net = await import('node:net');
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gev-blocks-tiles-'));
+  await fakeBox(root, 'harbour');
+  // Larger than the socket's and the response's buffers together, so the
+  // read is still mid-file when the client goes.
+  const tile = path.join(root, 'harbour', '30m', 'g0_0.glb');
+  await fs.writeFile(tile, Buffer.alloc(64 * 1024 * 1024, 1));
+  const opened = [];
+  const open = fsSync.createReadStream;
+  t.mock.method(fsSync, 'createReadStream', (...args) => {
+    const stream = open.apply(fsSync, args);
+    opened.push(stream);
+    return stream;
+  });
+  const server = http.createServer(createBlocksTilesHandler({ root }));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const { port } = server.address();
+  const socket = net.connect(port, '127.0.0.1');
+  await new Promise((resolve) => socket.once('connect', resolve));
+  socket.write(
+    'GET /harbour/30m/g0_0.glb HTTP/1.1\r\nHost: localhost:4173\r\n\r\n',
+  );
+  // The first bytes of the answer, then the client is gone.
+  await new Promise((resolve) => socket.once('data', resolve));
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0].destroyed, false);
+  socket.destroy();
+  const closed = await Promise.race([
+    new Promise((resolve) => opened[0].once('close', () => resolve(true))),
+    new Promise((resolve) => setTimeout(() => resolve(false), 3000)),
+  ]);
+  assert.equal(closed, true, 'the read stream stayed open');
+  // And the tile can be replaced, as a rebuild does.
+  await fs.writeFile(`${tile}.tmp`, 'next');
+  await fs.rename(`${tile}.tmp`, tile);
+});

@@ -205,9 +205,14 @@ export function createBlocksTilesHandler({ root }) {
     res.statusCode = 200;
     res.setHeader('Content-Length', stat.size);
     if (req.method === 'HEAD') return res.end();
-    fs.createReadStream(answer.filePath)
-      .on('error', () => res.destroy())
-      .pipe(res);
+    const file = fs.createReadStream(answer.filePath);
+    file.on('error', () => res.destroy()).pipe(res);
+    // A request dropped mid-file closes the response, and pipe() does not
+    // close its source: the read stayed paused with the file open for the
+    // life of the server, and on Windows a rebuild could not replace that
+    // tile (EPERM on the rename, 2026-11-11). The response's end is the
+    // read's.
+    res.on('close', () => file.destroy());
   };
 }
 
