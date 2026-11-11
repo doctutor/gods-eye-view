@@ -76,7 +76,8 @@
  *
  * --buildings-off opens the page with Blocks' Buildings off (bk=1.b0).
  * --map esri-imagery opens it on that map instead of blank-black (the
- * --altitudes shots): a map whose globe Blocks keeps.
+ * --altitudes shots): a map whose globe Blocks keeps. --relief 5 opens it
+ * under Relief ×5 (the link's lp, as the app's Relief control writes it).
  *
  * --load-frames shoots each step 2, 5, 10 and 20 s after its flight's end
  * (with --altitudes: each Blocks shot 2 to 80 s from the page's load)
@@ -700,11 +701,14 @@ export function pageHash({
   nav = null,
   buildingsOff = false,
   map = 'blank-black',
+  relief = null,
 }) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(view))
     params.set(key, String(value));
   params.set('map', map);
+  // --relief: the Relief control's factor (photoreal.js `lp`).
+  if (relief) params.set('lp', String(relief));
   encodeLayerStateParams(params, { enabledLayerIds: [], options: {} });
   // The Elevation layer's colour scale: PET rainbow, 0 to 100 m, linear.
   params.set('cs', 'el.r.0.100.n');
@@ -1156,6 +1160,7 @@ async function shoot({
   buildingsOff = false,
   frameEval = null,
   map = undefined,
+  relief = null,
 }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
@@ -1206,7 +1211,7 @@ async function shoot({
   const mode = blocks ? 'blocks' : 'colour';
   const name = prefix ? `${prefix}-${mode}` : `${mode}${suffix}`;
   await page.goto(
-    `${ORIGIN}/${pageHash({ blocks, view, nav, buildingsOff, map })}`,
+    `${ORIGIN}/${pageHash({ blocks, view, nav, buildingsOff, map, relief })}`,
     {
       waitUntil: 'domcontentloaded',
     },
@@ -2960,6 +2965,10 @@ export async function main(argv = process.argv.slice(2)) {
             loadFramesOn: argv.includes('--load-frames'),
             buildingsOff: argv.includes('--buildings-off'),
             map: argValue(argv, '--map') || undefined,
+            relief:
+              Number(argValue(argv, '--relief')) > 1
+                ? Number(argValue(argv, '--relief'))
+                : null,
             tilesDir: argValue(argv, '--tiles-dir') || null,
             // The function's source, without the statement's semicolon.
             frameEval: argValue(argv, '--frame-eval')
