@@ -647,6 +647,36 @@ test('relief: Cesium’s exaggeration about the true ground under the view, re-a
   assert.equal(f.viewer.camera.moveEnd.listeners.size, 0);
 });
 
+test('relief: a pick of nothing drawn yet (an implausible height) is no anchor; the ellipsoid stands in', async () => {
+  // A page opening into Blocks under Relief ×5: the centre's pick read
+  // −1,210 m before anything was drawn (2026-11-11).
+  const f = fixture({ bricks: false, relief: 1 });
+  f.scene.drawnM = -1209.7;
+  f.viewer.camera.pickEllipsoid = () => ({
+    latitude: 46.85 * RAD,
+    longitude: -121.76 * RAD,
+    height: 0,
+  });
+  f.store.setRelief(5);
+  assert.equal(f.scene.verticalExaggeration, 5);
+  assert.equal(
+    f.scene.verticalExaggerationRelativeHeight,
+    0,
+    'the ellipsoid, not −1,210 m',
+  );
+  // Nothing at all under the middle: no anchor, about the ellipsoid.
+  f.store.setRelief(1);
+  f.viewer.camera.pickEllipsoid = () => null;
+  f.store.setRelief(5);
+  assert.equal(f.scene.verticalExaggerationRelativeHeight, 0);
+  // A real ground once drawn: anchored on it.
+  f.store.setRelief(1);
+  f.scene.drawnM = 2000;
+  f.store.setRelief(5);
+  assert.equal(f.scene.verticalExaggerationRelativeHeight, 2000);
+  f.controller.destroy();
+});
+
 test('relief and bricks together: the lift is measured from the exaggerated ground; a pick can be un-lifted', async () => {
   const f = fixture({ bricks: true, relief: 3 });
   await tick();

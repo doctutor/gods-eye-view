@@ -17,6 +17,7 @@
 // tests; createPhotorealController applies both to the scene.
 
 import * as Cesium from 'cesium';
+import { plausibleSurfaceM } from '../../hud/cameraState.js';
 import { brickHeightM } from './model.js';
 import { ecef, enuAxes } from './bricks.js';
 import {
@@ -507,6 +508,8 @@ export function createPhotorealController({
       canvas.clientWidth / 2,
       canvas.clientHeight / 2,
     );
+    const factor = scene.verticalExaggeration || 1;
+    const relative = scene.verticalExaggerationRelativeHeight || 0;
     let place = null;
     try {
       const world = scene.pickPositionSupported
@@ -516,13 +519,19 @@ export function createPhotorealController({
     } catch {
       place = null;
     }
+    // A pick of nothing drawn yet (a page opening into Blocks under Relief
+    // ×5 read −1,210 m, lifting every block about 5 km over the camera,
+    // 2026-11-11) is no ground: the ellipsoid stands in.
+    if (
+      place &&
+      !plausibleSurfaceM(unexaggerate(place.height || 0, factor, relative))
+    )
+      place = null;
     if (!place) {
       const hit = viewer.camera?.pickEllipsoid?.(middle);
       if (hit) place = cesium.Cartographic.fromCartesian(hit);
     }
     if (!place) return null;
-    const factor = scene.verticalExaggeration || 1;
-    const relative = scene.verticalExaggerationRelativeHeight || 0;
     return {
       lat: cesium.Math.toDegrees(place.latitude),
       lon: cesium.Math.toDegrees(place.longitude),
