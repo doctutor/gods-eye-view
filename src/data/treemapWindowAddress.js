@@ -1,77 +1,64 @@
 /**
- * Personal fork: the treemap navigator's address (docs/TREEMAP-PLAN.md),
- * as the window reads and writes it:
+ * Personal fork: the treemap navigator's address as the TREEMAP window
+ * holds it, read and written by the shared parser (treemapAddress.js, the
+ * service's too):
  *
  *   <unit>/<variable>://<grouping>[/<grouping> | *<grouping>]…
  *   m2/surface-area://admin.continent/admin.country/admin.region
  *
- * `/` descends a hierarchy stored in the data, `*` overlays a partition
- * (shown as ×). A grouping is `family.level`. The window's own parser,
- * written to the plan's contract until the shared one (worker2's, with
- * src/data/treemapCatalog.js) lands; it then takes this one's place.
- *
- * A path is the keys from the root to a node; in the share link and the
- * service's query it is the keys, each URI-encoded, joined by `/`.
+ * The window keeps each grouping with the join before it ({id, family,
+ * level, join}), which is what its pills are. A path is the keys from the
+ * root to a node; in the share link and the service's query it is the keys,
+ * each URI-encoded, joined by `/`.
  */
-
-const VARIABLE_PATTERN = /^([a-z0-9]+)\/([a-z0-9][a-z0-9-]*)$/;
-const GROUPING_PATTERN = /^([a-z][a-z0-9-]*)\.([a-z0-9][a-z0-9-]*)$/;
+import {
+  formatTreemapAddress,
+  parseTreemapAddress,
+  treemapGroupingParts,
+} from './treemapAddress.js';
 
 /**
- * Parse an address; null when it is not one.
+ * Parse an address; null when it is not one (the shared parser's reason is
+ * then `parseAddressError(text)`).
  * @returns {{variable: string, unit: string, name: string,
  *   groupings: {id: string, family: string, level: string,
  *   join: '/'|'*'|null}[]}|null}
  */
 export function parseAddress(text) {
-  const value = String(text ?? '').trim();
-  const at = value.indexOf('://');
-  if (at <= 0) return null;
-  const variable = value.slice(0, at);
-  const head = VARIABLE_PATTERN.exec(variable);
-  if (!head) return null;
-  const tail = value.slice(at + 3);
-  const groupings = [];
-  if (tail) {
-    let join = null;
-    let current = '';
-    const push = () => {
-      const match = GROUPING_PATTERN.exec(current);
-      if (!match) return false;
-      groupings.push({
-        id: current,
-        family: match[1],
-        level: match[2],
-        join,
-      });
-      current = '';
-      return true;
-    };
-    for (const char of tail) {
-      if (char === '/' || char === '*') {
-        if (!push()) return null;
-        join = char;
-      } else current += char;
-    }
-    if (!push()) return null;
-    if (new Set(groupings.map((g) => g.id)).size !== groupings.length)
-      return null;
-  }
-  return { variable, unit: head[1], name: head[2], groupings };
+  const parsed = parseTreemapAddress(String(text ?? ''));
+  if (!parsed.ok) return null;
+  return {
+    variable: parsed.variable,
+    unit: parsed.unit,
+    name: parsed.name,
+    groupings: parsed.groupings.map((id, index) => ({
+      id,
+      ...treemapGroupingParts(id),
+      join: index === 0 ? null : parsed.joins[index - 1],
+    })),
+  };
 }
 
-/** An address from a variable id and its groupings ({id, join}). */
+/** Why an address does not read: {error, values} for t(), or null. */
+export function parseAddressError(text) {
+  const parsed = parseTreemapAddress(String(text ?? ''));
+  return parsed.ok ? null : { error: parsed.error, values: parsed.values };
+}
+
+/**
+ * An address from a variable id and its groupings ({id, join}); null when
+ * they would not read back (no grouping, one twice).
+ */
 export function formatAddress(variable, groupings = []) {
-  return (
-    `${variable}://` +
-    groupings
-      .map((grouping, index) =>
-        index === 0
-          ? grouping.id
-          : `${grouping.join === '*' ? '*' : '/'}${grouping.id}`,
-      )
-      .join('')
-  );
+  try {
+    return formatTreemapAddress({
+      variable,
+      groupings: groupings.map((grouping) => grouping.id),
+      joins: groupings.slice(1).map((grouping) => grouping.join || '/'),
+    });
+  } catch {
+    return null;
+  }
 }
 
 /** A path's keys as the share link and the service write them. */
