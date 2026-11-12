@@ -116,6 +116,62 @@ Phase 2, with their own costs stated before running: land cover area per
 country and mean elevation per country (Earth Engine, from the day's
 budget), census tracts, basins, roads and rivers by unit.
 
+### As built
+
+Calls made where the plan was silent:
+
+- **Tables are cubes.** A table is rows of keys (one per grouping it can
+  be cut by), a value and a count (scripts/treemap, server/providers/treemap/table.js).
+  A node filters the rows by its path and groups them by the address's next
+  grouping. So any order of a table's groupings answers, and `/` between
+  groupings that are not one hierarchy (`place.category/admin.country`) nests
+  them exactly as `*` would.
+- **Remainders are tiles.** Where a parent's children do not cover it, the
+  rest is one tile keyed `~`: "No region", "No district", "Other places".
+  A remainder under 0.1% of its parent is a seam between two outlines,
+  not a tile, and is dropped. A parent's total is then the sum of its
+  tiles, so shares add to 1. A child has children (`hasChildren`) only if
+  it breaks down into something other than its own remainder.
+- **The planet.** Its area is the WGS84 authalic sphere's, 510,065,622 km²;
+  the plan's 510,072,000 is the rounded sphere. "Oceans and unclaimed" is
+  the planet minus every country and dependency's land, keyed `ocean` at
+  every admin level.
+- **Overlapping claims.** Overture's disputed areas (X* codes: Kashmir
+  sectors, the Kurils and others) are counted as their own countries, so land
+  that two claims cover counts twice.
+- **Continents.** They follow the UN M49 regions, with the Americas split at
+  Panama (src/data/treemapContinents.js). Russia is in Europe; Turkey and
+  Cyprus are in Asia.
+- **Areas.** Each is computed from the areas build's finest band (2^24 Web
+  Mercator steps), as land on the WGS84 ellipsoid, holes taken out.
+- **People.** Only settlements count (city, town, village, hamlet, other
+  localities). Neighbourhoods, counties and municipalities are left out, so
+  a person is not counted twice through their district. Each region keeps
+  its 100 largest places as tiles; the rest are one "Other places" tile per
+  kind. A place's key is its Wikidata id, else `n<index>`. The table is
+  `exact: false` with a note: it is not a census.
+- **Depth 2.** Each child shows at most 50 of its own children, with the
+  rest in that child's `rest`.
+- **Live variables.** Aircraft and vessels are `available: true` in the
+  catalogue (the window counts them from the layers). `/node` answers
+  them with a 400 saying so.
+- **The cell labelling.** Step 2's tables need no point labelling: the
+  localities carry their country and region. Labelling arrives with step 3:
+  points take the areas build's own z10 grid, with point-in-polygon only
+  where a cell's candidates disagree, as the areas service already does.
+
+Built on 2026-11-11 from the Overture areas build 21c6d7d7da09a9b1 and the
+localities build c572a53cd594, into `.gev-cache/treemap` (D:):
+
+| Table                                              |         Rows |    File |        Build |
+| -------------------------------------------------- | -----------: | ------: | -----------: |
+| m2/surface-area (43,132 land units, 49.5 M points) |       40,946 | 5.47 MB |       15.4 s |
+| outlines (the band each unit is drawn from)        | 43,132 units | 2.42 MB | in the above |
+| count/people (608,957 settlements)                 |      113,286 | 8.73 MB |        5.3 s |
+
+Land comes to 150.3 M km², 29.5% of the planet. The people in mapped
+places come to 5.16 billion.
+
 ## The window (client)
 
 - **Where**: a mini-window in the panel column with the others,

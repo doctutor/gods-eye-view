@@ -4214,5 +4214,20 @@
   "There is no variable \"{variable}\"": "Переменной «{variable}» нет",
   "There is no grouping \"{grouping}\"": "Группировки «{grouping}» нет",
   "{variable} cannot be cut by {grouping}": "{variable} нельзя разбить по {grouping}",
-  "{variable} needs {grouping} as its first grouping": "{variable} требует {grouping} первой группировкой"
+  "{variable} needs {grouping} as its first grouping": "{variable} требует {grouping} первой группировкой",
+  "Africa": "Африка",
+  "Antarctica": "Антарктида",
+  "Asia": "Азия",
+  "Europe": "Европа",
+  "Oceania": "Океания",
+  "South America": "Южная Америка",
+  "Oceans and unclaimed": "Океаны и ничьи земли",
+  "No region": "Без региона",
+  "No district": "Без района",
+  "Other places": "Другие места",
+  "Cities": "Города",
+  "Towns": "Малые города",
+  "Villages": "Сёла",
+  "Hamlets": "Хутора",
+  "Other localities": "Другие населённые пункты"
 }
