@@ -273,10 +273,12 @@ articles are at sea.
   at first; the panel layout's portable path lifts it out (its pop-out
   button: `popOutPanel`/`dockPanel`, at most 1180 × 820, 72 % × 78 % of the
   viewport). Nothing is asked of the service until it is first opened.
-- **Share link**: `tm=<address>|<path>` (the path's keys URI-encoded and
-  joined by `/`, as the service's `path`); left out for the default address
-  at its root. The panel's open/collapsed state is the `ui` param's token
-  `k`.
+- **Share link**: `tm=<address>|<path>` (the path's keys each
+  URI-encoded, joined by `/`; the service's own `path` is the raw keys);
+  left out for the default address at its root. The panel's open/collapsed
+  state is the `ui` param's token `tm` (`k` was the retired Map Stack
+  panel's: an old link must not open the treemap; sharelink.js keeps the
+  retired tokens).
 - **Sources**: one window source. The service while `/api/treemap/catalog`
   answers (asked once a page; the header says TABLES), else a rounded
   page-local sample of area and people by continent, country and region

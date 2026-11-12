@@ -298,7 +298,7 @@ test('the TREEMAP panel sits in the right rail with the others, share-linked and
   const position = read('./panelPositionControls.js');
   assert.match(position, /popOutPanel\(/);
   const share = read('../sharelink.js');
-  assert.match(share, /id: 'treemap-panel', token: 'k'/);
+  assert.match(share, /id: 'treemap-panel', token: 'tm'/);
   assert.match(share, /TREEMAP_PARAM/);
   const css = read('./styles/layers.css');
   assert.match(
