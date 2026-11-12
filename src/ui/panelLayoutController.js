@@ -127,6 +127,7 @@ export class PanelLayoutController {
     this._customCutoutsPanel = document.getElementById('custom-cutouts-panel');
     this._worldHistoryPanel = document.getElementById('world-history-panel');
     this._streetLevelPanel = document.getElementById('street-level-panel');
+    this._treemapPanel = document.getElementById('treemap-panel');
     this._sliderPanel = document.getElementById('param-slider-panel');
     this._detectionBtn = document.getElementById('detection-toggle');
   }
@@ -234,6 +235,7 @@ export class PanelLayoutController {
       this._customCutoutsPanel,
       this._worldHistoryPanel,
       this._streetLevelPanel,
+      this._treemapPanel,
     ]) {
       if (!panel) continue;
       // A floating window keeps its restored place and size.
@@ -277,6 +279,7 @@ export class PanelLayoutController {
         this._customCutoutsPanel,
         this._worldHistoryPanel,
         this._streetLevelPanel,
+        this._treemapPanel,
         globalContextPanel,
         document.getElementById('radio-panel'),
       ]) {

@@ -18,6 +18,7 @@ import {
 } from './layers/lego/photoreal.js';
 // Personal fork: the navigation mode, Walk or Fly (src/navigation/).
 import { NAV_PARAM, navigationStore } from './navigation/store.js';
+import { TREEMAP_PARAM, treemapStore } from './data/treemapStore.js';
 // Personal fork: Render: Blocks (`bk`).
 import { BLOCKS_PARAM, renderModeStore } from './layers/lego/renderMode.js';
 import * as Cesium from 'cesium';
@@ -80,12 +81,28 @@ const SHARE_PANEL_STATE_REGISTRY = Object.freeze([
   { id: 'cctv-panel', token: 'v', pinnable: false },
   { id: 'recent-imagery-panel', token: 'i', pinnable: false },
   { id: 'street-level-panel', token: 't', pinnable: false },
+  // Personal fork: `tm`, as its own `tm` param; never `k` (retired below).
+  { id: 'treemap-panel', token: 'tm', pinnable: false },
   { id: 'radio-panel', token: 'r', pinnable: false },
   { id: 'scene-panel', token: 's', pinnable: false },
   { id: 'global-context-panel', token: 'g', pinnable: false },
   { id: 'pp-toggles', token: 'p', pinnable: false },
   { id: 'param-slider-panel', token: 'm', pinnable: false },
 ]);
+
+/**
+ * Panel tokens a shipped or tested link may still carry for something that
+ * is gone, never to be given to another panel (an old link would open it):
+ * `k`, the retired left Map Stack panel. `tl` is the titles setting's
+ * (ui/titles.js), in the same param.
+ */
+export const SHARE_PANEL_RETIRED_TOKENS = Object.freeze(['k']);
+export const SHARE_UI_OTHER_TOKENS = Object.freeze(['tl']);
+
+/** The live panel tokens, for the tests. */
+export const SHARE_PANEL_TOKENS = Object.freeze(
+  SHARE_PANEL_STATE_REGISTRY.map((entry) => entry.token),
+);
 
 const SHARE_PANEL_STATE_BY_TOKEN = Object.freeze(
   new Map(SHARE_PANEL_STATE_REGISTRY.map((entry) => [entry.token, entry])),
@@ -210,6 +227,10 @@ export class ShareLinkManager {
     );
     // Personal fork: and the navigation mode.
     this._removeNavigation = navigationStore().subscribe(() =>
+      this._scheduleUpdate(),
+    );
+    // Personal fork: and the treemap's address and path.
+    this._removeTreemap = treemapStore().subscribe(() =>
       this._scheduleUpdate(),
     );
     // Personal fork: and the render mode, for Blocks.
@@ -743,6 +764,10 @@ export class ShareLinkManager {
     const navigation = navigationStore().param();
     if (navigation) params.set(NAV_PARAM, navigation);
     else params.delete(NAV_PARAM);
+    // Personal fork: the treemap navigator (src/data/treemapStore.js).
+    const treemap = treemapStore().param();
+    if (treemap) params.set(TREEMAP_PARAM, treemap);
+    else params.delete(TREEMAP_PARAM);
     // Personal fork: Render: Blocks (src/layers/lego/renderMode.js).
     const blocks = renderModeStore().param();
     if (blocks) params.set(BLOCKS_PARAM, blocks);
@@ -786,6 +811,8 @@ export class ShareLinkManager {
     this._removePhotoreal = null;
     this._removeNavigation?.();
     this._removeNavigation = null;
+    this._removeTreemap?.();
+    this._removeTreemap = null;
     this._removeRenderMode?.();
     this._removeRenderMode = null;
     clearTimeout(this._debounceTimer);

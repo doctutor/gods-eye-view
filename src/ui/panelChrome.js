@@ -16,6 +16,7 @@ const SHARE_PANEL_STATE_SPECS = Object.freeze([
   { id: 'weather-panel' },
   { id: 'recent-imagery-panel' },
   { id: 'street-level-panel' },
+  { id: 'treemap-panel' },
   { id: 'radio-panel' },
   { id: 'scene-panel' },
   { id: 'global-context-panel' },
@@ -31,6 +32,7 @@ const COCKPIT_ENTRY_COLLAPSE_PANEL_IDS = Object.freeze([
   'custom-cutouts-panel',
   'world-history-panel',
   'street-level-panel',
+  'treemap-panel',
   'scene-panel',
   'pp-toggles',
   'global-context-panel',
@@ -298,6 +300,7 @@ export class PanelChrome {
       'custom-cutouts-panel',
       'world-history-panel',
       'street-level-panel',
+      'treemap-panel',
       'global-context-panel',
     ].includes(panelEl?.id);
     const collapsed = panelEl.classList.contains('collapsed');
@@ -409,6 +412,11 @@ export class PanelChrome {
   /** @returns {boolean} Whether the panel was floating and is now docked. */
   dockPanel(panelId) {
     return this._panelPosition?.dockPanel?.(panelId) === true;
+  }
+
+  /** Personal fork: the panel as a larger floating window (popOutPanel). */
+  popOutPanel(panelId, size) {
+    return this._panelPosition?.popOutPanel?.(panelId, size) === true;
   }
 
   setPanelCollapsed(

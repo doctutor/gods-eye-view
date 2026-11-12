@@ -226,6 +226,7 @@
   #right-context-rail #world-history-panel,
   #right-context-rail #custom-cutouts-panel.collapsed,
   #right-context-rail #world-history-panel.collapsed,
+  #right-context-rail #treemap-panel:not(.panel-floating),
   #right-context-rail #radio-panel,
   #right-context-rail #radio-panel.collapsed,
   #right-context-rail #global-context-panel,
