@@ -413,3 +413,11 @@ test('land cover draws in colours of its own wherever it is the drawn cut', asyn
     null,
   );
 });
+
+test('a mean elevation reads in whole metres', async () => {
+  const { formatMean } = await import('./treemapPanel.js');
+  assert.equal(formatMean(1045.6, 'm'), '1,046 m');
+  assert.equal(formatMean(772.2, 'm'), '772 m');
+  assert.equal(formatMean(1760, 'm'), '1,760 m');
+  assert.equal(formatMean(5, ''), '5');
+});
