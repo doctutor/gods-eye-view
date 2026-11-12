@@ -12,6 +12,33 @@ import {
   readAreasBuild,
 } from './areas.mjs';
 import { PEOPLE_TABLE_VERSION, buildPeopleTable } from './people.mjs';
+import {
+  POLITIES_TABLE_VERSION,
+  buildPolitiesTable,
+  readWorldHistory,
+} from './polities.mjs';
+import { worldHistoryCacheDir } from '../../server/providers/worldHistory/sources.js';
+import { coverageGridFile } from '../../server/providers/wikipediaCoverage.js';
+import {
+  LABELLER_VERSION,
+  createLabeller,
+} from '../../server/providers/treemap/labeller.js';
+import {
+  WIKIPEDIA_TABLE_VERSION,
+  buildWikipediaTables,
+  readWikipediaPoints,
+} from './wikipedia.mjs';
+import {
+  PLACES_TABLE_VERSION,
+  buildPlacesTable,
+  readPlacesIndex,
+} from './places.mjs';
+import {
+  BUILDINGS_TABLE_VERSION,
+  buildBuildingsTables,
+  readBuildingsIndex,
+} from './buildings.mjs';
+import { overtureCacheDir } from '../../server/providers/overture/sources.js';
 import { isCurrent, publish, readManifest, signatureOf } from './store.mjs';
 
 /**
@@ -24,7 +51,7 @@ import { isCurrent, publish, readManifest, signatureOf } from './store.mjs';
  * one); the tables go to TREEMAP_DIR, else <root>/.gev-cache/treemap. A
  * table is rebuilt only when its inputs' builds or its rules changed
  * (--force rebuilds all). Tables: areas (m2/surface-area and the outline
- * index), people (count/people).
+ * index), people (count/people), polities (m2/polity-area).
  *
  * Personal fork tooling; not part of upstream God's Eye View.
  */
@@ -34,7 +61,14 @@ const ROOT = path.resolve(
   '..',
   '..',
 );
-export const TREEMAP_STEPS = Object.freeze(['areas', 'people']);
+export const TREEMAP_STEPS = Object.freeze([
+  'areas',
+  'people',
+  'polities',
+  'wikipedia',
+  'places',
+  'buildings',
+]);
 
 export function parseArgs(argv) {
   const flags = { command: argv[0] || 'status', only: null };
@@ -152,6 +186,174 @@ export async function buildTreemap({
       }
     }
   }
+
+  /**
+   * A step's tables from its inputs: skipped when every one is current,
+   * else built by `make()` ({tables: {variable: table}, stats}) and
+   * published.
+   */
+  async function tableStep(step, variables, inputs, make) {
+    if (!wants(step)) return;
+    const signature = signatureOf({ variables, ...inputs });
+    const manifest = readManifest(dir);
+    if (
+      !force &&
+      variables.every((variable) =>
+        isCurrent(dir, manifest.tables[variable], signature),
+      )
+    ) {
+      log(`${step}: current`);
+      return;
+    }
+    const started = performance.now();
+    const { tables, stats } = await make();
+    const seconds = (performance.now() - started) / 1000;
+    const empty = variables.filter((variable) => !tables[variable].rows.length);
+    if (empty.length) {
+      log(`${step}: no rows for ${empty.join(', ')}; nothing published`);
+      return;
+    }
+    let bytes = 0;
+    for (const variable of variables) {
+      const table = tables[variable];
+      table.signature = signature;
+      const entry = publish(dir, {
+        section: 'tables',
+        name: variable,
+        json: table,
+        signature,
+        seconds,
+        extra: { rows: table.rows.length / (table.dims.length + 2), inputs },
+      });
+      bytes += entry.bytes;
+      done[step] = entry;
+    }
+    log(
+      `${step}: ${JSON.stringify(stats)}, ${seconds.toFixed(1)} s, ${(bytes / 1e6).toFixed(2)} MB`,
+    );
+  }
+
+  let labeller = null;
+  const labellerOf = () => (labeller ||= createLabeller({ areasDir }));
+
+  if (wants('polities')) {
+    const historyDir = worldHistoryCacheDir(env, root);
+    let history = null;
+    try {
+      history = readWorldHistory(historyDir);
+    } catch {
+      log('polities: no World history index (npm run world-history:build)');
+    }
+    if (history)
+      await tableStep(
+        'polities',
+        ['m2/polity-area'],
+        { v: POLITIES_TABLE_VERSION, history: history.id },
+        () => {
+          const { table, stats } = buildPolitiesTable({ index: history.index });
+          return { tables: { 'm2/polity-area': table }, stats };
+        },
+      );
+  }
+
+  if (wants('wikipedia')) {
+    const points = readWikipediaPoints(
+      path.join(path.dirname(coverageGridFile(env, root)), 'points'),
+    );
+    if (!points)
+      log(
+        'wikipedia: no Wikipedia points index (npm run wikipedia:build -- --points)',
+      );
+    else
+      await tableStep(
+        'wikipedia',
+        ['count/wikipedia-articles', 'byte/wikipedia-text'],
+        {
+          v: WIKIPEDIA_TABLE_VERSION,
+          labels: LABELLER_VERSION,
+          areas: areasId,
+          points: points.manifest.version,
+        },
+        () => {
+          const { articles, text, stats } = buildWikipediaTables({
+            points,
+            labeller: labellerOf(),
+            log,
+          });
+          return {
+            tables: {
+              'count/wikipedia-articles': articles,
+              'byte/wikipedia-text': text,
+            },
+            stats,
+          };
+        },
+      );
+  }
+  if (wants('places')) {
+    const places = readPlacesIndex(
+      path.join(overtureCacheDir(env, root), 'places'),
+    );
+    if (!places)
+      log(
+        'places: no Overture places index (npm run overture:build -- --places)',
+      );
+    else
+      await tableStep(
+        'places',
+        ['count/places'],
+        {
+          v: PLACES_TABLE_VERSION,
+          labels: LABELLER_VERSION,
+          areas: areasId,
+          places: places.manifest.version,
+        },
+        () => {
+          const { table, stats } = buildPlacesTable({
+            places,
+            labeller: labellerOf(),
+            log,
+          });
+          return { tables: { 'count/places': table }, stats };
+        },
+      );
+  }
+  if (wants('buildings')) {
+    const buildings = readBuildingsIndex(
+      path.join(overtureCacheDir(env, root), 'buildings'),
+    );
+    if (!buildings)
+      log(
+        'buildings: no Overture buildings build (npm run overture:build -- --buildings)',
+      );
+    else
+      await tableStep(
+        'buildings',
+        ['count/buildings', 'm2/building-footprint', 'm3/building-volume'],
+        {
+          v: BUILDINGS_TABLE_VERSION,
+          labels: LABELLER_VERSION,
+          areas: areasId,
+          buildings: buildings.manifest.version,
+        },
+        () => {
+          const { count, footprint, volume, stats } = buildBuildingsTables({
+            buildings,
+            labeller: labellerOf(),
+            log,
+          });
+          return {
+            tables: {
+              'count/buildings': count,
+              'm2/building-footprint': footprint,
+              'm3/building-volume': volume,
+            },
+            stats,
+          };
+        },
+      );
+  }
+  labeller?.close();
   return { dir, done };
 }
 
