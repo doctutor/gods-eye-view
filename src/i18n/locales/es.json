@@ -4202,10 +4202,6 @@
   "{variable} is not available: {why}": "{variable} no está disponible: {why}",
   "no reason given": "sin motivo indicado",
   "{variable} is not built yet: pick another quantity": "{variable} aún no está construido: elija otra magnitud",
-  "Filter sequences": "Filtrar secuencias",
-  "No sequence matches": "Ninguna secuencia coincide",
-  "Address": "Dirección",
-  "The address: Enter applies it, Escape puts it back": "La dirección: Intro la aplica, Escape la restablece",
   "English": "Inglés",
   "German": "Alemán",
   "French": "Francés",
@@ -4221,5 +4217,9 @@
   "Lodging": "Alojamiento",
   "Places of worship": "Lugares de culto",
   "Recreation and culture": "Ocio y cultura",
-  "Services and other": "Servicios y otros"
+  "Services and other": "Servicios y otros",
+  "Filter sequences": "Filtrar secuencias",
+  "No sequence matches": "Ninguna secuencia coincide",
+  "Address": "Dirección",
+  "The address: Enter applies it, Escape puts it back": "La dirección: Intro la aplica, Escape la restablece"
 }

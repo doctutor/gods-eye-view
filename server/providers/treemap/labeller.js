@@ -11,6 +11,7 @@
 // covers (a coast, a harbour) takes the nearest labelled pixel within
 // NEAR_PIXELS, else it is at sea (null).
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 import path from 'node:path';
 import {
   AREA_INDEX_MAX_ZOOM,
@@ -24,6 +25,8 @@ export const LABEL_PIXELS = 1024;
 const NEAR_PIXELS = 2;
 /** Tile rasters kept (each 3 × 2 MB). */
 const KEPT_TILES = 24;
+/** Stored tiles kept decoded (each its runs, tens of kB). */
+const KEPT_STORED_TILES = 2048;
 /** Decoded polygons kept, in points (about 8 bytes each). */
 const KEPT_POINTS = 16_000_000;
 
@@ -232,17 +235,54 @@ export function createLabeller({ areasDir }) {
     return rasters;
   }
 
+  const labelWorld = lookup((tx, ty) => {
+    const rasters = tile(tx, ty);
+    return rasters
+      ? (layer, row, col) => rasters[layer][row * LABEL_PIXELS + col]
+      : null;
+  }, keys);
+
+  return {
+    buildId: manifest.buildId,
+    units,
+    keys,
+    labelWorld,
+    label: lonLat(labelWorld),
+    /** A tile's rasters by layer, drawn (null where no land unit is near). */
+    drawTile: (tx, ty) => tile(tx, ty),
+    /** The z 6 tiles some land unit's index cells meet. */
+    landTiles() {
+      const out = [];
+      const n = 2 ** LABEL_TILE_ZOOM;
+      for (let ty = 0; ty < n; ty++)
+        for (let tx = 0; tx < n; tx++)
+          if (candidates(tx, ty).size) out.push([tx, ty]);
+      return out;
+    },
+    stats: () => ({ tilesDrawn: drawn, decodedPoints }),
+    close: () => fs.closeSync(fd),
+  };
+}
+
+/**
+ * The lookup shared by the drawn and the stored labellers: a point's
+ * pixel, else the nearest labelled pixel within NEAR_PIXELS.
+ * @param {(tx: number, ty: number) => ((layer: string, row: number,
+ *   col: number) => number) | null} tileReader
+ * @param {Record<string, string[]>} keys a layer's value v is keys[v - 1]
+ */
+function lookup(tileReader, keys) {
   /**
    * A point's units, by world position (x, y in 0..1, Web Mercator, y down).
    * @returns {{country: string, region: string|null, district: string|null} | null}
    */
-  function labelWorld(x, y) {
+  return function labelWorld(x, y) {
     if (!(x >= 0 && x < 1 && y >= 0 && y < 1)) return null;
     const n = 2 ** LABEL_TILE_ZOOM;
     const tx = Math.floor(x * n);
     const ty = Math.floor(y * n);
-    const rasters = tile(tx, ty);
-    if (!rasters) return null;
+    const read = tileReader(tx, ty);
+    if (!read) return null;
     const col = Math.min(
       LABEL_PIXELS - 1,
       Math.floor((x * n - tx) * LABEL_PIXELS),
@@ -251,25 +291,22 @@ export function createLabeller({ areasDir }) {
       LABEL_PIXELS - 1,
       Math.floor((y * n - ty) * LABEL_PIXELS),
     );
-    let at = row * LABEL_PIXELS + col;
-    if (!rasters.country[at]) {
-      at = -1;
-      for (let d = 1; d <= NEAR_PIXELS && at < 0; d++)
-        for (let dr = -d; dr <= d && at < 0; dr++)
-          for (let dc = -d; dc <= d; dc++) {
-            const r = row + dr;
-            const c = col + dc;
-            if (r < 0 || c < 0 || r >= LABEL_PIXELS || c >= LABEL_PIXELS)
-              continue;
-            if (rasters.country[r * LABEL_PIXELS + c]) {
-              at = r * LABEL_PIXELS + c;
-              break;
-            }
+    let at = read('country', row, col) ? [row, col] : null;
+    for (let d = 1; d <= NEAR_PIXELS && !at; d++)
+      for (let dr = -d; dr <= d && !at; dr++)
+        for (let dc = -d; dc <= d; dc++) {
+          const r = row + dr;
+          const c = col + dc;
+          if (r < 0 || c < 0 || r >= LABEL_PIXELS || c >= LABEL_PIXELS)
+            continue;
+          if (read('country', r, c)) {
+            at = [r, c];
+            break;
           }
-      if (at < 0) return null;
-    }
+        }
+    if (!at) return null;
     const pick = (layer) => {
-      const v = rasters[layer][at];
+      const v = read(layer, at[0], at[1]);
       return v ? keys[layer][v - 1] : null;
     };
     return {
@@ -277,21 +314,184 @@ export function createLabeller({ areasDir }) {
       region: pick('region'),
       district: pick('district'),
     };
-  }
+  };
+}
 
+/** A world-position lookup as one by longitude and latitude (degrees). */
+const lonLat = (labelWorld) => (lon, lat) => {
+  if (!(Math.abs(lon) <= 180 && Math.abs(lat) <= 85.0511)) return null;
+  const x = (lon + 180) / 360;
+  const s = Math.sin((lat * Math.PI) / 180);
+  const y = 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
+  return labelWorld(Math.min(x, 1 - 1e-12), y);
+};
+
+// ── The stored labelling ───────────────────────────────────────────────
+//
+// Every tile some land unit meets, drawn once by the build and kept as
+// runs: per layer, per row, a varint count of runs, then per run a varint
+// length and a varint value; each tile's runs zstd-compressed, the tiles
+// one after another in one file, and an index (JSON) giving each tile's
+// offset and length and each layer's keys. The server labels live points
+// from it without drawing: a lookup is a binary search in a row's runs.
+
+const pushVarint = (out, value) => {
+  let n = value;
+  while (n >= 0x80) {
+    out.push((n & 0x7f) | 0x80);
+    n >>>= 7;
+  }
+  out.push(n);
+};
+
+/** A drawn tile's rasters as its stored runs (compressed). */
+export function encodeTileRuns(rasters) {
+  const out = [];
+  for (const layer of LAYERS) {
+    const raster = rasters[layer];
+    for (let r = 0; r < LABEL_PIXELS; r++) {
+      const base = r * LABEL_PIXELS;
+      const runs = [];
+      let value = raster[base];
+      let length = 1;
+      for (let c = 1; c < LABEL_PIXELS; c++) {
+        if (raster[base + c] === value) length++;
+        else {
+          runs.push(length, value);
+          value = raster[base + c];
+          length = 1;
+        }
+      }
+      runs.push(length, value);
+      pushVarint(out, runs.length / 2);
+      for (const n of runs) pushVarint(out, n);
+    }
+  }
+  return zlib.zstdCompressSync(Buffer.from(out));
+}
+
+/** Stored runs as a reader: (layer, row, col) → value. */
+export function decodeTileRuns(compressed) {
+  const bytes = zlib.zstdDecompressSync(compressed);
+  let pos = 0;
+  const read = () => {
+    let value = 0;
+    let shift = 0;
+    for (;;) {
+      const b = bytes[pos++];
+      value += (b & 0x7f) * 2 ** shift;
+      if (!(b & 0x80)) return value;
+      shift += 7;
+    }
+  };
+  const layers = {};
+  for (const layer of LAYERS) {
+    const rowStart = new Uint32Array(LABEL_PIXELS + 1);
+    const ends = [];
+    const values = [];
+    for (let r = 0; r < LABEL_PIXELS; r++) {
+      rowStart[r] = ends.length;
+      const count = read();
+      let at = 0;
+      for (let k = 0; k < count; k++) {
+        at += read();
+        ends.push(at);
+        values.push(read());
+      }
+    }
+    rowStart[LABEL_PIXELS] = ends.length;
+    layers[layer] = {
+      rowStart,
+      ends: Uint16Array.from(ends),
+      values: Uint16Array.from(values),
+    };
+  }
+  return (layer, row, col) => {
+    const { rowStart, ends, values } = layers[layer];
+    let lo = rowStart[row];
+    let hi = rowStart[row + 1] - 1;
+    // The first run whose end is past the column.
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (ends[mid] > col) hi = mid;
+      else lo = mid + 1;
+    }
+    return values[lo];
+  };
+}
+
+/**
+ * Draw every land tile and keep its runs: {index, bytes}, the bytes the
+ * tiles' runs one after another.
+ * @param {ReturnType<typeof createLabeller>} labeller
+ */
+export function storeLabels(labeller, log = () => {}) {
+  const tiles = {};
+  const chunks = [];
+  let at = 0;
+  const land = labeller.landTiles();
+  land.forEach(([tx, ty], i) => {
+    const rasters = labeller.drawTile(tx, ty);
+    if (!rasters) return;
+    const body = encodeTileRuns(rasters);
+    tiles[ty * 2 ** LABEL_TILE_ZOOM + tx] = [at, body.length];
+    chunks.push(body);
+    at += body.length;
+    if ((i + 1) % 250 === 0) log(`  labels: ${i + 1} of ${land.length} tiles`);
+  });
   return {
-    buildId: manifest.buildId,
-    units,
-    labelWorld,
-    /** A point's units by longitude and latitude (degrees). */
-    label(lon, lat) {
-      if (!(Math.abs(lon) <= 180 && Math.abs(lat) <= 85.0511)) return null;
-      const x = (lon + 180) / 360;
-      const s = Math.sin((lat * Math.PI) / 180);
-      const y = 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
-      return labelWorld(Math.min(x, 1 - 1e-12), y);
+    index: {
+      format: 1,
+      version: LABELLER_VERSION,
+      tileZoom: LABEL_TILE_ZOOM,
+      pixels: LABEL_PIXELS,
+      areasBuildId: labeller.buildId,
+      keys: labeller.keys,
+      tiles,
     },
-    stats: () => ({ tilesDrawn: drawn, decodedPoints }),
+    bytes: Buffer.concat(chunks),
+  };
+}
+
+/**
+ * A labeller over the stored runs (storeLabels' index and file).
+ * @param {{index: object, file: string}} options
+ */
+export function openStoredLabeller({ index, file }) {
+  if (
+    index?.format !== 1 ||
+    index.tileZoom !== LABEL_TILE_ZOOM ||
+    index.pixels !== LABEL_PIXELS
+  )
+    throw new Error('not a treemap labelling this server reads');
+  const fd = fs.openSync(file, 'r');
+  const readers = new Map();
+  const labelWorld = lookup((tx, ty) => {
+    const key = ty * 2 ** LABEL_TILE_ZOOM + tx;
+    const known = readers.get(key);
+    if (known !== undefined) {
+      readers.delete(key);
+      readers.set(key, known);
+      return known;
+    }
+    const entry = index.tiles[key];
+    let reader = null;
+    if (entry) {
+      const body = Buffer.alloc(entry[1]);
+      fs.readSync(fd, body, 0, entry[1], entry[0]);
+      reader = decodeTileRuns(body);
+    }
+    readers.set(key, reader);
+    for (const old of readers.keys()) {
+      if (readers.size <= KEPT_STORED_TILES) break;
+      readers.delete(old);
+    }
+    return reader;
+  }, index.keys);
+  return {
+    buildId: index.areasBuildId,
+    labelWorld,
+    label: lonLat(labelWorld),
     close: () => fs.closeSync(fd),
   };
 }

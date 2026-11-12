@@ -165,8 +165,20 @@ Calls made where the plan was silent:
   pixel within 2, else it is at sea, in the `ocean` tile. Exact
   point-in-polygon against a country of a million points costs
   milliseconds a point. With rasters, 200,000 points take under a second.
-  The rasters are drawn per build and per server and not stored, so there
-  is no separate table file.
+  Drawing a tile takes tens to hundreds of milliseconds, so live points
+  scattered over the world can't draw on demand: 20,000 random points took
+  494 s through a 24-tile cache. So the `labels` step draws every tile
+  some land unit meets, once, and stores each as runs of equal pixels
+  (zstd-compressed, one file, its index in the manifest's
+  `files.labels`). The other steps and `POST /api/treemap/label` read
+  those runs; a lookup is a binary search in a row's runs. The same
+  20,000 points take 4.7 s cold (decoding about 1,500 tiles) and 2.3 s
+  warm, measured with the CPU taken by another project.
+- **`POST /api/treemap/label`** takes at most 20,000 points (a body of
+  at most 1 MB). It answers the contract's `{ units }` in the points' order:
+  `{country, region, district}` with the tables' keys (ISO country, ISO
+  3166-2 region else the area's id, the district's id), `null` at sea or
+  for anything not a point. It answers 503 until the labelling is built.
 - **Places** come from the places index's H3 resolution 7 counts (about
   5 km² a cell), each cell given whole to the unit holding its centre. All
   places the index keeps count (confidence 0.5 and up). Its categories are
@@ -214,6 +226,7 @@ project's browsers, so the times are roughly twice a quiet machine's:
 | count/wikipedia-articles and byte/wikipedia-text (2,640,556) |  44,025 | 1.12 and 1.27 MB | 217 s |
 | count/places (64,735,759 places in 2,277,190 res-7 cells)    | 324,502 |         11.48 MB | 191 s |
 | count/buildings, m2/building-footprint, m3/building-volume   |  15,192 | 1.9, 2.0, 2.0 MB | 361 s |
+| labels (the cell labelling: 3,768 z 6 tiles of runs)         |       — |         22.82 MB | 106 s |
 
 The buildings come to 579,463,210 in 112,939,372 cells. 22,252 Wikipedia
 articles are at sea.

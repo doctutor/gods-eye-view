@@ -4297,10 +4297,6 @@
   "{variable} is not available: {why}": "«{variable}» недоступно: {why}",
   "no reason given": "причина не указана",
   "{variable} is not built yet: pick another quantity": "«{variable}» ещё не построено: выберите другую величину",
-  "Filter sequences": "Фильтровать последовательности",
-  "No sequence matches": "Нет подходящих последовательностей",
-  "Address": "Адрес",
-  "The address: Enter applies it, Escape puts it back": "Адрес: Enter применяет, Escape возвращает прежний",
   "English": "Английский",
   "German": "Немецкий",
   "French": "Французский",
@@ -4316,5 +4312,9 @@
   "Lodging": "Жильё",
   "Places of worship": "Места поклонения",
   "Recreation and culture": "Отдых и культура",
-  "Services and other": "Услуги и прочее"
+  "Services and other": "Услуги и прочее",
+  "Filter sequences": "Фильтровать последовательности",
+  "No sequence matches": "Нет подходящих последовательностей",
+  "Address": "Адрес",
+  "The address: Enter applies it, Escape puts it back": "Адрес: Enter применяет, Escape возвращает прежний"
 }

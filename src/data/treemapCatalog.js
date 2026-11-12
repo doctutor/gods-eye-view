@@ -352,8 +352,8 @@ export const TREEMAP_VARIABLES = Object.freeze(
         sequence(
           'count/aircraft://admin.country/aircraft.class',
           msg('Countries, then classes'),
+          // The window labels the aircraft through POST /api/treemap/label.
           msg('Whose sky the aircraft are in.'),
-          'label-endpoint',
         ),
       ],
     },

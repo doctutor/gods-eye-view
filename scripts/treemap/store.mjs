@@ -49,18 +49,25 @@ export function isCurrent(dir, entry, signature) {
 /**
  * Write one JSON file under the directory and switch the manifest's entry
  * (`tables` by variable, or `files` by name) to it; the entry's old file
- * goes once the manifest names the new one.
+ * goes once the manifest names the new one. `binary`, when given, is
+ * written first beside it (the entry's `data`).
  */
 export function publish(
   dir,
-  { section, name, json, signature, seconds, extra = {} },
+  { section, name, json, signature, seconds, extra = {}, binary = null },
 ) {
   fs.mkdirSync(path.join(dir, 'tables'), { recursive: true });
-  const file = `tables/${tableStem(name)}-${signature}.json`;
+  const stem = `tables/${tableStem(name)}-${signature}`;
+  const file = `${stem}.json`;
+  if (binary) {
+    writeAtomic(path.join(dir, `${stem}.bin`), binary);
+    extra = { ...extra, data: `${stem}.bin`, dataBytes: binary.length };
+  }
   const text = JSON.stringify(json);
   writeAtomic(path.join(dir, file), text);
   const manifest = readManifest(dir);
   const old = manifest[section][name]?.file;
+  const oldData = manifest[section][name]?.data;
   manifest[section][name] = {
     file,
     signature,
@@ -74,11 +81,12 @@ export function publish(
     path.join(dir, TREEMAP_MANIFEST),
     JSON.stringify(manifest, null, 2),
   );
-  if (old && old !== file)
-    try {
-      fs.rmSync(path.join(dir, old));
-    } catch {
-      /* gone */
-    }
+  for (const gone of [old, oldData])
+    if (gone && gone !== file && gone !== manifest[section][name].data)
+      try {
+        fs.rmSync(path.join(dir, gone));
+      } catch {
+        /* gone */
+      }
   return manifest[section][name];
 }
