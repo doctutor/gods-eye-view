@@ -277,6 +277,23 @@ articles are at sea.
   stepped by the golden ratio so neighbours in size, which squarify sets
   side by side, part clearly, with four lightness steps; a child stays
   within 8° of its parent.
+- **Live by place**: a live variable cut by `admin.*` (aircraft "Countries,
+  then classes") posts its points to `POST /api/treemap/label` (at most
+  20,000 a call) and counts by the answers in the page: null is the
+  service's `ocean` tile, a point not yet answered (the service down) waits
+  in "Not placed yet". Each aircraft's or vessel's answer is kept 3 minutes,
+  or until it has moved half a degree, so a refresh posts only those.
+  Countries are named by the browser (`Intl.DisplayNames`, in the page's
+  language), continents by the shared table, regions by the service's area
+  table, asked once per country when the window is inside it. Vessels take
+  the same cuts. A live view is read again every 15 s while it is shown and
+  nothing is hovered.
+- **Product**: a `product` answer's tile shows its intensive value in the
+  hover card (land volume: the mean elevation in m), from the tile's `mean`
+  when the answer gives it, else `value ÷ base` (the window reads a
+  per-tile `base`, the base variable's value under it).
+- **Links**: a link carrying `tm` opens the panel unless its `ui` state
+  says how the panel was.
 - **Time cuts**: `history.period` (and any `time.*` grouping) is laid in
   its keys' order (start years, before Christ first) as strips left to
   right, each as wide as its share, the service's largest-first order put

@@ -7,7 +7,16 @@
  * A layer that is off answers its variable as unavailable, with the reason.
  */
 import { msg } from '../i18n/index.js';
-import { createRecordSource } from '../data/treemapSources.js';
+import {
+  createRecordSource,
+  createServiceSource,
+} from '../data/treemapSources.js';
+import {
+  adminGroupings,
+  adminPrepare,
+  createAdminNames,
+  createPointLabeller,
+} from './treemapLabels.js';
 import { AIRCRAFT_CLASS_LABELS } from '../data/aircraftClass.js';
 import { normalizeVesselType } from '../data/vesselLabels.js';
 
@@ -67,9 +76,20 @@ export function vesselTypeOf(record) {
 
 /**
  * @param {{layers: () => Map<string, {module?: object, enabled?: boolean}>|
- *   null}} options `layers()`: the data manager's layer map, read each time
+ *   null, service?: object, labeller?: object, names?: object}} options
+ *   `layers()`: the data manager's layer map, read each time; `service`
+ *   labels the points (POST /api/treemap/label) and names the regions
  */
-export function createLiveTreemapSource({ layers }) {
+export function createLiveTreemapSource({
+  layers,
+  service = createServiceSource(),
+  labeller = createPointLabeller({ service }),
+  names = createAdminNames({ service }),
+}) {
+  // Aircraft and vessels share the labeller: their ids are told apart.
+  const aircraftId = (record) => `a:${record.icao24}`;
+  const vesselId = (record) => `v:${record.mmsi}`;
+  const pointOf = (record) => ({ lon: record.lon, lat: record.lat });
   const moduleOf = (id) => {
     const entry = layers?.()?.get?.(id);
     const module = entry?.module ?? entry ?? null;
@@ -97,6 +117,9 @@ export function createLiveTreemapSource({ layers }) {
   return createRecordSource({
     id: 'live',
     groupingInfo: {
+      'admin.continent': { kind: 'hierarchy' },
+      'admin.country': { kind: 'hierarchy', parent: 'admin.continent' },
+      'admin.region': { kind: 'hierarchy', parent: 'admin.country' },
       'aircraft.class': { kind: 'hierarchy' },
       'aircraft.type': { kind: 'hierarchy', parent: 'aircraft.class' },
       'vessel.family': { kind: 'hierarchy' },
@@ -109,9 +132,11 @@ export function createLiveTreemapSource({ layers }) {
         ...live(LIVE_LAYER_IDS.aircraft),
         records: () => read(LIVE_LAYER_IDS.aircraft),
         groupings: {
+          ...adminGroupings({ labeller, names, idOf: aircraftId }),
           'aircraft.class': aircraftClassOf,
           'aircraft.type': aircraftTypeOf,
         },
+        prepare: adminPrepare({ labeller, names, idOf: aircraftId, pointOf }),
         box: (record) => pointBox(record.lat, record.lon),
         note: LIVE_NOTE,
         attribution: 'OpenSky Network / ADS-B · adsbdb',
@@ -122,9 +147,11 @@ export function createLiveTreemapSource({ layers }) {
         ...live(LIVE_LAYER_IDS.vessels),
         records: () => read(LIVE_LAYER_IDS.vessels),
         groupings: {
+          ...adminGroupings({ labeller, names, idOf: vesselId }),
           'vessel.family': vesselFamilyOf,
           'vessel.type': vesselTypeOf,
         },
+        prepare: adminPrepare({ labeller, names, idOf: vesselId, pointOf }),
         box: (record) => pointBox(record.lat, record.lon),
         note: LIVE_NOTE,
         attribution: 'AISStream',

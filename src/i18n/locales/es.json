@@ -4221,5 +4221,9 @@
   "Filter sequences": "Filtrar secuencias",
   "No sequence matches": "Ninguna secuencia coincide",
   "Address": "Dirección",
-  "The address: Enter applies it, Escape puts it back": "La dirección: Intro la aplica, Escape la restablece"
+  "The address: Enter applies it, Escape puts it back": "La dirección: Intro la aplica, Escape la restablece",
+  "Not placed yet": "Aún sin ubicar",
+  "Continent not known": "Continente desconocido",
+  "{what}: {value}": "{what}: {value}",
+  "mean": "media"
 }
