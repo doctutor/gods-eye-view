@@ -4229,5 +4229,21 @@
   "Towns": "Малые города",
   "Villages": "Сёла",
   "Hamlets": "Хутора",
-  "Other localities": "Другие населённые пункты"
+  "Other localities": "Другие населённые пункты",
+  "English": "Английский",
+  "German": "Немецкий",
+  "French": "Французский",
+  "Spanish": "Испанский",
+  "Russian": "Русский",
+  "Japanese": "Японский",
+  "Chinese": "Китайский",
+  "Italian": "Итальянский",
+  "Portuguese": "Португальский",
+  "Polish": "Польский",
+  "Dutch": "Нидерландский",
+  "Food and drink": "Еда и напитки",
+  "Lodging": "Жильё",
+  "Places of worship": "Места поклонения",
+  "Recreation and culture": "Отдых и культура",
+  "Services and other": "Услуги и прочее"
 }

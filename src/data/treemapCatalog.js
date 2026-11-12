@@ -141,6 +141,38 @@ export const TREEMAP_LABELS = Object.freeze({
     hamlet: msg('Hamlets'),
     locality: msg('Other localities'),
   }),
+  languages: Object.freeze({
+    en: msg('English'),
+    de: msg('German'),
+    fr: msg('French'),
+    es: msg('Spanish'),
+    ru: msg('Russian'),
+    ja: msg('Japanese'),
+    zh: msg('Chinese'),
+    it: msg('Italian'),
+    pt: msg('Portuguese'),
+    pl: msg('Polish'),
+    nl: msg('Dutch'),
+  }),
+  placeCategories: Object.freeze({
+    food: msg('Food and drink'),
+    shopping: msg('Shopping'),
+    health: msg('Health'),
+    education: msg('Education'),
+    transport: msg('Transport'),
+    lodging: msg('Lodging'),
+    public: msg('Public services'),
+    religion: msg('Places of worship'),
+    recreation: msg('Recreation and culture'),
+    charging: msg('EV charging'),
+    other: msg('Services and other'),
+  }),
+  articleClasses: Object.freeze({
+    place: msg('Places'),
+    landmark: msg('Landmarks'),
+    nature: msg('Nature'),
+    other: msg('Other articles'),
+  }),
 });
 
 const ADMIN = [

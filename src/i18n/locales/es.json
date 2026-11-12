@@ -4136,5 +4136,21 @@
   "Towns": "Pueblos grandes",
   "Villages": "Pueblos",
   "Hamlets": "Aldeas",
-  "Other localities": "Otras localidades"
+  "Other localities": "Otras localidades",
+  "English": "Inglés",
+  "German": "Alemán",
+  "French": "Francés",
+  "Spanish": "Español",
+  "Russian": "Ruso",
+  "Japanese": "Japonés",
+  "Chinese": "Chino",
+  "Italian": "Italiano",
+  "Portuguese": "Portugués",
+  "Polish": "Polaco",
+  "Dutch": "Neerlandés",
+  "Food and drink": "Comida y bebida",
+  "Lodging": "Alojamiento",
+  "Places of worship": "Lugares de culto",
+  "Recreation and culture": "Ocio y cultura",
+  "Services and other": "Servicios y otros"
 }
