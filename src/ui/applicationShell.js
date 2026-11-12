@@ -1354,6 +1354,16 @@ export class StyleManager extends ShellFacade {
     return this._panelChrome.setPanelCollapsed(...arguments);
   }
 
+  /** Personal fork: a portable panel as a larger window (the TREEMAP pop-out). */
+  popOutPanel(panelId, size) {
+    return this._panelChrome?.popOutPanel(panelId, size) === true;
+  }
+
+  /** Personal fork: a floating portable panel back in its rail. */
+  dockPanel(panelId) {
+    return this._panelChrome?.dockPanel(panelId) === true;
+  }
+
   /**
    * Toggles "clean view" mode which hides all UI panels via a CSS body class.
    * @param {boolean} [forceEnabled] - Explicit on/off. Omit to toggle.

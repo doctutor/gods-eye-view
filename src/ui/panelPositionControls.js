@@ -234,6 +234,7 @@ export class PanelPositionControls {
     this._dragInitialized = true;
     const cctvPanel = document.getElementById('cctv-panel');
     const streetLevelPanel = document.getElementById('street-level-panel');
+    const treemapPanel = document.getElementById('treemap-panel');
     // A `portable` panel lifts out of its rail on a header drag, resizes from
     // every edge and remembers its window; the others only reposition.
     const dragSpecs = [
@@ -257,6 +258,14 @@ export class PanelPositionControls {
         min: { width: 320, height: 280 },
         // Shrinking the window to its strip docks it, so it never sits
         // over the globe as a stray header.
+        dockOnCollapse: true,
+      },
+      {
+        id: 'treemap-panel',
+        panel: treemapPanel,
+        handle: treemapPanel?.querySelector('.panel-header'),
+        portable: true,
+        min: { width: 320, height: 260 },
         dockOnCollapse: true,
       },
     ].filter(Boolean);
@@ -626,6 +635,42 @@ export class PanelPositionControls {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', cancel);
+  }
+
+  /**
+   * Personal fork: lift a portable panel out of its rail as a window of
+   * `width` × `height` (px, kept inside the viewport) centred on the
+   * viewport, and remember it, as a header drag would (the TREEMAP
+   * window's pop-out). A panel already floating is resized in place.
+   * @returns {boolean} Whether the panel is now that window.
+   */
+  popOutPanel(panelId, { width, height } = {}) {
+    const portable = this._portablePanels.get(panelId);
+    if (!portable) return false;
+    const panelEl = portable.panel;
+    if (panelEl.classList.contains('collapsed')) return false;
+    this._liftPanelOut(panelId, panelEl);
+    const w = fitWindowExtent(
+      width ?? panelEl.offsetWidth,
+      portable.min.width,
+      window.innerWidth,
+    );
+    const h = fitWindowExtent(
+      height ?? panelEl.offsetHeight,
+      portable.min.height,
+      window.innerHeight,
+    );
+    panelEl.style.width = `${w}px`;
+    panelEl.style.height = `${h}px`;
+    placeAt(
+      panelEl,
+      Math.max(VIEWPORT_MARGIN_PX, Math.round((window.innerWidth - w) / 2)),
+      Math.max(VIEWPORT_MARGIN_PX, Math.round((window.innerHeight - h) / 2)),
+    );
+    this._reclampPortablePanel(portable);
+    this._savePanelPosition(panelId, panelEl);
+    this._onPanelResized?.(panelId);
+    return true;
   }
 
   /** @returns {boolean} Whether the panel was floating and is now docked. */

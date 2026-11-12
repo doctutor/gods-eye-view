@@ -256,6 +256,20 @@ export function createQueries({
     vesselDatumHeightM,
     reduceVesselSelection,
 
+    /**
+     * Personal fork: the live vessels for the TREEMAP window's page-local
+     * source (app/treemapLive.js): {mmsi, type, lat, lon} each, read now.
+     * @returns {object[]}
+     */
+    treemapRecords() {
+      return state.records.all.map((record) => ({
+        mmsi: record.mmsi,
+        type: record.type,
+        lat: record.lat,
+        lon: record.lon,
+      }));
+    },
+
     id: 'ais-live-vessels',
 
     name: 'Live AIS Vessels',

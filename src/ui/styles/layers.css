@@ -163,6 +163,7 @@
 #right-context-rail > #pp-toggles,
 #right-context-rail > #cctv-panel:not(.panel-floating),
 #right-context-rail > #street-level-panel:not(.panel-floating),
+#right-context-rail > #treemap-panel:not(.panel-floating),
 #right-context-rail > #weather-panel,
 #right-context-rail > #recent-imagery-panel,
 #right-context-rail > #custom-cutouts-panel,
@@ -180,6 +181,7 @@
 }
 #right-context-rail #cctv-panel:not(.panel-floating),
 #right-context-rail #street-level-panel:not(.panel-floating),
+#right-context-rail #treemap-panel:not(.panel-floating),
 #right-context-rail #weather-panel,
 #right-context-rail #recent-imagery-panel,
 #right-context-rail #custom-cutouts-panel,
@@ -192,7 +194,8 @@
 /* Collapsed, it must stay hideable by the rail's exclusive layout. */
 #right-context-rail > #recent-imagery-panel:not(.collapsed),
 #right-context-rail > #custom-cutouts-panel:not(.collapsed),
-#right-context-rail > #world-history-panel:not(.collapsed) {
+#right-context-rail > #world-history-panel:not(.collapsed),
+#right-context-rail > #treemap-panel:not(.collapsed):not(.panel-floating) {
   display: flex;
   flex-direction: column;
   flex-shrink: 1;
@@ -203,7 +206,8 @@
 #right-context-rail #weather-panel.collapsed,
 #right-context-rail #recent-imagery-panel.collapsed,
 #right-context-rail #custom-cutouts-panel.collapsed,
-#right-context-rail #world-history-panel.collapsed {
+#right-context-rail #world-history-panel.collapsed,
+#right-context-rail #treemap-panel.collapsed:not(.panel-floating) {
   width: var(--right-display-collapsed-width);
   margin-left: auto;
 }
@@ -287,6 +291,8 @@
 #right-context-rail.layout-focus > #recent-imagery-panel:not(.collapsed),
 #right-context-rail.layout-focus > #custom-cutouts-panel:not(.collapsed),
 #right-context-rail.layout-focus > #world-history-panel:not(.collapsed),
+#right-context-rail.layout-focus
+  > #treemap-panel:not(.collapsed):not(.panel-floating),
 #right-context-rail.layout-focus > #global-context-panel:not(.collapsed) {
   flex: 0 1 var(--right-panel-allocated-height);
   height: var(--right-panel-allocated-height);
@@ -317,6 +323,9 @@
 #right-context-rail.layout-focus
   > #world-history-panel:not(.collapsed)
   .world-history-panel-inner,
+#right-context-rail.layout-focus
+  > #treemap-panel:not(.collapsed):not(.panel-floating)
+  .treemap-panel-inner,
 #right-context-rail.layout-focus
   > #global-context-panel:not(.collapsed)
   .global-context-panel-inner {
@@ -1417,7 +1426,8 @@ body.recording-mode #right-context-rail > [data-panel-id] {
   #right-context-rail #weather-panel.collapsed,
   #right-context-rail #recent-imagery-panel.collapsed,
   #right-context-rail #custom-cutouts-panel.collapsed,
-  #right-context-rail #world-history-panel.collapsed {
+  #right-context-rail #world-history-panel.collapsed,
+  #right-context-rail #treemap-panel.collapsed:not(.panel-floating) {
     width: 100%;
   }
 }
