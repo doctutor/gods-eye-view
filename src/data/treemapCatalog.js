@@ -124,6 +124,25 @@ export const TREEMAP_NEEDS = Object.freeze({
   'label-endpoint': msg('the label endpoint for live points'),
 });
 
+/**
+ * The labels of tiles the tables make rather than read: the planet's
+ * remainder, the part of a parent its children leave, the long tail of
+ * places, and the kinds of place. English, for t() in the window.
+ */
+export const TREEMAP_LABELS = Object.freeze({
+  ocean: msg('Oceans and unclaimed'),
+  noRegion: msg('No region'),
+  noDistrict: msg('No district'),
+  otherPlaces: msg('Other places'),
+  kinds: Object.freeze({
+    city: msg('Cities'),
+    town: msg('Towns'),
+    village: msg('Villages'),
+    hamlet: msg('Hamlets'),
+    locality: msg('Other localities'),
+  }),
+});
+
 const ADMIN = [
   'admin.continent',
   'admin.country',

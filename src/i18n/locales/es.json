@@ -4121,5 +4121,20 @@
   "There is no variable \"{variable}\"": "No existe la variable \"{variable}\"",
   "There is no grouping \"{grouping}\"": "No existe la agrupación \"{grouping}\"",
   "{variable} cannot be cut by {grouping}": "{variable} no puede dividirse por {grouping}",
-  "{variable} needs {grouping} as its first grouping": "{variable} necesita {grouping} como primera agrupación"
+  "{variable} needs {grouping} as its first grouping": "{variable} necesita {grouping} como primera agrupación",
+  "Africa": "África",
+  "Antarctica": "Antártida",
+  "Asia": "Asia",
+  "Europe": "Europa",
+  "Oceania": "Oceanía",
+  "South America": "América del Sur",
+  "Oceans and unclaimed": "Océanos y tierras sin reclamar",
+  "No region": "Sin región",
+  "No district": "Sin distrito",
+  "Other places": "Otros lugares",
+  "Cities": "Ciudades",
+  "Towns": "Pueblos grandes",
+  "Villages": "Pueblos",
+  "Hamlets": "Aldeas",
+  "Other localities": "Otras localidades"
 }

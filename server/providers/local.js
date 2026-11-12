@@ -52,6 +52,8 @@ import { propertyProxy } from './property.js';
 import { mdParcelsProxy } from './mdParcels.js';
 // Personal fork: the World history layer's index.
 import { worldHistoryProxy } from './worldHistory.js';
+// Personal fork: the treemap navigator's tables.
+import { treemapProxy } from './treemap.js';
 // Personal fork: raster values (numbers, not tiles) for the Lego mode.
 import { rasterValuesProxy } from './rasterValues.js';
 // Personal fork: the precomputed Blocks tilesets (milestone 6), read-only.
@@ -114,6 +116,7 @@ function localProviderPlugins({ realtime } = {}) {
     blocksTilesProxy({ sourceRoot: defaultSourceRoot }),
     mdParcelsProxy({ sourceRoot: defaultSourceRoot }),
     worldHistoryProxy({ sourceRoot: defaultSourceRoot }),
+    treemapProxy({ sourceRoot: defaultSourceRoot }),
     firePerimetersProxy(),
     gnssIntegrityProxy(),
     keySetupEndpoint(),
