@@ -71,6 +71,8 @@
     "property:build": "node scripts/property/index.mjs build",
     "property:status": "node scripts/property/index.mjs status",
     "world-history:build": "node scripts/worldHistory/index.mjs build",
+    "treemap:build": "node scripts/treemap/index.mjs build",
+    "treemap:status": "node scripts/treemap/index.mjs status",
     "world-history:status": "node scripts/worldHistory/index.mjs status",
     "overpass:status": "node scripts/overpass-status.mjs",
     "overpass:recover": "node scripts/overpass-status.mjs --recover",
