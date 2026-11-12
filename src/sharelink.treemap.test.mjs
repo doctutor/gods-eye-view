@@ -8,6 +8,7 @@ import {
   SHARE_PANEL_TOKENS,
   SHARE_PANEL_RETIRED_TOKENS,
   SHARE_UI_OTHER_TOKENS,
+  withTreemapPanelOpen,
 } from './sharelink.js';
 
 const encode = (specs) => {
@@ -53,4 +54,38 @@ test('a retired token opens nothing, and no live panel reuses one', () => {
   for (const token of [...SHARE_PANEL_RETIRED_TOKENS, ...SHARE_UI_OTHER_TOKENS])
     assert.ok(!SHARE_PANEL_TOKENS.includes(token), token);
   assert.ok(SHARE_PANEL_TOKENS.includes('tm'));
+});
+
+test('a link carrying a treemap view opens the panel unless its ui state says otherwise', () => {
+  const view = encodeURIComponent(
+    'count/people://admin.continent/admin.country|asia',
+  );
+  const open = (hash) => {
+    const params = new URLSearchParams(hash);
+    return withTreemapPanelOpen(decodePanelStateParams(params), params);
+  };
+  assert.deepEqual(open(`v=2&lat=1&lon=2&tm=${view}`), {
+    specs: [{ id: 'treemap-panel', collapsed: false, pinned: null }],
+  });
+  // Beside another panel's state.
+  assert.deepEqual(
+    open(`v=2&ui=v.c.1&tm=${view}`).specs.map(({ id, collapsed }) => [
+      id,
+      collapsed,
+    ]),
+    [
+      ['cctv-panel', true],
+      ['treemap-panel', false],
+    ],
+  );
+  // The link's own word on the panel wins.
+  assert.equal(
+    open(`v=2&ui=tm.c.1&tm=${view}`).specs.find(
+      (spec) => spec.id === 'treemap-panel',
+    ).collapsed,
+    true,
+  );
+  // No treemap view, or a bad one: nothing opens.
+  assert.equal(open('v=2&lat=1&lon=2'), null);
+  assert.equal(open('v=2&tm=not-an-address'), null);
 });

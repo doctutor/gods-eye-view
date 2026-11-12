@@ -324,3 +324,16 @@ test('time cuts: periods draw in order with a gradient from early to late', asyn
   assert.equal(hsl(tileColour(late, []))[0], orderHue(1));
   assert.ok(hueGap(orderHue(0), orderHue(1)) > 120);
 });
+
+test('a product tile shows its intensive value: its mean, or total ÷ base', async () => {
+  const { productMean, productUnit } = await import('./treemapPanel.js');
+  assert.equal(productMean({ value: 4.1e15, base: 1e13 }), 410);
+  assert.equal(productMean({ value: 1, mean: 7 }), 7);
+  assert.equal(productMean({ value: 5 }), null);
+  assert.equal(productMean({ value: 5, base: 0 }), null);
+  assert.equal(productUnit('m3', { base: 'm2/surface-area' }), 'm');
+  assert.equal(
+    formatValue(410, productUnit('m3', { base: 'm2/surface-area' })),
+    '410 m',
+  );
+});
