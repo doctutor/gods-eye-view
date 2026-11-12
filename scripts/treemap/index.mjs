@@ -22,6 +22,8 @@ import { coverageGridFile } from '../../server/providers/wikipediaCoverage.js';
 import {
   LABELLER_VERSION,
   createLabeller,
+  openStoredLabeller,
+  storeLabels,
 } from '../../server/providers/treemap/labeller.js';
 import {
   WIKIPEDIA_TABLE_VERSION,
@@ -63,6 +65,7 @@ const ROOT = path.resolve(
 );
 export const TREEMAP_STEPS = Object.freeze([
   'areas',
+  'labels',
   'people',
   'polities',
   'wikipedia',
@@ -233,8 +236,50 @@ export async function buildTreemap({
     );
   }
 
+  // The stored labelling (table 2): every land tile drawn once, read by
+  // the steps below and by the server's /label.
+  const labelsSignature = signatureOf({
+    labels: LABELLER_VERSION,
+    areas: areasId,
+  });
+  const labelsCurrent = () =>
+    isCurrent(dir, readManifest(dir).files.labels, labelsSignature);
+  if (wants('labels') && (force || !labelsCurrent())) {
+    const started = performance.now();
+    const drawing = createLabeller({ areasDir });
+    const { index, bytes } = storeLabels(drawing, log);
+    drawing.close();
+    const seconds = (performance.now() - started) / 1000;
+    done.labels = publish(dir, {
+      section: 'files',
+      name: 'labels',
+      json: index,
+      signature: labelsSignature,
+      seconds,
+      binary: bytes,
+      extra: {
+        tiles: Object.keys(index.tiles).length,
+        inputs: { areas: areasId },
+      },
+    });
+    log(
+      `labels: ${done.labels.tiles} tiles, ${seconds.toFixed(1)} s, ${(bytes.length / 1e6).toFixed(2)} MB`,
+    );
+  } else if (wants('labels')) log('labels: current');
+
   let labeller = null;
-  const labellerOf = () => (labeller ||= createLabeller({ areasDir }));
+  const labellerOf = () => {
+    if (labeller) return labeller;
+    const entry = readManifest(dir).files.labels;
+    if (labelsCurrent()) {
+      labeller = openStoredLabeller({
+        index: JSON.parse(fs.readFileSync(path.join(dir, entry.file), 'utf8')),
+        file: path.join(dir, entry.data),
+      });
+      labeller.units = areas.units;
+    } else labeller = createLabeller({ areasDir });
+    return labeller;
+  };
 
   if (wants('polities')) {
     const historyDir = worldHistoryCacheDir(env, root);

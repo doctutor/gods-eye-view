@@ -80,7 +80,6 @@ test("the first set is the plan's table: its variables in order, their modes and
   );
   assert.deepEqual(needs, [
     ['m2/surface-area://admin.country*landcover.class', 'landcover-by-country'],
-    ['count/aircraft://admin.country/aircraft.class', 'label-endpoint'],
     ['m3/land-volume://admin.continent/admin.country', 'elevation-by-country'],
   ]);
 });

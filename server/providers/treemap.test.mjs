@@ -164,7 +164,7 @@ test('the build: areas up the ISO links with remainders, people by place, and no
   const { root, env, dir } = await fixture(t);
   const lines = [];
   const first = await buildTreemap({ root, env, log: (l) => lines.push(l) });
-  assert.deepEqual(Object.keys(first.done), ['areas', 'people']);
+  assert.deepEqual(Object.keys(first.done), ['areas', 'people', 'labels']);
   assert.ok(
     lines.some((l) => /no continent for ZZ/.test(l)),
     lines.join('\n'),
@@ -178,8 +178,9 @@ test('the build: areas up the ISO links with remainders, people by place, and no
     force: true,
   });
   assert.deepEqual(Object.keys(forced.done), ['people']);
-  // One file per table: the forced rebuild replaced its own.
-  assert.equal(fs.readdirSync(path.join(dir, 'tables')).length, 3);
+  // One file per table (the labelling's two): the forced rebuild replaced
+  // its own.
+  assert.equal(fs.readdirSync(path.join(dir, 'tables')).length, 5);
 
   const service = createTreemapService({ dir, sourceRoot: root, env });
   const address =
@@ -768,4 +769,76 @@ test('places by category from the H3 counts; buildings, footprint and volume fro
   });
   assert.equal(volume.body.total.value, 500 + 50 * 10 + 20 * 5);
   assert.match(volume.body.note, /europe build only/);
+});
+
+test('POST /label: live points to their units in order, at sea null; the body checked', async (t) => {
+  const { EventEmitter } = await import('node:events');
+  const { root, env, dir } = await fixture(t);
+  // Before the labelling is built, /label says what to build.
+  const before = createTreemapService({ dir, sourceRoot: root, env });
+  assert.equal(before.label({ points: [] }).status, 503);
+  const built = await buildTreemap({ root, env, only: ['labels'] });
+  assert.ok(built.done.labels.tiles >= 1);
+  assert.ok(built.done.labels.dataBytes > 0);
+  const service = createTreemapService({ dir, sourceRoot: root, env });
+  const handler = createTreemapHandler({ service });
+  const post = (body, method = 'POST') =>
+    new Promise((resolve) => {
+      const req = new EventEmitter();
+      Object.assign(req, {
+        method,
+        url: '/label',
+        headers: { host: 'localhost:4173' },
+        socket: {},
+      });
+      const res = {
+        statusCode: 200,
+        setHeader() {},
+        end(text) {
+          resolve({ status: this.statusCode, body: JSON.parse(text) });
+        },
+      };
+      handler(req, res, () => resolve({ status: 'next' }));
+      if (method === 'POST') {
+        req.emit('data', Buffer.from(body));
+        req.emit('end');
+      }
+    });
+  const answer = await post(
+    JSON.stringify({ points: [[0.5, 42], [-30, 30], 'x', [2.5, 42]] }),
+  );
+  assert.equal(answer.status, 200);
+  assert.deepEqual(answer.body, {
+    units: [
+      { country: 'FR', region: 'FR-A', district: 'fr-a1' },
+      null,
+      null,
+      { country: 'FR', region: 'FR-B', district: null },
+    ],
+  });
+  assert.equal((await post('not json')).status, 400);
+  assert.equal((await post('{"points": 3}')).status, 400);
+  assert.equal(
+    (await post(JSON.stringify({ points: new Array(20_001).fill([0, 0]) })))
+      .status,
+    400,
+  );
+  assert.equal((await post('', 'GET')).status, 405);
+  // The stored labelling answers as the drawn one does.
+  const { createLabeller } = await import('./treemap/labeller.js');
+  const drawn = createLabeller({
+    areasDir: path.join(root, 'overture', 'build', 'areas'),
+  });
+  t.after(() => drawn.close());
+  for (let lon = -1; lon <= 12; lon += 0.37)
+    for (let lat = 39; lat <= 45; lat += 0.41)
+      assert.deepEqual(
+        service.label({ points: [[lon, lat]] }).body.units[0],
+        drawn.label(lon, lat),
+        `${lon}, ${lat}`,
+      );
+  assert.equal(
+    (await buildTreemap({ root, env, only: ['labels'] })).done.labels,
+    undefined,
+  );
 });

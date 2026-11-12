@@ -13,8 +13,10 @@ export const TREEMAP_ROUTE = '/api/treemap';
  *   GET /api/treemap/catalog
  *   GET /api/treemap/node?address=&path=<key>/<key>…&depth=1|2&limit=&offset=
  *   GET /api/treemap/geo?ref=<GeoRef>
+ *   POST /api/treemap/label  { points: [[lon, lat]…] } → { units: […] }
  *
- * Same-site and GET only, read-only. A node carries an ETag on its table's
+ * Same-site; GET only but for /label, which reads its points and writes
+ * nothing. A node carries an ETag on its table's
  * build, so a repeated question is a 304 until the table is rebuilt.
  */
 
@@ -24,6 +26,42 @@ function send(res, status, body, { etag = '', cache = 'no-store' } = {}) {
   res.setHeader('Cache-Control', cache);
   if (etag) res.setHeader('ETag', etag);
   res.end(typeof body === 'string' ? body : JSON.stringify(body));
+}
+
+/** The most bytes a /label body may hold (20,000 points as JSON). */
+export const LABEL_BODY_LIMIT = 1_000_000;
+
+/** A request's JSON body, at most `limit` bytes: the value, or an error. */
+function readJson(req, limit) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    let size = 0;
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      resolve(value);
+    };
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        finish({ error: `The body is over ${limit} bytes`, status: 413 });
+        req.destroy?.();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      try {
+        finish({ value: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+      } catch {
+        finish({ error: 'The body is not JSON', status: 400 });
+      }
+    });
+    req.on('error', () =>
+      finish({ error: 'The body did not arrive', status: 400 }),
+    );
+  });
 }
 
 const integer = (raw, fallback, min, max) => {
@@ -38,9 +76,23 @@ export function createTreemapHandler({ service }) {
     if (admitSameSite(req, res)) return;
     const url = new URL(req.url || '/', 'http://localhost');
     const route = url.pathname.replace(/\/+$/, '') || '/';
-    if (!['/catalog', '/node', '/geo'].includes(route)) {
+    if (!['/catalog', '/node', '/geo', '/label'].includes(route)) {
       if (typeof next === 'function') return next();
       return send(res, 404, { error: 'Not found' });
+    }
+    if (route === '/label') {
+      if (req.method !== 'POST')
+        return send(res, 405, { error: 'Method not allowed' });
+      return readJson(req, LABEL_BODY_LIMIT).then((read) => {
+        if (read.error) return send(res, read.status, { error: read.error });
+        try {
+          const answer = service.label(read.value);
+          return send(res, answer.status, answer.body);
+        } catch (error) {
+          console.warn('[Treemap] label failed:', error?.message);
+          return send(res, 500, { error: 'Treemap unavailable' });
+        }
+      });
     }
     if (req.method !== 'GET')
       return send(res, 405, { error: 'Method not allowed' });

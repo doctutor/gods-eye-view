@@ -9,6 +9,7 @@ import { cellToBoundary, isValidCell } from 'h3-js';
 import { decodeAreaRecord } from '../overtureAreas/format.js';
 import { mercatorLatitude } from './geodesy.js';
 import { openTable } from './table.js';
+import { openStoredLabeller } from './labeller.js';
 import {
   NEEDS_TREEMAP_BUILD,
   TREEMAP_MANIFEST,
@@ -30,6 +31,8 @@ const STAT_EVERY_MS = 5000;
 /** Tables kept open at once (each a few MB of typed arrays). */
 const KEPT_TABLES = 12;
 const LIVE_WHY = 'Counted in the window from the live layers';
+/** Points one /label request may carry. */
+export const LABEL_POINTS_LIMIT = 20_000;
 
 const bad = (error) => ({ status: 400, body: { error } });
 
@@ -284,10 +287,62 @@ export function createTreemapService({
     );
   }
 
+  // The stored labelling the build wrote (manifest files.labels), opened
+  // when first asked and again when the build replaces it.
+  let labelling = null;
+  function labeller() {
+    const entry = manifest()?.files?.labels;
+    if (!entry?.data) {
+      labelling?.value.close();
+      labelling = null;
+      return null;
+    }
+    if (labelling?.file === entry.file) return labelling.value;
+    labelling?.value.close();
+    labelling = {
+      file: entry.file,
+      value: openStoredLabeller({
+        index: JSON.parse(fs.readFileSync(path.join(dir, entry.file), 'utf8')),
+        file: path.join(dir, entry.data),
+      }),
+    };
+    return labelling.value;
+  }
+
+  /**
+   * Live points' units: { points: [[lon, lat]…] } → { units: [{country,
+   * region, district} | null…] }, in the points' order; null at sea or for
+   * a point that is no point.
+   */
+  function label(body) {
+    const points = body?.points;
+    if (!Array.isArray(points))
+      return bad('The body is { points: [[lon, lat]…] }');
+    if (points.length > LABEL_POINTS_LIMIT)
+      return bad(`At most ${LABEL_POINTS_LIMIT} points a request`);
+    const labelling = labeller();
+    if (!labelling)
+      return { status: 503, body: { error: NEEDS_TREEMAP_BUILD } };
+    const units = points.map((point) => {
+      if (!Array.isArray(point)) return null;
+      const [lon, lat] = point.map(Number);
+      const found = labelling.label(lon, lat);
+      return found
+        ? {
+            country: found.country,
+            region: found.region,
+            district: found.district,
+          }
+        : null;
+    });
+    return { status: 200, body: { units } };
+  }
+
   return {
     catalog,
     node,
     geo,
+    label,
     status() {
       const value = manifest();
       return {
