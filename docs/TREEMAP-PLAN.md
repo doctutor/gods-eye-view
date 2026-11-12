@@ -155,10 +155,43 @@ Calls made where the plan was silent:
 - **Live variables.** Aircraft and vessels are `available: true` in the
   catalogue (the window counts them from the layers). `/node` answers
   them with a 400 saying so.
-- **The cell labelling.** Step 2's tables need no point labelling: the
-  localities carry their country and region. Labelling arrives with step 3:
-  points take the areas build's own z10 grid, with point-in-polygon only
-  where a cell's candidates disagree, as the areas service already does.
+- **The cell labelling** (server/providers/treemap/labeller.js). The
+  localities carry their own country and region, so people needs no
+  labelling. Every other store's points or cells are labelled from the
+  Overture areas rasterised one z 6 tile at a time: 1,024 pixels a side,
+  so a pixel is about 610 m at the equator. Larger units are drawn first,
+  so enclaves and disputed areas lie on top. A point reads its pixel;
+  one on a pixel no land covers (a coast) takes the nearest labelled
+  pixel within 2, else it is at sea, in the `ocean` tile. Exact
+  point-in-polygon against a country of a million points costs
+  milliseconds a point. With rasters, 200,000 points take under a second.
+  The rasters are drawn per build and per server and not stored, so there
+  is no separate table file.
+- **Places** come from the places index's H3 resolution 7 counts (about
+  5 km² a cell), each cell given whole to the unit holding its centre. All
+  places the index keeps count (confidence 0.5 and up). Its categories are
+  the Places layer's eleven, "other" included.
+- **Buildings, footprint and volume** come from the buildings build's D18
+  density cells (about 150 m), each labelled at its centre. The build covers
+  the conterminous US and Europe only, and the note says so. A volume is
+  Σ height × footprint over the known heights, plus the rest of the
+  footprint at the cell's mean known height, or 5 m where the cell knows
+  none.
+- **Wikipedia** counts each geotagged article of the eleven wikis once, at
+  its primary coordinate, in its own wiki's language. Its kind is the
+  points index's class (place, landmark, nature, other). Its bytes are the
+  article's size. Articles at sea go to the `ocean` tile. Wikipedia has no
+  district level; country and region only.
+- **Polity area** samples each 50-year period at its middle year (the
+  last, 2000–2024, at 2024). Relations are left out, and so is a member
+  (MemberOf) whose parent is alive then: the parent, a bracketed name like
+  "(British Empire)", holds its members' land. It is labelled without the
+  brackets, and the area is Cliopatria's. Periods come largest first, like
+  every level; the window may sort them by key (the start year) for a
+  timeline.
+- **Rows are refused when empty.** A step that reads its store but finds
+  no rows (a changed format) publishes nothing and says so. Each table's
+  version is in its signature, so a rule change rebuilds it once.
 
 Built on 2026-11-11 from the Overture areas build 21c6d7d7da09a9b1 and the
 localities build c572a53cd594, into `.gev-cache/treemap` (D:):
@@ -171,6 +204,19 @@ localities build c572a53cd594, into `.gev-cache/treemap` (D:):
 
 Land comes to 150.3 M km², 29.5% of the planet. The people in mapped
 places come to 5.16 billion.
+
+Step 3, built on 2026-11-12 while all 16 cores were taken by another
+project's browsers, so the times are roughly twice a quiet machine's:
+
+| Table                                                        |    Rows |             File | Build |
+| ------------------------------------------------------------ | ------: | ---------------: | ----: |
+| m2/polity-area (109 periods, Cliopatria via World history)   |   4,337 |          0.18 MB | 0.4 s |
+| count/wikipedia-articles and byte/wikipedia-text (2,640,556) |  44,025 | 1.12 and 1.27 MB | 217 s |
+| count/places (64,735,759 places in 2,277,190 res-7 cells)    | 324,502 |         11.48 MB | 191 s |
+| count/buildings, m2/building-footprint, m3/building-volume   |  15,192 | 1.9, 2.0, 2.0 MB | 361 s |
+
+The buildings come to 579,463,210 in 112,939,372 cells. 22,252 Wikipedia
+articles are at sea.
 
 ## The window (client)
 

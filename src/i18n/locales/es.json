@@ -4205,5 +4205,21 @@
   "Filter sequences": "Filtrar secuencias",
   "No sequence matches": "Ninguna secuencia coincide",
   "Address": "Dirección",
-  "The address: Enter applies it, Escape puts it back": "La dirección: Intro la aplica, Escape la restablece"
+  "The address: Enter applies it, Escape puts it back": "La dirección: Intro la aplica, Escape la restablece",
+  "English": "Inglés",
+  "German": "Alemán",
+  "French": "Francés",
+  "Spanish": "Español",
+  "Russian": "Ruso",
+  "Japanese": "Japonés",
+  "Chinese": "Chino",
+  "Italian": "Italiano",
+  "Portuguese": "Portugués",
+  "Polish": "Polaco",
+  "Dutch": "Neerlandés",
+  "Food and drink": "Comida y bebida",
+  "Lodging": "Alojamiento",
+  "Places of worship": "Lugares de culto",
+  "Recreation and culture": "Ocio y cultura",
+  "Services and other": "Servicios y otros"
 }
