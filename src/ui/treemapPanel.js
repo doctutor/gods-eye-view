@@ -178,6 +178,16 @@ export function productMean(tileNode) {
   return null;
 }
 
+/**
+ * An intensive value as read: an elevation in whole metres (1,046 m, not
+ * 1 km), anything else as formatValue writes it.
+ */
+export function formatMean(mean, unit) {
+  if (unit === 'm' && Number.isFinite(mean))
+    return `${formatNumber(Math.round(mean))} m`;
+  return formatValue(mean, unit);
+}
+
 /** The intensive value's unit: the variable's over its base's (m³/m² = m). */
 export function productUnit(unit, product) {
   const base = String(product?.base || '').split('/')[0];
@@ -710,7 +720,7 @@ export function createTreemapPanel({
         'treemap-card-value',
         t('{what}: {value}', {
           what: product?.intensive ? t(product.intensive) : t('mean'),
-          value: formatValue(mean, productUnit(unit, product)),
+          value: formatMean(mean, productUnit(unit, product)),
         }),
       ]);
     }
