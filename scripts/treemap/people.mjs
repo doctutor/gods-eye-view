@@ -18,7 +18,7 @@ import {
 } from '../../src/data/overtureDivisions.js';
 import { adminKeys } from './areas.mjs';
 
-export const PEOPLE_TABLE_VERSION = 1;
+export const PEOPLE_TABLE_VERSION = 2;
 export const PLACES_PER_REGION = 100;
 const RECORD_BYTES = 24;
 /** The settlement kinds counted (codes in the localities index). */
@@ -136,7 +136,7 @@ export function buildPeopleTable({ localitiesDir, units, log = () => {} }) {
       labels,
       geo,
       exact: false,
-      note: 'People in mapped places: the population OpenStreetMap or Overture gives each city, town, village and hamlet, not a census; a town may count its surroundings and a place inside another can be counted twice.',
+      note: 'People in mapped places: the population OpenStreetMap or Overture gives each city, town, village and hamlet, not a census; a town may count its surroundings and a place inside another can be counted twice. The 5.16 billion they add up to are about two thirds of the 7.79 billion GHSL counts for 2020: a country short of its census is short of mapped figures, not of people.',
       attribution: OVERTURE_ATTRIBUTION,
       asOf: manifest.release || undefined,
     }),

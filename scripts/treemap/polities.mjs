@@ -15,7 +15,7 @@ import path from 'node:path';
 import { encodeTable } from '../../server/providers/treemap/table.js';
 import { CLIOPATRIA_LAST_YEAR } from '../../src/data/worldHistory.js';
 
-export const POLITIES_TABLE_VERSION = 2;
+export const POLITIES_TABLE_VERSION = 3;
 export const PERIOD_YEARS = 50;
 export const FIRST_PERIOD = -3400;
 
@@ -89,7 +89,7 @@ export function buildPolitiesTable({ index, lastYear = CLIOPATRIA_LAST_YEAR }) {
       labels,
       geo,
       exact: false,
-      note: 'Each polity as Cliopatria draws it at the middle year of the period; land two polities claim counts in each.',
+      note: 'Each polity as Cliopatria draws it at the middle year of the period; land two polities claim counts in each. Above the periods the total is no area: periods are added, so the same land is counted once per period.',
       attribution: 'Cliopatria (Seshat Global History Databank), CC BY 4.0',
     }),
     stats: { periods, rows: rows.length },

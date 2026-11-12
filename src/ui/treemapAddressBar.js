@@ -242,15 +242,23 @@ export function sequenceEntries(variableId, catalog, filter = '') {
   return (variable?.sequences || [])
     .map((sequence) => {
       const parsed = parseTreemapAddress(sequence.address);
-      const first = parsed.ok ? parsed.groupings[0] : null;
+      // The first grouping, and any overlaid with `*`, must be served; a
+      // deeper `/` cut not built only stops the view there.
+      const missing =
+        served && parsed.ok
+          ? parsed.groupings.find(
+              (id, i) =>
+                (i === 0 || parsed.joins[i - 1] === '*') && !supported.has(id),
+            )
+          : null;
       const why = sequence.needs
         ? t('Waits on {cuts}', {
             cuts: TREEMAP_NEEDS[sequence.needs]
               ? t(TREEMAP_NEEDS[sequence.needs])
               : sequence.needs,
           })
-        : served && first && !supported.has(first)
-          ? t('Waits on {cuts}', { cuts: groupingName(first) })
+        : missing
+          ? t('Waits on {cuts}', { cuts: groupingName(missing) })
           : '';
       return {
         address: sequence.address,

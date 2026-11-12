@@ -13,7 +13,12 @@
 //   attribution, asOf?, dims: [grouping…], keys: [[key…] per dim],
 //   labels: [[label…] per dim], geo: [[GeoRef|null…] per dim],
 //   rows: [k0, k1, …, value, count, k0, …] } with each k an index into
-// its dimension's keys.
+// its dimension's keys. A product table (an intensive quantity times its
+// base: land volume, elevation × area) also has `base`: {label, unit,
+// intensive, intensiveUnit} (land area in m², mean elevation in m),
+// and each row its base after its count; a tile then carries
+// `base` (its base quantity: land area, m²) and `mean`, its value ÷ its
+// base (the mean elevation, m), as does the node's total.
 
 export const TABLE_FORMAT = 1;
 /** A remainder: the part of a parent its children do not cover. */
@@ -37,7 +42,8 @@ export const TABLE_ERRORS = Object.freeze({
  *   value: number, count?: number}[], labels?: Record<string,
  *   Record<string, string>>, geo?: Record<string, Record<string, string>>,
  *   exact?: boolean, note?: string, attribution: string, asOf?: string,
- *   signature?: string, builtAt?: string}} input
+ *   signature?: string, builtAt?: string, base?: {label: string, unit:
+ *   string}}} input with `base`, each row's `base` (the base quantity)
  */
 export function encodeTable(input) {
   const { dims } = input;
@@ -61,6 +67,7 @@ export function encodeTable(input) {
       rows.push(index);
     });
     rows.push(Math.round(row.value * 1000) / 1000, row.count ?? 1);
+    if (input.base) rows.push(Math.round((row.base || 0) * 1000) / 1000);
   }
   const perDim = (source) =>
     dims.map((dim, d) => keys[d].map((key) => source?.[dim]?.[key] ?? null));
@@ -73,6 +80,7 @@ export function encodeTable(input) {
     ...(input.note ? { note: input.note } : {}),
     attribution: input.attribution,
     ...(input.asOf ? { asOf: input.asOf } : {}),
+    ...(input.base ? { base: input.base } : {}),
     dims,
     keys,
     labels: perDim(input.labels).map((labels, d) =>
@@ -100,17 +108,20 @@ const failure = (key, values) => ({
 export function openTable(json) {
   if (json?.format !== TABLE_FORMAT) throw new Error('not a treemap table');
   const { dims } = json;
-  const width = dims.length + 2;
+  const hasBase = Boolean(json.base);
+  const width = dims.length + (hasBase ? 3 : 2);
   const rowCount = json.rows.length / width;
   const keyColumns = dims.map(() => new Int32Array(rowCount));
   const values = new Float64Array(rowCount);
   const counts = new Float64Array(rowCount);
+  const bases = new Float64Array(hasBase ? rowCount : 0);
   for (let r = 0; r < rowCount; r++) {
     const base = r * width;
     for (let d = 0; d < dims.length; d++)
       keyColumns[d][r] = json.rows[base + d];
     values[r] = json.rows[base + dims.length];
     counts[r] = json.rows[base + dims.length + 1];
+    if (hasBase) bases[r] = json.rows[base + dims.length + 2];
   }
   const keyIndex = dims.map(
     (dim, d) => new Map(json.keys[d].map((key, k) => [key, k])),
@@ -124,9 +135,11 @@ export function openTable(json) {
     for (const r of rows) {
       const k = column[r];
       let entry = out.get(k);
-      if (!entry) out.set(k, (entry = { value: 0, count: 0, rows: [] }));
+      if (!entry)
+        out.set(k, (entry = { value: 0, count: 0, base: 0, rows: [] }));
       entry.value += values[r];
       entry.count += counts[r];
+      if (hasBase) entry.base += bases[r];
       entry.rows.push(r);
     }
     return out;
@@ -143,6 +156,9 @@ export function openTable(json) {
   }
 
   const round = (value) => Math.round(value * 1000) / 1000;
+  /** A product's intensive quantity: value ÷ base, to 0.1. */
+  const intensive = (value, base) =>
+    base > 0 ? Math.round((value / base) * 10) / 10 : null;
 
   /** Children of some rows by dims[at], sorted, paged; recursing `depth`. */
   function children(rows, at, dimsOf, depth, limit, offset, total) {
@@ -165,6 +181,10 @@ export function openTable(json) {
       };
       const geo = json.geo[d][k];
       if (geo) child.geo = geo;
+      if (hasBase) {
+        child.base = round(entry.base);
+        child.mean = intensive(entry.value, entry.base);
+      }
       if (depth > 1 && child.hasChildren) {
         const inner = children(
           entry.rows,
@@ -243,6 +263,7 @@ export function openTable(json) {
       const rows = [];
       let value = 0;
       let count = 0;
+      let baseSum = 0;
       for (let r = 0; r < rowCount; r++) {
         let keep = true;
         for (let i = 0; i < wanted.length && keep; i++)
@@ -251,6 +272,7 @@ export function openTable(json) {
         rows.push(r);
         value += values[r];
         count += counts[r];
+        if (hasBase) baseSum += bases[r];
       }
       if (path.length && !rows.length)
         return failure('noKey', {
@@ -273,7 +295,13 @@ export function openTable(json) {
           label: json.labels[dimsOf[i]][wanted[i]],
           grouping: groupings[i],
         })),
-        total: { value: round(value), count },
+        total: {
+          value: round(value),
+          count,
+          ...(hasBase
+            ? { base: round(baseSum), mean: intensive(value, baseSum) }
+            : {}),
+        },
         level: { grouping: groupings[at] },
         children: list,
         rest,

@@ -167,6 +167,21 @@ export const TREEMAP_LABELS = Object.freeze({
     charging: msg('EV charging'),
     other: msg('Services and other'),
   }),
+  // ESA WorldCover's eleven classes (src/data/earthEngineLayers.js
+  // LAND_COVER_CLASSES), in its order.
+  landCover: Object.freeze({
+    'tree-cover': msg('Tree cover'),
+    shrubland: msg('Shrubland'),
+    grassland: msg('Grassland'),
+    cropland: msg('Cropland'),
+    'built-up': msg('Built-up'),
+    bare: msg('Bare / sparse vegetation'),
+    'snow-and-ice': msg('Snow and ice'),
+    water: msg('Permanent water bodies'),
+    wetland: msg('Herbaceous wetland'),
+    mangroves: msg('Mangroves'),
+    'moss-and-lichen': msg('Moss and lichen'),
+  }),
   articleClasses: Object.freeze({
     place: msg('Places'),
     landmark: msg('Landmarks'),
@@ -207,7 +222,6 @@ export const TREEMAP_VARIABLES = Object.freeze(
           'm2/surface-area://admin.country*landcover.class',
           msg('Countries by land cover'),
           msg('How much of each country is forest, crop, bare or built.'),
-          'landcover-by-country',
         ),
       ],
     },
@@ -388,7 +402,6 @@ export const TREEMAP_VARIABLES = Object.freeze(
           msg(
             'Elevation by surface area: Tibet and the Andes against the flat giants.',
           ),
-          'elevation-by-country',
         ),
       ],
     },
