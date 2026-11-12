@@ -337,3 +337,20 @@ test('a product tile shows its intensive value: its mean, or total ÷ base', asy
     '410 m',
   );
 });
+
+test('in the rail the TREEMAP keeps its content inside its own box', () => {
+  const css = readFileSync(
+    new URL('./styles/layers.css', import.meta.url),
+    'utf8',
+  );
+  // It scrolls inside its box when the rail gives it less than it needs…
+  assert.match(
+    css,
+    /#right-context-rail\s+#treemap-panel:not\(\.collapsed\):not\(\.panel-floating\)\s+\.treemap-panel-inner,[^{]*\{[^}]*max-height: 100%;[^}]*overflow-y: auto;/,
+  );
+  // …and is measured at its full height.
+  assert.match(
+    css,
+    /#right-context-rail\[data-rail-measuring\]\s+> \[data-panel-id\]:not\(\.collapsed\)\s+> \.treemap-panel-inner \{\s*height: auto !important;/,
+  );
+});

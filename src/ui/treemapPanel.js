@@ -28,6 +28,9 @@ const parseAddress = (address) => {
 
 /** The canvas's height in the rail, CSS px (a floating window fills). */
 export const RAIL_STAGE_PX = 240;
+/** A single click waits this long for a second one (a double-click flies
+ * and does not drill), ms. */
+export const CLICK_DELAY_MS = 250;
 /** A live variable is read again this often while shown (ms). */
 export const LIVE_REFRESH_MS = 15_000;
 /** Children asked a page. */
@@ -232,6 +235,20 @@ export function createTreemapPanel({
   let layout = null;
   let hovered = null;
   let offset = 0;
+  // The state the drawn tiles answer (address, path, page): a click acts
+  // only on tiles of the level the store is at, never on the last level's
+  // while the next one loads.
+  let shownFor = null;
+  const stateKey = () => {
+    const state = store.get();
+    return JSON.stringify([state.address, state.path, offset]);
+  };
+  // Crumb labels by address and path, from every answer and every tile
+  // clicked into, so a level that fails keeps the names of those above it.
+  const crumbLabels = new Map();
+  const crumbKey = (address, keys) =>
+    JSON.stringify([address, ...keys.map(String)]);
+  let pendingClick = null;
   let token = 0;
   let controller = null;
   let destroyed = false;
@@ -361,7 +378,13 @@ export function createTreemapPanel({
     const labels = node?.path || [];
     state.path.forEach((key, index) => {
       crumbs.append(el(documentRef, 'span', 'treemap-crumb-sep', '›'));
-      const label = translateKnown(labels[index]?.label ?? key);
+      const label = translateKnown(
+        labels[index]?.label ??
+          crumbLabels.get(
+            crumbKey(state.address, state.path.slice(0, index + 1)),
+          ) ??
+          key,
+      );
       const button = el(documentRef, 'button', 'treemap-crumb', String(label));
       button.type = 'button';
       button.title = groupingName(parsed?.groupings[index] ?? '');
@@ -503,6 +526,14 @@ export function createTreemapPanel({
       if (mine !== token || destroyed) return;
       node = answer;
       error = null;
+      shownFor = JSON.stringify([state.address, state.path, offset]);
+      (answer.path || []).forEach((step, index) => {
+        if (step?.label)
+          crumbLabels.set(
+            crumbKey(state.address, state.path.slice(0, index + 1)),
+            step.label,
+          );
+      });
       if (!state.path.length) wholes.set(state.address, answer.total?.value);
       else if (!wholes.has(state.address))
         // A link opened below the root: the whole, asked once.
@@ -651,11 +682,17 @@ export function createTreemapPanel({
     globe?.outline?.(null);
     draw();
   });
-  listen(canvas, 'click', (event) => {
-    if (!layout) return;
-    const { px, py } = pointer(event);
-    const tile = hitTest(layout.tiles, px, py);
-    if (!tile) return;
+  /** Into a tile (its label kept for the crumb). */
+  const enter = (tileNode) => {
+    const state = store.get();
+    if (tileNode.label)
+      crumbLabels.set(
+        crumbKey(state.address, [...state.path, tileNode.key]),
+        tileNode.label,
+      );
+    store.enter(tileNode.key);
+  };
+  const act = (tile) => {
     if (tile.more) {
       // The "…" of this level pages on; a parent's goes into the parent.
       if (tile.depth === 1) {
@@ -663,16 +700,41 @@ export function createTreemapPanel({
         load();
       } else {
         offset = tile.node.from;
-        store.enter(tile.parent.node.key);
+        enter(tile.parent.node);
       }
       return;
     }
     const top = tile.depth === 2 ? tile.parent : tile;
     if (!top.node.hasChildren) return;
     offset = 0;
-    store.enter(top.node.key);
+    enter(top.node);
+  };
+  const cancelClick = () => {
+    if (pendingClick) windowRef?.clearTimeout?.(pendingClick);
+    pendingClick = null;
+  };
+  listen(canvas, 'click', (event) => {
+    // The second click of a double-click is the double-click's.
+    if (event.detail >= 2) return cancelClick();
+    if (!layout || shownFor !== stateKey()) return;
+    const { px, py } = pointer(event);
+    const tile = hitTest(layout.tiles, px, py);
+    if (!tile) return;
+    cancelClick();
+    const at = stateKey();
+    const run = () => {
+      pendingClick = null;
+      // Still the level it was clicked on.
+      if (destroyed || shownFor !== at || stateKey() !== at) return;
+      act(tile);
+    };
+    if (windowRef?.setTimeout)
+      pendingClick = windowRef.setTimeout(run, CLICK_DELAY_MS);
+    else run();
   });
+  removers.push(cancelClick);
   listen(canvas, 'dblclick', (event) => {
+    cancelClick();
     if (!layout) return;
     const { px, py } = pointer(event);
     const tile = hitTest(layout.tiles, px, py);
