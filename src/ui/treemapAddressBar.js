@@ -22,7 +22,7 @@ export function removeGrouping(address, index) {
   const parsed = parseAddress(address);
   if (!parsed || !parsed.groupings[index]) return address;
   const groupings = parsed.groupings.filter((_, k) => k !== index);
-  return formatAddress(parsed.variable, groupings);
+  return formatAddress(parsed.variable, groupings) ?? address;
 }
 
 /** The address with the grouping at `from` moved to `to`. */
@@ -33,7 +33,7 @@ export function moveGrouping(address, from, to) {
   if (!list[from] || to < 0 || to >= list.length || from === to) return address;
   const [moved] = list.splice(from, 1);
   list.splice(to, 0, moved);
-  return formatAddress(parsed.variable, list);
+  return formatAddress(parsed.variable, list) ?? address;
 }
 
 /** The address with `groupingId` added last (`/`), if it is not there. */
@@ -41,10 +41,12 @@ export function addGrouping(address, groupingId, join = '/') {
   const parsed = parseAddress(address);
   if (!parsed || parsed.groupings.some((g) => g.id === groupingId))
     return address;
-  return formatAddress(parsed.variable, [
-    ...parsed.groupings,
-    { id: groupingId, join: join === '*' ? '*' : '/' },
-  ]);
+  return (
+    formatAddress(parsed.variable, [
+      ...parsed.groupings,
+      { id: groupingId, join: join === '*' ? '*' : '/' },
+    ]) ?? address
+  );
 }
 
 /** The join before the grouping at `index` (1 or more) flipped, `/` ⇄ `*`. */
@@ -54,7 +56,7 @@ export function toggleJoin(address, index) {
   const list = parsed.groupings.map((g, k) =>
     k === index ? { ...g, join: g.join === '*' ? '/' : '*' } : g,
   );
-  return formatAddress(parsed.variable, list);
+  return formatAddress(parsed.variable, list) ?? address;
 }
 
 /** The groupings the variable takes (per `catalog`) not yet in the address. */
@@ -259,25 +261,27 @@ export function createAddressBar({
         'aria-selected',
         String(sequence.address === store.get().address),
       );
+      item.title = cuts;
       item.append(
-        el(documentRef, 'span', 'treemap-menu-name', cuts),
+        el(
+          documentRef,
+          'span',
+          'treemap-menu-name',
+          sequence.title ? t(sequence.title) : cuts,
+        ),
         el(documentRef, 'span', 'treemap-menu-reveals', t(sequence.reveals)),
       );
-      const missing = (seqParsed?.groupings || []).filter(
-        (g) => !supported.has(g.id),
-      );
-      if (missing.length) {
+      // Waits on a table not built, or on its first cut: disabled with the
+      // reason. A deeper cut not built only stops the view there.
+      const first = seqParsed?.groupings?.[0];
+      const why = sequence.needs
+        ? t('Waits on {cuts}', { cuts: t(sequence.needs) })
+        : first && !supported.has(first.id)
+          ? t('Waits on {cuts}', { cuts: groupingName(first.id) })
+          : null;
+      if (why) {
         item.disabled = true;
-        item.append(
-          el(
-            documentRef,
-            'span',
-            'treemap-menu-why',
-            t('Waits on {cuts}', {
-              cuts: missing.map((g) => groupingName(g.id)).join(', '),
-            }),
-          ),
-        );
+        item.append(el(documentRef, 'span', 'treemap-menu-why', why));
       }
       item.addEventListener('click', () => {
         open = null;
@@ -367,7 +371,9 @@ export function createAddressBar({
     sequence.setAttribute('aria-expanded', String(open === 'sequence'));
     sequence.title = t('Ready-made cuts');
     const current = entry?.sequences?.find((s) => s.address === address);
-    sequence.textContent = current ? t(current.reveals) : t('Own cut');
+    sequence.textContent = current
+      ? t(current.title || current.reveals)
+      : t('Own cut');
     sequence.addEventListener('click', () => {
       open = open === 'sequence' ? null : 'sequence';
       render();

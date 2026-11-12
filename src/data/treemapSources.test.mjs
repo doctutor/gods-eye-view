@@ -290,13 +290,13 @@ test('the sample: the planet’s area by continent, oceans included, stopping be
   assert.equal(node.exact, false);
   assert.equal(node.stops, 'admin.district');
   assert.ok(Math.abs(node.total.value / 1e6 - PLANET_KM2) < 1);
-  const oceans = node.children.find((c) => c.key === 'oceans');
+  const oceans = node.children.find((c) => c.key === 'ocean');
   assert.ok(oceans.share > 0.6 && oceans.share < 0.8, `${oceans.share}`);
-  const asia = node.children.find((c) => c.key === 'AS');
+  const asia = node.children.find((c) => c.key === 'asia');
   assert.ok(asia?.children?.length > 5);
   const usa = await sample.node({
     address: DEFAULT_TREEMAP_ADDRESS,
-    path: ['NA', 'US'],
+    path: ['north-america', 'US'],
   });
   assert.equal(usa.path.at(-1).label, 'United States');
   assert.ok(usa.children.length > 0);

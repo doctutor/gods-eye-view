@@ -1,214 +1,60 @@
 /**
- * Personal fork: the treemap navigator's curated catalogue as the plan
- * writes it (docs/TREEMAP-PLAN.md, "The catalogue"): each variable's
- * quantity, unit, name and sizing mode, and its ready-made pill sequences
- * in the order of interest, each with the line saying what it reveals.
- * The window's stand-in until the shared catalogue (src/data/
- * treemapCatalog.js, worker2's) lands; the service's /catalog says which
+ * Personal fork: the curated catalogue (src/data/treemapCatalog.js, shared
+ * with the service) in the shape the TREEMAP window's menus read: each
+ * variable's quantity, unit, name and sizing mode, and its ready-made
+ * sequences in the order of interest, each with its title, the line saying
+ * what it reveals, and what it waits on. The service's /catalog says which
  * variables are built and which cuts each takes. English in msg(): the
  * window translates it.
  */
-import { msg } from '../i18n/marker.js';
+import {
+  TREEMAP_GROUPINGS,
+  TREEMAP_NEEDS,
+  TREEMAP_QUANTITIES,
+  TREEMAP_UNITS,
+  TREEMAP_VARIABLES,
+} from './treemapCatalog.js';
 
-const seq = (address, reveals) => ({ address, reveals });
+const QUANTITY_LABELS = new Map(
+  TREEMAP_QUANTITIES.map((quantity) => [quantity.id, quantity.label]),
+);
 
 /**
  * @type {{id: string, quantity: string, unit: string, name: string,
- *   mode: 'additive'|'product'|'relative', sequences: {address: string,
- *   reveals: string}[]}[]}
+ *   mode: 'additive'|'product'|'relative', live: boolean, sequences:
+ *   {address: string, title: string, reveals: string, needs: string|null}[]
+ *   }[]}
  */
-export const TREEMAP_CATALOG_PLAN = Object.freeze([
-  {
-    id: 'm2/surface-area',
-    quantity: msg('Area'),
-    unit: 'm²',
-    name: msg('Surface area'),
-    mode: 'additive',
-    sequences: [
-      seq(
-        'm2/surface-area://admin.continent/admin.country/admin.region/admin.district',
-        msg('The shape of the administered world'),
+export const TREEMAP_CATALOG_PLAN = Object.freeze(
+  TREEMAP_VARIABLES.map((variable) => {
+    const unit = TREEMAP_UNITS[variable.unit];
+    return Object.freeze({
+      id: variable.id,
+      quantity: QUANTITY_LABELS.get(variable.quantity) || variable.quantity,
+      // The symbol where the unit has one (m², B), else its name (count).
+      unit: unit?.symbol || unit?.name || variable.unit,
+      name: variable.label,
+      mode: variable.mode,
+      live: variable.source === 'live',
+      sequences: Object.freeze(
+        variable.sequences.map((sequence) =>
+          Object.freeze({
+            address: sequence.address,
+            title: sequence.title,
+            reveals: sequence.reveals,
+            needs: sequence.needs
+              ? TREEMAP_NEEDS[sequence.needs] || null
+              : null,
+          }),
+        ),
       ),
-      seq(
-        'm2/surface-area://admin.country*landcover.class',
-        msg('How much of each country is forest, crop, bare or built'),
-      ),
-    ],
-  },
-  {
-    id: 'count/people',
-    quantity: msg('Number'),
-    unit: msg('count'),
-    name: msg('People'),
-    mode: 'additive',
-    sequences: [
-      seq(
-        'count/people://admin.continent/admin.country/admin.region/locality.place',
-        msg('Where people are, against where land is'),
-      ),
-      seq(
-        'count/people://admin.country*locality.kind',
-        msg('City countries and village countries'),
-      ),
-    ],
-  },
-  {
-    id: 'count/places',
-    quantity: msg('Number'),
-    unit: msg('count'),
-    name: msg('Places'),
-    mode: 'additive',
-    sequences: [
-      seq(
-        'count/places://place.category/admin.country/admin.region',
-        msg('What the mapped economy consists of'),
-      ),
-      seq(
-        'count/places://admin.country/place.category',
-        msg('Where mapping is thin'),
-      ),
-    ],
-  },
-  {
-    id: 'count/buildings',
-    quantity: msg('Number'),
-    unit: msg('count'),
-    name: msg('Buildings'),
-    mode: 'additive',
-    sequences: [
-      seq(
-        'count/buildings://admin.continent/admin.country/admin.region',
-        msg('The built world: how many'),
-      ),
-    ],
-  },
-  {
-    id: 'm2/building-footprint',
-    quantity: msg('Area'),
-    unit: 'm²',
-    name: msg('Building footprint'),
-    mode: 'additive',
-    sequences: [
-      seq(
-        'm2/building-footprint://admin.continent/admin.country/admin.region',
-        msg('The built world: sprawl'),
-      ),
-    ],
-  },
-  {
-    id: 'm3/building-volume',
-    quantity: msg('Volume'),
-    unit: 'm³',
-    name: msg('Building volume'),
-    mode: 'additive',
-    sequences: [
-      seq(
-        'm3/building-volume://admin.continent/admin.country/admin.region',
-        msg('The built world: height'),
-      ),
-    ],
-  },
-  {
-    id: 'count/wikipedia-articles',
-    quantity: msg('Number'),
-    unit: msg('count'),
-    name: msg('Wikipedia articles'),
-    mode: 'additive',
-    sequences: [
-      seq(
-        'count/wikipedia-articles://wikipedia.language/admin.country',
-        msg('Which places the world has written about, and in which language'),
-      ),
-      seq(
-        'count/wikipedia-articles://admin.country/wikipedia.class',
-        msg('What is written about each country'),
-      ),
-    ],
-  },
-  {
-    id: 'byte/wikipedia-text',
-    quantity: msg('Information'),
-    unit: 'B',
-    name: msg('Wikipedia text'),
-    mode: 'additive',
-    sequences: [
-      seq(
-        'byte/wikipedia-text://wikipedia.language/admin.country',
-        msg('How much has been written, and in which language'),
-      ),
-    ],
-  },
-  {
-    id: 'm2/polity-area',
-    quantity: msg('Area'),
-    unit: 'm²',
-    name: msg('Historical polity area'),
-    mode: 'additive',
-    sequences: [
-      seq(
-        'm2/polity-area://history.period/history.polity',
-        msg('Empires rising and shrinking, period by period'),
-      ),
-    ],
-  },
-  {
-    id: 'count/aircraft',
-    quantity: msg('Number'),
-    unit: msg('count'),
-    name: msg('Aircraft now'),
-    mode: 'additive',
-    sequences: [
-      seq(
-        'count/aircraft://aircraft.class/aircraft.type',
-        msg('The live air picture the globe half-hides'),
-      ),
-    ],
-  },
-  {
-    id: 'count/vessels',
-    quantity: msg('Number'),
-    unit: msg('count'),
-    name: msg('Vessels now'),
-    mode: 'additive',
-    sequences: [
-      seq(
-        'count/vessels://vessel.family/vessel.type',
-        msg('The live sea picture the globe half-hides'),
-      ),
-    ],
-  },
-  {
-    id: 'm3/land-volume',
-    quantity: msg('Volume'),
-    unit: 'm³',
-    name: msg('Land volume'),
-    mode: 'product',
-    sequences: [
-      seq(
-        'm3/land-volume://admin.continent/admin.country',
-        msg('Elevation by area: high plateaus against the flat giants'),
-      ),
-    ],
-  },
-]);
+    });
+  }),
+);
 
 /** What each grouping is called in the window (msg: translated there). */
-export const TREEMAP_GROUPING_NAMES = Object.freeze({
-  'admin.continent': msg('Continent'),
-  'admin.country': msg('Country'),
-  'admin.region': msg('Region'),
-  'admin.district': msg('District'),
-  'locality.place': msg('Place'),
-  'locality.kind': msg('Kind of place'),
-  'place.category': msg('Category'),
-  'landcover.class': msg('Land cover'),
-  'wikipedia.language': msg('Language'),
-  'wikipedia.class': msg('Article class'),
-  'history.period': msg('Period'),
-  'history.polity': msg('Polity'),
-  'aircraft.class': msg('Aircraft class'),
-  'aircraft.type': msg('Aircraft type'),
-  'vessel.family': msg('Vessel family'),
-  'vessel.type': msg('Vessel type'),
-  'time.year': msg('Year'),
-});
+export const TREEMAP_GROUPING_NAMES = Object.freeze(
+  Object.fromEntries(
+    TREEMAP_GROUPINGS.map((grouping) => [grouping.id, grouping.label]),
+  ),
+);

@@ -195,6 +195,45 @@ places come to 5.16 billion.
   double-click flies there. More linking (the view filtering the treemap,
   a selection filtering layers) waits until the data is better known.
 
+### As built (window)
+
+- **Code**: `src/app/treemap.js` (installed from `app/tools.js`), the panel
+  `ui/treemapPanel.js`, the bar `ui/treemapAddressBar.js`, the globe link
+  `ui/treemapGlobe.js`, the layout `data/treemapLayout.js` (its own
+  squarify), the sources `data/treemapSources.js`, the live layers'
+  source `app/treemapLive.js`, the fallback sample `data/treemapSample.js`,
+  the state `data/treemapStore.js`. Addresses go through the shared parser
+  (`data/treemapAddress.js`, held as pills by `data/treemapWindowAddress.js`)
+  and the menus read the shared catalogue (`data/treemapCatalog.js`, shaped
+  for them by `data/treemapCatalogPlan.js`).
+- **Panel**: `#treemap-panel` in the right rail, before CONTEXT, collapsed
+  at first; the panel layout's portable path lifts it out (its pop-out
+  button: `popOutPanel`/`dockPanel`, at most 1180 × 820, 72 % × 78 % of the
+  viewport). Nothing is asked of the service until it is first opened.
+- **Share link**: `tm=<address>|<path>` (the path's keys URI-encoded and
+  joined by `/`, as the service's `path`); left out for the default address
+  at its root. The panel's open/collapsed state is the `ui` param's token
+  `k`.
+- **Sources**: one window source. The service while `/api/treemap/catalog`
+  answers (asked once a page; the header says TABLES), else a rounded
+  page-local sample of area and people by continent, country and region
+  (the header says SAMPLE; the same keys as the service). `count/aircraft`
+  and `count/vessels` always come from the live layers' records in the page
+  (the flights and AIS layers' `treemapRecords()`), read again at each
+  load; with the layer off the variable is unavailable, "Turn the layer on
+  to count it". A local source that lacks a cut below the first stops the
+  view there and says so in its answer's own `stops` field (the grouping it
+  stopped before); the service never sends it. The catalogue is asked at
+  every load (the service's part is kept), so a live layer switched on
+  shows up.
+- **Failure states**: a variable not in the catalogue says "not built yet:
+  pick another quantity"; one marked unavailable shows its `why`; a 400
+  shows the service's reason; anything else "The treemap did not load".
+  The sequence menu disables a sequence that waits on a table (`needs`) or
+  on its first cut; a deeper cut not built only stops the view there.
+- **Joins**: `/` and `×` both draw as nesting (cut by the first, then each
+  child by the second); `×` marks an overlay that needs an intersection.
+
 ## Order of work
 
 1. This plan and the catalogue's first set (manager).

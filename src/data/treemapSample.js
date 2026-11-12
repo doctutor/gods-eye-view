@@ -39,6 +39,18 @@ const CONTINENTS = {
   SA: 'South America',
 };
 
+/** The service's continent keys (treemapContinents.js), so a link means
+ * the same place on the sample. */
+const CONTINENT_SLUGS = {
+  AF: 'africa',
+  AN: 'antarctica',
+  AS: 'asia',
+  EU: 'europe',
+  NA: 'north-america',
+  OC: 'oceania',
+  SA: 'south-america',
+};
+
 const COUNTRIES = [
   C(
     'RU',
@@ -181,8 +193,11 @@ const OCEANS_KM2 =
 
 const continentOf = (record) =>
   record.continent === 'XX'
-    ? { key: 'oceans', label: msg('Oceans and unclaimed') }
-    : { key: record.continent, label: CONTINENTS[record.continent] };
+    ? { key: 'ocean', label: msg('Oceans and unclaimed') }
+    : {
+        key: CONTINENT_SLUGS[record.continent],
+        label: CONTINENTS[record.continent],
+      };
 const countryOf = (record) =>
   record.country === 'XX'
     ? null
