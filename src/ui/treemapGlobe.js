@@ -18,6 +18,12 @@ export const TREEMAP_OUTLINE = Object.freeze({
 export const OUTLINE_DEBOUNCE_MS = 120;
 /** At most this many vertices a ring are drawn (the rest thinned). */
 const MAX_RING_VERTICES = 2000;
+/**
+ * At most this many rings are drawn, the largest first: a country's
+ * outline can hold hundreds of islets (Russia: 890 rings), each one ground
+ * polyline, and the small ones add nothing seen from where it is hovered.
+ */
+export const MAX_RINGS = 120;
 
 /** The outer and inner rings of a GeoJSON object, as [[lon, lat]…] lists. */
 export function ringsOf(geojson) {
@@ -54,6 +60,8 @@ export function ringsOf(geojson) {
   visit(geojson);
   return out
     .filter((ring) => Array.isArray(ring) && ring.length >= 2)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, MAX_RINGS)
     .map((ring) => {
       if (ring.length <= MAX_RING_VERTICES) return ring;
       const step = Math.ceil(ring.length / MAX_RING_VERTICES);
@@ -63,20 +71,33 @@ export function ringsOf(geojson) {
     });
 }
 
-/** The [w, s, e, n] around a GeoJSON object's rings; null when empty. */
+/**
+ * The [w, s, e, n] around a GeoJSON object's rings; null when empty. Across
+ * the antimeridian (Russia, Fiji) the narrower way round wins, and then
+ * w > e, as Cesium's Rectangle takes a crossing.
+ */
 export function boundsOf(geojson) {
   let w = Infinity;
   let s = Infinity;
   let e = -Infinity;
   let n = -Infinity;
+  // The same, with western longitudes taken past 180.
+  let w2 = Infinity;
+  let e2 = -Infinity;
   for (const ring of ringsOf(geojson))
     for (const [lon, lat] of ring) {
       w = Math.min(w, lon);
       e = Math.max(e, lon);
       s = Math.min(s, lat);
       n = Math.max(n, lat);
+      const east = lon < 0 ? lon + 360 : lon;
+      w2 = Math.min(w2, east);
+      e2 = Math.max(e2, east);
     }
-  return Number.isFinite(w) ? [w, s, e, n] : null;
+  if (!Number.isFinite(w)) return null;
+  if (e2 - w2 < e - w - 1e-9)
+    return [w2 > 180 ? w2 - 360 : w2, s, e2 > 180 ? e2 - 360 : e2, n];
+  return [w, s, e, n];
 }
 
 /**
@@ -145,7 +166,9 @@ export function createTreemapGlobeLink({
             : cesium.PolylineGeometry)({
             positions: cesium.Cartesian3.fromDegreesArray(ring.flat()),
             width: TREEMAP_OUTLINE.width,
-            arcType: cesium.ArcType.GEODESIC,
+            // Along parallels on a box's edges, as on the map; a country's
+            // short edges look the same either way.
+            arcType: cesium.ArcType.RHUMB,
           }),
           attributes: {
             color: cesium.ColorGeometryInstanceAttribute.fromColor(color),
