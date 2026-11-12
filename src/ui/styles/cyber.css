@@ -202,6 +202,7 @@
     .recent-imagery-panel-inner,
     .custom-cutouts-panel-inner,
     .world-history-panel-inner,
+    .treemap-panel-inner,
     .street-level-panel-inner,
     .scene-panel-inner,
     .global-context-panel-inner,
@@ -225,6 +226,7 @@
     .recent-imagery-panel-inner,
     .custom-cutouts-panel-inner,
     .world-history-panel-inner,
+    .treemap-panel-inner,
     .street-level-panel-inner,
     .scene-panel-inner,
     .global-context-panel-inner,
@@ -249,6 +251,7 @@
     .recent-imagery-panel-inner,
     .custom-cutouts-panel-inner,
     .world-history-panel-inner,
+    .treemap-panel-inner,
     .street-level-panel-inner,
     .global-context-panel-inner
   ) {
@@ -266,6 +269,7 @@
     #recent-imagery-panel,
     #custom-cutouts-panel,
     #world-history-panel,
+    #treemap-panel,
     #street-level-panel,
     #global-context-panel
   ).collapsed
@@ -275,6 +279,7 @@
     .recent-imagery-panel-inner,
     .custom-cutouts-panel-inner,
     .world-history-panel-inner,
+    .treemap-panel-inner,
     .street-level-panel-inner,
     .global-context-panel-inner
   ) {
@@ -289,6 +294,7 @@
     #recent-imagery-panel,
     #custom-cutouts-panel,
     #world-history-panel,
+    #treemap-panel,
     #street-level-panel,
     #global-context-panel
   ).collapsed
@@ -298,6 +304,7 @@
     .recent-imagery-panel-inner,
     .custom-cutouts-panel-inner,
     .world-history-panel-inner,
+    .treemap-panel-inner,
     .street-level-panel-inner,
     .global-context-panel-inner
   )
@@ -319,6 +326,7 @@
     .recent-imagery-panel-inner,
     .custom-cutouts-panel-inner,
     .world-history-panel-inner,
+    .treemap-panel-inner,
     .street-level-panel-inner,
     .scene-panel-inner,
     .global-context-panel-inner,
@@ -337,6 +345,7 @@
     .recent-imagery-panel-inner,
     .custom-cutouts-panel-inner,
     .world-history-panel-inner,
+    .treemap-panel-inner,
     .street-level-panel-inner,
     .scene-panel-inner,
     .global-context-panel-inner,
@@ -363,6 +372,7 @@
     .recent-imagery-panel-inner,
     .custom-cutouts-panel-inner,
     .world-history-panel-inner,
+    .treemap-panel-inner,
     .street-level-panel-inner,
     .scene-panel-inner,
     .global-context-panel-inner,
@@ -1755,6 +1765,7 @@
       #recent-imagery-panel,
       #custom-cutouts-panel,
       #world-history-panel,
+      #treemap-panel,
       #street-level-panel,
       #global-context-panel
     ):not(.collapsed) {

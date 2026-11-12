@@ -291,6 +291,26 @@ export function createQueries({
   const methods = {
     mapAnalystRecord,
 
+    /**
+     * Personal fork: the live contacts for the TREEMAP window's page-local
+     * source (app/treemapLive.js): {icao24, klass, typeCode, typeName, lat,
+     * lon} each, read now, nothing kept.
+     * @returns {object[]}
+     */
+    treemapRecords() {
+      const out = [];
+      for (const [icao24, info] of flightState.records.data)
+        out.push({
+          icao24,
+          klass: info?.klass ?? null,
+          typeCode: info?.typeCode ?? null,
+          typeName: info?.typeName ?? null,
+          lat: info?.rawLat ?? null,
+          lon: info?.rawLon ?? null,
+        });
+      return out;
+    },
+
     id: 'flights',
 
     name: 'Live Flights',

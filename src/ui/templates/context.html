@@ -48,6 +48,44 @@
         <div id="world-history-panel-body" data-rail-scroller></div>
       </div>
     </div>
+    <div
+      id="treemap-panel"
+      class="panel-collapsible collapsed"
+      data-panel-id="treemap-panel"
+    >
+      <div class="panel-glow"></div>
+      <div class="treemap-panel-inner" data-rail-scroller>
+        <div class="panel-header">
+          <span class="panel-title" data-i18n>TREEMAP</span>
+          <span id="treemap-panel-source"></span>
+          <span class="panel-divider"></span>
+          <button
+            id="treemap-popout-btn"
+            class="treemap-popout-btn"
+            type="button"
+            aria-pressed="false"
+            aria-label="Open the treemap in a larger window"
+            title="Open the treemap in a larger window"
+            data-i18n-aria-label
+            data-i18n-title
+          >
+            <span class="material-symbols-outlined" aria-hidden="true"
+              >open_in_full</span
+            >
+          </button>
+          <button
+            class="panel-collapse-btn"
+            data-collapse-target="treemap-panel"
+            type="button"
+            title="Collapse panel"
+            data-i18n-title
+          >
+            ▼
+          </button>
+        </div>
+        <div id="treemap-panel-body"></div>
+      </div>
+    </div>
     <div id="global-context-panel" class="panel-collapsible collapsed" data-panel-id="global-context-panel">
       <div class="panel-glow"></div>
       <div class="global-context-panel-inner" data-rail-scroller>

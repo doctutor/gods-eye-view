@@ -6,6 +6,7 @@ import { initImageryBoxTool } from '../ui/imageryBoxTool.js';
 import { createRecentImageryPanel } from '../ui/recentImagery.js';
 import { initGevVoiceCommands } from '../voice/gevRealtime.js';
 import { installViews, isEmbeddedInline } from './embed.js';
+import { installTreemapPanel } from './treemap.js';
 import { installScopeMask, destroyScopeMask } from '../scopeMask.js';
 import {
   installRenderGovernor,
@@ -104,6 +105,13 @@ export function createApplicationTools({
       imageryBoxTool?.destroy();
     });
   }
+  // Personal fork: the TREEMAP window on the right rail (src/app/treemap.js).
+  const treemap = installTreemapPanel({
+    viewer,
+    shell: styleManager,
+    dataManager,
+  });
+  defer(() => treemap.destroy());
   if (startChrome)
     defer(startChrome({ loadingScreen, styleManager, dataManager, signal }));
   // Idle render governor: flips the scene into requestRenderMode whenever
