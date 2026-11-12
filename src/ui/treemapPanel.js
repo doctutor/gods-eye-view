@@ -62,12 +62,50 @@ export const isOrderedGrouping = (id) =>
 /** A time strip's hue: early blue to late amber. */
 export const orderHue = (order) => 215 - order * 180;
 
+/**
+ * The colours a view's cuts carry: a drawn tile's own when its cut has
+ * them (FIXED_COLOURS), and inside a member of such a first cut its hue as
+ * the family's.
+ */
+export function paletteFor(cuts, path) {
+  const depth = path.length;
+  return {
+    fixedColour: (tile) =>
+      FIXED_COLOURS[cuts[depth + tile.depth - 1]]?.[tile.node.key] || null,
+    familyHue:
+      depth > 0 ? (FIXED_COLOURS[cuts[0]]?.[path[0]]?.[0] ?? null) : null,
+  };
+}
+
 /** A key's stable offset in [-range, range] (another hash than the hue's). */
 export const spreadOf = (key, range) =>
   (hueOf(`${key}#`) % (2 * range + 1)) - range;
 
 /** How far siblings' hues fan out about their family's, degrees. */
 export const SIBLING_HUE_SPREAD = 34;
+
+/**
+ * Land cover in colours of its own, near ESA WorldCover's legend, muted for
+ * the window: [hue, saturation %, lightness %] by the service's class keys.
+ */
+export const LANDCOVER_COLOURS = Object.freeze({
+  'tree-cover': [128, 48, 30],
+  shrubland: [42, 52, 38],
+  grassland: [78, 46, 38],
+  cropland: [52, 62, 42],
+  'built-up': [4, 62, 44],
+  bare: [30, 22, 46],
+  'snow-and-ice': [200, 30, 70],
+  water: [212, 62, 40],
+  wetland: [178, 46, 34],
+  mangroves: [158, 52, 28],
+  'moss-and-lichen': [96, 24, 52],
+});
+
+/** The cuts whose members have colours of their own. */
+export const FIXED_COLOURS = Object.freeze({
+  'landcover.class': LANDCOVER_COLOURS,
+});
 const GOLDEN = 0.618033988749895;
 
 /**
@@ -92,16 +130,31 @@ function fanOf(tile) {
  * own lightness, so siblings part at a glance; a child stays near its
  * parent's hue. The same node draws the same colours every time.
  */
-export function tileColour(tile, path) {
+export function tileColour(
+  tile,
+  path,
+  { fixedColour = () => null, familyHue = null } = {},
+) {
   if (tile.more) return 'hsl(210 10% 34%)';
   const top = tile.depth === 2 ? tile.parent : tile;
-  // A time strip's family is its place in time; else the member's key.
-  const family =
-    path.length === 0 && Number.isFinite(top.order)
-      ? orderHue(top.order)
-      : hueOf(path.length > 0 ? path[0] : top.node.key);
   const wrap = (hue) => ((Math.round(hue) % 360) + 360) % 360;
   const own = fanOf(tile);
+  // A cut with colours of its own (land cover): each member in its colour.
+  const fixed = fixedColour(tile);
+  if (fixed) {
+    const [h, sat, light] = fixed;
+    return `hsl(${wrap(h)} ${sat}% ${light + (tile.depth === 2 ? 4 : 0)}%)`;
+  }
+  const topFixed = tile.depth === 2 ? fixedColour(top) : null;
+  // A time strip's family is its place in time; a member with its own
+  // colour gives it; else the member's key.
+  const family = Number.isFinite(familyHue)
+    ? familyHue
+    : topFixed
+      ? topFixed[0]
+      : path.length === 0 && Number.isFinite(top.order)
+        ? orderHue(top.order)
+        : hueOf(path.length > 0 ? path[0] : top.node.key);
   if (path.length === 0) {
     // The root: each first-cut member its own hue; children shaded in it.
     if (tile.depth === 1) return `hsl(${wrap(family)} 48% 34%)`;
@@ -348,9 +401,10 @@ export function createTreemapPanel({
       },
     );
     const path = store.get().path;
+    const palette = paletteFor(cuts, path);
     context.textBaseline = 'top';
     for (const tile of layout.tiles) {
-      context.fillStyle = tileColour(tile, path);
+      context.fillStyle = tileColour(tile, path, palette);
       context.fillRect(tile.x, tile.y, tile.w, tile.h);
       context.strokeStyle =
         tile.depth === 1 ? 'rgba(4, 10, 16, 0.95)' : 'rgba(4, 10, 16, 0.55)';

@@ -363,3 +363,53 @@ test('a parent drawn whole counts in the words of the cut below it', async () =>
   assert.equal(countLine(3, 'aircraft.type'), '3 types');
   assert.equal(countLine(4, 'something.else'), '4 parts');
 });
+
+test('land cover draws in colours of its own wherever it is the drawn cut', async () => {
+  const { paletteFor, LANDCOVER_COLOURS } = await import('./treemapPanel.js');
+  const lc = ['admin.country', 'landcover.class'];
+  // Inside Brazil (country × land cover): tree cover green, water blue.
+  const inBrazil = paletteFor(lc, ['BR']);
+  const trees = hsl(
+    tileColour(
+      { depth: 1, rank: 0, node: { key: 'tree-cover' } },
+      ['BR'],
+      inBrazil,
+    ),
+  );
+  const water = hsl(
+    tileColour({ depth: 1, rank: 5, node: { key: 'water' } }, ['BR'], inBrazil),
+  );
+  assert.equal(trees[0], LANDCOVER_COLOURS['tree-cover'][0]);
+  assert.equal(water[0], LANDCOVER_COLOURS.water[0]);
+  // At the root the countries keep their own hues; their classes inside
+  // (depth 2) take the class colours.
+  const root = paletteFor(lc, []);
+  const brazil = { depth: 1, rank: 0, node: { key: 'BR' } };
+  assert.equal(hsl(tileColour(brazil, [], root))[0], hueOf('BR'));
+  const cropland = {
+    depth: 2,
+    rank: 1,
+    parent: brazil,
+    node: { key: 'cropland' },
+  };
+  assert.equal(
+    hsl(tileColour(cropland, [], root))[0],
+    LANDCOVER_COLOURS.cropland[0],
+  );
+  // Land cover first: inside a class its countries are shades of its colour.
+  const first = paletteFor(['landcover.class', 'admin.country'], ['water']);
+  const country = hsl(
+    tileColour({ depth: 1, rank: 0, node: { key: 'CA' } }, ['water'], first),
+  );
+  assert.ok(
+    hueGap(country[0], LANDCOVER_COLOURS.water[0]) <= SIBLING_HUE_SPREAD,
+  );
+  // Other cuts are unchanged.
+  assert.equal(
+    paletteFor(['admin.continent'], []).fixedColour({
+      depth: 1,
+      node: { key: 'water' },
+    }),
+    null,
+  );
+});
