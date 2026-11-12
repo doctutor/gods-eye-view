@@ -992,3 +992,70 @@ test('land cover from boxes already answered: no request, each country scaled to
     false,
   );
 });
+
+test('phase 2 elevation: a GMTED2010 sample asked once a box, nodata kept out; the boxes named by source', async () => {
+  const { gmtedAsker, sourcesText, GMTED_SAMPLE } =
+    await import('../../scripts/treemap/earthEngine.mjs');
+  const npy = (rows, cols, fields) => {
+    const names = Object.keys(fields);
+    const descr = names.map((name) => `('${name}', '<f4')`).join(', ');
+    let header = `{'descr': [${descr}], 'fortran_order': False, 'shape': (${rows}, ${cols}), }`;
+    header += ' '.repeat(64 - ((10 + header.length + 1) % 64)) + '\n';
+    const head = Buffer.alloc(10);
+    head[0] = 0x93;
+    head.write('NUMPY', 1, 'latin1');
+    head[6] = 1;
+    head.writeUInt16LE(header.length, 8);
+    const body = Buffer.alloc(rows * cols * names.length * 4);
+    for (let i = 0; i < rows * cols; i++)
+      names.forEach((name, k) =>
+        body.writeFloatLE(fields[name][i], (i * names.length + k) * 4),
+      );
+    return Buffer.concat([head, Buffer.from(header, 'latin1'), body]);
+  };
+  const calls = [];
+  const engine = {
+    async computePixels(layerId, expression, grid) {
+      calls.push({ layerId, expression, grid });
+      const { width, height } = grid.dimensions;
+      const n = width * height;
+      return {
+        status: 200,
+        body: npy(height, width, {
+          v: Float32Array.from({ length: n }, (_, i) => i % 7),
+          m: Float32Array.from({ length: n }, (_, i) => (i % 5 ? 1 : 0)),
+        }),
+      };
+    },
+  };
+  const box = { west: 0, south: 39, east: 15, north: 54 };
+  const answer = await gmtedAsker(engine)(box);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].layerId, 'ee-elevation');
+  assert.equal(calls[0].expression, GMTED_SAMPLE);
+  assert.match(JSON.stringify(GMTED_SAMPLE), /USGS\/GMTED2010_FULL/);
+  assert.equal(answer.status, 200);
+  assert.equal(answer.values.length, answer.cols * answer.rows);
+  assert.ok(Number.isNaN(answer.values[0]));
+  assert.equal(answer.values[1], 1);
+  assert.equal(answer.source, 'GMTED2010 230 m');
+  assert.equal(answer.aggregation, 'sample');
+  // A refusal comes back as it is: no second request.
+  const refusing = {
+    computePixels: async () => {
+      calls.push('again');
+      return { status: 503, error: 'no answer' };
+    },
+  };
+  assert.equal((await gmtedAsker(refusing)(box)).status, 503);
+  assert.equal(calls.length, 2);
+  assert.equal(
+    sourcesText([
+      { source: 'GMTED2010 230 m', aggregation: 'mean' },
+      { source: 'GMTED2010 230 m', aggregation: 'sample' },
+      { source: 'GMTED2010 230 m', aggregation: 'sample' },
+      { source: 'ArcticDEM 2 m', aggregation: 'mean' },
+    ]),
+    '2 GMTED2010 230 m samples, 1 GMTED2010 230 m means, 1 ArcticDEM 2 m means',
+  );
+});
