@@ -351,6 +351,12 @@ checked on 4173:
   per-tile `base`, the base variable's value under it).
 - **Links**: a link carrying `tm` opens the panel unless its `ui` state
   says how the panel was.
+- **Grey tails**: a parent's own level is drawn only where its named
+  children fill most of it. When its "…" tile would take more than half of
+  it (INNER_MORE_MAX_SHARE; a country of 75 districts at rail size), or it
+  has no room, the parent is drawn whole in its colour with a count line in
+  the words of the cut below ("75 districts"), in the hover card too. The
+  "…" tile stays for the drawn level's own tail.
 - **Time cuts**: `history.period` (and any `time.*` grouping) is laid in
   its keys' order (start years, before Christ first) as strips left to
   right, each as wide as its share, the service's largest-first order put

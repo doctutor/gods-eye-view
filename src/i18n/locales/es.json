@@ -4225,5 +4225,70 @@
   "Not placed yet": "Aún sin ubicar",
   "Continent not known": "Continente desconocido",
   "{what}: {value}": "{what}: {value}",
-  "mean": "media"
+  "mean": "media",
+  "{count} continents": {
+    "one": "{count} continente",
+    "many": "{count} de continentes",
+    "other": "{count} continentes"
+  },
+  "{count} countries": {
+    "one": "{count} país",
+    "many": "{count} de países",
+    "other": "{count} países"
+  },
+  "{count} regions": {
+    "one": "{count} región",
+    "many": "{count} de regiones",
+    "other": "{count} regiones"
+  },
+  "{count} districts": {
+    "one": "{count} distrito",
+    "many": "{count} de distritos",
+    "other": "{count} distritos"
+  },
+  "{count} kinds of place": {
+    "one": "{count} tipo de lugar",
+    "many": "{count} de tipos de lugar",
+    "other": "{count} tipos de lugar"
+  },
+  "{count} categories": {
+    "one": "{count} categoría",
+    "many": "{count} de categorías",
+    "other": "{count} categorías"
+  },
+  "{count} land covers": {
+    "one": "{count} cobertura del suelo",
+    "many": "{count} de coberturas del suelo",
+    "other": "{count} coberturas del suelo"
+  },
+  "{count} languages": {
+    "one": "{count} idioma",
+    "many": "{count} de idiomas",
+    "other": "{count} idiomas"
+  },
+  "{count} polities": {
+    "one": "{count} entidad política",
+    "many": "{count} de entidades políticas",
+    "other": "{count} entidades políticas"
+  },
+  "{count} periods": {
+    "one": "{count} periodo",
+    "many": "{count} de periodos",
+    "other": "{count} periodos"
+  },
+  "{count} types": {
+    "one": "{count} tipo",
+    "many": "{count} de tipos",
+    "other": "{count} tipos"
+  },
+  "{count} families": {
+    "one": "{count} familia",
+    "many": "{count} de familias",
+    "other": "{count} familias"
+  },
+  "{count} parts": {
+    "one": "{count} parte",
+    "many": "{count} de partes",
+    "other": "{count} partes"
+  }
 }

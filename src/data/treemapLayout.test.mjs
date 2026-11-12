@@ -233,3 +233,55 @@ test('a time cut lays out in its keys’ order (years, before Christ first), str
     assert.ok(strips[k].x > strips[k - 1].x);
   assert.ok(laid.tiles.some((tile) => tile.depth === 2));
 });
+
+test('a parent whose "…" would fill most of it is drawn whole, with its count; one its children fill keeps its level', async () => {
+  const { INNER_MORE_MAX_SHARE } = await import('./treemapLayout.js');
+  // India at rail size: 38 regions, a few large and many small, the rest
+  // past the service's 50 a parent.
+  const regions = Array.from({ length: 38 }, (_, k) => ({
+    key: `IN-${k}`,
+    value: k < 2 ? 40 : 0.5,
+  }));
+  const node = {
+    children: [
+      {
+        key: 'IN',
+        value: 300,
+        children: regions,
+        rest: { count: 36, value: 150 },
+      },
+      {
+        key: 'JP',
+        value: 200,
+        children: [
+          { key: 'JP-1', value: 120 },
+          { key: 'JP-2', value: 80 },
+        ],
+      },
+    ],
+    rest: null,
+  };
+  const { tiles } = layoutNode(node, { x: 0, y: 0, w: 300, h: 220 });
+  const india = tiles.find((tile) => tile.node.key === 'IN');
+  const japan = tiles.find((tile) => tile.node.key === 'JP');
+  assert.deepEqual(india.folded, { count: 74 });
+  assert.equal(tiles.filter((tile) => tile.parent === india).length, 0);
+  assert.equal(india.labelStrip, undefined, 'no strip: drawn whole');
+  assert.equal(japan.folded, undefined);
+  assert.equal(tiles.filter((tile) => tile.parent === japan).length, 2);
+  assert.equal(INNER_MORE_MAX_SHARE, 0.5);
+  // The service's own tail is most of India: drawn whole at any size.
+  const tall = layoutNode(node, { x: 0, y: 0, w: 2400, h: 1600 });
+  assert.ok(tall.tiles.find((tile) => tile.node.key === 'IN').folded);
+  // With a small tail and room enough, its own level reads again.
+  node.children[0].rest = { count: 36, value: 20 };
+  const wide = layoutNode(node, { x: 0, y: 0, w: 2400, h: 1600 });
+  const big = wide.tiles.find((tile) => tile.node.key === 'IN');
+  assert.equal(big.folded, undefined);
+  const tail = wide.tiles.find((tile) => tile.parent === big && tile.node.more);
+  if (tail)
+    assert.ok(
+      tail.w * tail.h <= INNER_MORE_MAX_SHARE * big.w * big.h,
+      'the tail stays a minority',
+    );
+});
