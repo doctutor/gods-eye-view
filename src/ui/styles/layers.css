@@ -230,6 +230,12 @@
   min-height: 50px;
   box-sizing: border-box;
 }
+/* Personal fork: the TREEMAP keeps its content inside its own box in the
+   rail (it scrolls there when the rail gives it less than it needs), never
+   painted over or under the panels around it. */
+#right-context-rail
+  #treemap-panel:not(.collapsed):not(.panel-floating)
+  .treemap-panel-inner,
 #right-context-rail #cctv-panel:not(.collapsed) .cctv-panel-inner,
 #right-context-rail
   #street-level-panel:not(.collapsed)
@@ -380,7 +386,10 @@
   > .recent-imagery-panel-inner,
 #right-context-rail[data-rail-measuring]
   > [data-panel-id]:not(.collapsed)
-  > .global-context-panel-inner {
+  > .global-context-panel-inner,
+#right-context-rail[data-rail-measuring]
+  > [data-panel-id]:not(.collapsed)
+  > .treemap-panel-inner {
   height: auto !important;
   max-height: none !important;
 }
