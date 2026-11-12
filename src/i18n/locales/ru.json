@@ -4320,5 +4320,83 @@
   "Not placed yet": "Ещё не определено",
   "Continent not known": "Континент неизвестен",
   "{what}: {value}": "{what}: {value}",
-  "mean": "среднее"
+  "mean": "среднее",
+  "{count} continents": {
+    "one": "{count} континент",
+    "few": "{count} континента",
+    "many": "{count} континентов",
+    "other": "{count} континента"
+  },
+  "{count} countries": {
+    "one": "{count} страна",
+    "few": "{count} страны",
+    "many": "{count} стран",
+    "other": "{count} страны"
+  },
+  "{count} regions": {
+    "one": "{count} регион",
+    "few": "{count} региона",
+    "many": "{count} регионов",
+    "other": "{count} региона"
+  },
+  "{count} districts": {
+    "one": "{count} район",
+    "few": "{count} района",
+    "many": "{count} районов",
+    "other": "{count} района"
+  },
+  "{count} kinds of place": {
+    "one": "{count} вид места",
+    "few": "{count} вида мест",
+    "many": "{count} видов мест",
+    "other": "{count} вида мест"
+  },
+  "{count} categories": {
+    "one": "{count} категория",
+    "few": "{count} категории",
+    "many": "{count} категорий",
+    "other": "{count} категории"
+  },
+  "{count} land covers": {
+    "one": "{count} тип покрова",
+    "few": "{count} типа покрова",
+    "many": "{count} типов покрова",
+    "other": "{count} типа покрова"
+  },
+  "{count} languages": {
+    "one": "{count} язык",
+    "few": "{count} языка",
+    "many": "{count} языков",
+    "other": "{count} языка"
+  },
+  "{count} polities": {
+    "one": "{count} государство",
+    "few": "{count} государства",
+    "many": "{count} государств",
+    "other": "{count} государства"
+  },
+  "{count} periods": {
+    "one": "{count} период",
+    "few": "{count} периода",
+    "many": "{count} периодов",
+    "other": "{count} периода"
+  },
+  "{count} types": {
+    "one": "{count} тип",
+    "few": "{count} типа",
+    "many": "{count} типов",
+    "other": "{count} типа"
+  },
+  "{count} families": {
+    "one": "{count} семейство",
+    "few": "{count} семейства",
+    "many": "{count} семейств",
+    "other": "{count} семейства"
+  },
+  "{count} parts": {
+    "one": "{count} часть",
+    "few": "{count} части",
+    "many": "{count} частей",
+    "other": "{count} части"
+  }
 }

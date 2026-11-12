@@ -132,6 +132,51 @@ export function productUnit(unit, product) {
   return '';
 }
 
+/**
+ * How many a parent drawn whole holds, in the words of the cut below it
+ * ("75 districts"); a cut without its own words, "75 parts".
+ */
+export function countLine(count, groupingId) {
+  const values = { count: formatNumber(count) };
+  switch (groupingId) {
+    case 'admin.continent':
+      return tn(count, '{count} continent', '{count} continents', values);
+    case 'admin.country':
+      return tn(count, '{count} country', '{count} countries', values);
+    case 'admin.region':
+      return tn(count, '{count} region', '{count} regions', values);
+    case 'admin.district':
+      return tn(count, '{count} district', '{count} districts', values);
+    case 'locality.place':
+      return tn(count, '{count} place', '{count} places', values);
+    case 'locality.kind':
+      return tn(
+        count,
+        '{count} kind of place',
+        '{count} kinds of place',
+        values,
+      );
+    case 'place.category':
+      return tn(count, '{count} category', '{count} categories', values);
+    case 'landcover.class':
+      return tn(count, '{count} land cover', '{count} land covers', values);
+    case 'wikipedia.language':
+      return tn(count, '{count} language', '{count} languages', values);
+    case 'history.polity':
+      return tn(count, '{count} polity', '{count} polities', values);
+    case 'history.period':
+      return tn(count, '{count} period', '{count} periods', values);
+    case 'aircraft.class':
+    case 'aircraft.type':
+    case 'vessel.type':
+      return tn(count, '{count} type', '{count} types', values);
+    case 'vessel.family':
+      return tn(count, '{count} family', '{count} families', values);
+    default:
+      return tn(count, '{count} part', '{count} parts', values);
+  }
+}
+
 const PREFIXES = [
   [1e12, msg('{n} trillion')],
   [1e9, msg('{n} billion')],
@@ -345,6 +390,14 @@ export function createTreemapPanel({
       if (context.measureText(text).width > room) continue;
       const y = tile.depth === 1 && hasKids ? tile.y + 2 : tile.y + 3;
       context.fillText(text, tile.x + 3, y);
+      // A parent drawn whole says how many it holds, under its name.
+      if (tile.folded && tile.h >= 30) {
+        const line = countLine(tile.folded.count, cuts[depth + 1]);
+        context.font = `400 9px ui-monospace, Menlo, Consolas, monospace`;
+        context.fillStyle = 'rgba(225, 240, 250, 0.72)';
+        if (context.measureText(line).width <= room)
+          context.fillText(line, tile.x + 3, y + 13);
+      }
     }
     if (hovered) {
       const tile = layout.tiles.find(
@@ -585,6 +638,14 @@ export function createTreemapPanel({
         })
       : translateKnown(String(tile.node.label ?? tile.node.key));
     lines.push(['treemap-card-title', title]);
+    if (tile.folded)
+      lines.push([
+        'treemap-card-count',
+        countLine(
+          tile.folded.count,
+          parsed?.groupings?.[store.get().path.length + 1],
+        ),
+      ]);
     lines.push(['treemap-card-value', formatValue(tile.node.value, unit)]);
     // A product (volume = elevation × area): its intensive value, total ÷
     // base, when the answer carries the base (or the mean itself).

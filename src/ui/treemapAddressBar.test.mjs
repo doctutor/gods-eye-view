@@ -354,3 +354,12 @@ test('in the rail the TREEMAP keeps its content inside its own box', () => {
     /#right-context-rail\[data-rail-measuring\]\s+> \[data-panel-id\]:not\(\.collapsed\)\s+> \.treemap-panel-inner \{\s*height: auto !important;/,
   );
 });
+
+test('a parent drawn whole counts in the words of the cut below it', async () => {
+  const { countLine } = await import('./treemapPanel.js');
+  assert.equal(countLine(75, 'admin.district'), '75 districts');
+  assert.equal(countLine(1, 'admin.region'), '1 region');
+  assert.equal(countLine(1200, 'locality.place'), '1,200 places');
+  assert.equal(countLine(3, 'aircraft.type'), '3 types');
+  assert.equal(countLine(4, 'something.else'), '4 parts');
+});
