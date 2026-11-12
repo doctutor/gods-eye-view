@@ -4144,7 +4144,6 @@
   "Not built yet": "Aún no construido",
   "Quantity": "Magnitud",
   "Filter: area, people, bytes…": "Filtrar: superficie, personas, bytes…",
-  "Filter quantities": "Filtrar magnitudes",
   "No quantity matches": "Ninguna magnitud coincide",
   "Sequence": "Secuencia",
   "Waits on {cuts}": "Espera a {cuts}",
@@ -4218,5 +4217,9 @@
   "Lodging": "Alojamiento",
   "Places of worship": "Lugares de culto",
   "Recreation and culture": "Ocio y cultura",
-  "Services and other": "Servicios y otros"
+  "Services and other": "Servicios y otros",
+  "Filter sequences": "Filtrar secuencias",
+  "No sequence matches": "Ninguna secuencia coincide",
+  "Address": "Dirección",
+  "The address: Enter applies it, Escape puts it back": "La dirección: Intro la aplica, Escape la restablece"
 }

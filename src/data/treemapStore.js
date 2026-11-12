@@ -6,17 +6,36 @@
  * once, from the page's hash, as `wh` and `nav` are. Whether the window is
  * open rides in the `ui` parameter with the other panels.
  */
-import {
-  formatAddress,
-  formatPath,
-  parseAddress,
-  parsePath,
-} from './treemapWindowAddress.js';
+import { formatTreemapAddress, parseTreemapAddress } from './treemapAddress.js';
 
 export const TREEMAP_PARAM = 'tm';
 /** The address a first look opens on: the administered world by area. */
 export const DEFAULT_TREEMAP_ADDRESS =
   'm2/surface-area://admin.continent/admin.country/admin.region/admin.district';
+
+/**
+ * A path's keys as the share link writes them: each URI-encoded (a key may
+ * hold `/` or `|`), `/` between them.
+ */
+export const formatTreemapPath = (keys = []) =>
+  keys.map((key) => encodeURIComponent(String(key))).join('/');
+
+/** A written path back to its keys ([] for none or a bad one). */
+export function parseTreemapPath(text) {
+  const value = String(text ?? '');
+  if (!value) return [];
+  try {
+    return value.split('/').map((part) => decodeURIComponent(part));
+  } catch {
+    return [];
+  }
+}
+
+/** The address as the parser writes it (spaces gone, × as *); null if bad. */
+export function cleanTreemapAddress(text) {
+  const parsed = parseTreemapAddress(String(text ?? ''));
+  return parsed.ok ? formatTreemapAddress(parsed) : null;
+}
 
 /** A `tm` value read back: {address, path}; null for none or a bad one. */
 export function decodeTreemapParam(value) {
@@ -24,11 +43,11 @@ export function decodeTreemapParam(value) {
   if (!text) return null;
   const bar = text.indexOf('|');
   const address = bar < 0 ? text : text.slice(0, bar);
-  const parsed = parseAddress(address);
-  if (!parsed) return null;
-  const path = bar < 0 ? [] : parsePath(text.slice(bar + 1));
+  const parsed = parseTreemapAddress(address);
+  if (!parsed.ok) return null;
+  const path = bar < 0 ? [] : parseTreemapPath(text.slice(bar + 1));
   return {
-    address: formatAddress(parsed.variable, parsed.groupings),
+    address: formatTreemapAddress(parsed),
     path: path.slice(0, parsed.groupings.length),
   };
 }
@@ -37,7 +56,7 @@ export function decodeTreemapParam(value) {
 export function encodeTreemapParam({ address, path = [] }) {
   if (!address) return '';
   if (address === DEFAULT_TREEMAP_ADDRESS && !path.length) return '';
-  return path.length ? `${address}|${formatPath(path)}` : address;
+  return path.length ? `${address}|${formatTreemapPath(path)}` : address;
 }
 
 function hashStateNow() {
@@ -84,9 +103,9 @@ export function createTreemapStore({ initial = hashStateNow() } = {}) {
     },
     /** A new address: its root (the path cut to what it still names). */
     setAddress(address, { keepPath = false } = {}) {
-      const parsed = parseAddress(address);
-      if (!parsed) return false;
-      const clean = formatAddress(parsed.variable, parsed.groupings);
+      const parsed = parseTreemapAddress(String(address ?? ''));
+      if (!parsed.ok) return false;
+      const clean = formatTreemapAddress(parsed);
       return set({
         address: clean,
         path: keepPath ? state.path.slice(0, parsed.groupings.length) : [],

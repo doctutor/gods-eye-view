@@ -155,15 +155,30 @@ export function layoutLevel(
  * each child with children of its own and room for them, its children
  * (`depth` 2) below a label strip. Each tile: {x, y, w, h, node, depth,
  * parent (the depth-1 tile, for depth 2), labelStrip (depth 1: whether a
- * strip is reserved), more (the "…" tile)}. A child's own `rest` (its
+ * strip is reserved), more (the "…" tile), rank (its place among its
+ * siblings, largest first)}. A child's own `rest` (its
  * children past the limit, the contract's) joins its "…" tile.
  * @returns {{tiles: object[], rest: object|null}}
  */
 export function layoutNode(node, rect, options = {}) {
   const top = layoutLevel(node?.children, node?.rest, rect, options);
   const tiles = [];
+  const rankOf = (list) => {
+    const ranks = new Map();
+    [...list]
+      .filter((tile) => tile.node.more !== true)
+      .sort((a, b) => (b.node.value ?? 0) - (a.node.value ?? 0))
+      .forEach((tile, index) => ranks.set(tile, index));
+    return ranks;
+  };
+  const topRanks = rankOf(top.tiles);
   for (const tile of top.tiles) {
-    const outer = { ...tile, depth: 1, more: tile.node.more === true };
+    const outer = {
+      ...tile,
+      depth: 1,
+      more: tile.node.more === true,
+      rank: topRanks.get(tile) ?? null,
+    };
     tiles.push(outer);
     const kids = tile.node.children;
     if (outer.more || !Array.isArray(kids) || !kids.length) continue;
@@ -177,12 +192,14 @@ export function layoutNode(node, rect, options = {}) {
     if (!(inner.w > 4 && inner.h > 4)) continue;
     outer.labelStrip = strip > 0;
     const level = layoutLevel(kids, tile.node.rest || null, inner, options);
+    const ranks = rankOf(level.tiles);
     for (const child of level.tiles)
       tiles.push({
         ...child,
         depth: 2,
         parent: outer,
         more: child.node.more === true,
+        rank: ranks.get(child) ?? null,
       });
   }
   return { tiles, rest: top.rest };

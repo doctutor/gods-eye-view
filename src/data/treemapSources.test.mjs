@@ -20,13 +20,10 @@ import {
   decodeTreemapParam,
   encodeTreemapParam,
   DEFAULT_TREEMAP_ADDRESS,
+  formatTreemapPath,
+  parseTreemapPath,
+  cleanTreemapAddress,
 } from './treemapStore.js';
-import {
-  parseAddress,
-  formatAddress,
-  formatPath,
-  parsePath,
-} from './treemapWindowAddress.js';
 
 const PLANES = [
   { cls: 'Airliner', type: 'A320', box: [0, 0, 1, 1] },
@@ -55,27 +52,22 @@ function planes() {
   });
 }
 
-test('the window’s address parser: / nests, * overlays, a duplicate is refused', () => {
-  const parsed = parseAddress('count/aircraft://aircraft.class*aircraft.type');
-  assert.equal(parsed.variable, 'count/aircraft');
-  assert.equal(parsed.unit, 'count');
-  assert.deepEqual(
-    parsed.groupings.map((g) => [g.id, g.join]),
-    [
-      ['aircraft.class', null],
-      ['aircraft.type', '*'],
-    ],
-  );
+test('the window’s address through the shared parser; the share link’s path round-trips', () => {
   assert.equal(
-    formatAddress(parsed.variable, parsed.groupings),
+    cleanTreemapAddress(' count/aircraft://aircraft.class × aircraft.type '),
     'count/aircraft://aircraft.class*aircraft.type',
   );
   assert.equal(
-    parseAddress('count/aircraft://aircraft.class/aircraft.class'),
+    cleanTreemapAddress('count/aircraft://aircraft.class/aircraft.class'),
     null,
   );
-  assert.equal(parseAddress('not an address'), null);
-  assert.deepEqual(parsePath(formatPath(['a/b', 'c d'])), ['a/b', 'c d']);
+  assert.equal(cleanTreemapAddress('not an address'), null);
+  assert.deepEqual(parseTreemapPath(formatTreemapPath(['a/b', 'c d', 'x|y'])), [
+    'a/b',
+    'c d',
+    'x|y',
+  ]);
+  assert.deepEqual(parseTreemapPath('%E0%A4'), []);
 });
 
 test('records source: a node cut two levels deep, with shares, counts, geo and hasChildren', async () => {
@@ -202,7 +194,7 @@ test('service source: the contract’s GETs, and its failures sorted', async () 
   await assert.rejects(
     service.node({
       address: 'm2/surface-area://admin.country',
-      path: ['US', 'a/b'],
+      path: ['US', 'US-MD', 'a b'],
       depth: 2,
       limit: 200,
       offset: 0,
@@ -220,7 +212,7 @@ test('service source: the contract’s GETs, and its failures sorted', async () 
     node.searchParams.get('address'),
     'm2/surface-area://admin.country',
   );
-  assert.equal(node.searchParams.get('path'), 'US/a%2Fb');
+  assert.equal(node.searchParams.get('path'), 'US/US-MD/a b');
   assert.equal(node.searchParams.get('depth'), '2');
   assert.equal(node.searchParams.get('limit'), '200');
   assert.equal(node.searchParams.get('offset'), '0');
