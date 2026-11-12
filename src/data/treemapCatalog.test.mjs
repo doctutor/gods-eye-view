@@ -74,14 +74,12 @@ test("the first set is the plan's table: its variables in order, their modes and
   assert.deepEqual(first('m3/land-volume'), [
     'm3/land-volume://admin.continent/admin.country',
   ]);
-  // What waits on a build says so.
+  // Nothing waits on a build any more: phase 2 and the label endpoint
+  // are built.
   const needs = TREEMAP_VARIABLES.flatMap((v) =>
     v.sequences.filter((s) => s.needs).map((s) => [s.address, s.needs]),
   );
-  assert.deepEqual(needs, [
-    ['m2/surface-area://admin.country*landcover.class', 'landcover-by-country'],
-    ['m3/land-volume://admin.continent/admin.country', 'elevation-by-country'],
-  ]);
+  assert.deepEqual(needs, []);
 });
 
 test('every sequence reads, names its own variable, uses groupings that exist and the variable supports', () => {

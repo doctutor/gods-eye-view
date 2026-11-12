@@ -229,3 +229,52 @@ test('areas on the ellipsoid: a degree square, the same box in Mercator, and the
   ]);
   assert.ok(Math.abs(across - square) < 1e3);
 });
+
+test('a product table carries its base: each tile and the total its base and mean, value over base', () => {
+  const table = openTable(
+    JSON.parse(
+      JSON.stringify(
+        encodeTable({
+          variable: 'm3/land-volume',
+          dims: ['admin.continent', 'admin.country'],
+          rows: [
+            { keys: ['asia', 'NP'], value: 3000 * 10, count: 0, base: 10 },
+            { keys: ['asia', 'BD'], value: 10 * 50, count: 0, base: 50 },
+            { keys: ['europe', 'NL'], value: 0, count: 0, base: 4 },
+          ],
+          base: {
+            label: 'land area',
+            unit: 'm2',
+            intensive: 'mean elevation',
+            intensiveUnit: 'm',
+          },
+          attribution: '',
+        }),
+      ),
+    ),
+  );
+  const asia = table.node({
+    groupings: ['admin.continent', 'admin.country'],
+    path: ['asia'],
+  });
+  assert.deepEqual(
+    asia.children.map((c) => [c.key, c.value, c.base, c.mean]),
+    [
+      ['NP', 30000, 10, 3000],
+      ['BD', 500, 50, 10],
+    ],
+  );
+  assert.deepEqual(asia.total, {
+    value: 30500,
+    count: 0,
+    base: 60,
+    mean: Math.round((30500 / 60) * 10) / 10,
+  });
+  const root = table.node({ groupings: ['admin.continent'] });
+  assert.equal(root.children.find((c) => c.key === 'europe').mean, 0);
+  // A table without a base has neither field.
+  const plain = fixture().node({ groupings: DIMS });
+  assert.deepEqual(Object.keys(plain.total), ['value', 'count']);
+  assert.equal(plain.children[0].base, undefined);
+  assert.equal(plain.children[0].mean, undefined);
+});

@@ -92,6 +92,11 @@ POST /api/treemap/label   { points: [[lon, lat]…] }     // phase 1b, for live 
 
 - Children are sorted by value, largest first. `limit` defaults to 200;
   the rest is one `rest` entry, and `offset` pages into it.
+- In mode `product` (an intensive quantity times its base: land volume)
+  the total and every child also carry `base?` (the base variable's
+  value under it: land area in m²) and `mean?` (value ÷ base: the mean
+  elevation in m, to 0.1; null where the base is 0). Both are optional; the
+  window computes value ÷ base when `mean` is absent.
 - `GeoRef` is a short string: `area:<overture id>`, `h3:<cell>`,
   `box:w,s,e,n`, `point:lon,lat`.
 - Area's root is the planet (510,072,000 km²): the administered land,
@@ -230,6 +235,58 @@ project's browsers, so the times are roughly twice a quiet machine's:
 
 The buildings come to 579,463,210 in 112,939,372 cells. 22,252 Wikipedia
 articles are at sea.
+
+Notes the tables carry, added on 2026-11-12 after the first set was
+checked on 4173:
+
+- Polity area: above the periods the total is no area. Periods are added,
+  so the same land is counted once per period.
+- People: the 5.16 billion are about two thirds of GHSL's 7.79 billion for 2020. A country short of its census is short of mapped figures, not of
+  people.
+- Surface area: the continents are the UN M49 regions. Russia is wholly in
+  Europe (23.6 M km²), and Turkey and Cyprus are in Asia.
+
+### Phase 2 (Earth Engine, under a cap of 3,000 requests)
+
+- **The grid.** The world is cut into 15° boxes, 288 of them from 84° N
+  to 90° S, each asked at most 640 cells a side. A cell is about 2.5 km,
+  narrower in longitude toward the poles. Each box is one
+  `image:computePixels`, asked through the server's own Earth Engine
+  service (server/providers/rasterValues' adapters), so every request is
+  counted in its daily ledger (`.gev-cache/earth-engine/usage.json`).
+  Each answer is kept under the tables' directory (`ee/`, a `.f32` and a
+  `.json` a box), so a rebuild asks only for what is missing.
+  `npm run treemap:build` never asks: its `landcover` step reads the kept
+  boxes only. The `earthengine` step asks, only when named
+  (`--only earthengine`), within `--max-requests` and never past 600 a
+  run. It stops on a 429 and after 5 boxes fail in a row.
+- **The spend.** Land cover asked all 288 boxes. I had chosen land boxes
+  from the stored labelling, but its tiles cover open sea wherever a large
+  unit's box spans it, so the estimate of about 150 was wrong: only 182
+  boxes hold land. With 2 probe requests, that made 290. Elevation then
+  asked only the 182 boxes where land cover found land. A box costs about
+  1.5 requests there, because the values service asks once more when Earth
+  Engine gives no answer in 120 s, and samples when a mean fails. The PC
+  crashed at 01:52 with 36 elevation boxes kept and 58 requests spent (3 of
+  them probes). The rest was resumed with a cap of 252, keeping the total
+  at 600 or under.
+- **Land cover** (`m2/surface-area+landcover`, a second table of the same
+  variable). It is ESA WorldCover 2021, read at each cell from its
+  pyramid's most common class, by continent, country, region and the
+  eleven classes. Each country's classes are scaled to its land in the
+  areas table, so `admin.country*landcover.class` and its swap
+  `landcover.class*admin.country` total what the admin cut does. The
+  service answers an address from the first of a variable's tables that
+  has every grouping asked for, and the catalogue lists their union.
+  WorldCover stops at 60° S, so Antarctica has no land cover, and the
+  land here is about 137 of the 150 million km². Built in 48 s from the
+  kept boxes, 0 requests.
+- **Land volume** (`m3/land-volume`, mode product). Each cell's area times
+  its mean elevation above the sea, from the DEM stack's far band:
+  GMTED2010, ArcticDEM over Greenland, the polar stack over Antarctica, ice
+  surfaces included. It is by continent, country and region. Each tile
+  and the node's total carry `base` (land area, m²) and `mean` (value ÷
+  base: the mean elevation, m); see the contract.
 
 ## The window (client)
 

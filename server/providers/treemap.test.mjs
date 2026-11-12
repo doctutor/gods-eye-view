@@ -842,3 +842,153 @@ test('POST /label: live points to their units in order, at sea null; the body ch
     undefined,
   );
 });
+
+test('phase 2: the grid of boxes, land boxes only, and a variable answered from its second table', async (t) => {
+  const { gridBoxes, boxHasLand, BOX_DEGREES } =
+    await import('../../scripts/treemap/earthEngine.mjs');
+  const boxes = gridBoxes();
+  assert.equal(
+    boxes.length,
+    (360 / BOX_DEGREES) * Math.ceil(174 / BOX_DEGREES),
+  );
+  assert.deepEqual(boxes[0], { west: -180, south: 69, east: -165, north: 84 });
+  assert.equal(boxes.at(-1).south, -90);
+  // One stored tile under the box over France (z 6: x 32, y 23).
+  const index = { tiles: { [23 * 64 + 32]: [0, 1] } };
+  assert.equal(
+    boxHasLand({ west: 0, south: 39, east: 15, north: 54 }, index),
+    true,
+  );
+  assert.equal(
+    boxHasLand({ west: -45, south: 9, east: -30, north: 24 }, index),
+    false,
+  );
+  // Antarctica south of the Mercator limit is land without a tile.
+  assert.equal(
+    boxHasLand({ west: 0, south: -90, east: 15, north: -81 }, index),
+    true,
+  );
+
+  const { root, env, dir } = await fixture(t);
+  await buildTreemap({ root, env, only: ['areas'] });
+  const { publish } = await import('../../scripts/treemap/store.mjs');
+  const { encodeTable } = await import('./treemap/table.js');
+  publish(dir, {
+    section: 'tables',
+    name: 'm2/surface-area+landcover',
+    json: encodeTable({
+      variable: 'm2/surface-area',
+      dims: [
+        'admin.continent',
+        'admin.country',
+        'admin.region',
+        'landcover.class',
+      ],
+      rows: [
+        { keys: ['europe', 'FR', 'FR-A', 'cropland'], value: 30, count: 0 },
+        { keys: ['europe', 'FR', 'FR-A', 'tree-cover'], value: 10, count: 0 },
+      ],
+      labels: { 'landcover.class': { cropland: 'Cropland' } },
+      attribution: 'ESA',
+    }),
+    signature: 'aaaaaaaaaaaa',
+    seconds: 0,
+  });
+  const service = createTreemapService({ dir, sourceRoot: root, env });
+  const surface = service
+    .catalog()
+    .variables.find((v) => v.id === 'm2/surface-area');
+  assert.ok(surface.groupings.includes('landcover.class'));
+  assert.ok(surface.groupings.includes('admin.district'));
+  const cover = service.node({
+    address: 'm2/surface-area://admin.country*landcover.class',
+    path: ['FR'],
+  });
+  assert.deepEqual(
+    cover.body.children.map((c) => [c.key, c.label, c.value]),
+    [
+      ['cropland', 'Cropland', 30],
+      ['tree-cover', 'tree-cover', 10],
+    ],
+  );
+  assert.equal(cover.body.attribution, 'ESA');
+  // The admin cut still reads the variable's own table.
+  const admin = service.node({
+    address: 'm2/surface-area://admin.continent/admin.country',
+  });
+  assert.ok(admin.body.children.some((c) => c.key === OCEAN_KEY));
+});
+
+test('land cover from boxes already answered: no request, each country scaled to its land; at a cap of 0 nothing is asked', async (t) => {
+  const { gridBoxes, boxHasLand, CELLS } =
+    await import('../../scripts/treemap/earthEngine.mjs');
+  const { root, env, dir } = await fixture(t);
+  await buildTreemap({ root, env, only: ['areas', 'labels'] });
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json')));
+  const labelsIndex = JSON.parse(
+    fs.readFileSync(path.join(dir, manifest.files.labels.file)),
+  );
+  const boxes = gridBoxes().filter((box) => boxHasLand(box, labelsIndex));
+  // Every cached box: cropland (class 3) west of 2° E, tree cover east.
+  const cache = path.join(dir, 'ee', 'ee-land-cover-v200');
+  fs.mkdirSync(cache, { recursive: true });
+  for (const box of boxes) {
+    const cols = 60;
+    const rows = 60;
+    const values = new Float32Array(cols * rows);
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++) {
+        const lon = box.west + ((c + 0.5) / cols) * (box.east - box.west);
+        // WorldCover stops at 60° S: no value (NaN) south of it.
+        values[r * cols + c] = box.south < -60 ? NaN : lon < 2 ? 3 : 0;
+      }
+    const stem = path.join(cache, `${box.west}_${box.north}_${CELLS}`);
+    fs.writeFileSync(`${stem}.f32`, Buffer.from(values.buffer));
+    fs.writeFileSync(`${stem}.json`, JSON.stringify({ cols, rows, box }));
+  }
+  const built = await buildTreemap({ root, env, only: ['landcover'] });
+  assert.ok(built.done['m2/surface-area+landcover']);
+  const service = createTreemapService({ dir, sourceRoot: root, env });
+  const france = service.node({
+    address: 'm2/surface-area://admin.country*landcover.class',
+    path: ['FR'],
+  });
+  const land = service
+    .node({
+      address: 'm2/surface-area://admin.country',
+    })
+    .body.children.find((c) => c.key === 'FR').value;
+  near(france.body.total.value, land, 'France scaled to its land');
+  assert.deepEqual(france.body.children.map((c) => c.key).sort(), [
+    'cropland',
+    'tree-cover',
+  ]);
+  const cropland = france.body.children.find((c) => c.key === 'cropland');
+  assert.ok(
+    Math.abs(cropland.value / land - 0.5) < 0.02,
+    'cropland west of 2° E',
+  );
+  const swapped = service.node({
+    address: 'm2/surface-area://landcover.class*admin.country',
+    path: ['cropland'],
+  });
+  assert.deepEqual(
+    swapped.body.children.map((c) => c.key),
+    ['FR'],
+  );
+  assert.match(france.body.note, /Antarctica has no land cover/);
+  // Land volume needs elevation boxes nobody asked for: at a cap of 0 the
+  // earthengine step asks nothing and publishes nothing.
+  const capped = await buildTreemap({
+    root,
+    env,
+    only: ['earthengine'],
+    maxRequests: 0,
+  });
+  assert.equal(capped.done['m3/land-volume'], undefined);
+  assert.equal(
+    service.catalog().variables.find((v) => v.id === 'm3/land-volume')
+      .available,
+    false,
+  );
+});
