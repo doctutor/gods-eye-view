@@ -28,6 +28,9 @@ const parseAddress = (address) => {
 
 /** The canvas's height in the rail, CSS px (a floating window fills). */
 export const RAIL_STAGE_PX = 240;
+/** A single click waits this long for a second one (a double-click flies
+ * and does not drill), ms. */
+export const CLICK_DELAY_MS = 250;
 /** A live variable is read again this often while shown (ms). */
 export const LIVE_REFRESH_MS = 15_000;
 /** Children asked a page. */
@@ -59,12 +62,50 @@ export const isOrderedGrouping = (id) =>
 /** A time strip's hue: early blue to late amber. */
 export const orderHue = (order) => 215 - order * 180;
 
+/**
+ * The colours a view's cuts carry: a drawn tile's own when its cut has
+ * them (FIXED_COLOURS), and inside a member of such a first cut its hue as
+ * the family's.
+ */
+export function paletteFor(cuts, path) {
+  const depth = path.length;
+  return {
+    fixedColour: (tile) =>
+      FIXED_COLOURS[cuts[depth + tile.depth - 1]]?.[tile.node.key] || null,
+    familyHue:
+      depth > 0 ? (FIXED_COLOURS[cuts[0]]?.[path[0]]?.[0] ?? null) : null,
+  };
+}
+
 /** A key's stable offset in [-range, range] (another hash than the hue's). */
 export const spreadOf = (key, range) =>
   (hueOf(`${key}#`) % (2 * range + 1)) - range;
 
 /** How far siblings' hues fan out about their family's, degrees. */
 export const SIBLING_HUE_SPREAD = 34;
+
+/**
+ * Land cover in colours of its own, near ESA WorldCover's legend, muted for
+ * the window: [hue, saturation %, lightness %] by the service's class keys.
+ */
+export const LANDCOVER_COLOURS = Object.freeze({
+  'tree-cover': [128, 48, 30],
+  shrubland: [42, 52, 38],
+  grassland: [78, 46, 38],
+  cropland: [52, 62, 42],
+  'built-up': [4, 62, 44],
+  bare: [30, 22, 46],
+  'snow-and-ice': [200, 30, 70],
+  water: [212, 62, 40],
+  wetland: [178, 46, 34],
+  mangroves: [158, 52, 28],
+  'moss-and-lichen': [96, 24, 52],
+});
+
+/** The cuts whose members have colours of their own. */
+export const FIXED_COLOURS = Object.freeze({
+  'landcover.class': LANDCOVER_COLOURS,
+});
 const GOLDEN = 0.618033988749895;
 
 /**
@@ -89,16 +130,31 @@ function fanOf(tile) {
  * own lightness, so siblings part at a glance; a child stays near its
  * parent's hue. The same node draws the same colours every time.
  */
-export function tileColour(tile, path) {
+export function tileColour(
+  tile,
+  path,
+  { fixedColour = () => null, familyHue = null } = {},
+) {
   if (tile.more) return 'hsl(210 10% 34%)';
   const top = tile.depth === 2 ? tile.parent : tile;
-  // A time strip's family is its place in time; else the member's key.
-  const family =
-    path.length === 0 && Number.isFinite(top.order)
-      ? orderHue(top.order)
-      : hueOf(path.length > 0 ? path[0] : top.node.key);
   const wrap = (hue) => ((Math.round(hue) % 360) + 360) % 360;
   const own = fanOf(tile);
+  // A cut with colours of its own (land cover): each member in its colour.
+  const fixed = fixedColour(tile);
+  if (fixed) {
+    const [h, sat, light] = fixed;
+    return `hsl(${wrap(h)} ${sat}% ${light + (tile.depth === 2 ? 4 : 0)}%)`;
+  }
+  const topFixed = tile.depth === 2 ? fixedColour(top) : null;
+  // A time strip's family is its place in time; a member with its own
+  // colour gives it; else the member's key.
+  const family = Number.isFinite(familyHue)
+    ? familyHue
+    : topFixed
+      ? topFixed[0]
+      : path.length === 0 && Number.isFinite(top.order)
+        ? orderHue(top.order)
+        : hueOf(path.length > 0 ? path[0] : top.node.key);
   if (path.length === 0) {
     // The root: each first-cut member its own hue; children shaded in it.
     if (tile.depth === 1) return `hsl(${wrap(family)} 48% 34%)`;
@@ -127,6 +183,51 @@ export function productUnit(unit, product) {
   const base = String(product?.base || '').split('/')[0];
   if (unit === 'm3' && base === 'm2') return 'm';
   return '';
+}
+
+/**
+ * How many a parent drawn whole holds, in the words of the cut below it
+ * ("75 districts"); a cut without its own words, "75 parts".
+ */
+export function countLine(count, groupingId) {
+  const values = { count: formatNumber(count) };
+  switch (groupingId) {
+    case 'admin.continent':
+      return tn(count, '{count} continent', '{count} continents', values);
+    case 'admin.country':
+      return tn(count, '{count} country', '{count} countries', values);
+    case 'admin.region':
+      return tn(count, '{count} region', '{count} regions', values);
+    case 'admin.district':
+      return tn(count, '{count} district', '{count} districts', values);
+    case 'locality.place':
+      return tn(count, '{count} place', '{count} places', values);
+    case 'locality.kind':
+      return tn(
+        count,
+        '{count} kind of place',
+        '{count} kinds of place',
+        values,
+      );
+    case 'place.category':
+      return tn(count, '{count} category', '{count} categories', values);
+    case 'landcover.class':
+      return tn(count, '{count} land cover', '{count} land covers', values);
+    case 'wikipedia.language':
+      return tn(count, '{count} language', '{count} languages', values);
+    case 'history.polity':
+      return tn(count, '{count} polity', '{count} polities', values);
+    case 'history.period':
+      return tn(count, '{count} period', '{count} periods', values);
+    case 'aircraft.class':
+    case 'aircraft.type':
+    case 'vessel.type':
+      return tn(count, '{count} type', '{count} types', values);
+    case 'vessel.family':
+      return tn(count, '{count} family', '{count} families', values);
+    default:
+      return tn(count, '{count} part', '{count} parts', values);
+  }
 }
 
 const PREFIXES = [
@@ -232,6 +333,20 @@ export function createTreemapPanel({
   let layout = null;
   let hovered = null;
   let offset = 0;
+  // The state the drawn tiles answer (address, path, page): a click acts
+  // only on tiles of the level the store is at, never on the last level's
+  // while the next one loads.
+  let shownFor = null;
+  const stateKey = () => {
+    const state = store.get();
+    return JSON.stringify([state.address, state.path, offset]);
+  };
+  // Crumb labels by address and path, from every answer and every tile
+  // clicked into, so a level that fails keeps the names of those above it.
+  const crumbLabels = new Map();
+  const crumbKey = (address, keys) =>
+    JSON.stringify([address, ...keys.map(String)]);
+  let pendingClick = null;
   let token = 0;
   let controller = null;
   let destroyed = false;
@@ -286,9 +401,10 @@ export function createTreemapPanel({
       },
     );
     const path = store.get().path;
+    const palette = paletteFor(cuts, path);
     context.textBaseline = 'top';
     for (const tile of layout.tiles) {
-      context.fillStyle = tileColour(tile, path);
+      context.fillStyle = tileColour(tile, path, palette);
       context.fillRect(tile.x, tile.y, tile.w, tile.h);
       context.strokeStyle =
         tile.depth === 1 ? 'rgba(4, 10, 16, 0.95)' : 'rgba(4, 10, 16, 0.55)';
@@ -328,6 +444,14 @@ export function createTreemapPanel({
       if (context.measureText(text).width > room) continue;
       const y = tile.depth === 1 && hasKids ? tile.y + 2 : tile.y + 3;
       context.fillText(text, tile.x + 3, y);
+      // A parent drawn whole says how many it holds, under its name.
+      if (tile.folded && tile.h >= 30) {
+        const line = countLine(tile.folded.count, cuts[depth + 1]);
+        context.font = `400 9px ui-monospace, Menlo, Consolas, monospace`;
+        context.fillStyle = 'rgba(225, 240, 250, 0.72)';
+        if (context.measureText(line).width <= room)
+          context.fillText(line, tile.x + 3, y + 13);
+      }
     }
     if (hovered) {
       const tile = layout.tiles.find(
@@ -361,7 +485,13 @@ export function createTreemapPanel({
     const labels = node?.path || [];
     state.path.forEach((key, index) => {
       crumbs.append(el(documentRef, 'span', 'treemap-crumb-sep', '›'));
-      const label = translateKnown(labels[index]?.label ?? key);
+      const label = translateKnown(
+        labels[index]?.label ??
+          crumbLabels.get(
+            crumbKey(state.address, state.path.slice(0, index + 1)),
+          ) ??
+          key,
+      );
       const button = el(documentRef, 'button', 'treemap-crumb', String(label));
       button.type = 'button';
       button.title = groupingName(parsed?.groupings[index] ?? '');
@@ -503,6 +633,14 @@ export function createTreemapPanel({
       if (mine !== token || destroyed) return;
       node = answer;
       error = null;
+      shownFor = JSON.stringify([state.address, state.path, offset]);
+      (answer.path || []).forEach((step, index) => {
+        if (step?.label)
+          crumbLabels.set(
+            crumbKey(state.address, state.path.slice(0, index + 1)),
+            step.label,
+          );
+      });
       if (!state.path.length) wholes.set(state.address, answer.total?.value);
       else if (!wholes.has(state.address))
         // A link opened below the root: the whole, asked once.
@@ -554,6 +692,14 @@ export function createTreemapPanel({
         })
       : translateKnown(String(tile.node.label ?? tile.node.key));
     lines.push(['treemap-card-title', title]);
+    if (tile.folded)
+      lines.push([
+        'treemap-card-count',
+        countLine(
+          tile.folded.count,
+          parsed?.groupings?.[store.get().path.length + 1],
+        ),
+      ]);
     lines.push(['treemap-card-value', formatValue(tile.node.value, unit)]);
     // A product (volume = elevation × area): its intensive value, total ÷
     // base, when the answer carries the base (or the mean itself).
@@ -651,11 +797,17 @@ export function createTreemapPanel({
     globe?.outline?.(null);
     draw();
   });
-  listen(canvas, 'click', (event) => {
-    if (!layout) return;
-    const { px, py } = pointer(event);
-    const tile = hitTest(layout.tiles, px, py);
-    if (!tile) return;
+  /** Into a tile (its label kept for the crumb). */
+  const enter = (tileNode) => {
+    const state = store.get();
+    if (tileNode.label)
+      crumbLabels.set(
+        crumbKey(state.address, [...state.path, tileNode.key]),
+        tileNode.label,
+      );
+    store.enter(tileNode.key);
+  };
+  const act = (tile) => {
     if (tile.more) {
       // The "…" of this level pages on; a parent's goes into the parent.
       if (tile.depth === 1) {
@@ -663,16 +815,41 @@ export function createTreemapPanel({
         load();
       } else {
         offset = tile.node.from;
-        store.enter(tile.parent.node.key);
+        enter(tile.parent.node);
       }
       return;
     }
     const top = tile.depth === 2 ? tile.parent : tile;
     if (!top.node.hasChildren) return;
     offset = 0;
-    store.enter(top.node.key);
+    enter(top.node);
+  };
+  const cancelClick = () => {
+    if (pendingClick) windowRef?.clearTimeout?.(pendingClick);
+    pendingClick = null;
+  };
+  listen(canvas, 'click', (event) => {
+    // The second click of a double-click is the double-click's.
+    if (event.detail >= 2) return cancelClick();
+    if (!layout || shownFor !== stateKey()) return;
+    const { px, py } = pointer(event);
+    const tile = hitTest(layout.tiles, px, py);
+    if (!tile) return;
+    cancelClick();
+    const at = stateKey();
+    const run = () => {
+      pendingClick = null;
+      // Still the level it was clicked on.
+      if (destroyed || shownFor !== at || stateKey() !== at) return;
+      act(tile);
+    };
+    if (windowRef?.setTimeout)
+      pendingClick = windowRef.setTimeout(run, CLICK_DELAY_MS);
+    else run();
   });
+  removers.push(cancelClick);
   listen(canvas, 'dblclick', (event) => {
+    cancelClick();
     if (!layout) return;
     const { px, py } = pointer(event);
     const tile = hitTest(layout.tiles, px, py);

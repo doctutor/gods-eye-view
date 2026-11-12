@@ -19,6 +19,12 @@ export const MIN_TILE_SIDE_PX = 6;
 export const LABEL_STRIP_PX = 15;
 /** Inner padding of a parent frame, px. */
 export const FRAME_PAD_PX = 2;
+/**
+ * A parent's own level is drawn only where its named children fill most of
+ * it: past this share of the parent for its "…" tile, the parent is drawn
+ * whole with its count instead.
+ */
+export const INNER_MORE_MAX_SHARE = 0.5;
 
 /**
  * The worst aspect ratio of a row of areas laid along a side of `side`:
@@ -213,7 +219,8 @@ export function sliceLevel(children, rest, rect) {
  * (`depth` 2) below a label strip. Each tile: {x, y, w, h, node, depth,
  * parent (the depth-1 tile, for depth 2), labelStrip (depth 1: whether a
  * strip is reserved), more (the "…" tile), rank (its place among its
- * siblings, largest first)}. A child's own `rest` (its
+ * siblings, largest first), folded (depth 1: {count}, its own level not
+ * drawn: no room, or its "…" would fill more than INNER_MORE_MAX_SHARE)}. A child's own `rest` (its
  * children past the limit, the contract's) joins its "…" tile. `ordered`
  * (`orderedInner`) lays the first (second) level in its keys' order
  * (sliceLevel), a time cut's.
@@ -251,11 +258,24 @@ export function layoutNode(node, rect, options = {}) {
       w: tile.w - 2 * FRAME_PAD_PX,
       h: tile.h - strip - 2 * FRAME_PAD_PX,
     };
-    if (!(inner.w > 4 && inner.h > 4)) continue;
-    outer.labelStrip = strip > 0;
+    // A parent whose own level would not read is drawn whole, saying how
+    // many it holds (`folded.count`): too small for any, or its "…" tile
+    // would take most of it (a country of 75 districts at rail size).
+    const childCount =
+      kids.length + (tile.node.rest?.count > 0 ? tile.node.rest.count : 0);
+    if (!(inner.w > 4 && inner.h > 4)) {
+      outer.folded = { count: childCount };
+      continue;
+    }
     const level = orderedInner
       ? sliceLevel(kids, tile.node.rest || null, inner)
       : layoutLevel(kids, tile.node.rest || null, inner, sizes);
+    const tail = level.tiles.find((child) => child.node.more === true);
+    if (tail && tail.w * tail.h > INNER_MORE_MAX_SHARE * inner.w * inner.h) {
+      outer.folded = { count: childCount };
+      continue;
+    }
+    outer.labelStrip = strip > 0;
     const ranks = rankOf(level.tiles);
     for (const child of level.tiles)
       tiles.push({
