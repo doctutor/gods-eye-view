@@ -40,6 +40,13 @@ import {
   buildBuildingsTables,
   readBuildingsIndex,
 } from './buildings.mjs';
+import {
+  BOX_DEGREES,
+  CELLS,
+  EARTH_ENGINE_TABLES_VERSION,
+  buildEarthEngineTables,
+} from './earthEngine.mjs';
+import { openTable } from '../../server/providers/treemap/table.js';
 import { overtureCacheDir } from '../../server/providers/overture/sources.js';
 import { isCurrent, publish, readManifest, signatureOf } from './store.mjs';
 
@@ -53,7 +60,10 @@ import { isCurrent, publish, readManifest, signatureOf } from './store.mjs';
  * one); the tables go to TREEMAP_DIR, else <root>/.gev-cache/treemap. A
  * table is rebuilt only when its inputs' builds or its rules changed
  * (--force rebuilds all). Tables: areas (m2/surface-area and the outline
- * index), people (count/people), polities (m2/polity-area).
+ * index), labels (the cell labelling), people, polities, wikipedia, places,
+ * buildings, landcover (from boxes Earth Engine already answered: no
+ * request); and, only when named in --only, earthengine (asks Earth Engine
+ * for what is missing, within --max-requests and at most 600).
  *
  * Personal fork tooling; not part of upstream God's Eye View.
  */
@@ -71,7 +81,13 @@ export const TREEMAP_STEPS = Object.freeze([
   'wikipedia',
   'places',
   'buildings',
+  'landcover',
+  'earthengine',
 ]);
+/** Steps that spend a metered service's requests: run only when named. */
+export const TREEMAP_METERED_STEPS = Object.freeze(['earthengine']);
+/** The most Earth Engine requests one run makes (phase 2's cap is 3,000). */
+export const EARTH_ENGINE_MAX_REQUESTS = 600;
 
 export function parseArgs(argv) {
   const flags = { command: argv[0] || 'status', only: null };
@@ -80,6 +96,7 @@ export function parseArgs(argv) {
     if (arg === '--root') flags.root = argv[++i];
     else if (arg === '--only') flags.only = String(argv[++i] || '').split(',');
     else if (arg === '--force') flags.force = true;
+    else if (arg === '--max-requests') flags.maxRequests = Number(argv[++i]);
     else if (arg === '--json') flags.json = true;
     else throw new Error(`unknown option ${arg}`);
   }
@@ -101,11 +118,13 @@ export async function buildTreemap({
   env = process.env,
   only = null,
   force = false,
+  maxRequests,
   log = () => {},
 }) {
   const dir = treemapDir(env, root);
   fs.mkdirSync(dir, { recursive: true });
-  const wants = (step) => !only || only.includes(step);
+  const wants = (step) =>
+    only ? only.includes(step) : !TREEMAP_METERED_STEPS.includes(step);
   const areasDir = overtureAreasDir(env, root);
   const areas = readAreasBuild(areasDir);
   const areasId = areas.manifest.buildId;
@@ -398,6 +417,99 @@ export async function buildTreemap({
         },
       );
   }
+  // Phase 2. `landcover` builds land cover from the boxes already asked
+  // (never a request: its cap is 0); `earthengine` asks what is missing,
+  // within its cap, and builds land cover and land volume.
+  const phase2 = wants('earthengine')
+    ? 'earthengine'
+    : wants('landcover')
+      ? 'landcover'
+      : null;
+  if (phase2) {
+    const step = phase2;
+    const manifest = readManifest(dir);
+    const entry = manifest.files.labels;
+    if (!labelsCurrent()) log(`${step}: the labelling is not built`);
+    else {
+      const signature = signatureOf({
+        v: EARTH_ENGINE_TABLES_VERSION,
+        labels: LABELLER_VERSION,
+        areas: areasId,
+        box: BOX_DEGREES,
+        cells: CELLS,
+      });
+      const variables =
+        step === 'earthengine'
+          ? ['m2/surface-area+landcover', 'm3/land-volume']
+          : ['m2/surface-area+landcover'];
+      if (
+        !force &&
+        variables.every((name) =>
+          isCurrent(dir, manifest.tables[name], signature),
+        )
+      )
+        log(`${step}: current`);
+      else {
+        const started = performance.now();
+        const surface = openTable(
+          JSON.parse(
+            fs.readFileSync(
+              path.join(dir, manifest.tables['m2/surface-area'].file),
+              'utf8',
+            ),
+          ),
+        );
+        const landByCountry = new Map(
+          surface
+            .node({ groupings: ['admin.country'], limit: 2000 })
+            .children.map((child) => [child.key, child.value]),
+        );
+        const { cover, volume, stats } = await buildEarthEngineTables({
+          root,
+          env,
+          cacheDir: path.join(dir, 'ee'),
+          labeller: labellerOf(),
+          labelsIndex: JSON.parse(
+            fs.readFileSync(path.join(dir, entry.file), 'utf8'),
+          ),
+          units: areas.units,
+          landByCountry,
+          elevation: step === 'earthengine',
+          maxRequests:
+            step === 'landcover'
+              ? 0
+              : Math.min(
+                  EARTH_ENGINE_MAX_REQUESTS,
+                  Number.isInteger(maxRequests) && maxRequests >= 0
+                    ? maxRequests
+                    : EARTH_ENGINE_MAX_REQUESTS,
+                ),
+          log,
+        });
+        const seconds = (performance.now() - started) / 1000;
+        for (const [name, table] of [
+          ['m2/surface-area+landcover', cover],
+          ['m3/land-volume', volume],
+        ]) {
+          if (!table) continue;
+          table.signature = signature;
+          done[name] = publish(dir, {
+            section: 'tables',
+            name,
+            json: table,
+            signature,
+            seconds,
+            extra: {
+              rows:
+                table.rows.length / (table.dims.length + (table.base ? 3 : 2)),
+              inputs: { areas: areasId, earthEngineRequests: stats.requests },
+            },
+          });
+        }
+        log(`${step}: ${JSON.stringify(stats)}, ${seconds.toFixed(1)} s`);
+      }
+    }
+  }
   labeller?.close();
   return { dir, done };
 }
@@ -410,6 +522,7 @@ async function main() {
       root,
       only: flags.only,
       force: Boolean(flags.force),
+      maxRequests: flags.maxRequests,
       log: (line) => console.log(line),
     });
     return;

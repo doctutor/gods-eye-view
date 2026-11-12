@@ -24,7 +24,7 @@ import {
 import { OVERTURE_BOUNDARIES_ATTRIBUTION } from '../../src/data/overtureBoundaries.js';
 
 /** Bumped when the table's rules change: every table rebuilds once. */
-export const AREAS_TABLE_VERSION = 1;
+export const AREAS_TABLE_VERSION = 2;
 /** A remainder smaller than this share of its parent is a seam, not a tile. */
 const SLIVER = 0.001;
 /** An outline is drawn from the coarsest band that gives it this many steps across. */
@@ -221,7 +221,7 @@ export function buildAreasTable({ areasDir, log = () => {} }) {
       labels,
       geo,
       exact: true,
-      note: 'Land area of the Overture division areas on the WGS84 ellipsoid; a "No region" or "No district" tile is the part of its parent no smaller division covers.',
+      note: 'Land area of the Overture division areas on the WGS84 ellipsoid; a "No region" or "No district" tile is the part of its parent no smaller division covers. Continents are the UN M49 regions with the Americas split at Panama: Russia is wholly in Europe, Turkey and Cyprus in Asia.',
       attribution: OVERTURE_BOUNDARIES_ATTRIBUTION,
       asOf: manifest.release || undefined,
     }),

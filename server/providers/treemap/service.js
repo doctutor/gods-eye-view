@@ -96,6 +96,25 @@ export function createTreemapService({
     return table;
   }
 
+  /**
+   * A variable's tables: its own, then its others ("<variable>+<cut>", a
+   * table with other groupings, like land cover's), each opened when asked.
+   */
+  function tablesOf(variable) {
+    const names = Object.keys(manifest()?.tables || {}).filter(
+      (name) => name === variable || name.startsWith(`${variable}+`),
+    );
+    names.sort((a, b) => (a === variable ? -1 : b === variable ? 1 : 0));
+    const out = [];
+    for (const name of names)
+      try {
+        out.push(tableOf(name));
+      } catch (error) {
+        console.warn('[Treemap] table not readable:', error?.message);
+      }
+    return out;
+  }
+
   function outlineIndex() {
     const entry = manifest()?.files?.outlines;
     if (!entry) return null;
@@ -108,7 +127,6 @@ export function createTreemapService({
   }
 
   function catalog() {
-    const built = manifest()?.tables || {};
     return {
       schema: TREEMAP_SCHEMA,
       variables: TREEMAP_VARIABLES.map((variable) => {
@@ -118,13 +136,8 @@ export function createTreemapService({
             available: true,
             groupings: [...variable.groupings],
           };
-        const entry = built[variable.id];
-        let table = null;
-        try {
-          table = entry ? tableOf(variable.id) : null;
-        } catch (error) {
-          console.warn('[Treemap] table not readable:', error?.message);
-        }
+        const found = tablesOf(variable.id);
+        const table = found[0] || null;
         if (!table)
           return {
             id: variable.id,
@@ -136,7 +149,9 @@ export function createTreemapService({
           id: variable.id,
           available: true,
           ...(table.asOf ? { asOf: table.asOf } : {}),
-          groupings: variable.groupings.filter((id) => table.has(id)),
+          groupings: variable.groupings.filter((id) =>
+            found.some((each) => each.has(id)),
+          ),
         };
       }),
       groupings: TREEMAP_GROUPINGS.map((grouping) => ({
@@ -160,9 +175,13 @@ export function createTreemapService({
     const variable = checked.definition;
     if (variable.source === 'live')
       return bad(`${variable.id}: ${LIVE_WHY.toLowerCase()}`);
-    const table = tableOf(variable.id);
-    if (!table)
+    const found = tablesOf(variable.id);
+    if (!found.length)
       return bad(`${variable.id} is not built: ${NEEDS_TREEMAP_BUILD}`);
+    // The first of the variable's tables that has every grouping asked for.
+    const table =
+      found.find((each) => checked.groupings.every((id) => each.has(id))) ||
+      found[0];
     const answer = table.node({
       groupings: checked.groupings,
       path: keys,
