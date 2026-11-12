@@ -578,3 +578,51 @@ test('a collapsed floating window keeps its chosen height through a drag and a r
     f.restore();
   }
 });
+
+test('a window that docks when collapsed comes back floating only if it opens; else in its rail', () => {
+  const f = fixture();
+  try {
+    const record = JSON.stringify({
+      left: 410,
+      top: 120,
+      width: 1180,
+      height: 820,
+      floating: true,
+    });
+    const portable = (id, dockOnCollapse) => {
+      const panel = f.element();
+      panel.id = id;
+      f.owner._portablePanels.set(id, {
+        panel,
+        min: { width: 320, height: 260 },
+        dockOnCollapse,
+      });
+      f.store.set(`godsEyeView.v8.panelPos.${id}`, record);
+      return panel;
+    };
+    // Collapsed at load (a link's state, the page's default): the rail, not
+    // an empty frame at the pop-out size; the record stays for later.
+    const collapsed = portable('treemap-panel', true);
+    collapsed.classList.add('collapsed');
+    f.owner._restorePanelPosition('treemap-panel', collapsed);
+    assert.equal(collapsed.classList.contains('panel-floating'), false);
+    assert.equal(collapsed.style.width, undefined);
+    assert.ok(f.store.has('godsEyeView.v8.panelPos.treemap-panel'));
+    // Open at load: the window where it was, at its size.
+    const open = portable('treemap-panel', true);
+    f.owner._restorePanelPosition('treemap-panel', open);
+    assert.equal(open.classList.contains('panel-floating'), true);
+    assert.equal(open.style.width, '1180px');
+    // Collapsed afterwards, it docks (no frame left behind).
+    open.classList.add('collapsed');
+    f.owner.onPanelCollapsed('treemap-panel', true);
+    assert.equal(open.classList.contains('panel-floating'), false);
+    // A window that stays floating when collapsed (CCTV) is restored so.
+    const cctv = portable('cctv-panel', false);
+    cctv.classList.add('collapsed');
+    f.owner._restorePanelPosition('cctv-panel', cctv);
+    assert.equal(cctv.classList.contains('panel-floating'), true);
+  } finally {
+    f.restore();
+  }
+});

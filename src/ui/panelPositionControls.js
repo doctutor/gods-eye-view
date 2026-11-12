@@ -379,6 +379,12 @@ export class PanelPositionControls {
       // Only portable panels store, and accept, floating records.
       const portable = this._portablePanels.get(panelId);
       if (Boolean(pos.floating) !== Boolean(portable)) return;
+      // A window that docks when collapsed is never restored floating and
+      // collapsed (an empty frame over the globe, its body and controls
+      // hidden): collapsed now (a link's state, the page's default), it
+      // stays in its rail; its record waits for a load that opens it.
+      if (portable?.dockOnCollapse && panelEl.classList.contains('collapsed'))
+        return;
       if (portable) {
         panelEl.classList.add('panel-floating', 'panel-draggable');
         // A restored window must stack above the docked rail panels too.
