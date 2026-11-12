@@ -1951,6 +1951,8 @@
       "src/app/tools.js",
       "src/app/treemap.js",
       "src/app/treemapLive.js",
+      "src/app/treemapLabels.js",
+      "src/data/treemapContinents.js",
       "src/ui/treemapPanel.js",
       "src/ui/treemapAddressBar.js",
       "src/ui/treemapGlobe.js",

@@ -18,7 +18,11 @@ import {
 } from './layers/lego/photoreal.js';
 // Personal fork: the navigation mode, Walk or Fly (src/navigation/).
 import { NAV_PARAM, navigationStore } from './navigation/store.js';
-import { TREEMAP_PARAM, treemapStore } from './data/treemapStore.js';
+import {
+  TREEMAP_PARAM,
+  decodeTreemapParam,
+  treemapStore,
+} from './data/treemapStore.js';
 // Personal fork: Render: Blocks (`bk`).
 import { BLOCKS_PARAM, renderModeStore } from './layers/lego/renderMode.js';
 import * as Cesium from 'cesium';
@@ -337,7 +341,7 @@ export class ShareLinkManager {
         params.get('v') === '2' &&
         params.has('l') &&
         decodedLayerState === null,
-      panelState: decodePanelStateParams(params),
+      panelState: withTreemapPanelOpen(decodePanelStateParams(params), params),
       sharedAtMs: decodeShareCreatedAtMs(params),
     };
     state.restoreAuthority = {
@@ -877,6 +881,24 @@ export function decodeStyleParamState(params, styleName) {
     decoded[spec.key] = Math.max(spec.min, Math.min(spec.max, numeric));
   }
   return Object.keys(decoded).length ? decoded : null;
+}
+
+/**
+ * Personal fork: a link that carries a treemap view (`tm`) opens the
+ * TREEMAP panel to show it, unless its `ui` state says how the panel was.
+ * @param {{specs: object[]}|null} panelState decodePanelStateParams's
+ * @param {URLSearchParams} params
+ */
+export function withTreemapPanelOpen(panelState, params) {
+  if (!decodeTreemapParam(params.get(TREEMAP_PARAM))) return panelState;
+  if (panelState?.specs?.some((spec) => spec.id === 'treemap-panel'))
+    return panelState;
+  return {
+    specs: [
+      ...(panelState?.specs || []),
+      { id: 'treemap-panel', collapsed: false, pinned: null },
+    ],
+  };
 }
 
 /** Decode the shareable collapsed and pinned state for known panels. */

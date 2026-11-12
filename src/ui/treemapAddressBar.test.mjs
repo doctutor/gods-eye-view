@@ -311,3 +311,29 @@ test('the TREEMAP panel sits in the right rail with the others, share-linked and
   );
   assert.equal(new Set(tokens).size, tokens.length);
 });
+
+test('time cuts: periods draw in order with a gradient from early to late', async () => {
+  const { isOrderedGrouping, orderHue } = await import('./treemapPanel.js');
+  assert.equal(isOrderedGrouping('history.period'), true);
+  assert.equal(isOrderedGrouping('time.year'), true);
+  assert.equal(isOrderedGrouping('history.polity'), false);
+  assert.equal(isOrderedGrouping('admin.country'), false);
+  const early = { depth: 1, order: 0, node: { key: '-3000' } };
+  const late = { depth: 1, order: 1, node: { key: '2000' } };
+  assert.equal(hsl(tileColour(early, []))[0], orderHue(0));
+  assert.equal(hsl(tileColour(late, []))[0], orderHue(1));
+  assert.ok(hueGap(orderHue(0), orderHue(1)) > 120);
+});
+
+test('a product tile shows its intensive value: its mean, or total ÷ base', async () => {
+  const { productMean, productUnit } = await import('./treemapPanel.js');
+  assert.equal(productMean({ value: 4.1e15, base: 1e13 }), 410);
+  assert.equal(productMean({ value: 1, mean: 7 }), 7);
+  assert.equal(productMean({ value: 5 }), null);
+  assert.equal(productMean({ value: 5, base: 0 }), null);
+  assert.equal(productUnit('m3', { base: 'm2/surface-area' }), 'm');
+  assert.equal(
+    formatValue(410, productUnit('m3', { base: 'm2/surface-area' })),
+    '410 m',
+  );
+});

@@ -13,6 +13,7 @@
 import { t, msg, tn, formatNumber, translateKnown } from '../i18n/index.js';
 import { layoutNode, hitTest } from '../data/treemapLayout.js';
 import { parseTreemapAddress } from '../data/treemapAddress.js';
+import { treemapVariable } from '../data/treemapCatalog.js';
 import {
   createAddressBar,
   groupingName,
@@ -27,6 +28,8 @@ const parseAddress = (address) => {
 
 /** The canvas's height in the rail, CSS px (a floating window fills). */
 export const RAIL_STAGE_PX = 240;
+/** A live variable is read again this often while shown (ms). */
+export const LIVE_REFRESH_MS = 15_000;
 /** Children asked a page. */
 export const PAGE_LIMIT = 200;
 
@@ -45,6 +48,16 @@ export function hueOf(key) {
   }
   return (hash >>> 0) % 360;
 }
+
+/**
+ * Cuts drawn in their keys' order, not by size: time (history periods, any
+ * `time.*` grouping), so empires rise and shrink left to right.
+ */
+export const isOrderedGrouping = (id) =>
+  typeof id === 'string' && (id === 'history.period' || id.startsWith('time.'));
+
+/** A time strip's hue: early blue to late amber. */
+export const orderHue = (order) => 215 - order * 180;
 
 /** A key's stable offset in [-range, range] (another hash than the hue's). */
 export const spreadOf = (key, range) =>
@@ -79,7 +92,11 @@ function fanOf(tile) {
 export function tileColour(tile, path) {
   if (tile.more) return 'hsl(210 10% 34%)';
   const top = tile.depth === 2 ? tile.parent : tile;
-  const family = hueOf(path.length > 0 ? path[0] : top.node.key);
+  // A time strip's family is its place in time; else the member's key.
+  const family =
+    path.length === 0 && Number.isFinite(top.order)
+      ? orderHue(top.order)
+      : hueOf(path.length > 0 ? path[0] : top.node.key);
   const wrap = (hue) => ((Math.round(hue) % 360) + 360) % 360;
   const own = fanOf(tile);
   if (path.length === 0) {
@@ -92,6 +109,24 @@ export function tileColour(tile, path) {
   if (tile.depth === 1)
     return `hsl(${wrap(topHue)} 52% ${28 + topFan.step * 5}%)`;
   return `hsl(${wrap(topHue + (own.at - 0.5) * 16)} 48% ${38 + own.step * 4}%)`;
+}
+
+/**
+ * A product tile's intensive value: its own `mean` when the answer gives
+ * it, else total ÷ `base`; null when it carries neither.
+ */
+export function productMean(tileNode) {
+  if (Number.isFinite(tileNode?.mean)) return tileNode.mean;
+  if (Number.isFinite(tileNode?.value) && tileNode?.base > 0)
+    return tileNode.value / tileNode.base;
+  return null;
+}
+
+/** The intensive value's unit: the variable's over its base's (m³/m² = m). */
+export function productUnit(unit, product) {
+  const base = String(product?.base || '').split('/')[0];
+  if (unit === 'm3' && base === 'm2') return 'm';
+  return '';
 }
 
 const PREFIXES = [
@@ -240,7 +275,16 @@ export function createTreemapPanel({
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
     if (!node || error) return;
-    layout = layoutNode(node, { x: 0, y: 0, w: width, h: height });
+    const cuts = parseAddress(store.get().address)?.groupings || [];
+    const depth = store.get().path.length;
+    layout = layoutNode(
+      node,
+      { x: 0, y: 0, w: width, h: height },
+      {
+        ordered: isOrderedGrouping(node.level?.grouping ?? cuts[depth]),
+        orderedInner: isOrderedGrouping(cuts[depth + 1]),
+      },
+    );
     const path = store.get().path;
     context.textBaseline = 'top';
     for (const tile of layout.tiles) {
@@ -394,16 +438,19 @@ export function createTreemapPanel({
     status.hidden = !text;
   }
 
-  async function load() {
+  /** `quiet`: a live refresh, drawn over what is shown without a notice. */
+  async function load({ quiet = false } = {}) {
     const state = store.get();
     const mine = ++token;
     controller?.abort?.();
     controller =
       typeof AbortController === 'function' ? new AbortController() : null;
-    hovered = null;
-    card.hidden = true;
-    globe?.outline?.(null);
-    showStatus(t('Loading…'));
+    if (!quiet) {
+      hovered = null;
+      card.hidden = true;
+      globe?.outline?.(null);
+      showStatus(t('Loading…'));
+    }
     try {
       // Asked every load: the service's part is kept by the source, the live
       // layers' part is read again (a layer turned on since counts now).
@@ -508,6 +555,19 @@ export function createTreemapPanel({
       : translateKnown(String(tile.node.label ?? tile.node.key));
     lines.push(['treemap-card-title', title]);
     lines.push(['treemap-card-value', formatValue(tile.node.value, unit)]);
+    // A product (volume = elevation × area): its intensive value, total ÷
+    // base, when the answer carries the base (or the mean itself).
+    const mean = productMean(tile.node);
+    if (node?.mode === 'product' && mean !== null) {
+      const product = treemapVariable(parsed?.variable)?.product;
+      lines.push([
+        'treemap-card-value',
+        t('{what}: {value}', {
+          what: product?.intensive ? t(product.intensive) : t('mean'),
+          value: formatValue(mean, productUnit(unit, product)),
+        }),
+      ]);
+    }
     if (node?.mode !== 'relative') {
       lines.push([
         'treemap-card-share',
@@ -626,6 +686,16 @@ export function createTreemapPanel({
       load();
     }),
   );
+  // A live variable (aircraft, vessels) is read again every
+  // LIVE_REFRESH_MS while the window is open and nothing is hovered.
+  const liveTimer = windowRef?.setInterval?.(() => {
+    if (destroyed || hovered || !root.isConnected) return;
+    if (root.offsetParent === null) return;
+    const variable = parseAddress(store.get().address)?.variable;
+    if (treemapVariable(variable)?.source !== 'live') return;
+    load({ quiet: true });
+  }, LIVE_REFRESH_MS);
+  if (liveTimer) removers.push(() => windowRef.clearInterval(liveTimer));
   if (typeof ResizeObserver === 'function') {
     const observer = new ResizeObserver(() => draw());
     observer.observe(stage);

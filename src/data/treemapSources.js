@@ -38,7 +38,7 @@ export function createServiceSource({
   fetchImpl = (...args) => globalThis.fetch(...args),
   base = TREEMAP_ROUTE,
 } = {}) {
-  async function get(path, params = {}, { signal } = {}) {
+  async function get(path, params = {}, { signal, body: sent } = {}) {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params))
       if (value !== undefined && value !== null && value !== '')
@@ -46,7 +46,17 @@ export function createServiceSource({
     const url = `${base}/${path}${query.size ? `?${query}` : ''}`;
     let response;
     try {
-      response = await fetchImpl(url, { signal });
+      response = await fetchImpl(
+        url,
+        sent === undefined
+          ? { signal }
+          : {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(sent),
+              signal,
+            },
+      );
     } catch (error) {
       if (error?.name === 'AbortError') throw error;
       throw new TreemapError(error?.message || 'network', { code: 'network' });
@@ -85,8 +95,15 @@ export function createServiceSource({
         options,
       ),
     geo: (ref, options) => (ref ? get('geo', { ref }, options) : null),
+    /** POST /label: each [lon, lat]'s {country, region, district}, or null
+     * at sea; at most LABEL_BATCH points a call. */
+    label: (points, options = {}) =>
+      get('label', {}, { ...options, body: { points } }),
   };
 }
+
+/** The most points one POST /api/treemap/label takes. */
+export const LABEL_BATCH = 20_000;
 
 /** A box GeoJSON polygon from [w, s, e, n]. */
 export function boxGeoJson([w, s, e, n]) {
@@ -132,7 +149,9 @@ export const refOfBox = ([w, s, e, n]) =>
  * Records in the page aggregated to the contract's nodes.
  *
  * Each variable: {id ('count/aircraft'), mode ('additive' | 'relative'),
- * records: () => object[], value?: (record) => number (1: a count),
+ * records: () => object[], prepare?: ({records, groupings, path}) =>
+ * Promise (awaited before the records are cut), value?: (record) => number
+ * (1: a count),
  * groupings: {[groupingId]: (record) => {key, label}|null} (null: the
  * record is not cut that way, and goes no deeper), box?: (record) =>
  * [w, s, e, n]|null, attribution?, note?, exact?}. `groupings` lists the
@@ -221,6 +240,14 @@ export function createRecordSource({
       const relative = variable.mode === 'relative';
       // The records under the path, and the path's labels.
       let records = variable.records() || [];
+      // A variable that needs work before it can be cut (live points to be
+      // labelled with their country, names to be fetched) does it here.
+      if (variable.prepare)
+        await variable.prepare({
+          records,
+          groupings: parsed.groupings,
+          path,
+        });
       const pathOut = [];
       for (let level = 0; level < path.length; level++) {
         const cut = cuts[level];

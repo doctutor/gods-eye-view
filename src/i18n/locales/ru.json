@@ -4316,5 +4316,9 @@
   "Filter sequences": "Фильтровать последовательности",
   "No sequence matches": "Нет подходящих последовательностей",
   "Address": "Адрес",
-  "The address: Enter applies it, Escape puts it back": "Адрес: Enter применяет, Escape возвращает прежний"
+  "The address: Enter applies it, Escape puts it back": "Адрес: Enter применяет, Escape возвращает прежний",
+  "Not placed yet": "Ещё не определено",
+  "Continent not known": "Континент неизвестен",
+  "{what}: {value}": "{what}: {value}",
+  "mean": "среднее"
 }
