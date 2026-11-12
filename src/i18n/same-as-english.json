@@ -123,6 +123,7 @@
     "Wikipedia: {title}",
     "YOUTUBE · {status}",
     "audio {state}",
+    "bytes",
     "dB",
     "fire confidence|nominal",
     "ft",
