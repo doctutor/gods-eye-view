@@ -12,8 +12,19 @@
 // does not have. A run stops once it has made `maxRequests`.
 import fs from 'node:fs';
 import path from 'node:path';
-import { createEarthEngineService } from '../../server/providers/earthEngine.js';
-import { createEarthEngineAdapter } from '../../server/providers/rasterValues/earthEngineValues.js';
+import {
+  createEarthEngineService,
+  createRestBackend,
+  createServiceAccountAuth,
+  earthEngineSettings,
+} from '../../server/providers/earthEngine.js';
+import {
+  createEarthEngineAdapter,
+  pixelGrid,
+  readNpy,
+  valuesExpression,
+} from '../../server/providers/rasterValues/earthEngineValues.js';
+import { windowGrid } from '../../src/data/rasterValues.js';
 import {
   EARTH_AREA_M2,
   sinAuthalic,
@@ -31,9 +42,24 @@ import {
 import { continentOfCountry } from '../../src/data/treemapContinents.js';
 import { adminKeys } from './areas.mjs';
 
-export const EARTH_ENGINE_TABLES_VERSION = 3;
+export const EARTH_ENGINE_TABLES_VERSION = 5;
+
+/** "58 GMTED2010 230 m means, 90 GMTED2010 230 m samples, …", most first. */
+export function sourcesText(boxes) {
+  const counts = new Map();
+  for (const { source, aggregation } of boxes) {
+    const key = `${source || 'unknown'} ${aggregation === 'mean' ? 'means' : 'samples'}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts]
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, n]) => `${n} ${key}`)
+    .join(', ');
+}
 export const BOX_DEGREES = 15;
 export const CELLS = 640;
+/** WorldCover's southern edge (° S). */
+const WORLDCOVER_SOUTH = 60;
 /** A run stops after this many boxes fail one after another. */
 const FAILURES_IN_A_ROW = 5;
 /** The Mercator labelling stops here; Antarctica's land goes on to −90. */
@@ -89,6 +115,7 @@ async function fetchLayer({
   earthEngine,
   budget,
   log,
+  ask = null,
 }) {
   const layer = EARTH_ENGINE_LAYERS.find((entry) => entry.id === layerId);
   const adapter = createEarthEngineAdapter(layer, earthEngine);
@@ -106,6 +133,8 @@ async function fetchLayer({
         box,
         cols: meta.cols,
         rows: meta.rows,
+        source: meta.source || '',
+        aggregation: meta.aggregation || '',
         values: new Float32Array(
           bytes.buffer,
           bytes.byteOffset,
@@ -118,8 +147,15 @@ async function fetchLayer({
       log(`  ${layerId}: stopped at ${budget.used} requests (the cap)`);
       return { boxes: out, stopped: true, failed };
     }
-    const plan = adapter.plan(mode, box, CELLS);
-    const answer = await plan.run();
+    let answer;
+    let plan;
+    if (ask) {
+      answer = await ask(box);
+      plan = answer;
+    } else {
+      plan = adapter.plan(mode, box, CELLS);
+      answer = await plan.run();
+    }
     if (answer.status !== 200) {
       failed++;
       inARow++;
@@ -150,7 +186,14 @@ async function fetchLayer({
         aggregation: answer.aggregation || plan.aggregation,
       }),
     );
-    out.push({ box, cols: plan.cols, rows: plan.rows, values });
+    out.push({
+      box,
+      cols: plan.cols,
+      rows: plan.rows,
+      source: plan.source || '',
+      aggregation: answer.aggregation || plan.aggregation || '',
+      values,
+    });
     if ((i + 1) % 10 === 0)
       log(
         `  ${layerId}: ${i + 1} of ${boxes.length} boxes, ${budget.used} requests so far`,
@@ -211,7 +254,7 @@ export async function buildEarthEngineTables({
   maxRequests,
   log,
 }) {
-  const service = createEarthEngineService({ sourceRoot: root, env });
+  const service = singleTryService({ root, env });
   const budget = { used: 0, max: maxRequests };
   // Every computePixels the adapters make, counted here as well as in the
   // service's daily ledger.
@@ -238,8 +281,13 @@ export async function buildEarthEngineTables({
   });
   // Elevation only where land cover found land: the labelling has tiles
   // over open sea (a large unit's box spans it), land cover does not.
+  // WorldCover stops at 60° S: every box wholly south of it is Antarctica's.
   const landBoxes = cover.boxes
-    .filter((entry) => entry.values.some(Number.isFinite))
+    .filter(
+      (entry) =>
+        entry.box.north <= -WORLDCOVER_SOUTH ||
+        entry.values.some(Number.isFinite),
+    )
     .map((entry) => entry.box);
   const elevation =
     !withElevation || !complete(cover, boxes)
@@ -248,6 +296,14 @@ export async function buildEarthEngineTables({
           layerId: 'ee-elevation',
           mode: '',
           boxes: landBoxes,
+          // A box not kept yet is GMTED2010 sampled: the DEM stack's mean
+          // over 30 m FABDEM was too large or too slow for Earth Engine at
+          // this scale (2026-11-12).
+          // Antarctica (no GMTED there) from the stack's polar source.
+          ask: (box) =>
+            box.north <= -WORLDCOVER_SOUTH
+              ? stackAsker(earthEngine)(box)
+              : gmtedAsker(earthEngine)(box),
           cacheDir,
           earthEngine,
           budget,
@@ -344,7 +400,7 @@ export async function buildEarthEngineTables({
       labels,
       geo,
       exact: false,
-      note: "Land above sea level, from cells of about 2.5 km: each cell's area times its mean elevation above the sea (the DEM stack's far band: GMTED2010, ArcticDEM over Greenland, the polar stack over Antarctica; ice surfaces included), summed. A tile's mean elevation is its volume over its land area.",
+      note: `Land above sea level, from cells of about 2.5 km: each cell's area times its elevation above the sea (ice surfaces included), summed; a tile's mean elevation is its volume over its land area. The ${elevation.boxes.length} 15° boxes over land: ${sourcesText(elevation.boxes)}.`,
       attribution:
         'GMTED2010 (USGS and NGA), ArcticDEM and REMA (Polar Geospatial Center), through Google Earth Engine',
     });
@@ -360,5 +416,103 @@ export async function buildEarthEngineTables({
       elevationBoxes: elevation.boxes.length,
       failed: cover.failed + elevation.failed,
     },
+  };
+}
+
+const constant = (value) => ({ constantValue: value });
+const invoke = (functionName, args) => ({
+  functionInvocationValue: { functionName, arguments: args },
+});
+
+/**
+ * GMTED2010's mean band sampled at a box's cells, as numbers (`v`, `m`):
+ * one request, the sea 0 m (GMTED's own). It has no Greenland and no
+ * Antarctica (0 there too).
+ */
+export const GMTED_SAMPLE = valuesExpression({
+  values: {
+    g: invoke('Image.select', {
+      input: invoke('Image.load', { id: constant('USGS/GMTED2010_FULL') }),
+      bandSelectors: constant(['mea']),
+    }),
+  },
+  result: 'g',
+});
+
+/**
+ * The box asker for GMTED2010 samples: one computePixels a box through
+ * `earthEngine`, never a second try.
+ */
+export function gmtedAsker(earthEngine) {
+  return async (box) => {
+    const { cols, rows } = windowGrid(box, CELLS, 0);
+    const answer = await earthEngine.computePixels(
+      'ee-elevation',
+      GMTED_SAMPLE,
+      pixelGrid(box, cols, rows),
+    );
+    if (answer.status !== 200) return { ...answer, cols, rows };
+    const { rows: r, cols: c, bands } = readNpy(answer.body);
+    if (r !== rows || c !== cols || !bands.v || !bands.m)
+      return { status: 502, error: 'Earth Engine answered another grid' };
+    const values = bands.v;
+    for (let i = 0; i < values.length; i++)
+      if (!(bands.m[i] > 0)) values[i] = NaN;
+    return {
+      status: 200,
+      values,
+      cols,
+      rows,
+      source: 'GMTED2010 230 m',
+      aggregation: 'sample',
+    };
+  };
+}
+
+/**
+ * The service over a backend that never answers 504 (no answer in time):
+ * that becomes a 503, so the service makes no second try. Every request
+ * is still counted in its ledger.
+ */
+export function singleTryService({ root, env }) {
+  const settings = earthEngineSettings(env, root);
+  if (!settings.configured)
+    return createEarthEngineService({ sourceRoot: root, env });
+  const real = createRestBackend({
+    project: settings.project,
+    auth: createServiceAccountAuth({ keyFile: settings.keyFile }),
+  });
+  return createEarthEngineService({
+    sourceRoot: root,
+    env,
+    backend: {
+      async computePixels(...args) {
+        const answer = await real.computePixels(...args);
+        return answer.status === 504 ? { ...answer, status: 503 } : answer;
+      },
+    },
+  });
+}
+
+/**
+ * The box asker for the DEM stack (the Elevation layer's values: its polar
+ * source over Antarctica), through the values adapter; one try a request,
+ * a mean that fails sampled instead.
+ */
+export function stackAsker(earthEngine) {
+  const layer = EARTH_ENGINE_LAYERS.find(
+    (entry) => entry.id === 'ee-elevation',
+  );
+  const adapter = createEarthEngineAdapter(layer, earthEngine);
+  return async (box) => {
+    const plan = adapter.plan('', box, CELLS);
+    const answer = await plan.run();
+    return {
+      ...answer,
+      cols: plan.cols,
+      rows: plan.rows,
+      source: plan.source,
+      aggregation: answer.aggregation || plan.aggregation,
+    };
   };
 }

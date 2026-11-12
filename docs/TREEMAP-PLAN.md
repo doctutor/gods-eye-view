@@ -268,8 +268,19 @@ checked on 4173:
   1.5 requests there, because the values service asks once more when Earth
   Engine gives no answer in 120 s, and samples when a mean fails. The PC
   crashed at 01:52 with 36 elevation boxes kept and 58 requests spent (3 of
-  them probes). The rest was resumed with a cap of 252, keeping the total
-  at 600 or under.
+  them probes). Resumed at 09:12 with a cap of 252, the stack's mean over 30 m
+  FABDEM at mid and low latitudes failed at this scale: "Object too large"
+  (about 182 MB, then sampled, 2 requests) 16 times, no answer in 120 s
+  10 times, "memory capacity exceeded" twice. That was about 3 requests a
+  box late on. It was stopped at 92 boxes and 450 requests. The 90 boxes
+  still missing (69° N to 66° S) were each asked once for a plain
+  GMTED2010 sample, with no second try (a no-answer counts as failed): 1
+  probe and 89 requests, none failed. Antarctica had been left out,
+  because WorldCover has no data south of 60° S and so no box there "held
+  land". Its 48 boxes were asked from the stack's polar source, REMA and
+  the stack's mean: 1 probe and 47 requests, none failed.
+  **Total: 588 requests on the day's ledger** (land cover 290, elevation
+  298), under the 600 stop and the cap of 3,000.
 - **Land cover** (`m2/surface-area+landcover`, a second table of the same
   variable). It is ESA WorldCover 2021, read at each cell from its
   pyramid's most common class, by continent, country, region and the
@@ -282,11 +293,19 @@ checked on 4173:
   land here is about 137 of the 150 million km². Built in 48 s from the
   kept boxes, 0 requests.
 - **Land volume** (`m3/land-volume`, mode product). Each cell's area times
-  its mean elevation above the sea, from the DEM stack's far band:
-  GMTED2010, ArcticDEM over Greenland, the polar stack over Antarctica, ice
-  surfaces included. It is by continent, country and region. Each tile
-  and the node's total carry `base` (land area, m²) and `mean` (value ÷
-  base: the mean elevation, m); see the contract.
+  its elevation above the sea, ice surfaces included, by continent, country
+  and region. The 230 boxes come from mixed sources:
+  - 90 GMTED2010 samples and 58 GMTED2010 means;
+  - 24 REMA means and 24 stack means over Antarctica;
+  - 16 FABDEM samples and 10 FABDEM means;
+  - 8 ArcticDEM means over Greenland.
+  The note lists them too. Each tile and the node's total carry `base`
+  (land area, m²) and `mean` (value ÷ base: the mean elevation, m); see
+  the contract. In all, 115.5 M km³ over 149.6 M km², a mean of 772 m.
+  Asia has a mean of 1,046 m and Antarctica 1,760 m: REMA and ArcticDEM are
+  heights above the ellipsoid, and coastal cells at sea level pull a
+  mean down. China has 1,824 m, Greenland 1,812 m and Europe 366 m. Built
+  from the kept boxes in about 2.5 minutes.
 
 ## The window (client)
 
