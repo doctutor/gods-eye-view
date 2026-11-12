@@ -168,3 +168,68 @@ test('layoutNode stays responsive with 200 children × 200 grandchildren', () =>
     .reduce((sum, tile) => sum + area(tile), 0);
   assert.ok(Math.abs(top - area(rect)) / area(rect) < 1e-6);
 });
+
+test('a time cut lays out in its keys’ order (years, before Christ first), strips as wide as their share', async () => {
+  const { sliceLevel, compareKeys } = await import('./treemapLayout.js');
+  // As the service sends them: largest first.
+  const periods = [
+    { key: '1950', label: '1950–1999', value: 40 },
+    { key: '-500', label: '500–451 BCE', value: 10 },
+    { key: '1000', label: '1000–1049', value: 30 },
+    { key: '-3000', label: '3000–2951 BCE', value: 0 },
+    { key: '0', label: '0–49', value: 20 },
+  ];
+  const { tiles, rest } = sliceLevel(
+    periods,
+    { count: 2, value: 10 },
+    {
+      x: 10,
+      y: 5,
+      w: 220,
+      h: 100,
+    },
+  );
+  assert.deepEqual(
+    tiles.map((tile) => tile.node.key),
+    ['-500', '0', '1000', '1950', '…'],
+  );
+  assert.equal(rest.from, 4);
+  // Left to right, edge to edge, widths in proportion, full height.
+  let x = 10;
+  for (const tile of tiles) {
+    assert.ok(Math.abs(tile.x - x) < 1e-9);
+    assert.equal(tile.h, 100);
+    assert.ok(Math.abs(tile.w - (220 * tile.node.value) / 110) < 1e-9);
+    x += tile.w;
+  }
+  assert.ok(Math.abs(x - 230) < 1e-9);
+  assert.deepEqual(
+    tiles.map((tile) => tile.order),
+    [0, 0.25, 0.5, 0.75, 1],
+  );
+  assert.ok(compareKeys('-500', '0') < 0 && compareKeys('a2', 'a10') < 0);
+  // layoutNode: the ordered level as strips, its children still squarified.
+  const node = {
+    children: periods.map((period) => ({
+      ...period,
+      children: [
+        { key: `${period.key}-a`, value: period.value * 0.7 },
+        { key: `${period.key}-b`, value: period.value * 0.3 },
+      ],
+    })),
+    rest: null,
+  };
+  const laid = layoutNode(
+    node,
+    { x: 0, y: 0, w: 800, h: 400 },
+    { ordered: true },
+  );
+  const strips = laid.tiles.filter((tile) => tile.depth === 1);
+  assert.deepEqual(
+    strips.map((tile) => tile.node.key),
+    ['-500', '0', '1000', '1950'],
+  );
+  for (let k = 1; k < strips.length; k++)
+    assert.ok(strips[k].x > strips[k - 1].x);
+  assert.ok(laid.tiles.some((tile) => tile.depth === 2));
+});
