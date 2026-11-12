@@ -13,11 +13,7 @@
  *
  * Pure but for the injected fetch; no i18n (the window translates).
  */
-import {
-  formatAddress,
-  formatPath,
-  parseAddress,
-} from './treemapWindowAddress.js';
+import { formatTreemapAddress, parseTreemapAddress } from './treemapAddress.js';
 
 export const TREEMAP_SCHEMA = 'treemap/1';
 export const TREEMAP_ROUTE = '/api/treemap';
@@ -79,7 +75,9 @@ export function createServiceSource({
         'node',
         {
           address,
-          path: formatPath(path),
+          // Raw keys joined by `/`: the query string encodes them once, and
+          // the service splits the decoded value on `/`.
+          path: path.map(String).join('/'),
           depth,
           limit,
           offset,
@@ -183,8 +181,8 @@ export function createRecordSource({
       limit = DEFAULT_LIMIT,
       offset = 0,
     } = {}) {
-      const parsed = parseAddress(address);
-      if (!parsed)
+      const parsed = parseTreemapAddress(String(address ?? ''));
+      if (!parsed.ok)
         throw new TreemapError('not an address', {
           code: 'refused',
           status: 400,
@@ -201,18 +199,18 @@ export function createRecordSource({
       // does not have is refused.
       const cuts = [];
       let stops = null;
-      for (const grouping of parsed.groupings) {
-        const of = variable.groupings[grouping.id];
+      for (const id of parsed.groupings) {
+        const of = variable.groupings[id];
         if (!of) {
           if (!cuts.length)
-            throw new TreemapError(
-              `${parsed.variable} is not cut by ${grouping.id}`,
-              { code: 'refused', status: 400 },
-            );
-          stops = grouping.id;
+            throw new TreemapError(`${parsed.variable} is not cut by ${id}`, {
+              code: 'refused',
+              status: 400,
+            });
+          stops = id;
           break;
         }
-        cuts.push({ ...grouping, of });
+        cuts.push({ id, of });
       }
       if (path.length > cuts.length)
         throw new TreemapError('the path is deeper than the address', {
@@ -354,7 +352,7 @@ export function createRecordSource({
       const levelCut = cuts[path.length];
       return {
         schema: TREEMAP_SCHEMA,
-        address: formatAddress(parsed.variable, parsed.groupings),
+        address: formatTreemapAddress(parsed),
         mode: variable.mode || 'additive',
         unit: parsed.unit,
         path: pathOut,
@@ -389,7 +387,7 @@ export function createWindowSource({ service, fallback, local = null }) {
   let kept = null;
   const localIds = new Set();
   const pick = (address) => {
-    const variable = parseAddress(address)?.variable;
+    const variable = parseTreemapAddress(String(address ?? '')).variable;
     if (local && localIds.has(variable)) return local;
     return using === 'service' ? service : fallback;
   };

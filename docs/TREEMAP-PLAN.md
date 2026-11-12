@@ -202,10 +202,27 @@ places come to 5.16 billion.
   `ui/treemapGlobe.js`, the layout `data/treemapLayout.js` (its own
   squarify), the sources `data/treemapSources.js`, the live layers'
   source `app/treemapLive.js`, the fallback sample `data/treemapSample.js`,
-  the state `data/treemapStore.js`. Addresses go through the shared parser
-  (`data/treemapAddress.js`, held as pills by `data/treemapWindowAddress.js`)
-  and the menus read the shared catalogue (`data/treemapCatalog.js`, shaped
-  for them by `data/treemapCatalogPlan.js`).
+  the state and the share link's path `data/treemapStore.js`. Addresses go
+  through the shared parser (`data/treemapAddress.js`) and the menus read
+  the shared catalogue (`data/treemapCatalog.js`) directly.
+- **Address bar**: the address as text on top (`*` shown as `×`, `×` and
+  spaces read back), Enter applies it, Escape puts it back; a bad one shows
+  the parser's or the catalogue's message (the service's catalogue, when it
+  lists the variable, says which cuts it takes). Text, pills and menus are
+  the one address in the store. Both drop-downs filter as you type (Enter
+  takes the first match); a variable the service lists as unavailable, or
+  does not list, is dimmed with its `why` (else "Not built yet").
+- **Colour**: the first cut's member sets the hue family. At the root each
+  member has its own hue and its children shades of it; inside a member the
+  drawn level's tiles fan out about the family's hue (±34°) by their rank,
+  stepped by the golden ratio so neighbours in size, which squarify sets
+  side by side, part clearly, with four lightness steps; a child stays
+  within 8° of its parent.
+- **Globe**: the service's outlines (`area:` MultiPolygons, `box:`
+  continents) drawn as ground lines along rhumb lines (a box's edges follow
+  their parallels), the 120 largest rings of an outline (Russia has 890);
+  double-click flies to the extent, the narrow way round across the
+  antimeridian.
 - **Panel**: `#treemap-panel` in the right rail, before CONTEXT, collapsed
   at first; the panel layout's portable path lifts it out (its pop-out
   button: `popOutPanel`/`dockPanel`, at most 1180 × 820, 72 % × 78 % of the

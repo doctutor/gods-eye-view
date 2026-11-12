@@ -4144,7 +4144,6 @@
   "Not built yet": "Aún no construido",
   "Quantity": "Magnitud",
   "Filter: area, people, bytes…": "Filtrar: superficie, personas, bytes…",
-  "Filter quantities": "Filtrar magnitudes",
   "No quantity matches": "Ninguna magnitud coincide",
   "Sequence": "Secuencia",
   "Waits on {cuts}": "Espera a {cuts}",
@@ -4202,5 +4201,9 @@
   "Live: what the layer holds now": "En vivo: lo que la capa contiene ahora",
   "{variable} is not available: {why}": "{variable} no está disponible: {why}",
   "no reason given": "sin motivo indicado",
-  "{variable} is not built yet: pick another quantity": "{variable} aún no está construido: elija otra magnitud"
+  "{variable} is not built yet: pick another quantity": "{variable} aún no está construido: elija otra magnitud",
+  "Filter sequences": "Filtrar secuencias",
+  "No sequence matches": "Ninguna secuencia coincide",
+  "Address": "Dirección",
+  "The address: Enter applies it, Escape puts it back": "La dirección: Intro la aplica, Escape la restablece"
 }

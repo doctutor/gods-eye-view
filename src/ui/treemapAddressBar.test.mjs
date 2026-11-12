@@ -1,5 +1,6 @@
-// Personal fork: the treemap window's address bar state (treemapAddressBar.js)
-// and its panel's registration in the rail, share link and layout.
+// Personal fork: the treemap window's address bar state (treemapAddressBar.js),
+// its colours, and its panel's registration in the rail, share link and
+// layout.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,10 +12,20 @@ import {
   toggleJoin,
   addableGroupings,
   variableEntries,
+  sequenceEntries,
+  readAddressText,
+  addressText,
+  cutsText,
 } from './treemapAddressBar.js';
-import { formatValue, formatShare, tileColour, hueOf } from './treemapPanel.js';
-import { TREEMAP_CATALOG_PLAN } from '../data/treemapCatalogPlan.js';
-import { parseAddress } from '../data/treemapWindowAddress.js';
+import {
+  formatValue,
+  formatShare,
+  tileColour,
+  hueOf,
+  SIBLING_HUE_SPREAD,
+} from './treemapPanel.js';
+import { TREEMAP_VARIABLES } from '../data/treemapCatalog.js';
+import { parseTreemapAddress } from '../data/treemapAddress.js';
 
 const A = 'm2/surface-area://admin.continent/admin.country/admin.region';
 
@@ -24,6 +35,17 @@ test('pills: remove, reorder, add (/ within or × overlay), and flip a join', ()
     'm2/surface-area://admin.continent/admin.region',
   );
   assert.equal(removeGrouping(A, 9), A);
+  assert.equal(
+    removeGrouping('m2/surface-area://admin.continent', 0),
+    'm2/surface-area://admin.continent',
+    'the last cut stays',
+  );
+  // The join goes with the cut it joined.
+  const overlay = 'm2/surface-area://admin.country*landcover.class';
+  assert.equal(
+    removeGrouping(`${overlay}/admin.region`, 1),
+    'm2/surface-area://admin.country/admin.region',
+  );
   assert.equal(
     moveGrouping(A, 2, 0),
     'm2/surface-area://admin.region/admin.continent/admin.country',
@@ -38,13 +60,59 @@ test('pills: remove, reorder, add (/ within or × overlay), and flip a join', ()
   );
   assert.equal(toggleJoin(toggleJoin(A, 2), 2), A);
   assert.equal(toggleJoin(A, 0), A, 'the first cut has no join');
-  // Every result still parses.
   for (const address of [
     removeGrouping(A, 0),
     moveGrouping(A, 1, 2),
     toggleJoin(A, 1),
   ])
-    assert.ok(parseAddress(address));
+    assert.ok(parseTreemapAddress(address).ok);
+});
+
+test('the address as text: × shown for *, Enter reads it, a bad one says why', () => {
+  const overlay = 'm2/surface-area://admin.country*landcover.class';
+  assert.equal(
+    addressText(overlay),
+    'm2/surface-area://admin.country × landcover.class',
+  );
+  // What the bar shows reads back as the same address.
+  assert.deepEqual(readAddressText(addressText(overlay)), {
+    ok: true,
+    address: overlay,
+  });
+  assert.equal(
+    readAddressText(' m2/surface-area:// admin.continent / admin.country ')
+      .address,
+    'm2/surface-area://admin.continent/admin.country',
+  );
+  const noScheme = readAddressText('m2/surface-area admin.country');
+  assert.equal(noScheme.ok, false);
+  assert.match(noScheme.message, /:\/\//);
+  const twice = readAddressText(
+    'm2/surface-area://admin.country/admin.country',
+  );
+  assert.equal(twice.ok, false);
+  assert.match(twice.message, /appears twice/);
+  const unknown = readAddressText('m2/nothing://admin.country');
+  assert.equal(unknown.ok, false);
+  assert.match(unknown.message, /no variable/);
+  const notTaken = readAddressText('m2/surface-area://vessel.type');
+  assert.equal(notTaken.ok, false);
+  assert.match(notTaken.message, /cannot be cut by vessel\.type/);
+  // The service's catalogue says what a variable takes when it lists it.
+  const served = {
+    variables: [
+      { id: 'count/people', available: true, groupings: ['admin.country'] },
+    ],
+  };
+  assert.equal(
+    readAddressText('count/people://admin.country', served).ok,
+    true,
+  );
+  assert.equal(
+    readAddressText('count/people://admin.region', served).ok,
+    false,
+  );
+  assert.equal(cutsText(overlay), 'Country × Land cover');
 });
 
 test('add menu offers the cuts the variable takes that are not in use', () => {
@@ -62,10 +130,12 @@ test('add menu offers the cuts the variable takes that are not in use', () => {
     ],
   };
   assert.deepEqual(addableGroupings(A, catalog), ['landcover.class']);
-  assert.deepEqual(addableGroupings('x/y://a.b', catalog), []);
+  // With no service catalogue, the shared catalogue's list.
+  assert.ok(addableGroupings(A, null).includes('admin.district'));
+  assert.deepEqual(addableGroupings('not an address', catalog), []);
 });
 
-test('quantity menu: grouped quantity › unit, filtered as typed, unbuilt variables disabled with the reason', () => {
+test('quantity menu: grouped quantity › unit, filtered as typed, every unavailable variable dimmed with its reason', () => {
   const catalog = {
     variables: [
       { id: 'm2/surface-area', available: true, groupings: [] },
@@ -75,72 +145,138 @@ test('quantity menu: grouped quantity › unit, filtered as typed, unbuilt varia
         why: 'Waiting on the population table',
         groupings: [],
       },
+      { id: 'count/places', available: false, groupings: [] },
     ],
   };
-  const groups = variableEntries(TREEMAP_CATALOG_PLAN, catalog);
+  const groups = variableEntries(catalog);
   const rows = groups.flatMap((group) => group.variables);
-  assert.equal(rows.length, TREEMAP_CATALOG_PLAN.length);
-  const area = rows.find((row) => row.id === 'm2/surface-area');
-  assert.equal(area.available, true);
+  assert.equal(rows.length, TREEMAP_VARIABLES.length);
+  assert.equal(rows.find((r) => r.id === 'm2/surface-area').available, true);
   const people = rows.find((row) => row.id === 'count/people');
   assert.equal(people.available, false);
   assert.equal(people.why, 'Waiting on the population table');
-  const unbuilt = rows.find((row) => row.id === 'byte/wikipedia-text');
-  assert.equal(unbuilt?.available, false);
-  assert.equal(unbuilt.why, 'Not built yet');
+  // Unavailable with no reason given, or not listed at all: not built.
+  for (const id of ['count/places', 'byte/wikipedia-text', 'count/buildings']) {
+    const row = rows.find((r) => r.id === id);
+    assert.equal(row.available, false, id);
+    assert.equal(row.why, 'Not built yet', id);
+  }
   for (const group of groups)
     for (const row of group.variables) {
       assert.equal(row.quantity, group.quantity);
       assert.equal(row.unit, group.unit);
     }
-  const filtered = variableEntries(TREEMAP_CATALOG_PLAN, catalog, 'PEOPLE');
+  const filtered = variableEntries(catalog, 'PEOPLE');
   assert.deepEqual(
     filtered.flatMap((group) => group.variables.map((row) => row.id)),
     ['count/people'],
   );
-  // A variable the service has that the plan does not still shows.
-  const extra = variableEntries(TREEMAP_CATALOG_PLAN, {
+  assert.ok(
+    variableEntries(catalog, 'm²')
+      .flatMap((group) => group.variables)
+      .every((row) => row.id.startsWith('m2/')),
+  );
+  const extra = variableEntries({
     variables: [{ id: 'count/ships', available: true, groupings: [] }],
   });
   assert.ok(
     extra.some((group) =>
-      group.variables.some((row) => row.id === 'count/ships'),
+      group.variables.some((row) => row.id === 'count/ships' && row.available),
     ),
   );
 });
 
-test('every plan sequence is an address on its own variable', () => {
-  for (const entry of TREEMAP_CATALOG_PLAN)
-    for (const sequence of entry.sequences) {
-      const parsed = parseAddress(sequence.address);
-      assert.ok(parsed, sequence.address);
-      assert.equal(parsed.variable, entry.id);
-      assert.ok(sequence.reveals);
+test('sequence menu: the catalogue’s order with titles, filtered as typed, waiting ones disabled', () => {
+  const catalog = {
+    variables: [
+      {
+        id: 'm2/surface-area',
+        available: true,
+        groupings: ['admin.continent', 'admin.country', 'admin.region'],
+      },
+    ],
+  };
+  const all = sequenceEntries('m2/surface-area', catalog);
+  assert.equal(all.length, 2);
+  assert.equal(all[0].why, '', 'a deeper cut not built only stops the view');
+  assert.ok(all[0].title && all[0].reveals);
+  assert.match(all[1].why, /^Waits on /);
+  const filtered = sequenceEntries('m2/surface-area', catalog, 'land cover');
+  assert.deepEqual(
+    filtered.map((entry) => entry.address),
+    ['m2/surface-area://admin.country*landcover.class'],
+  );
+  assert.deepEqual(sequenceEntries('m2/surface-area', catalog, 'zzz'), []);
+  for (const variable of TREEMAP_VARIABLES)
+    for (const sequence of variable.sequences) {
+      const parsed = parseTreemapAddress(sequence.address);
+      assert.ok(parsed.ok, sequence.address);
+      assert.equal(parsed.variable, variable.id);
     }
 });
 
-test('values with a scaled unit; shares; a colour stable as the cut changes', () => {
+test('values with a scaled unit; shares', () => {
   assert.equal(formatValue(148_940_000e6, 'm2'), '149 million km²');
   assert.equal(formatValue(2_500, 'm2'), '2,500 m²');
   assert.equal(formatValue(1.4e9, 'count'), '1.4 billion');
   assert.equal(formatValue(3e9, 'byte'), '3 GB');
   assert.equal(formatShare(0.2345), '23%');
   assert.equal(formatShare(0.004), '0.4%');
-  // Colour follows the first cut's member: a child keeps its parent's hue,
-  // and inside that member (the path's first key) every tile has it.
-  const asia = { depth: 1, node: { key: 'AS' } };
+});
+
+const hsl = (text) =>
+  text
+    .match(/hsl\((\d+) (\d+)% (\d+)%\)/)
+    .slice(1)
+    .map(Number);
+const hueGap = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+
+test('colour: the first cut’s member sets the family, siblings inside it part at a glance, stable per key', () => {
+  const asia = { depth: 1, node: { key: 'asia' } };
   const china = { depth: 2, node: { key: 'CN' }, parent: asia };
-  assert.equal(
-    tileColour(china, []).match(/hsl\((\d+)/)[1],
-    tileColour(asia, []).match(/hsl\((\d+)/)[1],
+  // At the root a continent and its countries share its family.
+  assert.equal(hsl(tileColour(asia, []))[0], hueOf('asia'));
+  assert.ok(hueGap(hsl(tileColour(china, []))[0], hueOf('asia')) <= 12);
+  // Inside Asia the countries (ranked by size) fan out about Asia's hue.
+  const keys = ['CN', 'IN', 'KZ', 'SA', 'IR', 'MN', 'PK', 'TR', 'MM', 'AF'];
+  const shades = keys.map((key, rank) =>
+    hsl(tileColour({ depth: 1, rank, node: { key } }, ['asia'])),
   );
-  const inside = { depth: 1, node: { key: 'CN' } };
+  for (const [hue] of shades)
+    assert.ok(hueGap(hue, hueOf('asia')) <= SIBLING_HUE_SPREAD);
+  // Neighbours in size (side by side in squarify) part clearly...
+  for (let i = 0; i + 1 < shades.length; i++)
+    assert.ok(
+      hueGap(shades[i][0], shades[i + 1][0]) >= 20,
+      `${keys[i]} and ${keys[i + 1]} look alike`,
+    );
+  // ...and no two siblings are alike: hue or lightness apart.
+  for (let i = 0; i < shades.length; i++)
+    for (let j = i + 1; j < shades.length; j++)
+      assert.ok(
+        hueGap(shades[i][0], shades[j][0]) >= 3 ||
+          Math.abs(shades[i][2] - shades[j][2]) >= 4,
+        `${keys[i]} and ${keys[j]} look alike`,
+      );
+  // Stable: the same tile, the same colour, every draw.
   assert.equal(
-    tileColour(inside, ['AS']).match(/hsl\((\d+)/)[1],
-    tileColour(asia, []).match(/hsl\((\d+)/)[1],
+    tileColour({ depth: 1, rank: 1, node: { key: 'IN' } }, ['asia']),
+    tileColour({ depth: 1, rank: 1, node: { key: 'IN' } }, ['asia']),
   );
-  assert.equal(hueOf('AS'), hueOf('AS'));
-  // The "…" tile is grey whatever it holds.
+  // A child stays near its parent's hue.
+  const india = { depth: 1, rank: 1, node: { key: 'IN' } };
+  const maharashtra = {
+    depth: 2,
+    rank: 2,
+    node: { key: 'IN-MH' },
+    parent: india,
+  };
+  assert.ok(
+    hueGap(
+      hsl(tileColour(maharashtra, ['asia']))[0],
+      hsl(tileColour(india, ['asia']))[0],
+    ) <= 8,
+  );
   assert.match(
     tileColour({ depth: 1, more: true, node: { key: 'x' } }, []),
     /^hsl\(210 10%/,

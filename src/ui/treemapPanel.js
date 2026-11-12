@@ -12,12 +12,18 @@
  */
 import { t, msg, tn, formatNumber, translateKnown } from '../i18n/index.js';
 import { layoutNode, hitTest } from '../data/treemapLayout.js';
-import { parseAddress } from '../data/treemapWindowAddress.js';
+import { parseTreemapAddress } from '../data/treemapAddress.js';
 import {
-  TREEMAP_CATALOG_PLAN,
-  TREEMAP_GROUPING_NAMES,
-} from '../data/treemapCatalogPlan.js';
-import { createAddressBar } from './treemapAddressBar.js';
+  createAddressBar,
+  groupingName,
+  variableName,
+} from './treemapAddressBar.js';
+
+/** The address read ({variable, unit, groupings, joins}), or null. */
+const parseAddress = (address) => {
+  const parsed = parseTreemapAddress(String(address ?? ''));
+  return parsed.ok ? parsed : null;
+};
 
 /** The canvas's height in the rail, CSS px (a floating window fills). */
 export const RAIL_STAGE_PX = 240;
@@ -40,23 +46,52 @@ export function hueOf(key) {
   return (hash >>> 0) % 360;
 }
 
+/** A key's stable offset in [-range, range] (another hash than the hue's). */
+export const spreadOf = (key, range) =>
+  (hueOf(`${key}#`) % (2 * range + 1)) - range;
+
+/** How far siblings' hues fan out about their family's, degrees. */
+export const SIBLING_HUE_SPREAD = 34;
+const GOLDEN = 0.618033988749895;
+
 /**
- * A tile's fill: the hue of its first-grouping member (the path's first
- * key below the root, else its own or its parent's key at the root), its
- * lightness varied by its own key so siblings part.
+ * A sibling's place in its family's fan: its rank among its siblings
+ * (largest first) stepped by the golden ratio, so neighbours in size, which
+ * squarify sets side by side, land far apart in hue and lightness; by its
+ * key when it has no rank. In [0, 1) for the hue and one of four steps for
+ * the lightness.
+ */
+function fanOf(tile) {
+  if (Number.isFinite(tile.rank))
+    return { at: (tile.rank * GOLDEN) % 1, step: tile.rank % 4 };
+  const hash = hueOf(`${tile.node.key}#`);
+  return { at: (hash % 1000) / 1000, step: hash % 4 };
+}
+
+/**
+ * A tile's fill. The hue family is the first cut's member: the path's first
+ * key inside it, else the tile's own key (or its parent's) at the root, so
+ * a member keeps its colour as the cut changes. Below the root the tiles of
+ * the drawn level fan out in neighbouring hues of that family with their
+ * own lightness, so siblings part at a glance; a child stays near its
+ * parent's hue. The same node draws the same colours every time.
  */
 export function tileColour(tile, path) {
-  const firstKey =
-    path.length > 0
-      ? path[0]
-      : tile.depth === 2
-        ? tile.parent.node.key
-        : tile.node.key;
   if (tile.more) return 'hsl(210 10% 34%)';
-  const hue = hueOf(firstKey);
-  const own = hueOf(`${tile.node.key}~`) % 14;
-  const light = tile.depth === 1 ? 30 + own : 38 + own;
-  return `hsl(${hue} 46% ${light}%)`;
+  const top = tile.depth === 2 ? tile.parent : tile;
+  const family = hueOf(path.length > 0 ? path[0] : top.node.key);
+  const wrap = (hue) => ((Math.round(hue) % 360) + 360) % 360;
+  const own = fanOf(tile);
+  if (path.length === 0) {
+    // The root: each first-cut member its own hue; children shaded in it.
+    if (tile.depth === 1) return `hsl(${wrap(family)} 48% 34%)`;
+    return `hsl(${wrap(family + (own.at - 0.5) * 24)} 46% ${36 + own.step * 4}%)`;
+  }
+  const topFan = fanOf(top);
+  const topHue = family + (topFan.at - 0.5) * 2 * SIBLING_HUE_SPREAD;
+  if (tile.depth === 1)
+    return `hsl(${wrap(topHue)} 52% ${28 + topFan.step * 5}%)`;
+  return `hsl(${wrap(topHue + (own.at - 0.5) * 16)} 48% ${38 + own.step * 4}%)`;
 }
 
 const PREFIXES = [
@@ -118,8 +153,7 @@ export function formatShare(share) {
 }
 
 /** A grouping's name in the window. */
-export const groupingName = (id) =>
-  TREEMAP_GROUPING_NAMES[id] ? t(TREEMAP_GROUPING_NAMES[id]) : id;
+export { groupingName };
 
 function el(documentRef, tag, className, text) {
   const node = documentRef.createElement(tag);
@@ -132,7 +166,7 @@ function el(documentRef, tag, className, text) {
  * @param {{container: Element, source: object, store: object,
  *   globe?: {outline: (ref: string|null) => void, flyTo: (ref: string) =>
  *   void}|null, sourceLabel?: Element|null, documentRef?: Document,
- *   windowRef?: Window, catalogPlan?: object[]}} options
+ *   windowRef?: Window}} options
  */
 export function createTreemapPanel({
   container,
@@ -142,7 +176,6 @@ export function createTreemapPanel({
   sourceLabel = null,
   documentRef = globalThis.document,
   windowRef = globalThis.window,
-  catalogPlan = TREEMAP_CATALOG_PLAN,
 }) {
   const root = el(documentRef, 'div', 'treemap');
   const bar = el(documentRef, 'div', 'treemap-bar');
@@ -180,7 +213,6 @@ export function createTreemapPanel({
     container: bar,
     documentRef,
     store,
-    catalogPlan,
     catalog: () => catalog,
   });
 
@@ -288,7 +320,7 @@ export function createTreemapPanel({
       const label = translateKnown(labels[index]?.label ?? key);
       const button = el(documentRef, 'button', 'treemap-crumb', String(label));
       button.type = 'button';
-      button.title = groupingName(parsed?.groupings[index]?.id ?? '');
+      button.title = groupingName(parsed?.groupings[index] ?? '');
       if (index === state.path.length - 1 && !offset)
         button.setAttribute('aria-current', 'page');
       button.addEventListener('click', () => {
@@ -397,8 +429,7 @@ export function createTreemapPanel({
       const variableId = parseAddress(state.address)?.variable;
       const entry = catalog?.variables?.find((v) => v.id === variableId);
       if (variableId && (!entry || entry.available === false)) {
-        const planned = catalogPlan.find((row) => row.id === variableId);
-        const name = planned ? t(planned.name) : variableId;
+        const name = variableName(variableId);
         const unavailable = new Error(
           entry
             ? t('{variable} is not available: {why}', {

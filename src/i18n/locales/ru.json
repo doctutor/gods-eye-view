@@ -4237,7 +4237,6 @@
   "Not built yet": "Ещё не построено",
   "Quantity": "Величина",
   "Filter: area, people, bytes…": "Фильтр: площадь, люди, байты…",
-  "Filter quantities": "Фильтровать величины",
   "No quantity matches": "Нет подходящих величин",
   "Sequence": "Последовательность",
   "Waits on {cuts}": "Ждёт: {cuts}",
@@ -4297,5 +4296,9 @@
   "Live: what the layer holds now": "В реальном времени: что слой содержит сейчас",
   "{variable} is not available: {why}": "«{variable}» недоступно: {why}",
   "no reason given": "причина не указана",
-  "{variable} is not built yet: pick another quantity": "«{variable}» ещё не построено: выберите другую величину"
+  "{variable} is not built yet: pick another quantity": "«{variable}» ещё не построено: выберите другую величину",
+  "Filter sequences": "Фильтровать последовательности",
+  "No sequence matches": "Нет подходящих последовательностей",
+  "Address": "Адрес",
+  "The address: Enter applies it, Escape puts it back": "Адрес: Enter применяет, Escape возвращает прежний"
 }
