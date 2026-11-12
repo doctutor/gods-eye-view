@@ -150,6 +150,63 @@ export function layoutLevel(
   };
 }
 
+/** Keys in their own order: numbers (years, negative before Christ) as
+ * numbers, else as text with its digits read as numbers. */
+export function compareKeys(a, b) {
+  const x = Number(a);
+  const y = Number(b);
+  if (Number.isFinite(x) && Number.isFinite(y)) return x - y;
+  return String(a).localeCompare(String(b), 'en', { numeric: true });
+}
+
+/**
+ * One level laid in its keys' order instead of by size: strips across
+ * `rect` (left to right), each as wide as its share, the service's `rest`
+ * last as a "…" strip. For a time cut (history periods), so the eye reads
+ * time across the window. Each tile also carries `order`, its place in the
+ * sequence from 0 to 1. Nothing folds: a strip too thin to read is still
+ * there to hover.
+ * @returns {{tiles: object[], rest: object|null}}
+ */
+export function sliceLevel(children, rest, rect) {
+  const items = (children || [])
+    .filter((child) => child.value > 0)
+    .sort((a, b) => compareKeys(a.key, b.key));
+  const tail =
+    rest?.count > 0 && rest?.value > 0
+      ? {
+          more: true,
+          key: '…',
+          label: '…',
+          value: rest.value,
+          count: rest.count,
+          from: items.length,
+        }
+      : null;
+  const list = tail ? [...items, tail] : items;
+  const total = list.reduce((sum, item) => sum + item.value, 0);
+  if (!(total > 0)) return { tiles: [], rest: tail };
+  const tiles = [];
+  let x = rect.x;
+  list.forEach((item, index) => {
+    const w =
+      index === list.length - 1
+        ? rect.x + rect.w - x
+        : (rect.w * item.value) / total;
+    tiles.push({
+      x,
+      y: rect.y,
+      w,
+      h: rect.h,
+      item,
+      node: item,
+      order: list.length > 1 ? index / (list.length - 1) : 0,
+    });
+    x += w;
+  });
+  return { tiles, rest: tail };
+}
+
 /**
  * A node's two levels in `rect`: its children's tiles (`depth` 1), and in
  * each child with children of its own and room for them, its children
@@ -157,11 +214,16 @@ export function layoutLevel(
  * parent (the depth-1 tile, for depth 2), labelStrip (depth 1: whether a
  * strip is reserved), more (the "…" tile), rank (its place among its
  * siblings, largest first)}. A child's own `rest` (its
- * children past the limit, the contract's) joins its "…" tile.
+ * children past the limit, the contract's) joins its "…" tile. `ordered`
+ * (`orderedInner`) lays the first (second) level in its keys' order
+ * (sliceLevel), a time cut's.
  * @returns {{tiles: object[], rest: object|null}}
  */
 export function layoutNode(node, rect, options = {}) {
-  const top = layoutLevel(node?.children, node?.rest, rect, options);
+  const { ordered = false, orderedInner = false, ...sizes } = options;
+  const top = ordered
+    ? sliceLevel(node?.children, node?.rest, rect)
+    : layoutLevel(node?.children, node?.rest, rect, sizes);
   const tiles = [];
   const rankOf = (list) => {
     const ranks = new Map();
@@ -191,7 +253,9 @@ export function layoutNode(node, rect, options = {}) {
     };
     if (!(inner.w > 4 && inner.h > 4)) continue;
     outer.labelStrip = strip > 0;
-    const level = layoutLevel(kids, tile.node.rest || null, inner, options);
+    const level = orderedInner
+      ? sliceLevel(kids, tile.node.rest || null, inner)
+      : layoutLevel(kids, tile.node.rest || null, inner, sizes);
     const ranks = rankOf(level.tiles);
     for (const child of level.tiles)
       tiles.push({

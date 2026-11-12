@@ -46,6 +46,16 @@ export function hueOf(key) {
   return (hash >>> 0) % 360;
 }
 
+/**
+ * Cuts drawn in their keys' order, not by size: time (history periods, any
+ * `time.*` grouping), so empires rise and shrink left to right.
+ */
+export const isOrderedGrouping = (id) =>
+  typeof id === 'string' && (id === 'history.period' || id.startsWith('time.'));
+
+/** A time strip's hue: early blue to late amber. */
+export const orderHue = (order) => 215 - order * 180;
+
 /** A key's stable offset in [-range, range] (another hash than the hue's). */
 export const spreadOf = (key, range) =>
   (hueOf(`${key}#`) % (2 * range + 1)) - range;
@@ -79,7 +89,11 @@ function fanOf(tile) {
 export function tileColour(tile, path) {
   if (tile.more) return 'hsl(210 10% 34%)';
   const top = tile.depth === 2 ? tile.parent : tile;
-  const family = hueOf(path.length > 0 ? path[0] : top.node.key);
+  // A time strip's family is its place in time; else the member's key.
+  const family =
+    path.length === 0 && Number.isFinite(top.order)
+      ? orderHue(top.order)
+      : hueOf(path.length > 0 ? path[0] : top.node.key);
   const wrap = (hue) => ((Math.round(hue) % 360) + 360) % 360;
   const own = fanOf(tile);
   if (path.length === 0) {
@@ -240,7 +254,16 @@ export function createTreemapPanel({
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
     if (!node || error) return;
-    layout = layoutNode(node, { x: 0, y: 0, w: width, h: height });
+    const cuts = parseAddress(store.get().address)?.groupings || [];
+    const depth = store.get().path.length;
+    layout = layoutNode(
+      node,
+      { x: 0, y: 0, w: width, h: height },
+      {
+        ordered: isOrderedGrouping(node.level?.grouping ?? cuts[depth]),
+        orderedInner: isOrderedGrouping(cuts[depth + 1]),
+      },
+    );
     const path = store.get().path;
     context.textBaseline = 'top';
     for (const tile of layout.tiles) {

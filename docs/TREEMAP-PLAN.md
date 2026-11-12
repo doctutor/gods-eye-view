@@ -264,6 +264,11 @@ articles are at sea.
   stepped by the golden ratio so neighbours in size, which squarify sets
   side by side, part clearly, with four lightness steps; a child stays
   within 8° of its parent.
+- **Time cuts**: `history.period` (and any `time.*` grouping) is laid in
+  its keys' order (start years, before Christ first) as strips left to
+  right, each as wide as its share, the service's largest-first order put
+  aside; the polities inside a strip are squarified as usual. The strips
+  run a hue gradient from early (blue) to late (amber).
 - **Globe**: the service's outlines (`area:` MultiPolygons, `box:`
   continents) drawn as ground lines along rhumb lines (a box's edges follow
   their parallels), the 120 largest rings of an outline (Russia has 890);
