@@ -626,3 +626,54 @@ test('the sky plate scale is a whisper, not a second plate', () => {
   );
   assert.ok(lightest * SKY_PLATE_SCALE < 0.12, 'the feathered plate must read as bare text');
 });
+
+test('a label paints its detail lines, in the colour it names, under its title; without a colour, its title only', async () => {
+  const { normalizeOverlayEntry } = await import('./worldOverlay.js');
+  /** A context that remembers what was painted in which colour and font. */
+  const painting = () => {
+    const painted = [];
+    const ctx = mockContext();
+    ctx.fillStyle = '';
+    ctx.fillText = (text, x, y) =>
+      painted.push({ text, x, y, colour: ctx.fillStyle, font: ctx.font });
+    return { ctx, painted };
+  };
+  const placement = { rect: { x: 100, y: 50, w: 260, h: 32 } };
+  const amber = '#ffb14a';
+  const noted = normalizeOverlayEntry('recorded-video', {
+    id: 'landmark:Q1',
+    position: { x: 1, y: 2, z: 3 },
+    variant: 'label',
+    title: 'USCGC Taney',
+    details: ['Search budget used up until 03:00 AM'],
+    detailColor: ` ${amber} `,
+  });
+  assert.equal(noted.detailColor, amber);
+  const a = painting();
+  paintLabel(a.ctx, noted, placement);
+  assert.deepEqual(
+    a.painted.map(({ text, colour, x, y }) => [text, colour, x, y]),
+    [
+      ['USCGC Taney', WORLD_OVERLAY_STYLE.title, 106, 54],
+      ['Search budget used up until 03:00 AM', amber, 106, 65],
+    ],
+  );
+  assert.equal(a.painted[1].font, WORLD_OVERLAY_STYLE.fontDetail);
+  // The box measured for it holds the painted line.
+  const box = measureOverlayEntry(mockContext(), noted);
+  assert.ok(box.h >= 4 + 11 + 13, `${box.h}`);
+  // No colour named: the title only, as before.
+  const plain = normalizeOverlayEntry('recorded-video', {
+    id: 'landmark:Q2',
+    position: { x: 1, y: 2, z: 3 },
+    title: 'National Aquarium',
+    details: ['21 VIDEOS'],
+  });
+  assert.equal(plain.detailColor, null);
+  const b = painting();
+  paintLabel(b.ctx, plain, placement);
+  assert.deepEqual(
+    b.painted.map(({ text }) => text),
+    ['National Aquarium'],
+  );
+});

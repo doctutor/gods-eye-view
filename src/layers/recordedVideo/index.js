@@ -323,7 +323,16 @@ export function createRecordedVideoLayer({
 
   function landmarkLabel(landmark, d) {
     const noted = _landmarkNotes.has(landmark.qid);
+    const busy = Boolean(_landmarkState.get(landmark.qid)?.loading);
     return {
+      // A noted or busy diamond's line is painted under its name: amber for
+      // a note, the landmark green while asking (labels paint their detail
+      // lines only when they name the colour).
+      ...(noted
+        ? { detailColor: NOTE_ACCENT }
+        : busy
+          ? { detailColor: SOURCE_COLOR.landmark }
+          : {}),
       id: `landmark:${landmark.qid}`,
       position: Cesium.Cartesian3.fromDegrees(landmark.lon, landmark.lat),
       variant: 'label',
@@ -735,8 +744,10 @@ export function createRecordedVideoLayer({
     const at = now();
     if (_lastPick?.id === id && at - _lastPick.at < REPEAT_PICK_MS) return;
     _lastPick = { id, at };
-    // The next click ends the last note (it shows until then, or 8 s).
+    // The next click ends the last note (it shows until then, or 8 s), at
+    // the diamond and in the player.
     clearNotes();
+    player.clearNotice?.();
     if (id.startsWith(LANDMARK_PREFIX)) {
       openLandmark(id.slice(LANDMARK_PREFIX.length), { play: true });
       return;
