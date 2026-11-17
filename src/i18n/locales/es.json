@@ -4290,5 +4290,9 @@
     "one": "{count} parte",
     "many": "{count} de partes",
     "other": "{count} partes"
-  }
+  },
+  "No usable videos here": "Aquí no hay vídeos utilizables",
+  "{n} of {count}": "{n} de {count}",
+  "Previous video": "Vídeo anterior",
+  "Next video": "Vídeo siguiente"
 }

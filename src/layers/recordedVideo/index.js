@@ -40,6 +40,14 @@ export const LANDMARK_MAX_HEIGHT_M = 20_000;
 const LANDMARK_PREFIX = `${ENTITY_PREFIX}landmark:`;
 const LANDMARK_RADIUS_KM = 8;
 const LANDMARK_LABEL_LIMIT = 12;
+/** A diamond's note (no videos, a refused search) in amber. */
+const NOTE_ACCENT = '#ffb14a';
+/** The diamond while its videos are being asked for: dashed, white. */
+const LANDMARK_BUSY_ICON = `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><path d="M11 2 20 11 11 20 2 11Z" fill="none" stroke="#0b0f14" stroke-opacity="0.7" stroke-width="4"/><path d="M11 2 20 11 11 20 2 11Z" fill="rgba(255,255,255,0.18)" stroke="#ffffff" stroke-width="2" stroke-dasharray="3 2"/></svg>`,
+)}`;
+/** How long a note shows at a diamond (no videos, a refused search), ms. */
+export const LANDMARK_NOTE_MS = 6000;
 /**
  * A pick of the same pin this soon after the last is the second click of a
  * double-click: one action, not two (ms; Cesium's double-click window is
@@ -120,6 +128,8 @@ export function createRecordedVideoLayer({
   const _landmarkAreasDone = new Set();
   let _selectedLandmark = null;
   let _playing = null;
+  /** qid → {text, timer}: a short note shown at the diamond. */
+  const _landmarkNotes = new Map();
   const notify = () => {
     for (const listener of _listeners)
       try {
@@ -199,8 +209,11 @@ export function createRecordedVideoLayer({
     if (!_dataSource) return;
     _dataSource.entities.suspendEvents();
     _dataSource.entities.removeAll();
+    // A landmark's videos are reached through its diamond (and its panel
+    // row), not as dots stacked on the landmark's one point.
     for (const record of _records.values())
-      _dataSource.entities.add(entityFor(record));
+      if (record.source !== 'landmark')
+        _dataSource.entities.add(entityFor(record));
     _dataSource.entities.resumeEvents();
   }
 
@@ -210,7 +223,9 @@ export function createRecordedVideoLayer({
       name: landmark.label,
       position: Cesium.Cartesian3.fromDegrees(landmark.lon, landmark.lat),
       billboard: {
-        image: LANDMARK_ICON,
+        image: _landmarkState.get(landmark.qid)?.loading
+          ? LANDMARK_BUSY_ICON
+          : LANDMARK_ICON,
         width: 22,
         height: 22,
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
@@ -238,54 +253,92 @@ export function createRecordedVideoLayer({
     );
   }
 
+  /** What a diamond's label says under its name. */
+  function landmarkDetail(qid) {
+    const note = _landmarkNotes.get(qid)?.text;
+    if (note) return note;
+    if (_landmarkState.get(qid)?.loading) return t('ASKING…');
+    const count = _landmarkVideos.get(qid)?.length;
+    return Number.isFinite(count)
+      ? tn(count, '{count} VIDEO', '{count} VIDEOS')
+      : t('LANDMARK', { context: 'video source' });
+  }
+
+  function landmarkLabel(landmark, d) {
+    const noted = _landmarkNotes.has(landmark.qid);
+    return {
+      id: `landmark:${landmark.qid}`,
+      position: Cesium.Cartesian3.fromDegrees(landmark.lon, landmark.lat),
+      variant: 'label',
+      title: landmark.label.slice(0, 48),
+      details: [landmarkDetail(landmark.qid)],
+      accent: noted ? NOTE_ACCENT : SOURCE_COLOR.landmark,
+      // A busy or noted diamond (the one just clicked) is labelled first.
+      priority:
+        noted || _landmarkState.get(landmark.qid)?.loading
+          ? LABEL_RADIUS_M
+          : Math.round((LABEL_RADIUS_M - d) / 2),
+      collisionGroup: 'ambient-label',
+      paintLane: 'ambient-label',
+      interactive: false,
+      edgeFade: 'keyhole',
+      horizonCull: true,
+      terrainOcclusion: false,
+      gapPx: 12,
+      verticalOnly: true,
+      placement: 'above',
+    };
+  }
+
   function refreshLabels() {
     if (!overlayHost) return;
     const view = _enabled ? viewCentre() : null;
-    if (!view || view.height > LABEL_MAX_CAMERA_HEIGHT_M) {
+    if (!view) {
       overlayHost.clearSource(RECORDED_VIDEO_LAYER_ID);
       return;
     }
-    const nearest = [..._records.values()]
-      .map((record) => ({
-        record,
-        d: distanceM(view.lat, view.lon, record.lat, record.lon),
-      }))
-      .filter(({ d }) => d <= LABEL_RADIUS_M)
-      .sort((a, b) => a.d - b.d)
-      .slice(0, LABEL_LIMIT);
-    const landmarks = [..._landmarks.values()]
-      .map((landmark) => ({
-        landmark,
-        d: distanceM(view.lat, view.lon, landmark.lat, landmark.lon),
-      }))
-      .filter(({ d }) => d <= LABEL_RADIUS_M)
-      .sort((a, b) => a.d - b.d)
-      .slice(0, LANDMARK_LABEL_LIMIT);
-    const landmarkLabels = landmarks.map(({ landmark, d }) => {
-      const count = _landmarkVideos.get(landmark.qid)?.length;
-      return {
-        id: `landmark:${landmark.qid}`,
-        position: Cesium.Cartesian3.fromDegrees(landmark.lon, landmark.lat),
-        variant: 'label',
-        title: landmark.label.slice(0, 48),
-        details: [
-          Number.isFinite(count)
-            ? tn(count, '{count} VIDEO', '{count} VIDEOS')
-            : t('LANDMARK', { context: 'video source' }),
-        ],
-        accent: SOURCE_COLOR.landmark,
-        priority: Math.round((LABEL_RADIUS_M - d) / 2),
-        collisionGroup: 'ambient-label',
-        paintLane: 'ambient-label',
-        interactive: false,
-        edgeFade: 'keyhole',
-        horizonCull: true,
-        terrainOcclusion: false,
-        gapPx: 12,
-        verticalOnly: true,
-        placement: 'above',
-      };
-    });
+    // The diamond just clicked says what is happening wherever it is.
+    const flagged = [..._landmarks.values()].filter(
+      (landmark) =>
+        _landmarkNotes.has(landmark.qid) ||
+        _landmarkState.get(landmark.qid)?.loading,
+    );
+    const low = view.height <= LABEL_MAX_CAMERA_HEIGHT_M;
+    if (!low && !flagged.length) {
+      overlayHost.clearSource(RECORDED_VIDEO_LAYER_ID);
+      return;
+    }
+    const nearest = low
+      ? [..._records.values()]
+          .filter((record) => record.source !== 'landmark')
+          .map((record) => ({
+            record,
+            d: distanceM(view.lat, view.lon, record.lat, record.lon),
+          }))
+          .filter(({ d }) => d <= LABEL_RADIUS_M)
+          .sort((a, b) => a.d - b.d)
+          .slice(0, LABEL_LIMIT)
+      : [];
+    const near = low
+      ? [..._landmarks.values()]
+          .map((landmark) => ({
+            landmark,
+            d: distanceM(view.lat, view.lon, landmark.lat, landmark.lon),
+          }))
+          .filter(({ d }) => d <= LABEL_RADIUS_M)
+          .sort((a, b) => a.d - b.d)
+          .slice(0, LANDMARK_LABEL_LIMIT)
+      : [];
+    const listed = new Set(near.map(({ landmark }) => landmark.qid));
+    for (const landmark of flagged)
+      if (!listed.has(landmark.qid))
+        near.push({
+          landmark,
+          d: distanceM(view.lat, view.lon, landmark.lat, landmark.lon),
+        });
+    const landmarkLabels = near.map(({ landmark, d }) =>
+      landmarkLabel(landmark, d),
+    );
     overlayHost.setEntries(
       RECORDED_VIDEO_LAYER_ID,
       landmarkLabels.concat(
@@ -309,11 +362,41 @@ export function createRecordedVideoLayer({
         })),
       ),
       {
-        cohortLimit: LABEL_LIMIT + LANDMARK_LABEL_LIMIT,
+        cohortLimit: LABEL_LIMIT + LANDMARK_LABEL_LIMIT + flagged.length,
         collisionCapacity: 20,
         moving: false,
       },
     );
+  }
+
+  /** A short note at a diamond (and its label), gone after LANDMARK_NOTE_MS. */
+  function noteAt(qid, text) {
+    const old = _landmarkNotes.get(qid);
+    if (old?.timer) clearTimeoutImpl(old.timer);
+    const timer = setTimeoutImpl(() => {
+      if (_landmarkNotes.get(qid)?.timer !== timer) return;
+      _landmarkNotes.delete(qid);
+      refreshLabels();
+      notify();
+    }, LANDMARK_NOTE_MS);
+    _landmarkNotes.set(qid, { text, timer });
+    refreshLabels();
+    notify();
+  }
+
+  /** Play a landmark's top video with its others as the player's list. */
+  function playLandmark(qid) {
+    const videos = (_landmarkVideos.get(qid) || [])
+      .map((id) => _records.get(id))
+      .filter(Boolean);
+    if (!videos.length) {
+      const text = t('No usable videos here');
+      noteAt(qid, text);
+      player.notice?.(text);
+      return false;
+    }
+    play(videos[0], { playlist: videos });
+    return true;
   }
 
   async function loadWikidata() {
@@ -439,18 +522,27 @@ export function createRecordedVideoLayer({
   }
 
   /**
-   * Ask for one landmark's videos (once; again with refresh) and select it.
-   * Resolves to its state, or null when off or unknown.
+   * Ask for one landmark's videos (once; again with refresh) and select it;
+   * with `play` (a diamond click), play its top video with the others as the
+   * player's list once they are in (at once when they already are). Resolves
+   * to its state, or null when off or unknown.
    */
-  async function openLandmark(qid, { refresh = false } = {}) {
+  async function openLandmark(
+    qid,
+    { refresh = false, play: andPlay = false } = {},
+  ) {
     if (!_enabled || !_landmarks.has(qid)) return null;
     _selectedLandmark = qid;
     const state = _landmarkState.get(qid);
     if (state?.loading || (state?.done && !refresh)) {
+      if (andPlay && state?.done) playLandmark(qid);
       notify();
       return state;
     }
     _landmarkState.set(qid, { ...state, loading: true });
+    // The diamond and its label say it is being asked.
+    renderLandmarks();
+    refreshLabels();
     notify();
     let next;
     try {
@@ -489,13 +581,31 @@ export function createRecordedVideoLayer({
       };
     }
     _landmarkState.set(qid, next);
+    renderLandmarks();
+    refreshLabels();
+    if (andPlay && _enabled && next.done) playLandmark(qid);
     notify();
     return next;
   }
 
-  /** Play a record; a landmark's video also gets its "mentioned at" moments. */
-  function play(record) {
-    player.open(record);
+  /**
+   * Play a record; a landmark's video comes with its landmark's others as the
+   * player's list (to switch, and ‹ ›) and gets its "mentioned at" moments.
+   */
+  function play(record, { playlist = null } = {}) {
+    const list =
+      playlist ||
+      (record.source === 'landmark'
+        ? (_landmarkVideos.get(record.landmarkQid) || [])
+            .map((id) => _records.get(id))
+            .filter(Boolean)
+        : null);
+    if (list?.length > 1)
+      player.open(record, {
+        playlist: list,
+        onSelect: (next) => play(next, { playlist: list }),
+      });
+    else player.open(record);
     _playing = record.id;
     if (record.source !== 'landmark' || !player.showMentions) return;
     fetchMentions(record.landmarkQid, record.videoId, fetchOptions)
@@ -552,7 +662,7 @@ export function createRecordedVideoLayer({
     if (_lastPick?.id === id && at - _lastPick.at < REPEAT_PICK_MS) return;
     _lastPick = { id, at };
     if (id.startsWith(LANDMARK_PREFIX)) {
-      openLandmark(id.slice(LANDMARK_PREFIX.length));
+      openLandmark(id.slice(LANDMARK_PREFIX.length), { play: true });
       return;
     }
     const record = _records.get(id.slice(ENTITY_PREFIX.length));
@@ -618,6 +728,8 @@ export function createRecordedVideoLayer({
       _removeTrackGuard?.();
       _removeTrackGuard = null;
       _lastPick = null;
+      for (const { timer } of _landmarkNotes.values()) clearTimeoutImpl(timer);
+      _landmarkNotes.clear();
       player.close();
       overlayHost?.clearSource(RECORDED_VIDEO_LAYER_ID);
       overlayHost?.setVisible(RECORDED_VIDEO_LAYER_ID, false);
@@ -677,6 +789,7 @@ export function createRecordedVideoLayer({
           refused: Boolean(state.refused),
           configured: state.configured !== false,
           error: state.error || null,
+          note: _landmarkNotes.get(landmark.qid)?.text || null,
           videoCount: ids ? ids.length : null,
         };
       }),

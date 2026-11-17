@@ -18,7 +18,7 @@ export function precisionLabel(quality) {
 }
 
 /** A landmark video's kind (news, tour, …) as the caption says it. */
-function kindLabel(kind) {
+export function kindLabel(kind) {
   switch (kind) {
     case 'news':
       return t('NEWS', { context: 'video kind' });
@@ -71,22 +71,124 @@ export function embedAt(videoId, start = 0) {
   return url.href;
 }
 
+/** A playlist row's second line: kind and channel. */
+export function playlistDetails(record) {
+  return [
+    record?.source === 'landmark'
+      ? kindLabel(String(record.kind || 'other'))
+      : '',
+    record?.channelTitle,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** How long a notice stays in the player's place (ms). */
+export const NOTICE_MS = 5000;
+
 /**
- * @param {{document?: Document}} [options]
- * @returns {{open: (record: object) => void, close: () => void,
- *   isOpen: () => boolean,
+ * @param {{document?: Document, setTimeoutImpl?: typeof setTimeout,
+ *   clearTimeoutImpl?: typeof clearTimeout}} [options]
+ * @returns {{open: (record: object, options?: {playlist?: object[],
+ *   onSelect?: (record: object) => void}) => void, close: () => void,
+ *   isOpen: () => boolean, notice: (text: string) => void,
  *   showMentions: (record: object, mentions: Array<{start: number, at: string, text: string}>) => void}}
  */
 export function createVideoPlayer({
   document: doc = globalThis.document,
+  setTimeoutImpl = (...a) => setTimeout(...a),
+  clearTimeoutImpl = (...a) => clearTimeout(...a),
 } = {}) {
   let panel = null;
   let current = null;
+  let noticeBox = null;
+  let noticeTimer = null;
+
+  function clearNotice() {
+    if (noticeTimer) clearTimeoutImpl(noticeTimer);
+    noticeTimer = null;
+    noticeBox?.remove();
+    noticeBox = null;
+  }
 
   function close() {
+    clearNotice();
     panel?.remove();
     panel = null;
     current = null;
+  }
+
+  /**
+   * A short message where the player shows (a landmark with no usable
+   * videos, a refused search): inside an open player, else a small box in
+   * its place; gone after NOTICE_MS.
+   */
+  function notice(text) {
+    if (!doc || !text) return;
+    clearNotice();
+    noticeBox = doc.createElement('div');
+    noticeBox.className = 'recorded-video-player-notice';
+    noticeBox.setAttribute('role', 'status');
+    noticeBox.textContent = text;
+    if (panel)
+      panel.querySelector('.recorded-video-player-header')?.after(noticeBox);
+    else {
+      noticeBox.classList.add('is-alone');
+      doc.body.appendChild(noticeBox);
+    }
+    noticeTimer = setTimeoutImpl(clearNotice, NOTICE_MS);
+  }
+
+  /** The other videos of a landmark, to switch between (and ‹ ›). */
+  function playlistOf(record, playlist, onSelect) {
+    const index = playlist.findIndex((item) => item.id === record.id);
+    const nav = doc.createElement('div');
+    nav.className = 'recorded-video-player-nav';
+    const step = (delta, label, glyph) => {
+      const button = doc.createElement('button');
+      button.type = 'button';
+      button.className = 'recorded-video-player-step';
+      button.textContent = glyph;
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      const target = playlist[index + delta];
+      button.disabled = !target;
+      button.addEventListener('click', () => target && onSelect(target));
+      return button;
+    };
+    const position = doc.createElement('span');
+    position.className = 'recorded-video-player-position';
+    position.textContent = t('{n} of {count}', {
+      n: index + 1,
+      count: playlist.length,
+    });
+    nav.append(
+      step(-1, t('Previous video'), '‹'),
+      position,
+      step(1, t('Next video'), '›'),
+    );
+    const list = doc.createElement('div');
+    list.className = 'recorded-video-player-list';
+    list.setAttribute('role', 'list');
+    for (const item of playlist) {
+      const row = doc.createElement('button');
+      row.type = 'button';
+      row.className = 'recorded-video-player-item';
+      row.setAttribute('role', 'listitem');
+      if (item.id === record.id) row.setAttribute('aria-current', 'true');
+      const name = doc.createElement('span');
+      name.className = 'recorded-video-player-item-title';
+      name.textContent = item.title;
+      const details = doc.createElement('span');
+      details.className = 'recorded-video-player-item-details';
+      details.textContent = playlistDetails(item);
+      row.append(name, details);
+      row.addEventListener('click', () => {
+        if (item.id !== current?.id) onSelect(item);
+      });
+      list.append(row);
+    }
+    return [nav, list];
   }
 
   /** "Mentioned at 3:41" links under the player; each restarts it there. */
@@ -114,7 +216,7 @@ export function createVideoPlayer({
     panel.querySelector('.recorded-video-player-caption')?.after(list);
   }
 
-  function open(record) {
+  function open(record, { playlist = null, onSelect = null } = {}) {
     const src = youtubeEmbedUrl(record?.videoId);
     if (!src || !doc) return;
     close();
@@ -154,9 +256,18 @@ export function createVideoPlayer({
     link.rel = 'noopener noreferrer';
     link.textContent = t('WATCH ON {site} ↗', { site: 'YOUTUBE' });
     panel.append(header, frame, caption, link);
+    if (playlist?.length > 1 && onSelect)
+      panel.append(...playlistOf(record, playlist, onSelect));
     doc.body.appendChild(panel);
     current = record;
   }
 
-  return { open, close, showMentions, isOpen: () => Boolean(panel) };
+  return {
+    open,
+    close,
+    notice,
+    showMentions,
+    isOpen: () => Boolean(panel),
+    current: () => current,
+  };
 }
