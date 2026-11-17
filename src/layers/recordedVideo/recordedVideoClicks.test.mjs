@@ -9,6 +9,7 @@ import * as Cesium from 'cesium';
 import {
   createRecordedVideoLayer,
   nearestOwnPick,
+  LANDMARK_NOTE_MS,
   PICK_BOX_PX,
   REPEAT_PICK_MS,
 } from './index.js';
@@ -493,4 +494,48 @@ test('a click anywhere on a diamond, or a few pixels round it, picks it; of two,
   assert.equal(nearestOwnPick(undefined, { x: 0, y: 0 }, toWindow), null);
   // The box covers the 22 px diamond and a few pixels round it.
   assert.ok(PICK_BOX_PX >= 24 && PICK_BOX_PX <= 32);
+});
+
+test('a refused search’s note shows at a diamond that had no label, holds about 8 s, and ends at the next click', async () => {
+  // Fourteen landmarks round the view: the clicked one is the farthest, past
+  // the twelve that get labels.
+  const many = Array.from({ length: 14 }, (_, k) => ({
+    qid: `Q${100 + k}`,
+    label: `Landmark ${k}`,
+    lat: 39.29 + k * 0.002,
+    lon: -76.61,
+    kind: 'museum',
+  }));
+  const overlay = { entries: [] };
+  const m = await mount({
+    landmarks: many,
+    overlayHost: overlay,
+    videos: () =>
+      Response.json(
+        { error: 'budget', videos: [], quota: { used: 914, budget: 1000 } },
+        { status: 429 },
+      ),
+    player: { open() {}, close() {}, notice() {} },
+  });
+  const far = m.dataSources[1].entities.values.find(
+    (e) => e.id === 'recorded-video:landmark:Q113',
+  );
+  const labelFor = () =>
+    overlay.entries.find((entry) => entry.id === 'landmark:Q113');
+  assert.equal(labelFor(), undefined, 'not labelled before the click');
+  m.pick(far);
+  await flush();
+  const label = labelFor();
+  assert.match(label.details[0], /^Search budget used up/);
+  // It outranks every ambient label, so it is drawn whatever else is near.
+  for (const other of overlay.entries)
+    if (other !== label) assert.ok(label.priority > other.priority, other.id);
+  assert.equal(LANDMARK_NOTE_MS, 8000);
+  // The next click ends it.
+  const near = m.dataSources[1].entities.values.find(
+    (e) => e.id === 'recorded-video:landmark:Q100',
+  );
+  m.pick(near);
+  assert.equal(m.layer.landmarks().find((l) => l.qid === 'Q113').note, null);
+  assert.doesNotMatch(String(labelFor()?.details?.[0] || ''), /budget/);
 });

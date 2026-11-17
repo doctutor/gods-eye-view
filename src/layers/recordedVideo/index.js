@@ -53,7 +53,12 @@ const LANDMARK_BUSY_ICON = `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><path d="M11 2 20 11 11 20 2 11Z" fill="none" stroke="#0b0f14" stroke-opacity="0.7" stroke-width="4"/><path d="M11 2 20 11 11 20 2 11Z" fill="rgba(255,255,255,0.18)" stroke="#ffffff" stroke-width="2" stroke-dasharray="3 2"/></svg>`,
 )}`;
 /** How long a note shows at a diamond (no videos, a refused search), ms. */
-export const LANDMARK_NOTE_MS = 6000;
+export const LANDMARK_NOTE_MS = 8000;
+/**
+ * A busy or noted diamond's label outranks every ambient label (theirs run
+ * up to LABEL_RADIUS_M), so it is drawn whatever else is near.
+ */
+const FLAGGED_LABEL_PRIORITY = 1_000_000;
 /**
  * A pick of the same pin this soon after the last is the second click of a
  * double-click: one action, not two (ms; Cesium's double-click window is
@@ -328,7 +333,7 @@ export function createRecordedVideoLayer({
       // A busy or noted diamond (the one just clicked) is labelled first.
       priority:
         noted || _landmarkState.get(landmark.qid)?.loading
-          ? LABEL_RADIUS_M
+          ? FLAGGED_LABEL_PRIORITY
           : Math.round((LABEL_RADIUS_M - d) / 2),
       collisionGroup: 'ambient-label',
       paintLane: 'ambient-label',
@@ -419,6 +424,15 @@ export function createRecordedVideoLayer({
         moving: false,
       },
     );
+  }
+
+  /** Every note gone (the next click). */
+  function clearNotes() {
+    if (!_landmarkNotes.size) return;
+    for (const { timer } of _landmarkNotes.values()) clearTimeoutImpl(timer);
+    _landmarkNotes.clear();
+    refreshLabels();
+    notify();
   }
 
   /** A short note at a diamond (and its label), gone after LANDMARK_NOTE_MS. */
@@ -721,6 +735,8 @@ export function createRecordedVideoLayer({
     const at = now();
     if (_lastPick?.id === id && at - _lastPick.at < REPEAT_PICK_MS) return;
     _lastPick = { id, at };
+    // The next click ends the last note (it shows until then, or 8 s).
+    clearNotes();
     if (id.startsWith(LANDMARK_PREFIX)) {
       openLandmark(id.slice(LANDMARK_PREFIX.length), { play: true });
       return;
