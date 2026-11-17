@@ -3,6 +3,7 @@ import { readResponseJsonCapped } from '../common/http.js';
 import {
   createYoutubeClient,
   createYoutubeQuota,
+  nextQuotaReset,
   VIDEO_ID,
 } from '../cctv/featuredChannels.js';
 import {
@@ -685,7 +686,13 @@ export function createLandmarkService({
   };
   const quotaNow = () => {
     const used = quota.usedBy(FEATURE);
-    return { used, budget: budget(), remaining: Math.max(0, budget() - used) };
+    return {
+      used,
+      budget: budget(),
+      remaining: Math.max(0, budget() - used),
+      // When the budget is whole again (the window says "used up until").
+      resetsAt: nextQuotaReset(now()),
+    };
   };
   const once = (key, work) => {
     if (!inflight.has(key))

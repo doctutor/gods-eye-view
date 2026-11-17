@@ -31,6 +31,7 @@ import {
   titleNamesLandmark,
 } from '../../server/providers/recordedVideo/landmarks.js';
 import { SEARCH_TTL_MS } from '../../server/providers/recordedVideo/videos.js';
+import { nextQuotaReset } from '../../server/providers/cctv/featuredChannels.js';
 import { createLandmarkHandler } from '../../server/providers/recordedVideo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -417,6 +418,7 @@ test('a landmark’s videos: one search for "label" city, 102 units, kept a week
     used: LANDMARK_QUERY_COST,
     budget: 250,
     remaining: 250 - LANDMARK_QUERY_COST,
+    resetsAt: nextQuotaReset(clock),
   });
   const search = api.calls.find(({ url }) =>
     url.pathname.endsWith('/search'),

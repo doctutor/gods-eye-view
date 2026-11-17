@@ -1,5 +1,5 @@
 import { youtubeEmbedUrl } from '../../ui/cctvEmbed.js';
-import { t } from '../../i18n/index.js';
+import { getLocale, t } from '../../i18n/index.js';
 
 /**
  * Personal fork: a small floating player for one recorded video — YouTube's
@@ -15,6 +15,37 @@ export function precisionLabel(quality) {
   if (quality === 'region') return t('REGION', { context: 'pin precision' });
   if (quality === 'about') return t('ABOUT', { context: 'pin precision' });
   return '?';
+}
+
+/** A reset time as the viewer's clock says it ("03:00"). */
+export function resetClock(resetsAt, locale = getLocale()) {
+  if (!Number.isFinite(resetsAt)) return '';
+  try {
+    return new Intl.DateTimeFormat([locale, 'en'], {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(resetsAt));
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * What a landmark search that did not answer says at its diamond: the
+ * budget used up (until the next reset, in the viewer's time), no YouTube
+ * key, or the request failed. '' when it answered.
+ */
+export function refusalNote(state, quota) {
+  if (state?.refused) {
+    const time = resetClock(quota?.resetsAt);
+    return time
+      ? t('Search budget used up until {time}', { time })
+      : t('Search budget used up for today');
+  }
+  if (state?.configured === false) return t('YouTube key not configured');
+  if (state?.error)
+    return t('The video search failed: {reason}', { reason: state.error });
+  return '';
 }
 
 /** A landmark video's kind (news, tour, …) as the caption says it. */

@@ -134,12 +134,15 @@ function quotaOf(body) {
   if (!body?.quota || !Number.isFinite(Number(body.quota.budget))) return null;
   const budget = Number(body.quota.budget);
   const used = Number(body.quota.used) || 0;
+  const resetsAt = Number(body.quota.resetsAt);
   return {
     used,
     budget,
     remaining: Number.isFinite(Number(body.quota.remaining))
       ? Number(body.quota.remaining)
       : Math.max(0, budget - used),
+    // When the day's budget is whole again (epoch ms; midnight Pacific).
+    ...(Number.isFinite(resetsAt) && resetsAt > 0 ? { resetsAt } : {}),
   };
 }
 

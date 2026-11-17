@@ -9,7 +9,13 @@ import {
   fetchWikidataVideos,
   viewQuery,
 } from './source.js';
-import { createVideoPlayer, precisionLabel } from './player.js';
+import {
+  createVideoPlayer,
+  precisionLabel,
+  refusalNote,
+  resetClock,
+} from './player.js';
+export { refusalNote, resetClock };
 import { msg, t, tn } from '../../i18n/index.js';
 export * from './source.js';
 
@@ -584,6 +590,14 @@ export function createRecordedVideoLayer({
     renderLandmarks();
     refreshLabels();
     if (andPlay && _enabled && next.done) playLandmark(qid);
+    else if (andPlay && _enabled) {
+      // Refused, no key, or failed: said where it was clicked.
+      const note = refusalNote(next, _quota);
+      if (note) {
+        noteAt(qid, note);
+        player.notice?.(note);
+      }
+    }
     notify();
     return next;
   }

@@ -412,3 +412,49 @@ test('the player lists a landmark’s videos to switch between, with previous an
     /recorded-video-player-notice is-alone/,
   );
 });
+
+test('a refused, keyless or failed search says so where it was clicked, with the reset in local time', async () => {
+  const { resetClock } = await import('./player.js');
+  const resetsAt = Date.parse('2026-11-18T08:00:00Z');
+  const cases = [
+    [
+      () =>
+        Response.json(
+          {
+            error: 'budget',
+            videos: [],
+            quota: { used: 914, budget: 1000, remaining: 86, resetsAt },
+          },
+          { status: 429 },
+        ),
+      `Search budget used up until ${resetClock(resetsAt)}`,
+    ],
+    [() => ({ videos: [], configured: false }), 'YouTube key not configured'],
+    [
+      () => Response.json({ error: 'upstream' }, { status: 502 }),
+      /^The video search failed: /,
+    ],
+  ];
+  for (const [videos, expected] of cases) {
+    const overlay = { entries: [] };
+    const notices = [];
+    const m = await mount({
+      videos,
+      overlayHost: overlay,
+      player: { open() {}, close() {}, notice: (text) => notices.push(text) },
+    });
+    m.pick(m.diamond);
+    await flush();
+    const label = labelOf(overlay).details[0];
+    if (expected instanceof RegExp) {
+      assert.match(label, expected);
+      assert.match(notices[0], expected);
+    } else {
+      assert.equal(label, expected);
+      assert.deepEqual(notices, [expected]);
+    }
+  }
+  // The viewer's clock: two digits each.
+  assert.match(resetClock(resetsAt, 'en'), /^\d{2}:\d{2}( [AP]M)?$/);
+  assert.equal(resetClock(Number.NaN), '');
+});

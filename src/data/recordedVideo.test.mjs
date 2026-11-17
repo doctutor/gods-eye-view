@@ -18,7 +18,10 @@ import {
   youtubeItemToVideo,
 } from '../../server/providers/recordedVideo/videos.js';
 import { createRecordedVideoHandler } from '../../server/providers/recordedVideo.js';
-import { createYoutubeQuota } from '../../server/providers/cctv/featuredChannels.js';
+import {
+  createYoutubeQuota,
+  nextQuotaReset,
+} from '../../server/providers/cctv/featuredChannels.js';
 
 const row = (q, video, coord, label = `Item ${q}`) => ({
   item: { value: `http://www.wikidata.org/entity/${q}` },
@@ -288,6 +291,8 @@ test('a search costs 101 units, is reused for a week and refused past the daily 
     used: QUERY_COST,
     budget: 250,
     remaining: 250 - QUERY_COST,
+    // The next midnight Pacific, for "used up until".
+    resetsAt: nextQuotaReset(clock),
   });
   const search = api.calls.find((u) => u.pathname.endsWith('/search'));
   assert.equal(search.searchParams.get('type'), 'video');

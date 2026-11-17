@@ -5,6 +5,7 @@ import { createDailyCachedList } from '../cctv/dailyCache.js';
 import {
   createYoutubeClient,
   createYoutubeQuota,
+  nextQuotaReset,
   VIDEO_ID,
 } from '../cctv/featuredChannels.js';
 import {
@@ -492,6 +493,7 @@ export function createRecordedVideoService({
           used: spent,
           budget: budget(),
           remaining: Math.max(0, budget() - spent),
+          resetsAt: nextQuotaReset(now()),
         };
       };
       // "Search again" skips the stored answer (and replaces it), budget permitting.
@@ -559,6 +561,7 @@ export function createRecordedVideoService({
         used: spent,
         budget: budget(),
         remaining: Math.max(0, budget() - spent),
+        resetsAt: nextQuotaReset(now()),
       };
     },
   };

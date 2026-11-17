@@ -4403,5 +4403,8 @@
   "{n} of {count}": "{n} из {count}",
   "Previous video": "Предыдущее видео",
   "Next video": "Следующее видео",
-  "VIDEOS NEAR THE VIEW": "ВИДЕО В ЭТОЙ ОБЛАСТИ"
+  "VIDEOS NEAR THE VIEW": "ВИДЕО В ЭТОЙ ОБЛАСТИ",
+  "Search budget used up until {time}": "Лимит поиска исчерпан до {time}",
+  "YouTube key not configured": "Ключ YouTube не настроен",
+  "The video search failed: {reason}": "Поиск видео не удался: {reason}"
 }

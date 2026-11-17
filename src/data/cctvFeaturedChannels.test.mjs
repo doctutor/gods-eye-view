@@ -1000,3 +1000,21 @@ test('a geocoded place carries its viewport size, and its suggestion does too', 
   })('Fort McHenry Park');
   assert.equal(sizeless.spanM, undefined);
 });
+
+test('the quota day’s next reset is midnight Pacific, through both daylight-time changes', async () => {
+  const { nextQuotaReset, quotaDay } =
+    await import('../../server/providers/cctv/featuredChannels.js');
+  const at = (iso) => new Date(nextQuotaReset(Date.parse(iso))).toISOString();
+  // Winter (PST, UTC-8): 08:00 UTC; summer (PDT): 07:00 UTC.
+  assert.equal(at('2026-11-17T15:00:00Z'), '2026-11-18T08:00:00.000Z');
+  assert.equal(at('2026-11-17T07:59:00Z'), '2026-11-17T08:00:00.000Z');
+  assert.equal(at('2026-11-17T08:00:00Z'), '2026-11-18T08:00:00.000Z');
+  assert.equal(at('2026-07-01T06:59:00Z'), '2026-07-01T07:00:00.000Z');
+  // The nights the clocks change.
+  assert.equal(at('2026-03-08T07:30:00Z'), '2026-03-08T08:00:00.000Z');
+  assert.equal(at('2026-11-01T07:30:00Z'), '2026-11-02T08:00:00.000Z');
+  // It is the first instant of the next quota day.
+  const reset = nextQuotaReset(Date.parse('2026-11-17T15:00:00Z'));
+  assert.equal(quotaDay(reset), '2026-11-18');
+  assert.equal(quotaDay(reset - 1), '2026-11-17');
+});
