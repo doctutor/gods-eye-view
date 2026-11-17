@@ -6,7 +6,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 
-import { createRecordedVideoLayer, REPEAT_PICK_MS } from './index.js';
+import {
+  createRecordedVideoLayer,
+  nearestOwnPick,
+  PICK_BOX_PX,
+  REPEAT_PICK_MS,
+} from './index.js';
 
 const LANDMARK = {
   qid: 'Q1000257',
@@ -87,14 +92,17 @@ function fakeViewer() {
 }
 
 /** Fetches for landmarks and their videos; `videos` answers the qid. */
-function fakeFetch({ videos = () => ({ videos: [] }) } = {}) {
+function fakeFetch({
+  videos = () => ({ videos: [] }),
+  landmarks = [LANDMARK],
+} = {}) {
   const calls = [];
   const fetchImpl = async (url) => {
     calls.push(String(url));
     const u = String(url);
     if (u.endsWith('/wikidata')) return Response.json({ videos: [] });
     if (u.startsWith('/api/video/landmark/near'))
-      return Response.json({ landmarks: [LANDMARK], pending: 0 });
+      return Response.json({ landmarks, pending: 0 });
     if (u.startsWith('/api/video/landmark/mentions'))
       return Response.json({ mentions: [] });
     if (u.startsWith('/api/video/landmark')) {
@@ -112,9 +120,9 @@ const flush = async () => {
 };
 
 /** A layer, on, over the Inner Harbor with the aquarium's diamond loaded. */
-async function mount({ videos, player, now, overlayHost } = {}) {
+async function mount({ videos, player, now, overlayHost, landmarks } = {}) {
   const { viewer, dataSources, settle } = fakeViewer();
-  const api = fakeFetch({ videos });
+  const api = fakeFetch({ videos, landmarks });
   const timers = [];
   let pick = null;
   const opened = [];
@@ -457,4 +465,32 @@ test('a refused, keyless or failed search says so where it was clicked, with the
   // The viewer's clock: two digits each.
   assert.match(resetClock(resetsAt, 'en'), /^\d{2}:\d{2}( [AP]M)?$/);
   assert.equal(resetClock(Number.NaN), '');
+});
+
+test('a click anywhere on a diamond, or a few pixels round it, picks it; of two, the nearest centre', () => {
+  const aquarium = { id: 'recorded-video:landmark:Q1000257' };
+  const torsk = { id: 'recorded-video:landmark:Q7869866' };
+  const aircraft = { id: 'flight:abc123' };
+  const centres = new Map([
+    [aquarium, { x: 400, y: 300 }],
+    [torsk, { x: 412, y: 300 }],
+  ]);
+  const toWindow = (entity) => centres.get(entity) || null;
+  const picks = [
+    { id: torsk },
+    { id: aircraft },
+    { id: aquarium },
+    { id: torsk },
+  ];
+  // A click meant for the aquarium (2 px from its centre) is the aquarium's.
+  assert.equal(nearestOwnPick(picks, { x: 402, y: 301 }, toWindow), aquarium);
+  assert.equal(nearestOwnPick(picks, { x: 411, y: 299 }, toWindow), torsk);
+  // Only this layer's entities; none, null.
+  assert.equal(
+    nearestOwnPick([{ id: aircraft }], { x: 0, y: 0 }, toWindow),
+    null,
+  );
+  assert.equal(nearestOwnPick(undefined, { x: 0, y: 0 }, toWindow), null);
+  // The box covers the 22 px diamond and a few pixels round it.
+  assert.ok(PICK_BOX_PX >= 24 && PICK_BOX_PX <= 32);
 });
