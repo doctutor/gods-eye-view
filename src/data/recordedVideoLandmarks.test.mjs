@@ -235,6 +235,7 @@ test('ranking keeps YouTube’s order with small boosts, after the gate and the 
     'eeeeeeeeeee',
     'ggggggggggg',
     'hhhhhhhhhhh',
+    'iiiiiiiiiii',
   ];
   const items = [
     ytItem('aaaaaaaaaaa', 'Fort McHenry Full Tour'),
@@ -250,6 +251,10 @@ test('ranking keeps YouTube’s order with small boosts, after the gate and the 
     ytItem('ggggggggggg', 'The Battle of Fort McHenry', {
       location: { latitude: 39.4, longitude: -76.58 },
     }),
+    // Over 60 s, but tagged a Short by its uploader.
+    ytItem('iiiiiiiiiii', 'Fort McHenry flag change #Shorts', {
+      duration: 'PT1M1S',
+    }),
   ];
   const channels = new Map([
     ['UClocal', { title: 'Baltimore Heritage', description: '' }],
@@ -261,7 +266,8 @@ test('ranking keeps YouTube’s order with small boosts, after the gate and the 
     detail,
   });
   assert.deepEqual(skipped, {
-    short: 1,
+    // The 40 s one, and the 1:01 one tagged #Shorts.
+    short: 2,
     live: 1,
     untitled: 1,
     incidental: 1,

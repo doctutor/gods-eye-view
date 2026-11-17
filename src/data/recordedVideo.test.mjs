@@ -623,3 +623,71 @@ test('SEARCH AGAIN asks YouTube again for the cell, within the budget', async (t
   );
   assert.equal((await service.near(39.29, -76.61, 10)).body.cached, true);
 });
+
+test('a Short is also known by its own #shorts tag, past 60 s, in the title or description', async () => {
+  const { isTaggedShort, withoutTaggedShorts } =
+    await import('../../server/providers/recordedVideo/videos.js');
+  for (const text of [
+    'Inner Harbor sunset #shorts',
+    '#Shorts Inner Harbor',
+    'Inner Harbor (#SHORTS)',
+    'Harbor,#shorts',
+  ])
+    assert.equal(isTaggedShort(text), true, text);
+  for (const text of [
+    'Inner Harbor shorts',
+    'Inner Harbor #shortstory',
+    'my#shorts channel',
+    '##shorts',
+    '',
+  ])
+    assert.equal(isTaggedShort(text), false, text);
+  assert.equal(
+    isTaggedShort('Inner Harbor', 'Filmed today #shorts #baltimore'),
+    true,
+  );
+  // A 1:01 video tagged #shorts is skipped as a Short; untagged it stays.
+  assert.deepEqual(
+    youtubeItemToVideo(
+      item('aaaaaaaaaaa', {
+        duration: 'PT1M1S',
+        snippet: { title: 'Science Center … #shorts' },
+      }),
+    ),
+    { skip: 'short' },
+  );
+  assert.deepEqual(
+    youtubeItemToVideo(
+      item('aaaaaaaaaaa', {
+        duration: 'PT1M1S',
+        snippet: { description: 'More at the link #Shorts' },
+      }),
+    ),
+    { skip: 'short' },
+  );
+  assert.ok(
+    youtubeItemToVideo(item('aaaaaaaaaaa', { duration: 'PT1M1S' })).video,
+  );
+  // keepShorts keeps them, as for length.
+  assert.ok(
+    youtubeItemToVideo(
+      item('aaaaaaaaaaa', { snippet: { title: 'x #shorts' } }),
+      { keepShorts: true },
+    ).video,
+  );
+  // A stored answer loses its tagged Shorts on the way out, counted.
+  const stored = {
+    videos: [
+      { videoId: 'aaaaaaaaaaa', title: 'Harbor walk' },
+      { videoId: 'bbbbbbbbbbb', title: 'Harbor #shorts' },
+    ],
+    skipped: { short: 2, live: 0 },
+  };
+  const read = withoutTaggedShorts(stored);
+  assert.deepEqual(
+    read.videos.map((v) => v.videoId),
+    ['aaaaaaaaaaa'],
+  );
+  assert.equal(read.skipped.short, 3);
+  assert.equal(withoutTaggedShorts(read), read, 'nothing to drop: as stored');
+});
