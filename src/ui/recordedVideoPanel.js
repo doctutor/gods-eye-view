@@ -212,6 +212,16 @@ export function landmarkVideoSplit(records, { expanded = false } = {}) {
   return { shown, more: list.length - shown.length };
 }
 
+/**
+ * The videos for the near-the-view list: not a landmark's own, which stay
+ * under their landmark in LANDMARKS NEARBY.
+ */
+export function nearViewRecords(records) {
+  return (Array.isArray(records) ? records : []).filter(
+    (record) => record?.source !== 'landmark',
+  );
+}
+
 /** "25 videos · 9 site · 16 region" for the listed videos. */
 export function countsLine(records) {
   const list = Array.isArray(records) ? records : [];
@@ -264,6 +274,8 @@ export function initRecordedVideoPanel(root, { layer, signal }) {
   const search = $('search');
   const again = $('again');
   const list = $('list');
+  const nearHead = $('near-head');
+  const nearTotal = $('near-total');
   const landmarkSection = $('landmarks-section');
   const landmarkTotal = $('landmarks-total');
   const landmarkList = $('landmarks');
@@ -373,10 +385,16 @@ export function initRecordedVideoPanel(root, { layer, signal }) {
     root.hidden = !enabled;
     if (!enabled) return;
     const centre = layer.viewCentre();
-    const entries = rankVideos(layer.records(), centre, search?.value || '');
+    const entries = rankVideos(
+      nearViewRecords(layer.records()),
+      centre,
+      search?.value || '',
+    );
     const listed = entries.map((entry) => entry.record);
     if (counts) counts.textContent = countsLine(listed);
     if (total) total.textContent = String(listed.length);
+    if (nearHead) nearHead.hidden = listed.length === 0;
+    if (nearTotal) nearTotal.textContent = String(listed.length);
     if (budget) budget.textContent = budgetLine(layer.quota?.());
     if (status) status.textContent = searchStatus(layer.lastSearch?.());
     const doc = root.ownerDocument;
