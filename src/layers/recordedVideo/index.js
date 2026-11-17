@@ -40,6 +40,12 @@ export const LANDMARK_MAX_HEIGHT_M = 20_000;
 const LANDMARK_PREFIX = `${ENTITY_PREFIX}landmark:`;
 const LANDMARK_RADIUS_KM = 8;
 const LANDMARK_LABEL_LIMIT = 12;
+/**
+ * A pick of the same pin this soon after the last is the second click of a
+ * double-click: one action, not two (ms; Cesium's double-click window is
+ * shorter).
+ */
+export const REPEAT_PICK_MS = 500;
 /** An outlined diamond: unlike the round video pins, and hollow so an ABOUT pin shows through. */
 const LANDMARK_ICON = `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><path d="M11 2 20 11 11 20 2 11Z" fill="none" stroke="#0b0f14" stroke-opacity="0.7" stroke-width="4"/><path d="M11 2 20 11 11 20 2 11Z" fill="none" stroke="${SOURCE_COLOR.landmark}" stroke-width="2"/></svg>`,
@@ -79,6 +85,7 @@ export function createRecordedVideoLayer({
   createClickHandler = defaultClickHandler,
   setTimeoutImpl = (...a) => setTimeout(...a),
   clearTimeoutImpl = (...a) => clearTimeout(...a),
+  now = () => Date.now(),
 } = {}) {
   let _viewer = null;
   let _dataSource = null;
@@ -95,6 +102,8 @@ export function createRecordedVideoLayer({
   let _refused = false;
   let _removeMoveListener = null;
   let _removeClick = null;
+  let _removeTrackGuard = null;
+  let _lastPick = null;
   /** Personal fork: the panel's view of the layer (recordedVideoPanel.js). */
   const _listeners = new Set();
   let _quota = null;
@@ -518,9 +527,30 @@ export function createRecordedVideoLayer({
     }, SEARCH_DEBOUNCE_MS);
   }
 
+  /** One of this layer's pins or diamonds. */
+  const isOwnEntity = (entity) =>
+    String(entity?.id || '').startsWith(ENTITY_PREFIX);
+
+  /**
+   * Cesium's stock double-click tracks the entity it lands on (the camera
+   * thrown 14 km off and looking back). This layer's pins and diamonds are
+   * places, not things to follow: tracking one is undone in the same event,
+   * before the first tracking frame, so the camera never moves. The stock
+   * action itself stays bound (aircraft and vessels keep it; the draw tool
+   * still borrows and gives it back).
+   */
+  function untrackOwn(entity) {
+    if (_enabled && isOwnEntity(entity) && _viewer?.trackedEntity === entity)
+      _viewer.trackedEntity = undefined;
+  }
+
   function onPick(entity) {
     const id = String(entity?.id || '');
     if (!_enabled || !id.startsWith(ENTITY_PREFIX)) return;
+    // A double-click's second click on the same pin is the same action.
+    const at = now();
+    if (_lastPick?.id === id && at - _lastPick.at < REPEAT_PICK_MS) return;
+    _lastPick = { id, at };
     if (id.startsWith(LANDMARK_PREFIX)) {
       openLandmark(id.slice(LANDMARK_PREFIX.length));
       return;
@@ -563,6 +593,9 @@ export function createRecordedVideoLayer({
           _viewer.camera.moveEnd.addEventListener(onSettled);
       if (_viewer && !_removeClick)
         _removeClick = createClickHandler(_viewer, onPick);
+      if (_viewer?.trackedEntityChanged && !_removeTrackGuard)
+        _removeTrackGuard =
+          _viewer.trackedEntityChanged.addEventListener(untrackOwn);
       onSettled();
     },
 
@@ -582,6 +615,9 @@ export function createRecordedVideoLayer({
       _removeMoveListener = null;
       _removeClick?.();
       _removeClick = null;
+      _removeTrackGuard?.();
+      _removeTrackGuard = null;
+      _lastPick = null;
       player.close();
       overlayHost?.clearSource(RECORDED_VIDEO_LAYER_ID);
       overlayHost?.setVisible(RECORDED_VIDEO_LAYER_ID, false);
