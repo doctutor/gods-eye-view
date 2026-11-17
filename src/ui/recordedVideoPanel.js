@@ -17,6 +17,7 @@ import {
   queryTokens,
 } from './cctvCameraList.js';
 import { t, tn } from '../i18n/index.js';
+import { resetClock } from '../layers/recordedVideo/player.js';
 
 /** Videos listed with nothing typed: those this close to the view centre. */
 export const NEARBY_KM = 100;
@@ -212,6 +213,16 @@ export function landmarkVideoSplit(records, { expanded = false } = {}) {
   return { shown, more: list.length - shown.length };
 }
 
+/**
+ * The videos for the near-the-view list: not a landmark's own, which stay
+ * under their landmark in LANDMARKS NEARBY.
+ */
+export function nearViewRecords(records) {
+  return (Array.isArray(records) ? records : []).filter(
+    (record) => record?.source !== 'landmark',
+  );
+}
+
 /** "25 videos · 9 site · 16 region" for the listed videos. */
 export function countsLine(records) {
   const list = Array.isArray(records) ? records : [];
@@ -240,11 +251,16 @@ export function budgetLine(quota) {
 }
 
 /** What the status line says after the last search, if anything. */
-export function searchStatus(lastSearch) {
+export function searchStatus(lastSearch, quota = null) {
   if (!lastSearch) return '';
   if (lastSearch.configured === false)
     return t('No YouTube key: Wikidata only');
-  if (lastSearch.refused) return t('Search budget used up for today');
+  if (lastSearch.refused) {
+    const time = resetClock(quota?.resetsAt);
+    return time
+      ? t('Search budget used up until {time}', { time })
+      : t('Search budget used up for today');
+  }
   return lastSearch.cached
     ? t('This view: stored answer')
     : t('This view: just asked');
@@ -264,6 +280,8 @@ export function initRecordedVideoPanel(root, { layer, signal }) {
   const search = $('search');
   const again = $('again');
   const list = $('list');
+  const nearHead = $('near-head');
+  const nearTotal = $('near-total');
   const landmarkSection = $('landmarks-section');
   const landmarkTotal = $('landmarks-total');
   const landmarkList = $('landmarks');
@@ -373,12 +391,19 @@ export function initRecordedVideoPanel(root, { layer, signal }) {
     root.hidden = !enabled;
     if (!enabled) return;
     const centre = layer.viewCentre();
-    const entries = rankVideos(layer.records(), centre, search?.value || '');
+    const entries = rankVideos(
+      nearViewRecords(layer.records()),
+      centre,
+      search?.value || '',
+    );
     const listed = entries.map((entry) => entry.record);
     if (counts) counts.textContent = countsLine(listed);
     if (total) total.textContent = String(listed.length);
+    if (nearHead) nearHead.hidden = listed.length === 0;
+    if (nearTotal) nearTotal.textContent = String(listed.length);
     if (budget) budget.textContent = budgetLine(layer.quota?.());
-    if (status) status.textContent = searchStatus(layer.lastSearch?.());
+    if (status)
+      status.textContent = searchStatus(layer.lastSearch?.(), layer.quota?.());
     const doc = root.ownerDocument;
     shown = new Map();
     renderLandmarks(doc, centre);

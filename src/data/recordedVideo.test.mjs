@@ -18,7 +18,10 @@ import {
   youtubeItemToVideo,
 } from '../../server/providers/recordedVideo/videos.js';
 import { createRecordedVideoHandler } from '../../server/providers/recordedVideo.js';
-import { createYoutubeQuota } from '../../server/providers/cctv/featuredChannels.js';
+import {
+  createYoutubeQuota,
+  nextQuotaReset,
+} from '../../server/providers/cctv/featuredChannels.js';
 
 const row = (q, video, coord, label = `Item ${q}`) => ({
   item: { value: `http://www.wikidata.org/entity/${q}` },
@@ -288,6 +291,8 @@ test('a search costs 101 units, is reused for a week and refused past the daily 
     used: QUERY_COST,
     budget: 250,
     remaining: 250 - QUERY_COST,
+    // The next midnight Pacific, for "used up until".
+    resetsAt: nextQuotaReset(clock),
   });
   const search = api.calls.find((u) => u.pathname.endsWith('/search'));
   assert.equal(search.searchParams.get('type'), 'video');
@@ -617,4 +622,72 @@ test('SEARCH AGAIN asks YouTube again for the cell, within the budget', async (t
     429,
   );
   assert.equal((await service.near(39.29, -76.61, 10)).body.cached, true);
+});
+
+test('a Short is also known by its own #shorts tag, past 60 s, in the title or description', async () => {
+  const { isTaggedShort, withoutTaggedShorts } =
+    await import('../../server/providers/recordedVideo/videos.js');
+  for (const text of [
+    'Inner Harbor sunset #shorts',
+    '#Shorts Inner Harbor',
+    'Inner Harbor (#SHORTS)',
+    'Harbor,#shorts',
+  ])
+    assert.equal(isTaggedShort(text), true, text);
+  for (const text of [
+    'Inner Harbor shorts',
+    'Inner Harbor #shortstory',
+    'my#shorts channel',
+    '##shorts',
+    '',
+  ])
+    assert.equal(isTaggedShort(text), false, text);
+  assert.equal(
+    isTaggedShort('Inner Harbor', 'Filmed today #shorts #baltimore'),
+    true,
+  );
+  // A 1:01 video tagged #shorts is skipped as a Short; untagged it stays.
+  assert.deepEqual(
+    youtubeItemToVideo(
+      item('aaaaaaaaaaa', {
+        duration: 'PT1M1S',
+        snippet: { title: 'Science Center … #shorts' },
+      }),
+    ),
+    { skip: 'short' },
+  );
+  assert.deepEqual(
+    youtubeItemToVideo(
+      item('aaaaaaaaaaa', {
+        duration: 'PT1M1S',
+        snippet: { description: 'More at the link #Shorts' },
+      }),
+    ),
+    { skip: 'short' },
+  );
+  assert.ok(
+    youtubeItemToVideo(item('aaaaaaaaaaa', { duration: 'PT1M1S' })).video,
+  );
+  // keepShorts keeps them, as for length.
+  assert.ok(
+    youtubeItemToVideo(
+      item('aaaaaaaaaaa', { snippet: { title: 'x #shorts' } }),
+      { keepShorts: true },
+    ).video,
+  );
+  // A stored answer loses its tagged Shorts on the way out, counted.
+  const stored = {
+    videos: [
+      { videoId: 'aaaaaaaaaaa', title: 'Harbor walk' },
+      { videoId: 'bbbbbbbbbbb', title: 'Harbor #shorts' },
+    ],
+    skipped: { short: 2, live: 0 },
+  };
+  const read = withoutTaggedShorts(stored);
+  assert.deepEqual(
+    read.videos.map((v) => v.videoId),
+    ['aaaaaaaaaaa'],
+  );
+  assert.equal(read.skipped.short, 3);
+  assert.equal(withoutTaggedShorts(read), read, 'nothing to drop: as stored');
 });

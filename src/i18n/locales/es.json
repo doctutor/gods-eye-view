@@ -4290,5 +4290,13 @@
     "one": "{count} parte",
     "many": "{count} de partes",
     "other": "{count} partes"
-  }
+  },
+  "No usable videos here": "Aquí no hay vídeos utilizables",
+  "{n} of {count}": "{n} de {count}",
+  "Previous video": "Vídeo anterior",
+  "Next video": "Vídeo siguiente",
+  "VIDEOS NEAR THE VIEW": "VÍDEOS CERCA DE LA VISTA",
+  "Search budget used up until {time}": "Presupuesto de búsqueda agotado hasta las {time}",
+  "YouTube key not configured": "Clave de YouTube no configurada",
+  "The video search failed: {reason}": "La búsqueda de vídeos falló: {reason}"
 }

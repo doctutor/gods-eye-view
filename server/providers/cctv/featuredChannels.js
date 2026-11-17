@@ -78,6 +78,21 @@ export function quotaDay(epochMs) {
 }
 
 /**
+ * When the quota day after `epochMs`'s begins: the next midnight Pacific,
+ * as epoch ms (07:00 or 08:00 UTC, by daylight time).
+ */
+export function nextQuotaReset(epochMs) {
+  const day = quotaDay(epochMs);
+  const [year, month, date] = day.split('-').map(Number);
+  const nextUtcMidnight = Date.UTC(year, month - 1, date + 1);
+  for (const hours of [7, 8]) {
+    const at = nextUtcMidnight + hours * 3_600_000;
+    if (quotaDay(at) !== day && quotaDay(at - 1) === day) return at;
+  }
+  return nextUtcMidnight + 8 * 3_600_000;
+}
+
+/**
  * Units spent today, kept on disk so a restart does not reset the count.
  * Every user of the shared key (the featured watcher, recorded video) counts
  * through the same file: each change re-reads it first, so two counters in

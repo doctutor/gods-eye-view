@@ -3,6 +3,7 @@ import { readResponseJsonCapped } from '../common/http.js';
 import {
   createYoutubeClient,
   createYoutubeQuota,
+  nextQuotaReset,
   VIDEO_ID,
 } from '../cctv/featuredChannels.js';
 import {
@@ -17,6 +18,8 @@ import {
   RECORDED_VIDEO_DIR,
   SEARCH_TTL_MS,
   SHORTS_MAX_S,
+  isTaggedShort,
+  withoutTaggedShorts,
   createEntryStore,
   durationSeconds,
 } from './videos.js';
@@ -542,6 +545,8 @@ export function rankLandmarkVideos({ ids, items, channels, detail }) {
     const seconds = durationSeconds(item.contentDetails?.duration);
     if (Number.isFinite(seconds) && seconds <= SHORTS_MAX_S)
       return void skipped.short++;
+    if (isTaggedShort(item.snippet?.title, item.snippet?.description))
+      return void skipped.short++;
     if (!titleNamesLandmark(title, names)) return void skipped.untitled++;
     if (isIncidentalTitle(title)) return void skipped.incidental++;
     const channel = channels.get(item.snippet?.channelId) || {};
@@ -685,7 +690,13 @@ export function createLandmarkService({
   };
   const quotaNow = () => {
     const used = quota.usedBy(FEATURE);
-    return { used, budget: budget(), remaining: Math.max(0, budget() - used) };
+    return {
+      used,
+      budget: budget(),
+      remaining: Math.max(0, budget() - used),
+      // When the budget is whole again (the window says "used up until").
+      resetsAt: nextQuotaReset(now()),
+    };
   };
   const once = (key, work) => {
     if (!inflight.has(key))
@@ -798,7 +809,11 @@ export function createLandmarkService({
       if (held)
         return {
           status: 200,
-          body: { ...held.result, cached: true, quota: quotaNow() },
+          body: {
+            ...withoutTaggedShorts(held.result),
+            cached: true,
+            quota: quotaNow(),
+          },
         };
       if (!youtube.hasKey())
         return {

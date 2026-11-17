@@ -307,3 +307,40 @@ test('a translated tag keeps the code its colour class comes from', () => {
     setLocale('en');
   }
 });
+
+test('VIDEOS NEAR THE VIEW has its own heading and count, and leaves a landmark’s videos under their landmark', async () => {
+  const { nearViewRecords } = await import('./recordedVideoPanel.js');
+  const { readFileSync } = await import('node:fs');
+  const records = [
+    { id: 'yt-1', source: 'youtube-geotag' },
+    { id: 'wd-1', source: 'wikidata' },
+    { id: 'lm-Q1-a', source: 'landmark', landmarkQid: 'Q1' },
+  ];
+  assert.deepEqual(
+    nearViewRecords(records).map((r) => r.id),
+    ['yt-1', 'wd-1'],
+  );
+  assert.deepEqual(nearViewRecords(null), []);
+  const template = readFileSync(
+    new URL('./templates/layer-panels.html', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    template,
+    /<div class="rv-section-head" data-rv-near-head hidden><span data-i18n>VIDEOS NEAR THE VIEW<\/span> \(<span data-rv-near-total>0<\/span>\)<\/div>\s*<div class="rv-list" data-rv-list/,
+  );
+});
+
+test('a refused view search says until when, in the viewer’s time', async () => {
+  const { searchStatus } = await import('./recordedVideoPanel.js');
+  const { resetClock } = await import('../layers/recordedVideo/player.js');
+  const resetsAt = Date.parse('2026-11-18T08:00:00Z');
+  assert.equal(
+    searchStatus({ refused: true }, { resetsAt }),
+    `Search budget used up until ${resetClock(resetsAt)}`,
+  );
+  assert.equal(
+    searchStatus({ refused: true }, null),
+    'Search budget used up for today',
+  );
+});

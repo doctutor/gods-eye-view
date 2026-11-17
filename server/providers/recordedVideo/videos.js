@@ -5,6 +5,7 @@ import { createDailyCachedList } from '../cctv/dailyCache.js';
 import {
   createYoutubeClient,
   createYoutubeQuota,
+  nextQuotaReset,
   VIDEO_ID,
 } from '../cctv/featuredChannels.js';
 import {
@@ -48,6 +49,42 @@ export const SEARCH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Nothing from the YouTube API is kept longer than this. */
 export const MAX_STORE_MS = 30 * 24 * 60 * 60 * 1000;
 export const SHORTS_MAX_S = 60;
+/**
+ * A Short by its uploader's own tag: "#shorts" as a hashtag (not part of a
+ * longer one), any case, in the title or description. A Short can run past
+ * SHORTS_MAX_S (YouTube allows up to three minutes), so length alone misses it.
+ */
+const SHORTS_TAG = /(?:^|[^\p{L}\p{N}_#])#shorts(?![\p{L}\p{N}_])/iu;
+
+/** Whether a title or description tags the video #shorts. */
+export function isTaggedShort(title, description = '') {
+  return (
+    SHORTS_TAG.test(String(title || '')) ||
+    SHORTS_TAG.test(String(description || ''))
+  );
+}
+
+/**
+ * A stored answer's videos without the Shorts the length check let by
+ * (stored before the tag check; the titles are kept).
+ */
+export function withoutTaggedShorts(result) {
+  const videos = Array.isArray(result?.videos) ? result.videos : [];
+  const kept = videos.filter((video) => !isTaggedShort(video?.title));
+  if (kept.length === videos.length) return result;
+  return {
+    ...result,
+    videos: kept,
+    ...(result.skipped
+      ? {
+          skipped: {
+            ...result.skipped,
+            short: (result.skipped.short || 0) + videos.length - kept.length,
+          },
+        }
+      : {}),
+  };
+}
 const WIKIDATA_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql';
 export const WIKIDATA_VIDEO_QUERY =
@@ -145,6 +182,11 @@ export function youtubeItemToVideo(item, { keepShorts = false } = {}) {
     return { skip: 'no-location' };
   const seconds = durationSeconds(item?.contentDetails?.duration);
   if (!keepShorts && Number.isFinite(seconds) && seconds <= SHORTS_MAX_S)
+    return { skip: 'short' };
+  if (
+    !keepShorts &&
+    isTaggedShort(item?.snippet?.title, item?.snippet?.description)
+  )
     return { skip: 'short' };
   const views = Number(item?.statistics?.viewCount);
   return {
@@ -492,6 +534,7 @@ export function createRecordedVideoService({
           used: spent,
           budget: budget(),
           remaining: Math.max(0, budget() - spent),
+          resetsAt: nextQuotaReset(now()),
         };
       };
       // "Search again" skips the stored answer (and replaces it), budget permitting.
@@ -499,7 +542,11 @@ export function createRecordedVideoService({
       if (held)
         return {
           status: 200,
-          body: { ...held.result, cached: true, quota: used() },
+          body: {
+            ...withoutTaggedShorts(held.result),
+            cached: true,
+            quota: used(),
+          },
         };
       if (!youtube.hasKey())
         return {
@@ -559,6 +606,7 @@ export function createRecordedVideoService({
         used: spent,
         budget: budget(),
         remaining: Math.max(0, budget() - spent),
+        resetsAt: nextQuotaReset(now()),
       };
     },
   };

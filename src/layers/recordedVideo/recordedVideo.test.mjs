@@ -580,13 +580,18 @@ test('landmarks: diamonds below 20 km, videos on a click, ABOUT pins and "mentio
   assert.equal(landmarkSource.show, true);
   await runTimers();
 
-  // A click on a diamond asks for its videos; they pin at it, tagged ABOUT.
+  // A click on a diamond asks for its videos and plays the top one, the
+  // others listed in the player; they are not pinned as dots.
   let heard = 0;
   layer.subscribe(() => heard++);
   pick({ id: 'recorded-video:landmark:Q1000257' });
   assert.equal(layer.landmarks()[0].loading, true);
   for (let i = 0; i < 4; i++) await flush();
-  assert.equal(api.landmarkCalls().filter((u) => u.includes('qid=')).length, 1);
+  assert.equal(
+    api.landmarkCalls().filter((u) => u.startsWith('/api/video/landmark?'))
+      .length,
+    1,
+  );
   assert.equal(layer.selectedLandmark(), 'Q1000257');
   assert.deepEqual(
     layer.landmarkVideos('Q1000257').map((r) => r.videoId),
@@ -610,12 +615,18 @@ test('landmarks: diamonds below 20 km, videos on a click, ABOUT pins and "mentio
     dataSources[0].entities.values.filter(
       (e) => e.properties.coordinatesQuality.getValue() === 'about',
     ).length,
-    2,
+    0,
+    'no ABOUT dots stacked on the landmark',
   );
+  assert.equal(opened.at(-1).videoId, 'bbbbbbbbbbb', 'the top video plays');
   // Clicked again: nothing more is asked.
   pick({ id: 'recorded-video:landmark:Q1000257' });
   await flush();
-  assert.equal(api.landmarkCalls().filter((u) => u.includes('qid=')).length, 1);
+  assert.equal(
+    api.landmarkCalls().filter((u) => u.startsWith('/api/video/landmark?'))
+      .length,
+    1,
+  );
 
   // Playing a landmark's video asks for its moments and shows them.
   layer.focus(about);
@@ -625,7 +636,7 @@ test('landmarks: diamonds below 20 km, videos on a click, ABOUT pins and "mentio
     api.landmarkCalls().at(-1),
     /\/mentions\?qid=Q1000257&videoId=aaaaaaaaaaa$/,
   );
-  assert.deepEqual(mentioned, [
+  assert.deepEqual(mentioned.slice(-1), [
     [
       about.id,
       [
@@ -643,7 +654,8 @@ test('landmarks: diamonds below 20 km, videos on a click, ABOUT pins and "mentio
   await flush();
   assert.equal(
     api.landmarkCalls().filter((u) => u.includes('/mentions')).length,
-    1,
+    2,
+    'the top video’s and the played one’s, none for the geotag',
   );
 
   // Past the budget: refused, nothing pinned, the budget shown.
