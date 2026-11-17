@@ -53,7 +53,12 @@ const LANDMARK_BUSY_ICON = `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><path d="M11 2 20 11 11 20 2 11Z" fill="none" stroke="#0b0f14" stroke-opacity="0.7" stroke-width="4"/><path d="M11 2 20 11 11 20 2 11Z" fill="rgba(255,255,255,0.18)" stroke="#ffffff" stroke-width="2" stroke-dasharray="3 2"/></svg>`,
 )}`;
 /** How long a note shows at a diamond (no videos, a refused search), ms. */
-export const LANDMARK_NOTE_MS = 6000;
+export const LANDMARK_NOTE_MS = 8000;
+/**
+ * A busy or noted diamond's label outranks every ambient label (theirs run
+ * up to LABEL_RADIUS_M), so it is drawn whatever else is near.
+ */
+const FLAGGED_LABEL_PRIORITY = 1_000_000;
 /**
  * A pick of the same pin this soon after the last is the second click of a
  * double-click: one action, not two (ms; Cesium's double-click window is
@@ -62,7 +67,7 @@ export const LANDMARK_NOTE_MS = 6000;
 export const REPEAT_PICK_MS = 500;
 /** An outlined diamond: unlike the round video pins, and hollow so an ABOUT pin shows through. */
 const LANDMARK_ICON = `data:image/svg+xml,${encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><path d="M11 2 20 11 11 20 2 11Z" fill="none" stroke="#0b0f14" stroke-opacity="0.7" stroke-width="4"/><path d="M11 2 20 11 11 20 2 11Z" fill="none" stroke="${SOURCE_COLOR.landmark}" stroke-width="2"/></svg>`,
+  `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><path d="M11 2 20 11 11 20 2 11Z" fill="#0b0f14" fill-opacity="0.08" stroke="#0b0f14" stroke-opacity="0.7" stroke-width="4"/><path d="M11 2 20 11 11 20 2 11Z" fill="none" stroke="${SOURCE_COLOR.landmark}" stroke-width="2"/></svg>`,
 )}`;
 
 function distanceM(aLat, aLon, bLat, bLon) {
@@ -75,10 +80,56 @@ function distanceM(aLat, aLon, bLat, bLon) {
   return 2 * 6371000 * Math.asin(Math.sqrt(h));
 }
 
+/**
+ * A click finds this layer's pins and diamonds in a box this wide around it
+ * (px): the whole 22 px diamond and a few pixels round it, not only its thin
+ * outline (Cesium's pick drops a hollow icon's see-through middle).
+ */
+export const PICK_BOX_PX = 26;
+
+/**
+ * Of the picked objects, this layer's entity whose centre is nearest the
+ * click (USS Torsk sits 28 m, about 12 px, from the National Aquarium), or
+ * null. `toWindow(entity)` is its centre in window pixels, or null.
+ */
+export function nearestOwnPick(picks, position, toWindow) {
+  let best = null;
+  let bestDistance = Infinity;
+  const seen = new Set();
+  for (const picked of picks || []) {
+    const entity = picked?.id;
+    if (!String(entity?.id || '').startsWith(ENTITY_PREFIX) || seen.has(entity))
+      continue;
+    seen.add(entity);
+    const at = toWindow(entity);
+    const distance = at
+      ? Math.hypot(at.x - position.x, at.y - position.y)
+      : Number.MAX_VALUE;
+    if (distance < bestDistance) {
+      best = entity;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
 /** A left-click handler on the scene: calls onPick with the picked entity. */
 function defaultClickHandler(viewer, onPick) {
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+  const toWindow = (entity) => {
+    const world = entity.position?.getValue?.(viewer.clock.currentTime);
+    return world
+      ? Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, world) ||
+          null
+      : null;
+  };
   handler.setInputAction((movement) => {
+    const own = nearestOwnPick(
+      viewer.scene.drillPick(movement.position, 8, PICK_BOX_PX, PICK_BOX_PX),
+      movement.position,
+      toWindow,
+    );
+    if (own) return onPick(own);
     const picked = viewer.scene.pick(movement.position);
     if (picked?.id) onPick(picked.id);
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
@@ -282,7 +333,7 @@ export function createRecordedVideoLayer({
       // A busy or noted diamond (the one just clicked) is labelled first.
       priority:
         noted || _landmarkState.get(landmark.qid)?.loading
-          ? LABEL_RADIUS_M
+          ? FLAGGED_LABEL_PRIORITY
           : Math.round((LABEL_RADIUS_M - d) / 2),
       collisionGroup: 'ambient-label',
       paintLane: 'ambient-label',
@@ -373,6 +424,15 @@ export function createRecordedVideoLayer({
         moving: false,
       },
     );
+  }
+
+  /** Every note gone (the next click). */
+  function clearNotes() {
+    if (!_landmarkNotes.size) return;
+    for (const { timer } of _landmarkNotes.values()) clearTimeoutImpl(timer);
+    _landmarkNotes.clear();
+    refreshLabels();
+    notify();
   }
 
   /** A short note at a diamond (and its label), gone after LANDMARK_NOTE_MS. */
@@ -675,6 +735,8 @@ export function createRecordedVideoLayer({
     const at = now();
     if (_lastPick?.id === id && at - _lastPick.at < REPEAT_PICK_MS) return;
     _lastPick = { id, at };
+    // The next click ends the last note (it shows until then, or 8 s).
+    clearNotes();
     if (id.startsWith(LANDMARK_PREFIX)) {
       openLandmark(id.slice(LANDMARK_PREFIX.length), { play: true });
       return;
