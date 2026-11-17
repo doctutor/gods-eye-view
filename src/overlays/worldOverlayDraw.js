@@ -1011,6 +1011,18 @@ export function paintLabel(ctx, entry, placement, alpha = 1) {
     placement.rect.x + 6,
     placement.rect.y + 4,
   );
+  // Personal fork: its detail lines, in the colour it names, under the title
+  // (where measureOverlayEntry made room: title 11 px, then 13 px a line).
+  const details = Array.isArray(entry.details) ? entry.details : [];
+  if (entry.detailColor && details.length) {
+    ctx.fillStyle = entry.detailColor;
+    ctx.font = WORLD_OVERLAY_STYLE.fontDetail;
+    let y = placement.rect.y + 4 + 11;
+    for (const line of details) {
+      ctx.fillText(String(line), placement.rect.x + 6, y);
+      y += 13;
+    }
+  }
   ctx.restore();
   return placement.rect;
 }

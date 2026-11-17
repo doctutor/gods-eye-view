@@ -460,6 +460,12 @@ export function normalizeOverlayEntry(sourceId, entry) {
       ? entry.details.map((line) => String(line))
       : [],
     accent: entry.accent || WORLD_OVERLAY_STYLE.accent,
+    // Personal fork: a label paints its detail lines only when it names their
+    // colour (measuring always made room for them; painting never did).
+    detailColor:
+      typeof entry.detailColor === 'string' && entry.detailColor.trim()
+        ? entry.detailColor.trim()
+        : null,
     paintLane: entry.paintLane,
     priority: Number.isFinite(Number(entry.priority))
       ? Number(entry.priority)

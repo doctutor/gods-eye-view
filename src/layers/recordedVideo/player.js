@@ -115,7 +115,7 @@ export function playlistDetails(record) {
 }
 
 /** How long a notice stays in the player's place (ms). */
-export const NOTICE_MS = 5000;
+export const NOTICE_MS = 8000;
 
 /**
  * @param {{document?: Document, setTimeoutImpl?: typeof setTimeout,
@@ -297,6 +297,7 @@ export function createVideoPlayer({
     open,
     close,
     notice,
+    clearNotice,
     showMentions,
     isOpen: () => Boolean(panel),
     current: () => current,

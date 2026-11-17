@@ -539,3 +539,57 @@ test('a refused search’s note shows at a diamond that had no label, holds abou
   assert.equal(m.layer.landmarks().find((l) => l.qid === 'Q113').note, null);
   assert.doesNotMatch(String(labelFor()?.details?.[0] || ''), /budget/);
 });
+
+test('the note is painted in amber under the diamond’s name, ASKING… in green, and the bar goes into a player already playing a list', async () => {
+  const { createVideoPlayer, NOTICE_MS } = await import('./player.js');
+  // A real player on a fake DOM, playing the aquarium's list of 21.
+  const body = new El('body');
+  const timers = [];
+  const player = createVideoPlayer({
+    document: { body, createElement: (tag) => new El(tag) },
+    setTimeoutImpl: (fn, ms) => (timers.push([fn, ms]), fn),
+    clearTimeoutImpl: (fn) => {
+      const i = timers.findIndex(([f]) => f === fn);
+      if (i >= 0) timers.splice(i, 1);
+    },
+  });
+  const list = Array.from({ length: 21 }, (_, k) =>
+    aboutVideo(`v${String(k).padStart(10, '0')}`),
+  );
+  player.open(list[0], { playlist: list, onSelect() {} });
+  let answer;
+  const overlay = { entries: [] };
+  const m = await mount({
+    overlayHost: overlay,
+    player,
+    videos: () => new Promise((resolve) => (answer = resolve)),
+  });
+  m.pick(m.diamond);
+  await flush();
+  const asking = labelOf(overlay);
+  assert.equal(asking.details[0], 'ASKING…');
+  assert.ok(asking.detailColor, 'the busy line names its colour');
+  assert.notEqual(asking.detailColor, '#ffb14a', 'not the note’s amber');
+  answer(
+    Response.json(
+      { error: 'budget', videos: [], quota: { used: 914, budget: 1000 } },
+      { status: 429 },
+    ),
+  );
+  await flush();
+  const noted = labelOf(overlay);
+  assert.equal(noted.details[0], 'Search budget used up for today');
+  assert.equal(noted.detailColor, '#ffb14a', 'amber');
+  // The bar is in the playing player, under its header, for 8 s.
+  const panel = body.children.find((child) =>
+    child.className.split(' ').includes('recorded-video-player'),
+  );
+  const bar = panel.all('recorded-video-player-notice')[0];
+  assert.equal(bar?.textContent, 'Search budget used up for today');
+  assert.equal(panel.children.indexOf(bar), 1, 'right under the header');
+  assert.equal(NOTICE_MS, 8000);
+  // The next click ends it.
+  await new Promise((r) => setTimeout(r, REPEAT_PICK_MS + 20));
+  m.pick(m.diamond);
+  assert.equal(panel.all('recorded-video-player-notice').length, 0);
+});
